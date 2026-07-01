@@ -1,9 +1,18 @@
-"""Recalc-gating on task PATCH (#965).
+"""Recalc-gating on task PATCH (#965, revised by #1500).
 
 `TaskViewSet.perform_update` must only enqueue a CPM recalculation when a
 schedule-affecting field changed. A PATCH touching only non-scheduling fields
-(``percent_complete`` / ``notes`` / ``name``) must NOT enqueue a recalc — that
-was the dominant source of drawer-edit lag. Everything else still recalculates.
+(``notes`` / ``name``) must NOT enqueue a recalc — that was the dominant
+source of drawer-edit lag. Everything else still recalculates.
+
+``percent_complete`` was originally in the same denylist as ``notes``/``name``
+on the premise that the CPM pass never reads it. #1500: ADR-0132 made that
+premise false — ``percent_complete`` derives an in-progress task's remaining
+duration and marks it complete at 100%, on *every* project regardless of
+whether ``Project.status_date`` is set (verified directly against
+``trueppm_scheduler.engine``: a bare percent_complete write shifts
+``early_finish`` even with no status_date and no actuals). So a PATCH writing
+only ``percent_complete`` must always recalc.
 
 The recalc is deferred via ``transaction.on_commit``; the tests capture and
 execute the on-commit callbacks so the (patched) ``_enqueue_recalculate`` is
@@ -95,17 +104,6 @@ def _patch_task(
 
 
 @pytest.mark.django_db
-def test_progress_only_patch_does_not_recalc(
-    client: APIClient, task: Task, django_capture_on_commit_callbacks: object
-) -> None:
-    status, calls = _patch_task(
-        client, task, {"percent_complete": 50}, django_capture_on_commit_callbacks
-    )
-    assert status == 200
-    assert calls == 0
-
-
-@pytest.mark.django_db
 def test_notes_only_patch_does_not_recalc(
     client: APIClient, task: Task, django_capture_on_commit_callbacks: object
 ) -> None:
@@ -166,3 +164,56 @@ def test_progress_plus_status_recalcs(
     )
     assert status == 200
     assert calls == 1
+
+
+@pytest.mark.django_db
+def test_progress_only_patch_recalcs_with_no_status_date(
+    client: APIClient, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    """#1500: a percent_complete-only PATCH must recalc even with no
+    ``Project.status_date`` set. ``trueppm_scheduler.engine._effective_duration_days``
+    derives an in-progress task's remaining duration from percent_complete
+    unconditionally (not gated on status_date) — a percent_complete-only write
+    is a live CPM input on every project, not just ones with a status date.
+    The ``task`` fixture's project has no status_date (see ``project`` fixture).
+    """
+    assert task.project.status_date is None
+    status, calls = _patch_task(
+        client, task, {"percent_complete": 50}, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
+def test_progress_only_patch_recalcs_with_status_date_set(
+    client: APIClient, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    """#1500: same recalc requirement holds when the project has an explicit
+    status date — the case the CPM forward-pass floor most directly reads
+    percent_complete for (remaining duration laid out from the data date)."""
+    task.project.status_date = date(2026, 4, 10)
+    task.project.save(update_fields=["status_date"])
+    status, calls = _patch_task(
+        client, task, {"percent_complete": 50}, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
+def test_notes_and_name_only_patch_still_does_not_recalc_with_status_date_set(
+    client: APIClient, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    """Sanity check that the #1500 fix is scoped to percent_complete: the
+    genuinely inert fields stay gated even on a project with a status date."""
+    task.project.status_date = date(2026, 4, 10)
+    task.project.save(update_fields=["status_date"])
+    status, calls = _patch_task(
+        client,
+        task,
+        {"notes": "Some context", "name": "Renamed"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    assert calls == 0
