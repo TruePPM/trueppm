@@ -13,6 +13,8 @@
  * - Rule 28: "Esc to cancel" label rendered during pointer drag; keyboard legend in keyboard mode
  * - Rule 32: capped at 10 bars; "+N more" count label
  * - Rule 33: bars animate out only (150ms opacity, motion-safe)
+ * - Issue #1493: "Preview" chip labels the whole overlay as a client-side
+ *   estimate — the server CPM run reconciles the authoritative dates on drop
  * - Rule 51: keyboard instruction strip rendered when isKeyboardMode is true
  * - Rule 52: origin ghost bar at original task position during keyboard reschedule
  */
@@ -259,6 +261,19 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
           />
         );
       })}
+
+      {/* Estimate disclosure (issue #1493): the drag preview is a client-side
+          approximation (fixed Mon–Fri calendar, no custom-calendar/holiday
+          awareness) — label it so a slip or CP badge here reads as a
+          prediction, not the confirmed server result. */}
+      {phase === 'dragging' && (
+        <div
+          className="absolute top-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded-chip"
+          aria-hidden="true"
+        >
+          Preview — server confirms on drop
+        </div>
+      )}
 
       {/* "+N more affected" label (rule 32) */}
       {overflowCount > 0 && (

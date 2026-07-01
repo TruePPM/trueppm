@@ -55,6 +55,7 @@ const base: ApiTask = {
   schedule_variance_days: null,
   baseline_start: null,
   baseline_finish: null,
+  late_finish: null,
   optimistic_duration: null,
   most_likely_duration: null,
   pessimistic_duration: null,
@@ -88,6 +89,16 @@ describe('useScheduleTasks mapper', () => {
     const task = mapTask(base);
     expect(task.governanceClass).toBeUndefined();
     expect(task.deliveryMode).toBeUndefined();
+  });
+
+  it('maps late_finish onto the web Task (issue #1493)', () => {
+    const task = mapTask({ ...base, late_finish: '2026-11-01' });
+    expect(task.lateFinish).toBe('2026-11-01');
+  });
+
+  it('leaves lateFinish undefined before the first CPM run (late_finish null)', () => {
+    const task = mapTask(base);
+    expect(task.lateFinish).toBeUndefined();
   });
 
   it('maps server-derived can_edit / can_delete capabilities (ADR-0133)', () => {
@@ -684,6 +695,7 @@ describe('applyTaskDatesDelta', () => {
       early_start: delta.early_start,
       early_finish: delta.early_finish,
       total_float: delta.total_float,
+      late_finish: delta.late_finish,
       is_critical: delta.is_critical,
       planned_start: delta.planned_start,
       duration: delta.duration,
@@ -694,7 +706,14 @@ describe('applyTaskDatesDelta', () => {
     expect(spliced.duration).toBe(refetched.duration);
     expect(spliced.isCritical).toBe(refetched.isCritical);
     expect(spliced.totalFloat).toBe(refetched.totalFloat);
+    expect(spliced.lateFinish).toBe(refetched.lateFinish);
     expect(spliced.plannedStart).toBe(refetched.plannedStart);
+  });
+
+  it('splices late_finish so the drag preview stays fresh after a CPM re-run (issue #1493)', () => {
+    const existing = mapTask(base); // lateFinish undefined (base.late_finish = null)
+    const spliced = applyTaskDatesDelta(existing, delta);
+    expect(spliced.lateFinish).toBe('2026-11-15');
   });
 
   it('preserves every non-CPM field of the existing task', () => {

@@ -4,6 +4,13 @@
  * The worker performs an incremental CPM forward pass over the downstream
  * subgraph of a dragged task. All dates are ISO strings to avoid structured-
  * clone issues with Date objects across the worker boundary.
+ *
+ * Calendar fidelity (issue #1493): the worker approximates the server's
+ * calendar-aware CPM with a fixed Mon–Fri working week — it has no access to
+ * the project's custom `WorkCalendar`/`CalendarException` rows (those live
+ * server-side only; see ADR-0120). This is a live-preview estimate, not the
+ * source of truth: the post-commit server CPM run reconciles the real dates,
+ * including any custom calendar or holiday effects this preview cannot see.
  */
 
 /** Minimal task shape for the in-browser CPM engine. */
@@ -27,6 +34,13 @@ export interface CpmEdge {
   targetId: string;
   /** FS | SS | FF | SF */
   type: 'FS' | 'SS' | 'FF' | 'SF';
+  /**
+   * Lag in calendar days (positive = delay, negative = lead) — mirrors
+   * `Dependency.lag` on the server (issue #1493). Applied as a raw calendar-day
+   * offset and then snapped forward/backward to the nearest working day, same
+   * as the server engine's `_advance_calendar_days`/`_retreat_calendar_days`.
+   */
+  lag: number;
 }
 
 /** Message sent from main thread to worker on each drag frame. */
