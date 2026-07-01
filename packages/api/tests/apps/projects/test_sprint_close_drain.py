@@ -490,7 +490,14 @@ def test_drain_dispatches_pending_rows(mock_delay: object, project: Project) -> 
         requested_at=timezone.now() - timedelta(seconds=10)
     )
     _do_drain()
-    assert mock_delay.called  # type: ignore[attr-defined]
+    # Pin the exact dispatched request id: `.called` passes even if the drain
+    # dispatched the wrong row or dispatched twice. The IN_FLIGHT claim is
+    # close_sprint's responsibility (mocked here), so the row is still PENDING
+    # after the drain — assert that too so a premature status mutation in the
+    # drain loop would be caught.
+    mock_delay.assert_called_once_with(str(req.id))  # type: ignore[attr-defined]
+    req.refresh_from_db()
+    assert req.status == SprintCloseRequestStatus.PENDING
 
 
 @patch("trueppm_api.apps.projects.tasks.close_sprint.delay")

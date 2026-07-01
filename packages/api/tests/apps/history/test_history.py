@@ -489,8 +489,13 @@ class TestHistorySummaryAPI:
         task.save()
         r2 = owner_client.get(f"/api/v1/projects/{project.pk}/history/summary/?window=7d&refresh=1")
         assert r2.status_code == 200
-        # generated_at should differ (r2 was computed after the task save).
-        assert r2.data["generated_at"] >= r1.data["generated_at"]
+        # ?refresh=1 must recompute, not serve the cached payload. A regressed
+        # refresh returns the *identical* cached response, whose generated_at equals
+        # r1's — so `>=` would silently pass. Assert a strictly newer timestamp AND
+        # that total_mutations grew by the interleaved task.save (the cached copy
+        # was computed before it), which proves the recompute actually happened.
+        assert r2.data["generated_at"] > r1.data["generated_at"]
+        assert r2.data["total_mutations"] > r1.data["total_mutations"]
 
 
 # ---------------------------------------------------------------------------

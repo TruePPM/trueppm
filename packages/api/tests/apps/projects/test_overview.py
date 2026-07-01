@@ -539,16 +539,20 @@ class TestAttentionDriftSort:
         import re
 
         drift_items = [i for i in res.json()["items"] if i["type"] == "baseline_drift"]
-        # At most _MAX_PER_BUCKET (3) items returned; top 3 by drift are 7, 5, 3 days.
-        assert len(drift_items) <= 3
-        if len(drift_items) >= 2:
-            # drift_days is encoded in the detail string: "Slipped +Nd vs baseline"
-            def _parse_drift(item: dict) -> int:
-                m = re.search(r"\+(\d+)d", item["detail"])
-                return int(m.group(1)) if m else 0
 
-            drifts = [_parse_drift(i) for i in drift_items]
-            assert drifts == sorted(drifts, reverse=True)
+        # drift_days is encoded in the detail string: "Slipped +Nd vs baseline"
+        def _parse_drift(item: dict) -> int:
+            m = re.search(r"\+(\d+)d", item["detail"])
+            return int(m.group(1)) if m else 0
+
+        # Exactly _MAX_PER_BUCKET (3) items returned; the top 3 of the seeded
+        # drifts (1/3/7/2/5) are 7, 5, 3, ordered largest-slip first. A total
+        # breakage of drift detection returns zero items — which would satisfy
+        # "<= 3" and skip a "len >= 2"-guarded ordering check — so assert the
+        # exact count and the exact ordered drifts unconditionally.
+        assert len(drift_items) == 3
+        drifts = [_parse_drift(i) for i in drift_items]
+        assert drifts == [7, 5, 3]
 
 
 # ---------------------------------------------------------------------------

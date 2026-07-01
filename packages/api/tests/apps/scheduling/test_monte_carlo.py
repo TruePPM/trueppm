@@ -315,8 +315,16 @@ class TestMonteCarloEndpoint:
         assert r.data["p50"] == r.data["p80"] == r.data["p95"]
         # The finish cannot precede the planned-start floor.
         assert date.fromisoformat(r.data["p50"]) >= floor
-        # And the forecast must not beat the deterministic CPM spine.
-        if r.data.get("cpm_finish"):
+        # cpm_finish is part of the response contract (#987): the key is always
+        # present, carrying the deterministic CPM spine (max persisted early_finish)
+        # or null when no CPM pass has been persisted for the project. Assert the key
+        # exists unconditionally — dropping the field from the payload would otherwise
+        # silently skip the spine check below under `if r.data.get(...)`.
+        assert "cpm_finish" in r.data
+        # When the spine is present, the risk-loaded forecast must not finish before
+        # it. (This fixture has no persisted CPM dates, so cpm_finish is null here;
+        # the guard keeps the invariant meaningful without fabricating a CPM pass.)
+        if r.data["cpm_finish"] is not None:
             assert date.fromisoformat(r.data["p50"]) >= date.fromisoformat(r.data["cpm_finish"])
 
 

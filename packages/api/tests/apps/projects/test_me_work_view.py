@@ -582,12 +582,30 @@ def test_pagination_paginates_at_limit(calendar: Calendar, alice: object) -> Non
 @pytest.mark.django_db
 def test_limit_capped_at_max(calendar: Calendar, alice: object) -> None:
     """?limit=500 clamps to max_limit=200 — the request must still succeed."""
+    from trueppm_api.apps.projects.views import MeWorkPagination
+
+    # Pin the clamp value on the paginator directly so removing it is caught even
+    # without seeding a full page.
+    assert MeWorkPagination.max_limit == 200
+
     proj = _project(calendar, "P1")
     _member(proj, alice)
-    Task.objects.create(project=proj, name="T", duration=1, assignee=alice)
+    # Seed 201 assigned tasks so an un-clamped ?limit=500 would return all 201.
+    # With the clamp the page holds exactly max_limit=200; a one-task fixture could
+    # never distinguish "clamped to 200" from "clamp deleted".
+    for i in range(201):
+        Task.objects.create(
+            project=proj,
+            name=f"T{i}",
+            duration=1,
+            assignee=alice,
+            planned_start=date(2026, 4, 1) + timedelta(days=i),
+        )
 
     resp = _client(alice).get("/api/v1/me/work/?limit=500")
     assert resp.status_code == 200
+    assert len(resp.data["results"]) == 200
+    assert resp.data["count"] == 201
 
 
 # ---------------------------------------------------------------------------

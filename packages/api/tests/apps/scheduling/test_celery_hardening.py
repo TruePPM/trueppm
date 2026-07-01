@@ -311,6 +311,10 @@ class TestFailedTaskAPI:
         assert resp.status_code == 200
         ft.refresh_from_db()
         assert ft.status == FailedTaskStatus.RETRIED
+        # Flipping status to RETRIED is only half the contract — the row must
+        # actually be re-dispatched with its original name/args/kwargs. Without
+        # this the endpoint could mark a task retried and enqueue nothing.
+        mock_app.send_task.assert_called_once_with("test.task", args=["a"], kwargs={})
 
     def test_dismiss_requires_admin(self) -> None:
         ft = self._create_failed()
