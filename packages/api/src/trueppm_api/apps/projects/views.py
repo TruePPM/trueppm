@@ -187,13 +187,25 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 # *only* these must not enqueue a whole-project recalculation (#965). This is a
 # conservative DENYLIST: any field not listed here still triggers a recalc, so a
 # new scheduling input added later defaults to the safe (recalc) behavior.
-#   - percent_complete: carried to the engine but never read by the CPM
-#     forward/backward pass (verified against trueppm_scheduler.engine) — it is
-#     reporting data, not a scheduling input.
 #   - notes / name: pure metadata.
 # Status, dates, duration, PERT estimates, sprint, parent, etc. are deliberately
 # absent — they can move the schedule and must keep recalculating immediately.
-_NON_SCHEDULE_TASK_FIELDS = frozenset({"percent_complete", "notes", "name"})
+#
+# ``percent_complete`` is deliberately NOT in this set (#1500). It was
+# originally denylisted on the premise that the CPM forward/backward pass never
+# reads it. ADR-0132 (progress-aware forecasting) made that premise false:
+# ``trueppm_scheduler.engine._effective_duration_days`` derives an in-progress
+# task's *remaining* duration from ``percent_complete``
+# (``duration - floor(duration * pct/100)``), and ``_is_complete`` pins a task
+# once ``percent_complete >= 100`` — both unconditionally, independent of
+# whether ``Project.status_date`` is set. (A status date only changes the
+# *floor* applied to not-started/in-progress work; it does not gate whether
+# percent_complete itself is consumed — verified directly against the engine:
+# a bare percent_complete write shifts ``early_finish`` even with no
+# status_date and no actuals.) So a PATCH writing only ``percent_complete``
+# must always recalc, on every project — nobody reads it from the API only to
+# have the schedule silently drift stale.
+_NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name"})
 
 
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
@@ -2831,11 +2843,14 @@ class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         maybe_record_scope_injection(instance, old_sprint_id, self.request.user)
 
         # Only recalculate when a schedule-affecting field changed (#965). A
-        # PATCH that touches only non-scheduling fields (progress, notes, name)
-        # would otherwise enqueue a full-project CPM recalc on every keystroke —
-        # the dominant source of drawer-edit lag. `validated_data` holds exactly
-        # the fields this partial update wrote, so an empty/subset-of-denylist
-        # write skips the recalc; everything else still recalculates immediately.
+        # PATCH that touches only non-scheduling fields (notes, name) would
+        # otherwise enqueue a full-project CPM recalc on every keystroke — the
+        # dominant source of drawer-edit lag. `validated_data` holds exactly the
+        # fields this partial update wrote, so an empty/subset-of-denylist write
+        # skips the recalc; everything else still recalculates immediately.
+        # `percent_complete` is deliberately NOT in the denylist (#1500) — since
+        # ADR-0132 it is a live CPM input (remaining-duration + completion) on
+        # every project, status_date set or not.
         changed_fields = set(getattr(serializer, "validated_data", {}).keys())
         if not changed_fields or not changed_fields <= _NON_SCHEDULE_TASK_FIELDS:
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
