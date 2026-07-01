@@ -394,7 +394,7 @@ export const router = createBrowserRouter([
               { path: 'settings/workflow', element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" /> },
               { path: 'settings/guardrails', element: <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" /> },
               { path: 'settings/attachments', element: <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" /> },
-              { path: 'settings/surface-visibility', element: <SectionRedirect base="/projects/:projectId/settings" anchor="surface-visibility" /> },
+              { path: 'settings/surfaces', element: <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" /> },
               { path: 'settings/integrations', element: <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" /> },
               { path: 'settings/notifications', element: <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" /> },
               { path: 'settings/lifecycle', element: <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" /> },

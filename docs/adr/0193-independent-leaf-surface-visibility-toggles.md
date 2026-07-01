@@ -144,7 +144,7 @@ recomputation. Consumers:
 
 ### 6. Settings UI — one `<SettingsSection>` (ADR-0146)
 
-A `surface-visibility` section on the consolidated project settings page (scroll-spy
+A `surfaces` section on the consolidated project settings page (scroll-spy
 IA, ADR-0146) with four `InheritableToggleField`s, one `useDirtyForm({ sectionId })`,
 and the legacy-redirect stub. Below ADMIN the toggles render read-only with the
 inherited provenance.

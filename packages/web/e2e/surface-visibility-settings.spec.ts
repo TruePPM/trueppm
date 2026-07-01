@@ -150,23 +150,28 @@ test.describe('Project surface visibility settings', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/surfaces`);
 
-    // Page title is visible once the section loads.
-    await expect(page.getByText('Surface visibility')).toBeVisible();
+    // Page title is visible once the section loads. Target the heading by role —
+    // the test project's name ("Surface Visibility Test Project") also contains the
+    // phrase, so a bare getByText hits a strict-mode collision.
+    await expect(page.getByRole('heading', { name: 'Surface visibility', exact: true })).toBeVisible();
 
-    // All four toggle labels are present.
-    await expect(page.getByText('Reports')).toBeVisible();
-    await expect(page.getByText('Time tracking')).toBeVisible();
-    await expect(page.getByText('Baselines')).toBeVisible();
-    await expect(page.getByText('Monte-Carlo forecast')).toBeVisible();
+    // All four toggle labels are present. Exact match — each label word also
+    // appears inside its own hint copy (e.g. "…hides the Reports tab…"), so a
+    // substring getByText would collide with the hint in strict mode.
+    await expect(page.getByText('Reports', { exact: true })).toBeVisible();
+    await expect(page.getByText('Time tracking', { exact: true })).toBeVisible();
+    await expect(page.getByText('Baselines', { exact: true })).toBeVisible();
+    await expect(page.getByText('Monte-Carlo forecast', { exact: true })).toBeVisible();
 
     // Reports group starts on Inherit (methodology default = Shown).
     const reportsGroup = page.getByRole('radiogroup', { name: /Show the Reports surface/i });
     await expect(reportsGroup.getByRole('radio', { name: /Inherit/i })).toBeChecked();
 
-    // Switch to Override, then toggle to Hidden.
+    // Switch to Override (seeds the switch to the inherited value = Shown).
     await reportsGroup.getByText('Override').click();
-    // Override reveals the toggle; click the "Hidden" option via the toggle's off label.
-    await page.getByRole('radio', { name: /Hidden/i }).first().click();
+    // Override reveals the on/off switch (role="switch", named by the surface's
+    // aria-label); click it to flip Shown → Hidden.
+    await page.getByRole('switch', { name: /Show the Reports surface/i }).click();
 
     // Save bar appears; click save.
     await page.getByRole('button', { name: /Save changes/i }).click();
@@ -183,7 +188,7 @@ test.describe('Project surface visibility settings', () => {
 
     await page.goto(`/projects/${PROJECT_ID}/settings/surfaces`);
 
-    await expect(page.getByText('Surface visibility')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Surface visibility', exact: true })).toBeVisible();
 
     // No editable radiogroups — canEdit is false for Member.
     await expect(page.getByRole('radiogroup', { name: /Show the Reports surface/i })).not.toBeVisible();
