@@ -398,6 +398,15 @@ CELERY_BEAT_SCHEDULE = {
         # 04:30 UTC — after the other nightly purge jobs.
         "schedule": crontab(hour=4, minute=30),
     },
+    # Nightly: hard-delete per-row soft-deleted tombstones (is_deleted=True) from
+    # live projects older than TRUEPPM_TOMBSTONE_RETENTION_DAYS (default 90 days).
+    # Tombstones are kept so mobile sync clients receive deletion signals; once the
+    # retention window passes there is no further sync value in the row (#1321).
+    "reap-domain-tombstones-nightly": {
+        "task": "sync.reap_domain_tombstones",
+        # 03:30 UTC — between the sprint-close and workflow purge windows.
+        "schedule": crontab(hour=3, minute=30),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -779,6 +788,13 @@ RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECOND
 # batch (ADR-0082). The batch applies in one transaction; this bounds how long
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
+
+# Retention window in days for per-row soft-deleted tombstones in live projects
+# (is_deleted=True rows on Task, Risk, Sprint, Dependency). Rows older than this
+# are hard-deleted by the nightly sync.reap_domain_tombstones task. The 90-day
+# default aligns with the HistoricalTask history window so tombstones are never
+# retained longer than the audit trail that references them (#1321).
+TRUEPPM_TOMBSTONE_RETENTION_DAYS: int = env.int("TRUEPPM_TOMBSTONE_RETENTION_DAYS", default=90)
 
 # Look-ahead horizon (days) for lazy recurring-task occurrence generation (ADR-0090).
 # The hourly projects.generate_recurring_occurrences sweep materializes only
