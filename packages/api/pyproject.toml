@@ -50,6 +50,7 @@ dependencies = [
     # and is met by either extra — both are replaceable wheels. See NOTICES.
     "psycopg>=3.1,<4.0",
     "django-environ>=0.11,<1.0",
+    # BSD-3-Clause (verified against dist-info Classifier for v3.11.0). No copyleft obligation.
     "django-simple-history>=3.7,<4.0",
     "drf-spectacular>=0.27,<1.0",
     "jsonschema>=4.21,<5.0",
