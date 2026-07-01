@@ -198,6 +198,60 @@ def test_lag_is_counted_on_successor_calendar() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Backward pass snaps against the task's OWN calendar (issue #1490)
+# ---------------------------------------------------------------------------
+
+
+def test_backward_pass_snaps_predecessor_late_dates_on_its_own_calendar() -> None:
+    """A predecessor's late_finish/late_start must snap on ITS OWN calendar.
+
+    ``pred`` (7-day week, dur 2) starting Fri 01-02 works through the weekend and
+    finishes Sat 01-03 — a day its Mon-Fri ``succ`` cannot act on, so ``succ`` still
+    starts Mon 01-05 regardless. The FS constraint the backward pass derives for
+    ``pred``'s own late_finish must therefore snap to a working day on ``pred``'s
+    7-day calendar, not ``succ``'s Mon-Fri calendar: the raw constraint (succ's
+    late_start minus 1 day) is Sun 01-04, which is a working day on the 7-day
+    calendar (so it stands) but is *not* a working day on Mon-Fri (where it would
+    wrongly snap backward to Fri 01-02 — a date before ``pred.early_finish``,
+    violating the CPM invariant ``late_finish >= early_finish``).
+
+    Regression for #1490: the bug used the successor's calendar to snap the
+    predecessor's own late date, producing ``late_finish == 2026-01-02 <
+    early_finish == 2026-01-03``. The fix restores the correct value, Sun 01-04,
+    which gives ``pred`` one day of genuine float — real slack it has because its
+    calendar includes a day the successor's calendar treats as non-working.
+    """
+    FRI = date(2026, 1, 2)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=FRI,
+        tasks=[_task("pred", 2, "seven"), _task("succ", 1)],
+        dependencies=[Dependency("pred", "succ")],
+        calendars={"seven": SEVEN},
+    )
+    r = _result(project)
+    pred, succ = r["pred"], r["succ"]
+
+    # The CPM invariant that was violated: late_finish can never precede
+    # early_finish (nor late_start precede early_start) for any task.
+    for t in r.values():
+        assert t.late_finish >= t.early_finish
+        assert t.late_start >= t.early_start
+
+    assert pred.early_start == date(2026, 1, 2)  # Fri
+    assert pred.early_finish == date(2026, 1, 3)  # Sat (7-day week works weekends)
+    assert pred.late_finish == date(2026, 1, 4)  # Sun — pred's OWN calendar, not succ's
+    assert pred.late_start == date(2026, 1, 3)  # Sat
+    assert pred.total_float == timedelta(days=1)  # genuine slack from the calendar mismatch
+
+    assert succ.early_start == date(2026, 1, 5)  # Mon — succ's Mon-Fri calendar, unaffected
+    assert succ.late_start == succ.early_start
+    assert succ.total_float == timedelta(days=0)
+    assert succ.is_critical
+
+
+# ---------------------------------------------------------------------------
 # Criticality stays program-true across a calendar boundary
 # ---------------------------------------------------------------------------
 
