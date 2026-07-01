@@ -855,10 +855,18 @@ def _backward_pass(
     consistent.
 
     Per-task calendars (ADR-0120 D3): the node being computed (the *predecessor* of
-    every outgoing edge here) lays out its own duration on its own calendar, while
-    each successor constraint snaps its lag on the **successor's** calendar — the
-    constraint is consumed where the successor waits. With ``task_calendars=None``
-    every lookup resolves to ``calendar`` and the pass is identical to before.
+    every outgoing edge here) is the one whose late_start/late_finish this call
+    produces. Mirroring the forward pass — where the node being computed always
+    uses its *own* calendar for its own arithmetic, because that arithmetic must
+    land on a day the node itself can work — every successor-derived constraint
+    here also snaps to a working day on **this task's own** calendar (``node_cal``),
+    never the successor's. (The successor's calendar governs lag arithmetic and the
+    free-float mirror in :func:`_compute_floats`, which simulates what the forward
+    pass would impose *on the successor* — a different node, a different question.
+    Using the successor's calendar here instead was issue #1490: it could snap a
+    predecessor's own late date to a day before its early date.) With
+    ``task_calendars=None`` every lookup resolves to ``calendar`` and the pass is
+    identical to before.
     """
     for node_id in reversed(topo_order):
         task = task_map[node_id]
@@ -885,28 +893,29 @@ def _backward_pass(
             succ = task_map[succ_id]
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
-            # Lag on this edge is consumed on the successor's calendar; with one
-            # project calendar this is the same as node_cal.
-            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             # Successors are visited first in reverse topo order, so these are always set.
             assert succ.late_start is not None and succ.late_finish is not None
 
             if dep.dep_type == DependencyType.FS:
-                # Predecessor must finish the day before successor's late start minus lag.
+                # Predecessor must finish the day before successor's late start minus
+                # lag. The raw offset is calendar-agnostic arithmetic; the result
+                # becomes *this* task's own late_finish, so it snaps to a working day
+                # on this task's own calendar (node_cal) — snapping on the successor's
+                # calendar instead (the #1490 bug) could push it before early_finish.
                 lf_constraints.append(
                     _prev_working_day(
-                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), succ_cal
+                        _safe_offset(succ.late_start, -timedelta(days=1) - lag), node_cal
                     )
                 )
             elif dep.dep_type == DependencyType.SS:
                 # Predecessor must start no later than successor's late start minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, succ_cal))
+                ls_constraints.append(_retreat_calendar_days(succ.late_start, lag, node_cal))
             elif dep.dep_type == DependencyType.FF:
                 # Predecessor must finish no later than successor's late finish minus lag.
-                lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, succ_cal))
+                lf_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
             elif dep.dep_type == DependencyType.SF:
                 # Predecessor must start no later than successor's late finish minus lag.
-                ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, succ_cal))
+                ls_constraints.append(_retreat_calendar_days(succ.late_finish, lag, node_cal))
 
         # LF = earliest of all LF constraints (binding constraint).
         task.late_finish = min(lf_constraints)

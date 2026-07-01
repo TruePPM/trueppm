@@ -40,6 +40,15 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   `seed` previously escaped as a bare numpy `ValueError`/`TypeError`; it now raises
   the documented `InvalidScheduleInput`. `None` and any non-negative `int` remain
   valid (#1453).
+- **Backward pass no longer corrupts float/critical path across per-task
+  calendars.** When a predecessor and its successor use different calendars
+  (per-task calendars, #1490), the backward pass computed the predecessor's own
+  `late_start`/`late_finish` but snapped them onto the *successor's* calendar
+  instead of the predecessor's own, which could yield `late_finish <
+  early_finish` (impossible in valid CPM), under-reported total/free float, and
+  spurious tasks entering the critical path. The backward pass now snaps every
+  predecessor-owned date on the predecessor's own calendar, matching the forward
+  pass's existing convention. Single-calendar scheduling is unaffected.
 
 ## [0.3.0a3] - 2026-06-29
 
