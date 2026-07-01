@@ -262,6 +262,54 @@ test.describe('Project Integrations — CRUD UI', () => {
     );
   });
 
+  test('mints an mcp:read token and shows the copy-paste connect snippet (#1481)', async ({
+    page,
+  }) => {
+    await commonRoutes(page, [FIXTURE_PROJECT]);
+    await listRoutes(page, { webhooks: [], tokens: [] });
+    // The create POST echoes back the read-only scope so the reveal branches to
+    // the MCP connect panel (in production the scope comes from #601's backend).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/api-tokens/`, (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({
+            ...TOKEN,
+            id: 'tok-mcp',
+            name: 'Claude Desktop',
+            scopes: ['mcp:read'],
+            token: 'tppm_MCP_RAW_SECRET',
+          }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: page1([]) });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/integrations`);
+    await page.getByRole('button', { name: 'Create token' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Create API token' });
+    await dialog.getByPlaceholder('e.g. Jira Production').fill('Claude Desktop');
+    await dialog.getByRole('radio', { name: /Read-only for AI assistants/i }).check();
+
+    const postReq = page.waitForRequest(
+      (req) => req.url().includes(`/api-tokens/`) && req.method() === 'POST',
+    );
+    await dialog.getByRole('button', { name: 'Create token' }).click();
+    const req = await postReq;
+    expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ scopes: ['mcp:read'] });
+
+    // The one-time token is shown, and the paste-ready config snippet renders.
+    await expect(page.getByRole('textbox', { name: 'New API token' })).toHaveValue(
+      'tppm_MCP_RAW_SECRET',
+    );
+    const snippet = page.getByLabel('claude_desktop_config.json snippet');
+    await expect(snippet).toContainText('"command": "trueppm-mcp"');
+    await expect(snippet).toContainText('"TRUEPPM_API_TOKEN": "tppm_MCP_RAW_SECRET"');
+    await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
+  });
+
   test('shows empty states when there are no integrations', async ({ page }) => {
     await commonRoutes(page, [FIXTURE_PROJECT]);
     await listRoutes(page, { webhooks: [], tokens: [] });

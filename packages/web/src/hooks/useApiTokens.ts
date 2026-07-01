@@ -23,6 +23,17 @@ function tokensKey(scope: IntegrationScope) {
 // API shapes (match ProjectApiTokenSerializer)
 // ---------------------------------------------------------------------------
 
+/**
+ * Capability scopes a token can carry (issue 601, ADR-0186 §E).
+ *
+ * - `legacy:full` — read + write, including the inbound task-sync surface. The
+ *   backfilled default for every pre-existing token, and what CI / external
+ *   integrations mint.
+ * - `mcp:read` — read-only, for pointing an MCP client (Claude Desktop and the
+ *   like) at the instance. Cannot write even if replayed against a write path.
+ */
+export type ApiTokenScope = 'legacy:full' | 'mcp:read';
+
 export interface ApiToken {
   id: string;
   project: string | null;
@@ -30,6 +41,12 @@ export interface ApiToken {
   name: string;
   token_prefix: string;
   status_map: Record<string, string>;
+  /**
+   * Capability scopes (issue 601). Optional here because this branch develops
+   * in parallel with the backend: a not-yet-rebased API omits the field, and
+   * consumers must tolerate its absence.
+   */
+  scopes?: ApiTokenScope[];
   created_by: string | null;
   created_at: string;
   last_used_at: string | null;
@@ -44,6 +61,7 @@ export interface CreatedApiToken extends ApiToken {
 
 export interface ApiTokenCreateBody {
   name: string;
+  scopes?: ApiTokenScope[];
   status_map?: Record<string, string>;
 }
 
