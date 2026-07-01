@@ -113,6 +113,15 @@ export interface UpdateProjectPayload {
   lead?: string | null;
   /** Project start date (ISO `YYYY-MM-DD`). Admin+-only server-side (#769). */
   start_date?: string;
+  /**
+   * Independent leaf-surface visibility overrides (ADR-0193, issue 956). `null`
+   * clears the override so the project inherits the methodology default. Admin+-only
+   * server-side. Hide-only (ADR-0041) — the endpoint and route stay reachable.
+   */
+  show_reporting?: boolean | null;
+  show_time_tracking?: boolean | null;
+  show_baselines?: boolean | null;
+  show_monte_carlo?: boolean | null;
 }
 
 /**

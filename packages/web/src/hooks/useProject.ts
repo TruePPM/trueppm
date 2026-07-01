@@ -8,6 +8,19 @@ import type {
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
 
+/**
+ * Resolved visibility of the four independently-toggleable leaf surfaces
+ * (ADR-0193, issue 956). Server-computed (project override ?? methodology
+ * default); clients read this and never re-derive the methodology-default map.
+ * Hide-only — a false value hides chrome, it never gates the route or endpoint.
+ */
+export interface SurfaceVisibility {
+  reporting: boolean;
+  time_tracking: boolean;
+  baselines: boolean;
+  monte_carlo: boolean;
+}
+
 export interface ApiProjectDetail {
   id: string;
   server_version: number;
@@ -124,6 +137,28 @@ export interface ApiProjectDetail {
   /** Read-only values inherited if the override were cleared (program ?? workspace). */
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];
+  /**
+   * Independent leaf-surface visibility OVERRIDES (ADR-0193, issue 956). null =
+   * inherit the methodology default; true/false = explicit per-project override.
+   * Display/edit only on the settings toggles — never read these raw values to
+   * gate a surface; read `effective_surface_visibility` so the resolved value
+   * (override ?? methodology default) drives visibility.
+   */
+  show_reporting: boolean | null;
+  show_time_tracking: boolean | null;
+  show_baselines: boolean | null;
+  show_monte_carlo: boolean | null;
+  /**
+   * Read-only server-resolved visibility of each leaf surface. The reports tab
+   * gate and the in-Schedule baseline / Monte-Carlo sub-surfaces read THIS.
+   * Hide-only (ADR-0041) — a false value hides chrome, never the route or data.
+   */
+  effective_surface_visibility: SurfaceVisibility;
+  /**
+   * Visibility each surface falls back to if its override were cleared — the
+   * methodology-default map. Drives the settings "Inherit (On/Off)" affordance.
+   */
+  inherited_surface_visibility: SurfaceVisibility;
   /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
   is_archived: boolean;
   archived_at: string | null;

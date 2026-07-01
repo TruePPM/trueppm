@@ -35,6 +35,7 @@ import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
@@ -799,6 +800,11 @@ export function ScheduleView() {
   // Role gate for milestone insert (#340) — VIEWER cannot author.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
   const readOnly = currentRole !== null && currentRole < ROLE_MEMBER;
+  // Per-project leaf-surface visibility (ADR-0193, issue 956): the in-Schedule
+  // Monte-Carlo and baseline sub-surfaces read the server-resolved values. Hide-only
+  // (ADR-0041) — a false value hides the chrome; the underlying data is still computed
+  // and the section stays reachable by direct URL.
+  const surfaces = useSurfaceVisibility(projectId ?? undefined);
   const focus = useScheduleFocus();
   const indentTask = useIndentTask(projectId ?? null);
   const outdentTask = useOutdentTask(projectId ?? null);
@@ -1512,7 +1518,7 @@ export function ScheduleView() {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={panelWidth} />
+        <ScheduleLegend taskListWidth={panelWidth} showBaselines={surfaces.baselines} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213) */}
@@ -1543,7 +1549,7 @@ export function ScheduleView() {
           the sensitivity tornado, and the run-history disclosure. Replaces the
           former MonteCarloRow + ScheduleInsightsBar two-surface split that
           rendered the percentiles up to three times and disagreed on the day. */}
-      {(currentRole === null || currentRole >= ROLE_MEMBER) && (
+      {surfaces.monte_carlo && (currentRole === null || currentRole >= ROLE_MEMBER) && (
         <ScheduleForecastBar
           projectId={projectId ?? undefined}
           cpmFinish={cpmFinish}
@@ -1553,7 +1559,7 @@ export function ScheduleView() {
       )}
 
       {/* Mobile MC card — md:hidden; desktop uses ScheduleForecastBar above (issue #33) */}
-      <MobileMonteCarloCard projectId={projectId ?? undefined} />
+      {surfaces.monte_carlo && <MobileMonteCarloCard projectId={projectId ?? undefined} />}
 
       {/* Milestone delta tooltip — at ScheduleView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />

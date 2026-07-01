@@ -3,6 +3,7 @@ import {
   isTabVisibleForMethodology,
   groupedVisibleViews,
   groupedVisibleViewsForUser,
+  surfaceHiddenViews,
   HIDEABLE_VIEW_KEYS,
   VIEW_GROUPS,
   STANDALONE_LEADING,
@@ -161,5 +162,23 @@ describe('groupedVisibleViewsForUser (ADR-0139)', () => {
     // ViewTabs, so the nav is never empty — this asserts the grouping contract.
     const groups = groupedVisibleViewsForUser('HYBRID', HIDEABLE_VIEW_KEYS);
     expect(groups).toEqual([]);
+  });
+});
+
+describe('surfaceHiddenViews (ADR-0193, #956)', () => {
+  it('returns ["reports"] when reporting is false', () => {
+    expect(surfaceHiddenViews({ reporting: false })).toEqual(['reports']);
+  });
+
+  it('returns [] when reporting is true', () => {
+    expect(surfaceHiddenViews({ reporting: true })).toEqual([]);
+  });
+
+  it('the other three surfaces do not contribute a tab-hide (they are in-view sub-surfaces)', () => {
+    // time_tracking, baselines, monte_carlo gate components within a view, not
+    // a tab entry — so they are not in the surfaceHiddenViews result. The function
+    // only accepts { reporting }, so passing extra props is the type-level guarantee.
+    expect(surfaceHiddenViews({ reporting: true })).not.toContain('schedule');
+    expect(surfaceHiddenViews({ reporting: true })).not.toContain('board');
   });
 });

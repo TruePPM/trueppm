@@ -916,6 +916,20 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Independent leaf-surface visibility overrides (ADR-0193, #956). NULL =
+    # inherit the methodology default (``surface_visibility.METHODOLOGY_SURFACE_DEFAULTS``
+    # keyed on ``effective_methodology``); True/False = explicit per-project override.
+    # Unlike sharing/attachments these do NOT cascade through program/workspace —
+    # the default comes from the methodology preset, not a parent scope. Resolved
+    # computed-on-read in ``apps.projects.surface_visibility`` and surfaced via the
+    # serializer's ``effective_surface_visibility``/``inherited_surface_visibility``
+    # fields. Hide-only (ADR-0041): no endpoint is disabled and no route gated — the
+    # data is always computed; these toggle chrome, not access. Not in
+    # ``_HISTORY_EXCLUDED_BASE``, so every override write is captured (audit).
+    show_reporting = models.BooleanField(null=True, blank=True)
+    show_time_tracking = models.BooleanField(null=True, blank=True)
+    show_baselines = models.BooleanField(null=True, blank=True)
+    show_monte_carlo = models.BooleanField(null=True, blank=True)
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
     # Program membership is independent of project membership: a project member

@@ -6,6 +6,7 @@ import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import {
   groupedVisibleViewsForUser,
+  surfaceHiddenViews,
   STANDALONE_LEADING,
   STANDALONE_TRAILING,
 } from '@/features/shell/methodologyTabs';
@@ -106,10 +107,17 @@ export function ViewTabs() {
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (TAB_META[view]?.label ?? view);
 
-  // Per-user nav visibility (ADR-0139): the personal hidden-set composes on top
-  // of the methodology filter, then the role gate. `overview` leads standalone
+  // Per-user nav visibility (ADR-0139) + per-project leaf-surface toggles
+  // (ADR-0193, issue 956): both compose into one hidden-set on top of the
+  // methodology filter, then the role gate. Only `reporting` maps to a tab
+  // (`reports`); the other surfaces gate in-view. `overview` leads standalone
   // (outside the hidden-set) so the bar can never be emptied.
-  const hiddenViews = new Set(user?.hidden_views ?? []);
+  const hiddenViews = new Set([
+    ...(user?.hidden_views ?? []),
+    ...surfaceHiddenViews(
+      project.data?.effective_surface_visibility ?? { reporting: true },
+    ),
+  ]);
   // Role-context lens (issue 1263, ADR-0162): promote the active lens's priority views
   // to the front of their group. Composes AFTER the methodology / hidden-views /
   // role filters — it only re-orders already-permitted views, never reveals one.
