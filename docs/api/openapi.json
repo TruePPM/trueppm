@@ -4693,6 +4693,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
