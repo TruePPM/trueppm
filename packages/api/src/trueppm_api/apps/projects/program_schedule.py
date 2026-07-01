@@ -122,12 +122,15 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         Project,
         TaskType,
     )
-    from trueppm_api.apps.scheduling.services import build_sched_tasks
+    from trueppm_api.apps.scheduling.services import build_sched_calendar, build_sched_tasks
 
     member_projects = list(
         Project.objects.filter(program=program, is_deleted=False)
         .select_related("calendar")
-        .prefetch_related("tasks", "tasks__sprint")
+        # calendar__exceptions: build_sched_calendar reads every CalendarException
+        # row per member project's calendar (#1491); prefetch to avoid an N+1
+        # across the whole program (this loop iterates every member project).
+        .prefetch_related("tasks", "tasks__sprint", "calendar__exceptions")
         .order_by("start_date", "name")
     )
     project_by_id = {p.id: p for p in member_projects}
@@ -151,12 +154,11 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         if enforce_max and total_tasks > MAX_PROGRAM_TASKS:
             raise ProgramScheduleTooLarge
 
-        cal = p.calendar
-        calendars[str(p.id)] = SchedCalendar(
-            working_days=cal.working_days if cal else 31,
-            hours_per_day=cal.hours_per_day if cal else 8.0,
-            timezone=cal.timezone if cal else "UTC",
-        )
+        # Shared converter (#1491): includes each member project's
+        # CalendarException holiday/shutdown ranges, which the previous inline
+        # construction dropped — so the merged program-scoped CPM pass silently
+        # scheduled straight through configured holidays for every member project.
+        calendars[str(p.id)] = build_sched_calendar(p.calendar)
 
         sched_tasks = build_sched_tasks(
             db_tasks,

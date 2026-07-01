@@ -63,6 +63,7 @@ from trueppm_api.apps.scheduling.serializers import (
     VelocitySuggestionSerializer,
 )
 from trueppm_api.apps.scheduling.services import (
+    build_sched_calendar,
     build_sched_tasks,
     enqueue_recalculate,
     forecast_diagnostic,
@@ -248,7 +249,6 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     404 if the project does not exist, 403 if the caller lacks read access.
     """
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
-    from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
@@ -256,7 +256,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     try:
         project = (
             Project.objects.select_related("calendar")
-            .prefetch_related("tasks")
+            # calendar__exceptions: build_sched_calendar reads every
+            # CalendarException row (#1491); prefetch to avoid an N+1.
+            .prefetch_related("tasks", "calendar__exceptions")
             .get(pk=pk, is_deleted=False)
         )
     except Project.DoesNotExist:
@@ -280,12 +282,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    cal = project.calendar
-    sched_calendar = SchedCalendar(
-        working_days=cal.working_days if cal else 31,
-        hours_per_day=cal.hours_per_day if cal else 8.0,
-        timezone=cal.timezone if cal else "UTC",
-    )
+    # Shared converter (#1491): includes the calendar's CalendarException
+    # holiday/shutdown ranges, which the previous inline construction dropped —
+    # so Monte Carlo silently scheduled straight through configured holidays.
+    sched_calendar = build_sched_calendar(project.calendar)
 
     # Monte Carlo simulates committed delivery only — BACKLOG cards are not
     # part of the forecast. ADR-0057 / Task.committed.
