@@ -1604,8 +1604,22 @@ web:coverage:
     # result (vitest can't — no single shard sees it). Mirrors the api:coverage
     # --fail-under=80 soft floor. The primary gate is web:diff-coverage.
     WEB_COVERAGE_MIN: "75"
+    # Full history — check-added-files-covered.mjs diffs against the MR target's
+    # merge-base, which a shallow clone may not contain.
+    GIT_DEPTH: "0"
   script:
     - node scripts/merge-coverage.mjs
+    # Fail if a file ADDED in this MR never entered the merged coverage map —
+    # the new-untested-file dodge diff-cover cannot see (issue #1510). Runs here
+    # (not web:diff-coverage) because that job's python:3.11-slim image has no
+    # node. node:alpine has no git, so install it only in MR context where the
+    # check actually diffs.
+    - |
+      if [ -n "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" ]; then
+        apk add --no-cache --quiet git
+        git fetch --quiet origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        node scripts/check-added-files-covered.mjs
+      fi
   coverage: '/line coverage ([\d.]+)%/'
   artifacts:
     paths:
