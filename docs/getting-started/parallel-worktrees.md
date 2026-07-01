@@ -20,9 +20,47 @@ cd ../trueppm-wt/600-crud-ui-for-project-program-integrations
 source .envrc                          # exports COMPOSE_PROJECT_NAME=trueppm
 # … work, commit, push, open MR …
 
-# Remove when done (refuses if there's uncommitted work)
+# Remove when done (refuses if there's uncommitted work; releases the check-out)
 scripts/wt remove 600
 ```
+
+## Issue check-out lock
+
+When several agents (or people) work the backlog in parallel, they share one
+GitLab identity — so assigning yourself an issue or leaving a "taking this"
+comment does **not** stop another agent from grabbing the same one. The result
+is two worktrees editing the same files, which is exactly the collision the
+worktree workflow is meant to prevent.
+
+`wt new` closes that gap by **checking out** the issue on GitLab: it applies a
+`status::wip` scoped label and posts a check-out comment recording the branch
+and worktree path. Before creating the worktree it first checks whether the
+issue is *already* checked out and refuses if so:
+
+```bash
+$ scripts/wt new 600
+wt: issue #600 is already checked out (label 'status::wip').
+  🔒 checked out 2026-07-01T11:24:54Z · branch `feat/600-crud-ui` · worktree `…/trueppm-wt/600-crud-ui`
+wt: another agent/worktree is likely on it. Re-run with --force to take it over.
+```
+
+- **Take over a stale claim** — if the previous session crashed or abandoned the
+  issue, re-run with `--force`: `scripts/wt new 600 --force`. The takeover is
+  recorded as a new check-out comment.
+- **Claim before you start** — if you've picked an issue up but aren't ready to
+  create the worktree yet, `scripts/wt claim 600` applies the same lock with no
+  worktree, so a parallel agent sees the claim immediately. Turn it into a
+  worktree later with `wt new` (no `--force` needed — you already hold it).
+- **Release** — `wt remove` and `wt prune` clear the label automatically when the
+  worktree is torn down. To release a `claim` you never turned into a worktree
+  (or clear a lock by hand), run `scripts/wt release 600`.
+
+The lock is **best-effort**: if `glab` isn't installed or a call fails, `wt`
+warns and still creates the worktree — it never blocks worktree management on a
+network blip. The label name is overridable with `TRUEPPM_WT_LOCK_LABEL`.
+
+Only issue-numbered branches are locked. A branch with no leading issue number
+(`chore/some-slug`, `docs/0.4-release-notes`) is created without a check-out.
 
 ## What it sets up
 
@@ -144,7 +182,8 @@ docker compose down -v && make up   # destroys all local dev data
 is the canonical path. It refuses if your tree has uncommitted tracked
 changes or untracked files beyond the auto-created set (the two symlinks +
 `.envrc`). If you really do want to discard work, pass `--force` as the
-second argument.
+second argument. Removing a worktree also releases its issue check-out (see
+[Issue check-out lock](#issue-check-out-lock)).
 
 **Bulk cleanup after merges:** `scripts/wt prune` (or `make wt-prune`)
 sweeps every worktree whose branch has been merged to `main` and deleted
