@@ -1,5 +1,6 @@
 ---
 name: git-workflow
+model: sonnet
 description: >
   Git branching, commit, and PR management for TruePPM. Use when creating branches,
   writing commit messages, preparing PRs, or managing releases. Enforces conventional
