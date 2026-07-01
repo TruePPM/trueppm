@@ -61,6 +61,7 @@ import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
+import { PendingCrossProjectReview } from './PendingCrossProjectReview';
 import { ScheduleCommitPopover } from './ScheduleCommitPopover';
 import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
@@ -1399,6 +1400,13 @@ export function ScheduleView() {
           />
         )}
       </div>
+
+      {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another
+          team has proposed inert cross-project links against this project's
+          tasks. Renders nothing otherwise — safe to mount unconditionally. */}
+      {projectId && (
+        <PendingCrossProjectReview projectId={projectId} currentRole={currentRole} />
+      )}
 
       {/* Task creation modal — replaces the inline AddTaskForm strip
           (issue #305 / ADR-0052). The unified TaskFormModal handles both
