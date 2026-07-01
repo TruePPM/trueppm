@@ -330,7 +330,11 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
 
   test('BottomNav Schedule link navigates to path-based /schedule URL', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'Schedule' }).click();
+    // Schedule is an overflow view on HYBRID (ADR-0196, issue #1464) — the rail
+    // caps at 4 primary tabs + More, so Schedule is reached via the More sheet.
+    await nav.getByRole('button', { name: /^More/ }).click();
+    const sheet = page.getByRole('dialog');
+    await sheet.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${FIXTURE_PROJECT_ID}/schedule$`));
   });
 
@@ -357,21 +361,21 @@ test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
     await expect(todayLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/today`);
   });
 
-  test('BottomNav exposes project Settings on mobile and stays active on the settings page (issue #539)', async ({
+  test('BottomNav exposes project Settings on mobile via More and marks it active (issue #539)', async ({
     page,
   }) => {
-    // Mobile users need a path to project notification / access settings without
-    // the desktop tabs. The gear trails the row, lands on the settings page, and
-    // remains active across every settings section.
+    // Mobile users need a path to project settings without the desktop tabs.
+    // Post ADR-0196 (issue #1464) Settings lives in the More overflow sheet; it
+    // must stay reachable, land on the settings page, and — because the active
+    // surface is overflow-parked — the More button announces it as selected.
     const nav = page.getByRole('navigation', { name: 'View' });
-    const settingsLink = nav.getByRole('link', { name: 'Settings' });
-    await expect(settingsLink).toBeVisible();
+    await nav.getByRole('button', { name: /^More/ }).click();
+    const sheet = page.getByRole('dialog');
+    const settingsLink = sheet.getByRole('link', { name: 'Settings' });
     await expect(settingsLink).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/settings`);
     await settingsLink.click();
     await expect(page).toHaveURL(new RegExp(`/projects/${FIXTURE_PROJECT_ID}/settings`));
-    await expect(nav.getByRole('link', { name: 'Settings' })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    // The sheet closes on navigation; the More button reflects the active view.
+    await expect(nav.getByRole('button', { name: /More, Settings selected/i })).toBeVisible();
   });
 });
