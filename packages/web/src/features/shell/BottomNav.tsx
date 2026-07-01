@@ -57,9 +57,9 @@ export function BottomNav() {
   // the first and third; surfaceHiddenViews contributes `reports` when reporting
   // is off. `overview`/`settings` are standalone (never grouped/hideable), so
   // they are added explicitly. `resources` (Team) additionally needs Scheduler+.
-  const surfaceHidden = surfaceHiddenViews({
-    reporting: project.data?.effective_surface_visibility.reporting ?? true,
-  });
+  const surfaceHidden = surfaceHiddenViews(
+    project.data?.effective_surface_visibility ?? { reporting: true },
+  );
   const hidden = new Set([...(user?.hidden_views ?? []), ...surfaceHidden]);
   const grouped = groupedVisibleViewsForUser(methodology, hidden).flatMap((g) => g.visibleViews);
   const canSeeTeam = role !== null && role >= ROLE_SCHEDULER;
