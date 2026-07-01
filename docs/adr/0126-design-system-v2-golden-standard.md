@@ -3,6 +3,8 @@
 ## Status
 Accepted
 
+> Supersedes [ADR-0103](0103-design-system-v2-navy-sage-rebrand.md) (Brand v1.0 navy/sage token architecture).
+
 > **Source of truth.** The Claude Design handoff bundle `design_handoff_trueppm_v2`
 > (its `README.md`, `proto.css` `:root`, and the per-area specs `01-shell-and-ia.md`
 > … `05-interactions.md`) is the **golden standard** for the TruePPM web UI. Where

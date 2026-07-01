@@ -3,6 +3,8 @@
 ## Status
 Accepted (2026-05-31) — implemented in #144
 
+> Superseded by [ADR-0146](0146-single-page-scroll-spy-settings-ia.md) (single-page scroll-spy Settings IA, which replaced the multi-route Settings shell this ADR established).
+
 ## Context
 
 Issue #144 (milestone 0.1, OSS): The 5-role RBAC back-end (`ProjectMembership`,

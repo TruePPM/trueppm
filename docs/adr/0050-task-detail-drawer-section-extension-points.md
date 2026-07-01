@@ -2,6 +2,8 @@
 
 ## Status: Accepted
 
+> Partially supersedes [ADR-0032](0032-task-detail-drawer-estimates-history-baseline.md) (section extension points).
+
 ## Amendment (2026-06-11, #1046) — `userRole` in `DrawerSectionProps`
 
 `DrawerSectionProps` gains an **optional** `userRole?: number | null` field (the

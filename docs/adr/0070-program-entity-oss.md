@@ -3,6 +3,8 @@
 ## Status
 Accepted (2026-05-18) — implemented in #502 / !291. Prerequisite for ADR-0069 (BacklogItem / program backlog).
 
+> Partially supersedes [ADR-0030](0030-p3m-navigation-shell-split.md) (the "Program is Enterprise" classification note in the original context, corrected by this ADR).
+
 **Boundary clarification**: The data model is 1 Program → N Projects (`Project.program` is a single nullable FK). A user may belong to more than one `Program` row — identical to belonging to more than one `Project` — but this is navigation only. No shipped feature aggregates across programs (no portfolio health, no cross-program resource leveling, no comparative dashboards). Cross-program aggregation and PMO governance remain Enterprise.
 
 ## Context

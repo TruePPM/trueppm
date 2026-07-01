@@ -5,6 +5,8 @@ Accepted (2026-05-10) — Implements the web UI portion of ADR-0022. The API
 was implemented in #239; this ADR covers the frontend component, Reports tab,
 Sprint burndown migration, combined chart approach, and PDF export.
 
+> Partially supersedes [ADR-0022](0022-burn-charts.md) §2 (response shape).
+
 ## Context
 
 ADR-0022 made the core architecture decisions for burn charts (Recharts, html-to-image,

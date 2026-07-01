@@ -3,6 +3,8 @@
 ## Status
 Proposed
 
+> Superseded by [ADR-0126](0126-design-system-v2-golden-standard.md) (Design System v2 golden standard, which extended and resolved the brand token architecture).
+
 > **Source of truth.** The uploaded brand package — `packages/web/brand/`
 > (`brand-guidelines.html`, `tokens.css`, `tokens.json`,
 > `tailwind.config.snippet.js`, the 12 `assets/*.svg` builds, `README.md`) — is the
