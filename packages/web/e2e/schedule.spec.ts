@@ -224,12 +224,16 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
 
   test('zoom stepper steps the derived tier; Fit button is present (#351)', async ({ page }) => {
     const group = page.getByRole('group', { name: 'Timeline zoom' }).first();
+    // role="status" is now the debounced sr-only announcement (#793): the visible
+    // readout is aria-hidden and updates instantly, while this live region settles
+    // to the final tier ~250ms after the last change. `toHaveText` auto-retries,
+    // so it waits out the debounce.
     await expect(group.getByRole('status')).toHaveText('Week'); // default tier
 
     // Two geometric zoom-ins from week (12 px/day) cross into the day band.
     await group.getByRole('button', { name: 'Zoom in' }).click();
     await group.getByRole('button', { name: 'Zoom in' }).click();
-    await expect(group.getByRole('status')).toHaveText('Day');
+    await expect(group.getByRole('status')).toHaveText('Day'); // settled tier after debounce
 
     // Fit-to-project control exists (⌘0).
     await expect(page.getByRole('button', { name: 'Fit schedule to window' }).first()).toBeVisible();

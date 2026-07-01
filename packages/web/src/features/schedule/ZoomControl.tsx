@@ -1,19 +1,27 @@
+import { useEffect, useState } from 'react';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import {
+  deriveTier,
   MAX_PX_PER_DAY,
   MIN_PX_PER_DAY,
   ZOOM_STEP_FACTOR,
 } from './engine';
 
+/** Quiet window after the last pxPerDay change before the settled tier is announced (#793). */
+const TIER_ANNOUNCE_DEBOUNCE_MS = 250;
+
 /**
  * Continuous-zoom stepper for the Schedule timeline (#351, rule 126).
  *
  * Replaces the four segmented Day/Week/Month/Quarter buttons. `pxPerDay` is the
- * source of truth; the center readout shows the DERIVED tier (`zoomLevel`) and
- * is the active-tier indicator — a non-interactive `role="status"` live region,
- * not a pressed button. The `−` / `+` buttons step geometrically by ×/÷1.5,
- * clamped to the ZOOM_CONFIGS band, with viewport-center anchoring (the store
- * path → engine.setPxPerDay with no anchor → rule-80 center preservation).
+ * source of truth; the center readout shows the DERIVED tier (`zoomLevel`). The
+ * visible readout updates instantly but is `aria-hidden`; screen-reader users
+ * hear the tier through a separate debounced `sr-only role="status"` live region
+ * instead (#793), so a continuous pinch / Ctrl+wheel gesture announces only the
+ * settled tier rather than trailing a queue of stale Day→Week→Month utterances.
+ * The `−` / `+` buttons step geometrically by ×/÷1.5, clamped to the
+ * ZOOM_CONFIGS band, with viewport-center anchoring (the store path →
+ * engine.setPxPerDay with no anchor → rule-80 center preservation).
  *
  * The separate "Fit to project" button (⌘0) is styled like the Today button
  * (rule 82) and calls back to the engine via `onFit`.
@@ -39,6 +47,22 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
   const pxPerDay = useScheduleStore((s) => s.pxPerDay);
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const setPxPerDay = useScheduleStore((s) => s.setPxPerDay);
+
+  // Debounce the *announced* tier (the visible readout below stays instant).
+  // Continuous Ctrl+wheel / pinch zoom changes `pxPerDay` many times per second,
+  // and `deriveTier` flips Day→Week→Month with it. If the live region tracked
+  // every change, a single gesture would enqueue 3–4 stale polite utterances
+  // that the screen reader reads out after the user has already settled. By
+  // announcing only ~250 ms after the last change, SR users hear the final,
+  // settled tier once. The cleanup clears any pending timer so an unmount (or a
+  // fresh change) can never fire a stale announcement.
+  const [announcedTier, setAnnouncedTier] = useState(() => deriveTier(pxPerDay));
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnnouncedTier(deriveTier(pxPerDay));
+    }, TIER_ANNOUNCE_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [pxPerDay]);
 
   // Float tolerance so a value that landed exactly on the clamp (within rounding)
   // still disables the button rather than allowing a no-op press.
@@ -73,15 +97,21 @@ export function ZoomControl({ onFit }: ZoomControlProps) {
           {'−'}
         </button>
 
-        {/* TODO(#793): debounce this announcement — continuous Ctrl+wheel/pinch
-            zoom flips the tier many times/sec and queues stale polite utterances.
-            Visible text should stay instant; only the live announcement debounces. */}
+        {/* Visible readout: updates instantly on every pxPerDay change, but is
+            aria-hidden so it does not double-announce alongside the debounced
+            live region below. */}
         <span
-          role="status"
-          aria-live="polite"
+          aria-hidden="true"
           className="text-xs font-medium text-neutral-text-secondary min-w-[3.5rem] text-center select-none"
         >
           {tierLabel(zoomLevel)}
+        </span>
+
+        {/* Debounced announcement: carries only the settled tier to screen
+            readers (see the useEffect above), avoiding stale utterances during
+            continuous zoom. */}
+        <span className="sr-only" role="status" aria-live="polite">
+          {tierLabel(announcedTier)}
         </span>
 
         <button
