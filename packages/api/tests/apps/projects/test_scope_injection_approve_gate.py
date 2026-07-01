@@ -795,6 +795,11 @@ def test_accept_upserts_burndown_on_commit_via_refetched_sprint(
     """
     pending = _task(project, "Pending", sprint=sprint, story_points=3)
     sc = _inject(pending, sprint, owner)
+    # Creating a task in an ACTIVE sprint already stamps today's burn snapshot:
+    # Task.save() fires task_status_changed on INSERT (old None != new status),
+    # and the burndown receiver upserts today's row. Clear it so the post-accept
+    # assertion proves the on-commit re-fetch path — not setup — wrote the snapshot.
+    sprint.burn_snapshots.all().delete()
     assert sprint.burn_snapshots.count() == 0
 
     with (
