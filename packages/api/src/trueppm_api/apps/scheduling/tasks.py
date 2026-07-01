@@ -583,7 +583,6 @@ def _run_schedule(
             the bulk_update set.  None → always perform a full write.
     """
     from trueppm_scheduler.engine import expand_summary_dependencies, schedule
-    from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
@@ -595,7 +594,11 @@ def _run_schedule(
         Task,
         TaskType,
     )
-    from trueppm_api.apps.scheduling.services import apply_summary_rollups, build_sched_tasks
+    from trueppm_api.apps.scheduling.services import (
+        apply_summary_rollups,
+        build_sched_calendar,
+        build_sched_tasks,
+    )
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -608,7 +611,11 @@ def _run_schedule(
             Project.objects.select_related("calendar")
             # tasks__sprint: build_sched_tasks reads each task's sprint.start_date
             # for the ADR-0168 sprint-window floor; prefetch it to avoid an N+1.
-            .prefetch_related("tasks", "tasks__sprint", "tasks__predecessors")
+            # calendar__exceptions: build_sched_calendar reads every
+            # CalendarException row (#1491); prefetch to avoid an N+1.
+            .prefetch_related(
+                "tasks", "tasks__sprint", "tasks__predecessors", "calendar__exceptions"
+            )
             .get(pk=project_id)
         )
     except Project.DoesNotExist:
@@ -642,13 +649,11 @@ def _run_schedule(
 
     _update(25, "Building schedule model…")
 
-    # Build a trueppm_scheduler.Calendar from the project's calendar (or default).
-    cal = db_project.calendar
-    sched_calendar = SchedCalendar(
-        working_days=cal.working_days if cal else 31,
-        hours_per_day=cal.hours_per_day if cal else 8.0,
-        timezone=cal.timezone if cal else "UTC",
-    )
+    # Build a trueppm_scheduler.Calendar from the project's calendar (or default),
+    # including its CalendarException holiday/shutdown ranges (issue #1491) — via
+    # the shared converter so this call site can't drift from Monte Carlo/program
+    # scheduling the way the three inline constructions previously did.
+    sched_calendar = build_sched_calendar(db_project.calendar)
 
     # Convert Django Task objects to scheduler dataclasses through the shared
     # converter (ADR-0132), the single source of truth the Monte Carlo endpoint

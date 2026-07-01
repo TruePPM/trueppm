@@ -32,7 +32,7 @@ from django.db import IntegrityError, transaction
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
 if TYPE_CHECKING:
-    from trueppm_api.apps.projects.models import Sprint
+    from trueppm_api.apps.projects.models import Calendar, Sprint
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 logger = logging.getLogger(__name__)
@@ -451,6 +451,47 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
         )
         for t in db_tasks
     ]
+
+
+def build_sched_calendar(cal: Calendar | None) -> Any:
+    """Convert a Django ``Calendar`` (plus its ``CalendarException`` rows) into a
+    scheduler ``Calendar`` dataclass.
+
+    Single source of truth for the API → engine calendar mapping (issue #1491).
+    Every call site that feeds a project's calendar to the CPM pass or Monte
+    Carlo previously constructed ``trueppm_scheduler.models.Calendar`` inline
+    with only ``working_days``/``hours_per_day``/``timezone`` — never
+    ``exceptions`` — so a configured holiday or shutdown (``CalendarException``)
+    was silently scheduled straight through: early/late dates, float, the
+    critical path, and Monte Carlo P50/P80/P95 all ignored it. Routing every
+    caller through this one converter is what stops that field from being
+    forgotten again at a fourth call site.
+
+    Args:
+        cal: The project's Django ``Calendar``, or ``None`` if the project has
+            no calendar assigned (falls back to the Mon-Fri/8h/UTC default).
+            When not ``None``, callers should have prefetched ``cal.exceptions``
+            (e.g. via ``prefetch_related("calendar__exceptions")``) to avoid an
+            N+1 query per project.
+
+    Returns:
+        A ``trueppm_scheduler.models.Calendar`` with ``exceptions`` populated
+        from the calendar's ``CalendarException`` rows.
+    """
+    from trueppm_scheduler.models import Calendar as SchedCalendar
+    from trueppm_scheduler.models import DateRange
+
+    if cal is None:
+        return SchedCalendar(working_days=31, hours_per_day=8.0, timezone="UTC")
+
+    return SchedCalendar(
+        working_days=cal.working_days,
+        hours_per_day=cal.hours_per_day,
+        timezone=cal.timezone,
+        exceptions=[
+            DateRange(start=exc.exc_start, end=exc.exc_end) for exc in cal.exceptions.all()
+        ],
+    )
 
 
 # Reason codes for a flat (deterministic) Monte Carlo forecast, in precedence order.
