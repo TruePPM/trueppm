@@ -30636,6 +30636,18 @@
                         "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
                         "readOnly": true
                     },
+                    "my_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
+                        "readOnly": true
+                    },
+                    "my_role_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -30682,6 +30694,8 @@
                     "is_archived",
                     "lead_detail",
                     "member_count",
+                    "my_role",
+                    "my_role_label",
                     "name",
                     "open_task_count",
                     "overdue_count",
@@ -31180,6 +31194,18 @@
                         "description": "Incomplete tasks with ≤5 working days of float (#560) — the canonical\nat-risk definition (cf. ProjectViewSet.status_summary, program_rollup).\nAnnotated only on the program-projects branch. ``None`` elsewhere.",
                         "readOnly": true
                     },
+                    "my_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Caller's role ordinal on this project (ADR-0186 §F, #504).\n\nBacked by the viewset's ``_my_role`` annotation (a Subquery over\nProjectMembership) so it costs one scalar per row, never an N+1. Falls\nback to ``None`` when the annotation is absent — e.g. a freshly-created\ninstance serialized before it is re-fetched through the annotated\nqueryset (defensive only). Mirrors ``ProgramSerializer.get_my_role``.",
+                        "readOnly": true
+                    },
+                    "my_role_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Human-readable label for the caller's role (e.g. \"Project Manager\").\n\n``None`` when the caller has no annotated role. Mirrors\n``ProgramSerializer.get_my_role_label``.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -31263,6 +31289,8 @@
                     "lead_detail",
                     "member_count",
                     "my_facets",
+                    "my_role",
+                    "my_role_label",
                     "name",
                     "open_task_count",
                     "overdue_count",

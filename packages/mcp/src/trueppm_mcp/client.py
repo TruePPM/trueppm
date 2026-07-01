@@ -12,6 +12,7 @@ The bearer token is set as a request header and is never logged.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import TracebackType
 from typing import Any
 
@@ -86,6 +87,38 @@ class TruePPMClient:
             )
         result: dict[str, Any] = response.json()
         return result
+
+    async def get(self, path: str, params: Mapping[str, Any] | None = None) -> Any:
+        """Issue an authenticated ``GET`` and return the decoded JSON body.
+
+        Every read tool routes through here (ADR-0186 §D/§I): the request is a
+        plain ``GET`` against ``/api/v1/<path>`` carrying the bearer token, so
+        authorization is enforced once, at the API layer, exactly as for the web
+        client. This method holds no privileged path.
+
+        Args:
+            path: Path relative to the ``/api/v1/`` base (e.g. ``"projects/"`` or
+                ``"projects/{id}/forecast/"``). No leading slash.
+            params: Optional query parameters. Callers omit ``None`` values; a
+                filter left unset is simply not sent.
+
+        Returns:
+            The decoded JSON body — a ``dict`` for object endpoints, a ``list``
+            or paginated ``dict`` for collection endpoints.
+
+        Raises:
+            AuthError: On HTTP 401 — the token is missing, malformed, or revoked.
+                The message never contains token material.
+            ApiError: On any other error status (404 for a resource the caller
+                cannot read, 5xx, etc.).
+        """
+        response = await self._client.get(path, params=dict(params) if params else None)
+        if response.status_code == httpx.codes.UNAUTHORIZED:
+            # No token material in the message — only the fact of rejection.
+            raise AuthError("The TruePPM API rejected the configured token (HTTP 401).")
+        if response.is_error:
+            raise ApiError(f"Unexpected response from {path}: HTTP {response.status_code}.")
+        return response.json()
 
     async def aclose(self) -> None:
         """Close the underlying connection pool."""

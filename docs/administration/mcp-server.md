@@ -125,12 +125,26 @@ docker run --rm -p 8000:8000 \
 
 ## What it can answer
 
-This release is the **server scaffold**: it boots, authenticates, and registers
-its tool list. The read-tool surface — projects, tasks, board state, schedule
-summary, risks, sprints, Monte Carlo forecast, My Work, and single-program
-health — registers in a follow-up, along with the dedicated `mcp:read` token
-scope that marks a token read-only at the API layer. Each tool maps to one
-existing REST endpoint and returns only what your role permits.
+The read-tool surface ships in 0.4: **14 read-only tools**, each mapping to one
+existing REST endpoint and returning only what your role permits. Results are
+compacted for an LLM context budget (empty fields omitted, long free-text
+truncated), and project/program results carry a `caller_role` field passed
+straight through from the API.
+
+- **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
+  `get_program_health` (single-program only; cross-program rollups are Enterprise).
+- **Tasks & work** — `list_tasks` (filterable by status, assignee, sprint,
+  criticality, type, and `updated_after`), `get_task`, `get_board_state`,
+  `list_my_work`.
+- **Schedule & risk** — `get_schedule_summary` (CPM finish, P50/P80/P95, SPI,
+  critical-task count), `get_monte_carlo_forecast` (latest persisted run;
+  read-only, never triggers a new simulation), `list_risks`.
+- **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only).
+- **Identity** — `whoami` (connection check).
+
+The dedicated `mcp:read` token scope that marks a token read-only at the API
+layer lands alongside. For the full tool reference and example prompts, see the
+[MCP server feature page](../features/mcp-server.md).
 
 ## Security notes
 
