@@ -147,6 +147,15 @@ export interface Task {
   estimateStatus?: 'pending' | 'accepted' | null;
   /** Total float in working days from CPM; negative = already late. Absent until CPM runs. */
   totalFloat?: number | null;
+  /**
+   * ISO date string — CPM late finish from the last server pass. Absent until
+   * CPM runs. Surfaced (issue #1493) so the in-browser drag-preview worker can
+   * compute the "CP-flip" critical-path badge against real float instead of a
+   * `baselineFinish`/`finish` proxy — do not use this for anything but that
+   * preview; the server `isCritical` flag remains the source of truth for the
+   * committed schedule.
+   */
+  lateFinish?: string;
   /** Computed readiness state for board cards (issue #179). */
   readiness?: TaskReadiness;
   /** Count of live incoming dependency edges (board batch 3, ADR-0035). */
@@ -322,7 +331,12 @@ export interface TaskLink {
   sourceId: string;
   targetId: string;
   type: LinkType;
-  /** Lag in working days (positive = delay, negative = lead). */
+  /**
+   * Lag in calendar days (positive = delay, negative = lead) — mirrors
+   * `Dependency.lag` server-side. Applied as a raw calendar-day offset and
+   * then snapped to the nearest working day at the constraint boundary, not
+   * a working-day count itself (issue #1493 fixed a stale doc comment here).
+   */
   lag: number;
   isCritical: boolean;
   /**

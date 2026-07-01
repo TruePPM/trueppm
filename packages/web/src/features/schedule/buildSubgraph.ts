@@ -53,6 +53,7 @@ export function buildSubgraph(
         sourceId: link.sourceId,
         targetId: link.targetId,
         type: link.type,
+        lag: link.lag,
       });
     }
   }
@@ -62,9 +63,15 @@ export function buildSubgraph(
   for (const id of visited) {
     const t = taskIndex.get(id);
     if (!t) continue;
-    // lateFinish approximation: use baselineFinish if available (server CPM result),
-    // else fall back to finish (treats task as having zero total float).
-    const lateFinish = t.baselineFinish ?? t.finish;
+    // lateFinish: the real CPM late_finish from the last server run (issue
+    // #1493). `baselineFinish` is a *baseline plan snapshot* — a semantically
+    // different field — and using it (or `finish`) as a late_finish stand-in
+    // made the CP-flip badge mis-fire (any slip past the baseline/current
+    // finish read as "critical" regardless of actual float). Falls back to
+    // `finish` only when the server hasn't populated late_finish yet (e.g.
+    // before the first CPM run) — a conservative "assume zero float" default
+    // that never falsely announces a slip as critical from an unset field.
+    const lateFinish = t.lateFinish ?? t.finish;
     cpmTasks.push({
       id: t.id,
       earlyStart: t.start,

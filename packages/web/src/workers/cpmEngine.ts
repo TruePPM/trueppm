@@ -5,8 +5,14 @@
  * owns the full-network CPM; this engine produces a fast local preview.
  *
  * Supports all four dependency types: FS, SS, FF, SF.
- * All dates are calendar days (no working-calendar awareness) — matching
- * the server's simplified CPM for the preview use case.
+ *
+ * Calendar fidelity (issue #1493): dates step on a fixed Mon–Fri working week
+ * (see `isWorkingDay` below), matching the server's default calendar. Custom
+ * calendars and `CalendarException` holidays are not modeled — the web client
+ * has no access to that data at drag time (see ADR-0120) — so this is a
+ * best-effort estimate, not the source of truth. The post-commit server CPM
+ * run reconciles the authoritative dates. This mirrors the same fidelity
+ * tradeoff already accepted for the resize-commit preview (issue #951).
  */
 
 import type {
@@ -27,7 +33,14 @@ interface TaskState {
   earlyFinishMs: number;
   /** lateFinish from the last server CPM, in ms — for critical-path detection. */
   lateFinishMs: number;
-  durationMs: number;
+  /**
+   * Working-day duration (mirrors `Task.duration` server-side, which is
+   * "duration in working days", not calendar days). Recomputing earlyFinish
+   * from this on every shift — rather than reusing a fixed calendar-ms span —
+   * is what makes the preview calendar-aware (issue #1493): a task's finish
+   * date must re-skip weekends whenever its start moves into a new window.
+   */
+  durationDays: number;
   isMilestone: boolean;
   name: string;
   /** Original earlyFinish before this recalc (baseline for deltaDays). */
@@ -42,6 +55,76 @@ function toMs(iso: string): number {
 
 function toIso(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Calendar-aware date stepping (Mon–Fri fixed working week — see file header)
+// ---------------------------------------------------------------------------
+
+function isWorkingDay(ms: number): boolean {
+  const dow = new Date(ms).getUTCDay(); // 0 = Sun … 6 = Sat
+  return dow !== 0 && dow !== 6;
+}
+
+/** Return `ms` if it falls on a working day, otherwise the next working day. */
+function nextWorkingDay(ms: number): number {
+  let cur = ms;
+  while (!isWorkingDay(cur)) cur += MS_PER_DAY;
+  return cur;
+}
+
+/**
+ * Step one day forward or backward from `ms` until landing on a working day.
+ * Unlike {@link nextWorkingDay}, this always advances at least one day — the
+ * primitive for walking off a known working day to the next one (duration
+ * expansion), mirroring the server engine's `_scan_for_working_day`.
+ */
+function scanForWorkingDay(ms: number, forward: boolean): number {
+  let cur = ms + (forward ? MS_PER_DAY : -MS_PER_DAY);
+  while (!isWorkingDay(cur)) cur += forward ? MS_PER_DAY : -MS_PER_DAY;
+  return cur;
+}
+
+/**
+ * Last working day of a task given its start and working-day duration.
+ * A duration of 0 is a milestone: returns the start day unchanged.
+ * Mirrors the server engine's `_finish_from_start`.
+ */
+function finishFromStart(startMs: number, durationDays: number): number {
+  if (durationDays <= 0) return startMs;
+  let remaining = durationDays - 1;
+  let cur = startMs;
+  while (remaining > 0) {
+    cur = scanForWorkingDay(cur, true);
+    remaining -= 1;
+  }
+  return cur;
+}
+
+/**
+ * First working day of a task given its finish and working-day duration.
+ * Inverse of {@link finishFromStart} — used to translate an FF/SF
+ * finish-side constraint back into an equivalent start-side constraint.
+ * Mirrors the server engine's `_start_from_finish`.
+ */
+function startFromFinish(finishMs: number, durationDays: number): number {
+  if (durationDays <= 0) return finishMs;
+  let remaining = durationDays - 1;
+  let cur = finishMs;
+  while (remaining > 0) {
+    cur = scanForWorkingDay(cur, false);
+    remaining -= 1;
+  }
+  return cur;
+}
+
+/**
+ * Advance `ms` by `lagDays` calendar days, then snap to the next working day.
+ * Mirrors the server engine's `_advance_calendar_days`. `lagDays` may be
+ * negative (a "lead").
+ */
+function advanceCalendarDays(ms: number, lagDays: number): number {
+  return nextWorkingDay(ms + lagDays * MS_PER_DAY);
 }
 
 /**
@@ -109,30 +192,42 @@ function topologicalSort(
 /**
  * Compute the earliest possible earlyStart for a task given one predecessor edge.
  * Returns the minimum earlyStart implied by this edge (take the max across all edges).
+ *
+ * Lag is applied as calendar days then snapped to a working day, and FF/SF
+ * (finish-side) constraints are translated to an equivalent start-side value
+ * via the target's own working-day duration — the same shape the server
+ * engine's forward pass uses (issue #1493: lag was previously dropped
+ * entirely and every step was calendar-blind).
  */
 function constraintFromEdge(
   edge: CpmEdge,
   source: TaskState,
   target: TaskState,
 ): number {
+  const lag = edge.lag;
   switch (edge.type) {
     case 'FS':
-      // Target starts after source finishes.
-      return source.earlyFinishMs + MS_PER_DAY;
+      // Target cannot start until the day after source finishes, plus lag,
+      // snapped to the next working day.
+      return nextWorkingDay(source.earlyFinishMs + MS_PER_DAY + lag * MS_PER_DAY);
 
     case 'SS':
-      // Target starts no earlier than source starts.
-      return source.earlyStartMs;
+      // Target cannot start before source starts + lag.
+      return advanceCalendarDays(source.earlyStartMs, lag);
 
-    case 'FF':
-      // Target finishes no earlier than source finishes →
-      // earlyStart = source.earlyFinish - target.duration + 1 day
-      return source.earlyFinishMs - target.durationMs + MS_PER_DAY;
+    case 'FF': {
+      // Target cannot finish before source finishes + lag; translate that
+      // finish-side constraint into the equivalent earlyStart.
+      const efConstraint = advanceCalendarDays(source.earlyFinishMs, lag);
+      return startFromFinish(efConstraint, target.durationDays);
+    }
 
-    case 'SF':
-      // Target finishes no earlier than source starts →
-      // earlyStart = source.earlyStart - target.duration + 1 day
-      return source.earlyStartMs - target.durationMs + MS_PER_DAY;
+    case 'SF': {
+      // Target cannot finish before source starts + lag; translate that
+      // finish-side constraint into the equivalent earlyStart.
+      const efConstraint = advanceCalendarDays(source.earlyStartMs, lag);
+      return startFromFinish(efConstraint, target.durationDays);
+    }
   }
 }
 
@@ -163,8 +258,9 @@ export function runCpmForwardPass(
       earlyStartMs,
       earlyFinishMs,
       lateFinishMs: toMs(t.lateFinish),
-      // Duration in ms = finish - start + 1 day (inclusive)
-      durationMs: earlyFinishMs - earlyStartMs + MS_PER_DAY,
+      // Working-day duration, not the calendar-ms span of the current dates
+      // (see TaskState.durationDays doc — this is the calendar-blindness fix).
+      durationDays: t.durationDays,
       isMilestone: t.isMilestone,
       name: t.name,
       baselineFinishMs: earlyFinishMs,
@@ -174,9 +270,12 @@ export function runCpmForwardPass(
   // --- Override dragged task start ---
   const dragged = stateMap.get(draggedTaskId);
   if (dragged) {
-    const newStartMs = toMs(newStartIso);
+    // Snap the drop target to a working day (mirrors the server's SNET
+    // handling of planned_start), then recompute finish by walking the
+    // task's working-day duration forward.
+    const newStartMs = nextWorkingDay(toMs(newStartIso));
     dragged.earlyStartMs = newStartMs;
-    dragged.earlyFinishMs = newStartMs + dragged.durationMs - MS_PER_DAY;
+    dragged.earlyFinishMs = finishFromStart(newStartMs, dragged.durationDays);
   }
 
   // --- Topological sort ---
@@ -202,7 +301,7 @@ export function runCpmForwardPass(
 
     if (maxEarlyStart > task.earlyStartMs) {
       task.earlyStartMs = maxEarlyStart;
-      task.earlyFinishMs = maxEarlyStart + task.durationMs - MS_PER_DAY;
+      task.earlyFinishMs = finishFromStart(maxEarlyStart, task.durationDays);
     }
   }
 
@@ -215,7 +314,11 @@ export function runCpmForwardPass(
     const deltaDays = Math.round(
       (task.earlyFinishMs - task.baselineFinishMs) / MS_PER_DAY,
     );
-    const isCritical = task.earlyFinishMs > task.lateFinishMs;
+    // Real float check (issue #1493): critical ⇔ total float (lateFinish -
+    // earlyFinish) has hit zero or gone negative. `>=` (not `>`) so a task
+    // that lands exactly on its late finish — the textbook zero-float
+    // definition of "on the critical path" — is flagged, not just an overrun.
+    const isCritical = task.earlyFinishMs >= task.lateFinishMs;
 
     results.push({
       taskId: task.id,

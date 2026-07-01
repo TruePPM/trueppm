@@ -75,7 +75,10 @@ describe('buildSubgraph', () => {
     const t = task('A', {
       start: '2025-03-01',
       finish: '2025-03-05',
+      // baselineFinish is a distinct (baseline-plan) field — it must NOT be
+      // read as lateFinish (issue #1493: this was the wrong-proxy bug).
       baselineFinish: '2025-03-04',
+      lateFinish: '2025-03-10',
       isMilestone: true,
       name: 'Launch',
     });
@@ -83,15 +86,36 @@ describe('buildSubgraph', () => {
     const ct = subTasks[0];
     expect(ct.earlyStart).toBe('2025-03-01');
     expect(ct.earlyFinish).toBe('2025-03-05');
-    expect(ct.lateFinish).toBe('2025-03-04'); // uses baselineFinish as lateFinish approximation
+    expect(ct.lateFinish).toBe('2025-03-10'); // real CPM late_finish, not baselineFinish
     expect(ct.isMilestone).toBe(true);
     expect(ct.name).toBe('Launch');
   });
 
-  it('falls back to finish when baselineFinish is absent', () => {
-    const t = task('A', { finish: '2025-03-05' }); // no baselineFinish
+  it('does not fall back to baselineFinish when lateFinish is absent (issue #1493)', () => {
+    // Before the fix this would have returned '2025-03-04' (baselineFinish) —
+    // a baseline-plan snapshot, not a CPM late_finish, and a materially
+    // different date that made the CP-flip badge mis-fire.
+    const t = task('A', {
+      finish: '2025-03-05',
+      baselineFinish: '2025-03-04',
+      lateFinish: undefined,
+    });
+    const { tasks: subTasks } = buildSubgraph('A', [t], []);
+    expect(subTasks[0].lateFinish).toBe('2025-03-05'); // falls back to finish, not baselineFinish
+  });
+
+  it('falls back to finish when lateFinish is absent (pre-CPM-run task)', () => {
+    const t = task('A', { finish: '2025-03-05', lateFinish: undefined });
     const { tasks: subTasks } = buildSubgraph('A', [t], []);
     expect(subTasks[0].lateFinish).toBe('2025-03-05');
+  });
+
+  it('threads lag through onto the CpmEdge (issue #1493)', () => {
+    const tasks = [task('A'), task('B')];
+    const links = [{ ...link('l1', 'A', 'B'), lag: 3 }];
+    const { edges } = buildSubgraph('A', tasks, links);
+    expect(edges).toHaveLength(1);
+    expect(edges[0].lag).toBe(3);
   });
 
   it('handles cycles — does not loop infinitely when two tasks point to each other', () => {

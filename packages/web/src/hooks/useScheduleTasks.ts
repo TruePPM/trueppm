@@ -54,6 +54,10 @@ export interface ApiTask {
   dwell_days?: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  // CPM late finish (issue #1493) — surfaced so the drag-preview worker can
+  // compute the CP-flip badge against real float instead of a baseline/finish
+  // proxy. Null until the first CPM run.
+  late_finish: string | null;
   /** Freshness signal (ADR-0143, issue 740) — annotated on the list/board queryset. */
   latest_note_at?: string | null;
   optimistic_duration: number | null;
@@ -272,6 +276,7 @@ export function mapTask(t: ApiTask): Task {
     dwellDays: t.dwell_days ?? null,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
+    lateFinish: t.late_finish ?? undefined,
     latestNoteAt: t.latest_note_at ?? null,
     assignees: (t.assignments ?? []).map(
       (a): TaskAssignee => ({
@@ -374,10 +379,11 @@ export function mapTask(t: ApiTask): Task {
 /**
  * One task's CPM date delta, as carried in the batched `task_dates_updated`
  * WebSocket event (ADR-0091). Field names mirror the API serializer so the
- * payload can be spliced straight into the tasks cache. `late_start`,
- * `late_finish`, and `free_float` are part of the wire contract (and used by
- * mobile) but are not surfaced on the web {@link Task}, so the web splice
- * ignores them.
+ * payload can be spliced straight into the tasks cache. `late_start` and
+ * `free_float` are part of the wire contract (and used by mobile) but are
+ * not surfaced on the web {@link Task}, so the web splice ignores them.
+ * `late_finish` **is** surfaced (issue #1493, drag-preview CP-flip fix) — see
+ * {@link applyTaskDatesDelta}.
  */
 export interface TaskDatesDelta {
   id: string;
@@ -418,6 +424,7 @@ export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task
     duration: displayDuration,
     isCritical: delta.is_critical,
     totalFloat: delta.total_float,
+    lateFinish: delta.late_finish ?? undefined,
     plannedStart: delta.planned_start,
   };
 }

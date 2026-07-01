@@ -30,7 +30,7 @@ function buildFsChain(size: number): { tasks: CpmTask[]; edges: CpmEdge[] } {
       isMilestone: false,
       name: `Task ${i}`,
     });
-    if (i > 0) edges.push({ sourceId: `t${i - 1}`, targetId: `t${i}`, type: 'FS' });
+    if (i > 0) edges.push({ sourceId: `t${i - 1}`, targetId: `t${i}`, type: 'FS', lag: 0 });
   }
   return { tasks, edges };
 }
