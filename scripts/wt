@@ -3,13 +3,29 @@
 #
 # Usage:
 #   scripts/wt new <issue|branch-name>    Create a worktree + branch off origin/main.
+#                                         Checks out the issue (status::wip label +
+#                                         comment) so parallel agents don't grab it;
+#                                         refuses an already-checked-out issue unless
+#                                         --force is passed to take it over.
+#   scripts/wt claim <issue> [--force]    Check out an issue WITHOUT creating a
+#                                         worktree yet (you picked it up but haven't
+#                                         started). Same lock as `new`.
+#   scripts/wt release <issue>            Release an issue check-out (clear the label).
 #   scripts/wt list                       List active worktrees and WIP count.
-#   scripts/wt remove <issue|name>        Remove a worktree by issue # or name.
+#   scripts/wt remove <issue|name>        Remove a worktree by issue # or name; releases
+#                                         its issue check-out.
 #   scripts/wt prune                      Remove worktrees whose branches were merged
 #                                         to main and deleted on origin. Refuses to
 #                                         remove worktrees with uncommitted work.
+#                                         Releases each pruned worktree's check-out.
 #   scripts/wt doctor                     Verify symlinks and docker-stack reuse.
 #   scripts/wt help                       Show this help.
+#
+# Issue check-out lock: because all agents share one GitLab identity, an assignee
+# or a claim-comment does not stop a parallel agent from grabbing the same issue.
+# `wt new`/`wt claim` apply a `status::wip` scoped label plus a check-out comment
+# as the shared signal, and refuse an issue that already carries it. The lock is
+# best-effort: if glab is unavailable the worktree is still created (with a warning).
 #
 # Worktrees live at $TRUEPPM_WT_BASE (default: ../trueppm-wt relative to the
 # main checkout). Each worktree symlinks packages/api/.venv and packages/web/node_modules
@@ -38,6 +54,9 @@ WT_BASE="${TRUEPPM_WT_BASE:-${REPO_ROOT%/*}/trueppm-wt}"
 WT_CAP="${TRUEPPM_WT_CAP:-5}"
 WT_WARN="${TRUEPPM_WT_WARN:-4}"
 COMPOSE_PROJECT_NAME_DEFAULT="trueppm"
+# Scoped label used as the issue check-out lock. Scoped (key `status::`) so it is
+# mutually exclusive with any other `status::*` label GitLab already carries.
+WT_LOCK_LABEL="${TRUEPPM_WT_LOCK_LABEL:-status::wip}"
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -129,16 +148,110 @@ find_worktree() {
 }
 
 # ---------------------------------------------------------------------------
+# Issue check-out lock
+# ---------------------------------------------------------------------------
+#
+# Multi-agent collision guard. All agents share one GitLab identity, so an
+# assignee or a claim-comment does not stop a parallel agent from grabbing the
+# same issue. This lock uses the `status::wip` scoped label plus a check-out
+# comment as the shared signal: `wt new`/`wt claim` refuse an already-claimed
+# issue, and `wt remove`/`wt prune`/`wt release` clear it. All lock operations
+# are best-effort — every one degrades to a warning (never a hard failure) when
+# glab is missing or the API call fails, so worktree management never breaks on
+# a network blip.
+
+lock_available() { command -v glab >/dev/null 2>&1; }
+
+# Extract the issue number encoded in a branch name (`feat/1462-foo` → 1462), or
+# empty for a branch with no leading issue number (`chore/some-slug`). This is the
+# single source for "which issue does this worktree lock", used by new/remove/prune.
+issue_from_branch() {
+  local branch="$1"
+  if [[ "$branch" =~ ^[a-z]+/([0-9]+)- ]]; then printf "%s" "${BASH_REMATCH[1]}"; fi
+}
+
+# Print "locked" if issue $1 currently carries the lock label, else "".
+issue_is_locked() {
+  glab issue view "$1" --output json 2>/dev/null \
+    | python3 -c "import json,sys; d=json.load(sys.stdin); print('locked' if '${WT_LOCK_LABEL}' in (d.get('labels') or []) else '')" \
+    2>/dev/null || true
+}
+
+# Print the body of the most recent check-out comment on issue $1 (best effort;
+# empty if none found or the comment JSON shape isn't recognized).
+last_checkout_note() {
+  glab issue view "$1" --comments --output json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+notes=d.get('Notes') or d.get('notes') or []
+hits=[(n.get('body') or '') for n in notes if '🔒 checked out' in (n.get('body') or '')]
+print(hits[-1] if hits else '')
+" 2>/dev/null || true
+}
+
+# Create the scoped lock label if the project doesn't have it yet (idempotent).
+ensure_lock_label() {
+  glab label list 2>/dev/null | grep -qF "$WT_LOCK_LABEL" && return 0
+  glab label create -n "$WT_LOCK_LABEL" -c "#ec9a29" \
+    -d "Checked out by an agent/worktree (scripts/wt) — do not grab in parallel" \
+    >/dev/null 2>&1 || true
+}
+
+# Apply the lock to issue $1: label + check-out comment recording branch/worktree.
+apply_lock() {
+  local issue="$1" branch="$2" path="$3" ts
+  ensure_lock_label
+  glab issue update "$issue" --label "$WT_LOCK_LABEL" >/dev/null 2>&1 \
+    || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check glab auth)"
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  glab issue note "$issue" \
+    -m "🔒 checked out ${ts} · branch \`${branch}\` · worktree \`${path}\`" \
+    >/dev/null 2>&1 || warn "could not post check-out comment to #$issue"
+}
+
+# Release the lock on issue $1: remove the label and post a release comment.
+clear_lock() {
+  local issue="$1" branch="$2" ts
+  glab issue update "$issue" --unlabel "$WT_LOCK_LABEL" >/dev/null 2>&1 || true
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  glab issue note "$issue" -m "🔓 released ${ts} · branch \`${branch}\`" >/dev/null 2>&1 || true
+}
+
+# Guard used by new/claim: die if $1 is already checked out and --force wasn't given.
+# $2 is the force flag (non-empty = force). No-op when glab is unavailable.
+assert_claimable() {
+  local issue="$1" force="$2" note
+  lock_available || { warn "glab not available — skipping issue check-out lock for #$issue"; return 0; }
+  if [[ "$(issue_is_locked "$issue")" == "locked" && -z "$force" ]]; then
+    err "issue #$issue is already checked out (label '$WT_LOCK_LABEL')."
+    note="$(last_checkout_note "$issue")"
+    [[ -n "$note" ]] && dim "  $note"
+    die "another agent/worktree is likely on it. Re-run with --force to take it over."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
 
 cmd_new() {
-  [[ $# -ge 1 ]] || die "usage: wt new <issue|branch-name>"
-  local input="$1"
+  local input="" force=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force="1"; shift ;;
+      *)       [[ -z "$input" ]] && input="$1"; shift ;;
+    esac
+  done
+  [[ -n "$input" ]] || die "usage: wt new <issue|branch-name> [--force]"
   local branch
   branch="$(derive_branch_name "$input")"
   local short_name="${branch##*/}"
   local target_path="${WT_BASE}/${short_name}"
+  local issue
+  issue="$(issue_from_branch "$branch")"
 
   # WIP cap check.
   local count
@@ -149,6 +262,10 @@ cmd_new() {
   if (( count >= WT_WARN )); then
     warn "${count}/${WT_CAP} active worktrees — you're approaching the WIP cap"
   fi
+
+  # Issue check-out lock: refuse fast (before touching the filesystem) if a
+  # parallel agent already holds this issue, unless the caller forces a takeover.
+  [[ -n "$issue" ]] && assert_claimable "$issue" "$force"
 
   # Fetch latest origin/main so the new branch is up-to-date.
   git -C "$REPO_ROOT" fetch origin main --quiet
@@ -191,6 +308,16 @@ EOF
   # common gitdir, not the per-worktree subdir). The dirty check in `wt remove`
   # filters out our auto-created files instead.
 
+  # Check out the issue now that the worktree exists (best-effort GitLab lock).
+  if [[ -n "$issue" ]] && lock_available; then
+    apply_lock "$issue" "$branch" "$target_path"
+    if [[ -n "$force" ]]; then
+      ok "took over check-out of #$issue (forced; '$WT_LOCK_LABEL' applied)"
+    else
+      ok "checked out #$issue ('$WT_LOCK_LABEL' applied)"
+    fi
+  fi
+
   ok "created worktree at $target_path on branch $branch"
   say ""
   dim "  cd $target_path"
@@ -231,6 +358,11 @@ cmd_remove() {
   path="$(find_worktree "$needle")"
   [[ -n "$path" ]] || die "no worktree matches '$needle'"
 
+  # Capture the issue before we remove the tree, so we can release its check-out.
+  local rm_branch rm_issue
+  rm_branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  rm_issue="$(issue_from_branch "$rm_branch")"
+
   local force="${2:-}"
   if [[ -d "$path" ]]; then
     # Tracked changes (staged or unstaged) — never auto-removable.
@@ -258,6 +390,12 @@ cmd_remove() {
   # "untracked" from git's POV and would otherwise block removal.
   git -C "$REPO_ROOT" worktree remove --force "$path"
   ok "removed worktree $path"
+
+  # Release the issue check-out (best-effort).
+  if [[ -n "$rm_issue" ]] && lock_available; then
+    clear_lock "$rm_issue" "$rm_branch"
+    ok "released check-out of #$rm_issue"
+  fi
 }
 
 cmd_prune() {
@@ -326,6 +464,10 @@ cmd_prune() {
 
     git -C "$REPO_ROOT" worktree remove --force "$path"
     ok "  $branch: removed (merged to main, remote gone)"
+    # Release the issue check-out for the pruned branch (best-effort).
+    local prune_issue
+    prune_issue="$(issue_from_branch "$branch")"
+    [[ -n "$prune_issue" ]] && lock_available && clear_lock "$prune_issue" "$branch"
     pruned=$((pruned + 1))
   done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
 
@@ -386,6 +528,38 @@ cmd_doctor() {
   say "WIP: $(wt_count)/$WT_CAP active worktrees"
 }
 
+# Check out an issue without creating a worktree — for "I picked it up but
+# haven't started" so a parallel agent sees the claim immediately.
+cmd_claim() {
+  local issue="" force=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force="1"; shift ;;
+      *)       [[ -z "$issue" ]] && issue="$1"; shift ;;
+    esac
+  done
+  [[ "$issue" =~ ^[0-9]+$ ]] || die "usage: wt claim <issue-number> [--force]"
+  lock_available || die "glab not available — cannot claim #$issue"
+  assert_claimable "$issue" "$force"
+  apply_lock "$issue" "(not started)" "(claim only — no worktree yet)"
+  if [[ -n "$force" ]]; then
+    ok "took over check-out of #$issue (forced; no worktree yet)"
+  else
+    ok "checked out #$issue ('$WT_LOCK_LABEL' applied; no worktree yet)"
+  fi
+}
+
+# Manually release an issue check-out (e.g. a `claim` you never turned into a
+# worktree, or a stale lock from a crashed session).
+cmd_release() {
+  [[ $# -ge 1 ]] || die "usage: wt release <issue-number>"
+  local issue="$1"
+  [[ "$issue" =~ ^[0-9]+$ ]] || die "release needs a numeric issue number"
+  lock_available || die "glab not available — cannot release #$issue"
+  clear_lock "$issue" "(manual release)"
+  ok "released check-out of #$issue"
+}
+
 cmd_help() {
   sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
 }
@@ -396,6 +570,8 @@ cmd_help() {
 
 case "${1:-help}" in
   new)     shift; cmd_new "$@" ;;
+  claim)   shift; cmd_claim "$@" ;;
+  release) shift; cmd_release "$@" ;;
   list|ls) cmd_list ;;
   remove|rm) shift; cmd_remove "$@" ;;
   prune)   shift; cmd_prune "$@" ;;
