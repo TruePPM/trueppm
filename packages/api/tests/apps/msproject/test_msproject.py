@@ -1416,6 +1416,30 @@ class TestImportDrain:
         assert req.celery_task_id == "drain-task-id"
         assert req.dispatched_at is not None
 
+    def test_drain_preserves_payload_on_dispatch(self, project: Project) -> None:
+        """#789: the base64 payload is cleared only on terminal DONE/DEAD.
+
+        A PENDING row driven to DISPATCHED by the drain must keep its payload so
+        an orphan-recovery re-dispatch can re-read it — clearing it non-terminally
+        would break the retry path.
+        """
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        mock_result = MagicMock()
+        mock_result.id = "drain-task-id"
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+            return_value=mock_result,
+        ):
+            self._drain()
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DISPATCHED
+        assert req.file_content_b64 == "dGVzdA=="
+
     def test_drain_broker_failure_leaves_row_pending(self, project: Project) -> None:
         from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
@@ -1536,6 +1560,9 @@ class TestImportTaskMarksRowDone:
 
         req.refresh_from_db()
         assert req.status == ImportRequestStatus.DONE
+        # #789: the ~67 MB base64 payload is only needed for pre-terminal retry;
+        # reaching DONE must null it instead of holding it until the purge.
+        assert req.file_content_b64 == ""
 
     def test_task_reject_on_worker_lost(self) -> None:
         from trueppm_api.apps.msproject.tasks import import_msproject
@@ -1790,6 +1817,8 @@ class TestCreateFromImportTaskBehavior:
         req.refresh_from_db()
         # DEAD is terminal — the orphan drain must not re-dispatch a bad file.
         assert req.status == ImportRequestStatus.DEAD
+        # #789: a DEAD row can never be retried, so its payload is cleared too.
+        assert req.file_content_b64 == ""
 
 
 # ---------------------------------------------------------------------------
