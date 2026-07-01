@@ -373,8 +373,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       />
                     </button>
                     {/* Program identity is a SQUARE (rule 158) — this is a
-                        cross-program list, so each row carries the accent square. */}
-                    <ProgramIdentitySquare program={prog} size="sm" />
+                        cross-program list, so each row carries the accent square.
+                        The xs-label variant labels unset-color programs with their
+                        initials so uncolored programs stay distinguishable in this
+                        dense scope-picker list (issue 1051). */}
+                    <ProgramIdentitySquare program={prog} size="xs-label" />
                     <button
                       type="button"
                       onClick={() => go(`/programs/${prog.id}/overview`)}
