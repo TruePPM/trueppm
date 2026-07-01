@@ -6,7 +6,7 @@
  * BoardView.test.tsx; this file exercises the toolbar in isolation with mocked
  * setters so the assertions remain narrow.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { useRef } from 'react';
@@ -295,5 +295,91 @@ describe('CalmToolbar', () => {
     // Click an element guaranteed to be outside the popover and chip.
     await user.click(container);
     expect(chip).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // Acceptance: roving tabindex (web rule 167) --------------------------------
+
+  it('Group chip: only the selected radio has tabIndex=0 (roving tabindex)', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ groupBy: 'assignee' });
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    expect(screen.getByRole('radio', { name: 'By assignee' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Phase' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('radio', { name: 'By epic' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('Group chip: ArrowDown moves focus to the next option without committing', async () => {
+    const user = userEvent.setup();
+    const onGroupByChange = vi.fn();
+    renderToolbar({ groupBy: 'phase', onGroupByChange });
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    const phaseRadio = screen.getByRole('radio', { name: 'Phase' });
+    fireEvent.keyDown(phaseRadio, { key: 'ArrowDown' });
+    // Focus moves to "By assignee" but selection hasn't been committed yet.
+    expect(screen.getByRole('radio', { name: 'By assignee' })).toHaveAttribute('tabindex', '0');
+    expect(onGroupByChange).not.toHaveBeenCalled();
+  });
+
+  it('Group chip: ArrowUp from the first option wraps to the last', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ groupBy: 'phase' });
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Phase' }), { key: 'ArrowUp' });
+    expect(screen.getByRole('radio', { name: 'By epic' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('Group chip: End moves focus to the last option', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ groupBy: 'phase' });
+    await user.click(screen.getByRole('button', { name: 'Group lanes by' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Phase' }), { key: 'End' });
+    expect(screen.getByRole('radio', { name: 'By epic' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('Sort chip: only the selected radio has tabIndex=0', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ sort: 'start_date' });
+    await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
+    expect(screen.getByRole('radio', { name: 'Start date' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Priority' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('radio', { name: '% complete' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('Sort chip: ArrowDown moves focus to the next option without committing', async () => {
+    const user = userEvent.setup();
+    const onSortChange = vi.fn();
+    renderToolbar({ sort: 'priority', onSortChange });
+    await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Priority' }), { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: 'Start date' })).toHaveAttribute('tabindex', '0');
+    expect(onSortChange).not.toHaveBeenCalled();
+  });
+
+  it('Sort chip: ArrowDown from the last option wraps to the first', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ sort: 'percent_complete' });
+    await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: '% complete' }), { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: 'Priority' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('Sort chip: Home moves focus to the first option', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ sort: 'percent_complete' });
+    await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
+    fireEvent.keyDown(screen.getByRole('radio', { name: '% complete' }), { key: 'Home' });
+    expect(screen.getByRole('radio', { name: 'Priority' })).toHaveAttribute('tabindex', '0');
+  });
+
+  it('Density chip: board card and backlog card groups each have independent roving tabindex', async () => {
+    const user = userEvent.setup();
+    renderToolbar({ density: 'compact', backlogDensity: 'full' });
+    await user.click(screen.getByRole('button', { name: 'Card density' }));
+    // Board card group: "Compact" is selected → tabIndex=0
+    expect(screen.getByRole('radio', { name: 'Board card density: Compact' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Board card density: Comfortable' })).toHaveAttribute('tabindex', '-1');
+    // Backlog group: "Full" is selected → tabIndex=0
+    expect(screen.getByRole('radio', { name: 'Backlog card density: Full' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('radio', { name: 'Backlog card density: Compact' })).toHaveAttribute('tabindex', '-1');
   });
 });
