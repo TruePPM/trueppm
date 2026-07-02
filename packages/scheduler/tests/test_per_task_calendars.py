@@ -18,7 +18,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from trueppm_scheduler.engine import InvalidScheduleInput, schedule
+from trueppm_scheduler.engine import InvalidScheduleInput, monte_carlo, schedule
 from trueppm_scheduler.models import Calendar, Dependency, DependencyType, Project, Task
 
 MON = date(2026, 1, 5)  # Monday — project anchor for every scenario
@@ -374,6 +374,28 @@ def test_non_string_calendar_id_is_rejected() -> None:
     )
     with pytest.raises(InvalidScheduleInput, match="calendar_id"):
         schedule(project)
+
+
+def test_monte_carlo_rejects_per_task_calendars() -> None:
+    """monte_carlo() does not honor Project.calendars (issue #1566): the vectorized
+    pass shares one working-day index and one lag-delta table across every task and
+    run, so it cannot reproduce schedule()'s per-task calendar arithmetic. Rather
+    than silently simulate every task on the default calendar — producing P50/P80/
+    P95 that disagree with schedule() with no error — a project carrying a non-empty
+    calendars registry is rejected outright. schedule() on the same project is
+    unaffected and keeps working (proven by the sibling tests in this file)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("a", 4), _task("b", 3, "seven")],
+        dependencies=[Dependency("a", "b")],
+        calendars={"seven": SEVEN},
+    )
+    with pytest.raises(InvalidScheduleInput, match="calendars"):
+        monte_carlo(project, runs=10, seed=0)
+    # schedule() is unaffected by the guard.
+    schedule(project)
 
 
 # ---------------------------------------------------------------------------
