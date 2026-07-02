@@ -260,10 +260,10 @@ test.describe('Accessibility basics', () => {
 
   test('status bar shows live presence and build hash', async ({ page }) => {
     // On a project page the connection pill (#643) goes Live once the WebSocket
-    // opens (routed in gotoSchedule), then appends the online count.
+    // opens (routed in gotoSchedule), then appends the viewing count (#1560).
     const footer = page.getByRole('contentinfo', { name: 'Application status' });
     await expect(footer).toBeVisible();
-    await expect(footer.getByText(/Live · \d+ online/)).toBeVisible({ timeout: 10_000 });
+    await expect(footer.getByText(/Live · \d+ viewing/)).toBeVisible({ timeout: 10_000 });
     await expect(footer.getByText(/build /)).toBeVisible();
   });
 });

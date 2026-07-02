@@ -21,7 +21,7 @@ const VIEW_LABELS: Record<string, string> = {
  * Dot color, short label, and accessible/tooltip text for each connection
  * state. The dot color is never the sole signal — the label and `aria` text
  * always name the state (WCAG 1.4.1 / web rule 6). Only `reconnecting` animates,
- * and only under `motion-safe`. `live` appends the online count at render time.
+ * and only under `motion-safe`. `live` appends the viewing count at render time.
  */
 const CONNECTION_PRESENTATION: Record<
   WsConnectionState,
@@ -77,12 +77,18 @@ export function StatusBar() {
   // The connection pill reflects the project WebSocket, which only runs inside
   // a project (ProjectShell). Off a project there is no live channel to report.
   const conn = CONNECTION_PRESENTATION[connectionState];
-  const connLabel =
-    connectionState === 'live' ? `Live · ${onlineUsers.length} online` : conn.label;
-  const connAria =
-    connectionState === 'live'
-      ? `Live — connected, ${onlineUsers.length} online`
-      : conn.aria;
+  const isLive = connectionState === 'live';
+  // "viewing" (not "online") so the count can't be misread as availability/load
+  // by resource managers — it reports who has the project open, nothing more.
+  const connLabel = isLive ? `Live · ${onlineUsers.length} viewing` : conn.label;
+  const connAria = isLive
+    ? `Live — connected, ${onlineUsers.length} viewing`
+    : conn.aria;
+  // Anonymity contract (#1560): presence is deliberately coarse — it names how
+  // many people have the project open, never who is editing which task. Surfaced
+  // as a native tooltip + an accessible description so the guarantee is visible
+  // to sighted and screen-reader users alike.
+  const presenceContract = "Shows who's online, never who's editing what.";
 
   return (
     <footer
@@ -93,7 +99,12 @@ export function StatusBar() {
     >
       {/* Connection status indicator (#643) — project WebSocket only */}
       {projectId && (
-        <span className="flex items-center gap-1.5" aria-label={connAria} title={connAria}>
+        <span
+          className="flex items-center gap-1.5"
+          aria-label={connAria}
+          aria-describedby={isLive ? 'statusbar-presence-contract' : undefined}
+          title={isLive ? `${connAria}. ${presenceContract}` : connAria}
+        >
           <span
             className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${conn.dot}${
               conn.pulse ? ' motion-safe:animate-pulse' : ''
@@ -101,6 +112,11 @@ export function StatusBar() {
             aria-hidden="true"
           />
           <span>{connLabel}</span>
+          {isLive && (
+            <span id="statusbar-presence-contract" className="sr-only">
+              {presenceContract}
+            </span>
+          )}
         </span>
       )}
 

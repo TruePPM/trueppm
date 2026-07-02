@@ -105,7 +105,7 @@ test('status bar shows build hash and omits the connection pill off-project', as
   await page.goto('/');
   // StatusBar (#201) shows the build hash on every view. The connection pill
   // (#643) is gated on projectId — off a project there is no live channel, so
-  // the pill is omitted rather than showing a misleading "Live · 0 online".
+  // the pill is omitted rather than showing a misleading "Live · 0 viewing".
   const footer = page.getByRole('contentinfo', { name: 'Application status' });
   await expect(footer).toBeVisible();
   await expect(footer.getByText(/build /)).toBeVisible();
