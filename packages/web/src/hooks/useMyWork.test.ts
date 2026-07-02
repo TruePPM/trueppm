@@ -129,10 +129,8 @@ describe('useMyWorkStatusUpdate', () => {
 
   it('optimistically updates the cached My Work pages', async () => {
     // Seed cache with a known page.
-    qc.setQueryData(['me', 'work'], {
-      pages: [firstPage],
-      pageParams: [null],
-    });
+    const seeded = { pages: [firstPage], pageParams: [null] };
+    qc.setQueryData(['me', 'work'], seeded);
     patchMock.mockResolvedValueOnce({ data: { id: 'task-1', status: 'COMPLETE' } });
 
     const { result } = renderHook(() => useMyWorkStatusUpdate(), {
@@ -145,17 +143,24 @@ describe('useMyWorkStatusUpdate', () => {
         previous: 'IN_PROGRESS',
       });
     });
-    // onSettled invalidates so the data may have been refetched — peek at the
-    // optimistic snapshot via onMutate behavior: at minimum the mutation was
-    // attempted with the correct cache shape.
-    expect(patchMock).toHaveBeenCalled();
+
+    // onMutate flips the cached task's status synchronously (optimistic), ahead
+    // of the server response. onSettled's invalidateQueries is a no-op here
+    // because this cache entry has no active `useMyWork()` observer in this
+    // test — so the optimistic write is the value that persists and is safe
+    // to assert on directly.
+    const cached = qc.getQueryData<typeof seeded>(['me', 'work']);
+    expect(cached?.pages[0].results[0].status).toBe('COMPLETE');
+    // Every other field on the row is untouched by the optimistic patch.
+    expect(cached?.pages[0].results[0]).toMatchObject({
+      ...firstPage.results[0],
+      status: 'COMPLETE',
+    });
   });
 
   it('rolls back the cache when the PATCH fails', async () => {
-    qc.setQueryData(['me', 'work'], {
-      pages: [firstPage],
-      pageParams: [null],
-    });
+    const seeded = { pages: [firstPage], pageParams: [null] };
+    qc.setQueryData(['me', 'work'], seeded);
     patchMock.mockRejectedValueOnce(new Error('500 server error'));
 
     const { result } = renderHook(() => useMyWorkStatusUpdate(), {
@@ -172,8 +177,10 @@ describe('useMyWorkStatusUpdate', () => {
         // expected
       }
     });
-    // After the rollback, the snapshot restoration runs in onError; the
-    // mutation eventually settles in the error state.
+    // The mutation eventually settles in the error state...
     await waitFor(() => expect(result.current.isError).toBe(true));
+    // ...and onError's snapshot restoration puts the cache back to exactly
+    // what was seeded before the optimistic write — not just "some" status.
+    expect(qc.getQueryData(['me', 'work'])).toEqual(seeded);
   });
 });
