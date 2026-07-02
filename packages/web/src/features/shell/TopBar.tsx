@@ -179,7 +179,8 @@ export function TopBar({ onHamburgerClick }: Props) {
             adjacent to the tab strip, self-suppresses off-project/settings. */}
         <ViewsMenu />
 
-        {/* "{METHOD} Workspace" tag — first to drop as width tightens (hidden xl:inline). */}
+        {/* Methodology tag — compact 2-letter badge from md, full "{METHOD}
+            Workspace" text at xl and up (issue 1469). */}
         <MethodWorkspaceLabel />
 
         {/* v2 methodology-adaptive health cluster (ADR-0128) — project routes only;
