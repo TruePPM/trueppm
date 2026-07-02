@@ -72,10 +72,13 @@ def test_deterministic_monte_carlo_collapses_to_cpm(seed: int) -> None:
     arithmetic it replaced (#1205); a wrong delta would shift the MC finish off CPM.
     """
     project = _random_deterministic_project(seed)
-    try:
-        result = schedule(project)
-    except InvalidScheduleInput:
-        pytest.skip("degenerate random project")
+    # No try/except skip here: the generator's bounds (2-7 tasks, 0-6 day
+    # durations, lag in [-3, 5]) sit entirely inside every validator cap, so no
+    # legitimately degenerate project exists. Wrapping schedule() in a
+    # skip-on-InvalidScheduleInput would let a validation regression that starts
+    # rejecting valid projects silently convert this 400-case differential oracle
+    # into 400 green skips (#1511). Let any rejection fail loudly instead.
+    result = schedule(project)
     mc = monte_carlo(project, runs=48, seed=1, max_runs=None, max_tasks=None)
     assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
     assert all(d == result.project_finish for d in mc.distribution)

@@ -198,6 +198,52 @@ def test_lag_is_counted_on_successor_calendar() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The "lag on the successor's calendar" convention holds for SS / FF / SF too,
+# not only FS. Each case is built so the lag lands on a Saturday: on the 7-day
+# calendar Sat is a working day (the date stands); on Mon-Fri it snaps forward
+# to Monday. Flipping which task carries the 7-day calendar therefore moves the
+# result — proving the *successor's* calendar governs the snap.
+# ---------------------------------------------------------------------------
+
+
+def _xcal(dep_type: DependencyType, lag_days: int, *, succ_seven: bool) -> dict[str, Task]:
+    """pred(5) ─dep(lag)─► succ(2). One task on the 7-day week, the other Mon-Fri."""
+    pred_cal = None if succ_seven else "seven"
+    succ_cal = "seven" if succ_seven else None
+    project = Project(
+        id="p",
+        name="p",
+        start_date=MON,
+        tasks=[_task("pred", 5, pred_cal), _task("succ", 2, succ_cal)],
+        dependencies=[Dependency("pred", "succ", dep_type, timedelta(days=lag_days))],
+        calendars={"seven": SEVEN},
+    )
+    return _result(project)
+
+
+def test_ss_lag_snaps_on_successor_calendar() -> None:
+    # SS: succ.ES = pred.ES (Mon 01-05) + 5 cal days = Sat 01-10.
+    # Successor on 7-day week ⇒ Sat is a working day ⇒ starts Sat 01-10.
+    # Successor on Mon-Fri ⇒ Sat snaps forward to Mon 01-12.
+    assert _xcal(DependencyType.SS, 5, succ_seven=True)["succ"].early_start == date(2026, 1, 10)
+    assert _xcal(DependencyType.SS, 5, succ_seven=False)["succ"].early_start == date(2026, 1, 12)
+
+
+def test_ff_lag_snaps_on_successor_calendar() -> None:
+    # FF: succ.EF = pred.EF (Fri 01-09) + 1 cal day = Sat 01-10.
+    # 7-day successor finishes Sat 01-10; Mon-Fri successor snaps to Mon 01-12.
+    assert _xcal(DependencyType.FF, 1, succ_seven=True)["succ"].early_finish == date(2026, 1, 10)
+    assert _xcal(DependencyType.FF, 1, succ_seven=False)["succ"].early_finish == date(2026, 1, 12)
+
+
+def test_sf_lag_snaps_on_successor_calendar() -> None:
+    # SF: succ.EF = pred.ES (Mon 01-05) + 5 cal days = Sat 01-10.
+    # 7-day successor finishes Sat 01-10; Mon-Fri successor snaps to Mon 01-12.
+    assert _xcal(DependencyType.SF, 5, succ_seven=True)["succ"].early_finish == date(2026, 1, 10)
+    assert _xcal(DependencyType.SF, 5, succ_seven=False)["succ"].early_finish == date(2026, 1, 12)
+
+
+# ---------------------------------------------------------------------------
 # Backward pass snaps against the task's OWN calendar (issue #1490)
 # ---------------------------------------------------------------------------
 
