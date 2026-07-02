@@ -477,3 +477,19 @@ def test_purge_chunks_across_batch_boundary(
     # Every eligible row deleted despite five rows / batch of two (loop ran 3x).
     assert WorkflowHistoryEvent.objects.filter(workflow=instance).count() == 0
     assert WorkflowOutboxRow.objects.filter(workflow=instance).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Index coverage
+# ---------------------------------------------------------------------------
+
+
+def test_outbox_recovery_index_covers_drain_recovery_filter() -> None:
+    """The drain recovers orphaned DISPATCHED rows by ranging on dispatched_at.
+
+    Asserting on model Meta (not by importing the migration module) keeps the
+    test decoupled from migration file names, which a squash can rename.
+    """
+    index = {idx.name: idx for idx in WorkflowOutboxRow._meta.indexes}
+    assert "workflow_outbox_recovery_idx" in index
+    assert index["workflow_outbox_recovery_idx"].fields == ["status", "dispatched_at"]

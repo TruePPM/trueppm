@@ -185,6 +185,10 @@ class WorkflowOutboxRow(models.Model):
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["status", "created_at"], name="workflow_outbox_drain_idx"),
+            # Orphan recovery: the drain ranges on dispatched_at for DISPATCHED
+            # rows past the recovery window; without dispatched_at as the 2nd
+            # column Postgres post-filters the (status, created_at) scan.
+            models.Index(fields=["status", "dispatched_at"], name="workflow_outbox_recovery_idx"),
         ]
 
     def __str__(self) -> str:
