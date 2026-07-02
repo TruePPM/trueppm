@@ -8,9 +8,10 @@ use std::collections::{BinaryHeap, HashMap};
 use chrono::NaiveDate;
 use petgraph::algo::toposort;
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
-use crate::models::{Dependency, Project, Task};
+use crate::models::{Project, Task};
 
 /// An error indicating a cycle was detected in the dependency graph.
 #[derive(Debug, Clone)]
@@ -56,10 +57,23 @@ impl std::fmt::Display for GraphBuildError {
 }
 
 /// The built dependency graph, with index mappings for fast lookup.
+///
+/// Nodes are added in `project.tasks` order, so `NodeIndex::index()` doubles as
+/// the task's dense position: the CPM passes carry tasks in a parallel
+/// `Vec<Task>` and index it by node position, never by string id (#1535). Edge
+/// weights are `project.dependencies` indices, so an edge *is* its dependency —
+/// the passes read `deps[*edge.weight()]` directly with no id-keyed lookup.
 pub struct ProjectGraph {
+    /// Node weight is the task id (used only for cycle-error messages); edge
+    /// weight is the index into `project.dependencies`.
     pub graph: DiGraph<String, usize>,
+    /// Id → node index. Built once; used at graph-build time and to resolve an
+    /// externally-supplied id (e.g. the incremental drag's changed task). Not on
+    /// the per-pass hot path.
     pub node_index: HashMap<String, NodeIndex>,
-    pub topo_order: Vec<String>,
+    /// Topological order as dense node indices (#1535): the passes iterate these
+    /// and index the parallel task vec directly, with no string hashing per node.
+    pub topo_order: Vec<NodeIndex>,
 }
 
 /// Build a directed graph from the project's tasks and dependencies.
@@ -102,48 +116,15 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
         })
     })?;
 
-    let topo_order: Vec<String> = topo_indices.iter().map(|&idx| graph[idx].clone()).collect();
+    // Dense node indices — the passes carry a parallel `Vec<Task>` and index it
+    // by `NodeIndex::index()`, so no per-node string is materialized here (#1535).
+    let topo_order: Vec<NodeIndex> = topo_indices;
 
     Ok(ProjectGraph {
         graph,
         node_index,
         topo_order,
     })
-}
-
-/// Get the dependency data for an edge between two nodes.
-pub fn get_dependency<'a>(
-    pg: &ProjectGraph,
-    deps: &'a [Dependency],
-    pred_id: &str,
-    succ_id: &str,
-) -> &'a Dependency {
-    let pred_idx = pg.node_index[pred_id];
-    let succ_idx = pg.node_index[succ_id];
-    let edge = pg
-        .graph
-        .edges_connecting(pred_idx, succ_idx)
-        .next()
-        .expect("edge must exist between connected nodes");
-    &deps[*edge.weight()]
-}
-
-/// Get predecessor task IDs for a given node.
-pub fn predecessors(pg: &ProjectGraph, task_id: &str) -> Vec<String> {
-    let idx = pg.node_index[task_id];
-    pg.graph
-        .neighbors_directed(idx, Direction::Incoming)
-        .map(|n| pg.graph[n].clone())
-        .collect()
-}
-
-/// Get successor task IDs for a given node.
-pub fn successors(pg: &ProjectGraph, task_id: &str) -> Vec<String> {
-    let idx = pg.node_index[task_id];
-    pg.graph
-        .neighbors_directed(idx, Direction::Outgoing)
-        .map(|n| pg.graph[n].clone())
-        .collect()
 }
 
 /// Critical-path order: a lexicographic topological sort keyed by
@@ -160,35 +141,50 @@ pub fn successors(pg: &ProjectGraph, task_id: &str) -> Vec<String> {
 /// ids are unique the key never ties, so the result depends only on
 /// `(early_start, id)` and is identical to the Python engine's
 /// `networkx.lexicographical_topological_sort(g, key=(early_start, id))`.
-pub fn lexicographical_topo_order(pg: &ProjectGraph, task_map: &HashMap<String, Task>) -> Vec<String> {
-    let es_of = |id: &str| -> NaiveDate {
-        task_map[id]
+///
+/// Dense-index Kahn (#1535): indegree is a `Vec<u32>` indexed by node position
+/// and the ready set is a min-heap over node indices. The heap key stays
+/// `(early_start, id)` — the id is the task's *string* id, not its node index —
+/// so the tie-break is identical to the Python engine's
+/// `networkx.lexicographical_topological_sort(g, key=(early_start, id))`. Keying
+/// the heap by node index instead would break cross-engine determinism whenever
+/// two ready tasks share an `early_start` but sit in a different insertion order
+/// than their ids sort (#909), so the id string is retained — borrowed from
+/// `tasks`, never cloned. Returns node indices; the caller maps to ids.
+pub fn lexicographical_topo_order(pg: &ProjectGraph, tasks: &[Task]) -> Vec<NodeIndex> {
+    let es_of = |idx: NodeIndex| -> NaiveDate {
+        tasks[idx.index()]
             .early_start
             .expect("early_start is set for every task after the forward pass")
     };
-    let mut indegree: HashMap<String, usize> = pg
-        .topo_order
-        .iter()
-        .map(|id| (id.clone(), predecessors(pg, id).len()))
-        .collect();
-    let mut ready: BinaryHeap<Reverse<(NaiveDate, String)>> = pg
-        .topo_order
-        .iter()
-        .filter(|id| indegree[*id] == 0)
-        .map(|id| Reverse((es_of(id), id.clone())))
+    let mut indegree: Vec<u32> = vec![0; tasks.len()];
+    for idx in pg.graph.node_indices() {
+        indegree[idx.index()] = pg
+            .graph
+            .neighbors_directed(idx, Direction::Incoming)
+            .count() as u32;
+    }
+    // Heap key `(early_start, &id, idx)`: ordered by (date, id) exactly as before;
+    // the trailing index only carries the node through the heap and never ties
+    // because ids are unique.
+    let mut ready: BinaryHeap<Reverse<(NaiveDate, &str, NodeIndex)>> = pg
+        .graph
+        .node_indices()
+        .filter(|&idx| indegree[idx.index()] == 0)
+        .map(|idx| Reverse((es_of(idx), tasks[idx.index()].id.as_str(), idx)))
         .collect();
 
-    let mut order = Vec::with_capacity(pg.topo_order.len());
-    while let Some(Reverse((_, id))) = ready.pop() {
-        for succ in successors(pg, &id) {
-            if let Some(d) = indegree.get_mut(&succ) {
-                *d -= 1;
-                if *d == 0 {
-                    ready.push(Reverse((es_of(&succ), succ)));
-                }
+    let mut order = Vec::with_capacity(tasks.len());
+    while let Some(Reverse((_, _, idx))) = ready.pop() {
+        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let succ = edge.target();
+            let d = &mut indegree[succ.index()];
+            *d -= 1;
+            if *d == 0 {
+                ready.push(Reverse((es_of(succ), tasks[succ.index()].id.as_str(), succ)));
             }
         }
-        order.push(id);
+        order.push(idx);
     }
     order
 }
@@ -196,7 +192,7 @@ pub fn lexicographical_topo_order(pg: &ProjectGraph, task_map: &HashMap<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Calendar, DependencyType, Task};
+    use crate::models::{Calendar, Dependency, DependencyType, Task};
 
     fn make_task(id: &str, duration_days: i32) -> Task {
         Task {
@@ -238,7 +234,8 @@ mod tests {
             status_date: None,
         };
         let pg = build_graph(&project).unwrap();
-        assert_eq!(pg.topo_order, vec!["A", "B"]);
+        let topo_ids: Vec<&str> = pg.topo_order.iter().map(|&i| pg.graph[i].as_str()).collect();
+        assert_eq!(topo_ids, vec!["A", "B"]);
     }
 
     #[test]

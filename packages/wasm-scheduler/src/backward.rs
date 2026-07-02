@@ -2,15 +2,16 @@
 //!
 //! Mirrors the Python `_backward_pass` function from `trueppm_scheduler.engine`.
 
-use std::collections::HashMap;
-
 use chrono::NaiveDate;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::calendar::{
     checked_offset_days, finish_from_start, prev_working_day, retreat_calendar_days,
     start_from_finish,
 };
-use crate::graph::{get_dependency, successors, ProjectGraph};
+use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// Compute late_start and late_finish for every task (in-place).
@@ -20,41 +21,45 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 /// slack), reusing the full-duration span the forward pass resolved; an
 /// in-progress task's late dates span only its remaining duration, matching the
 /// forward pass so total/free float stay internally consistent.
+///
+/// Dense-index (#1535): tasks are carried in a `Vec<Task>` indexed by node
+/// position and each node's successors are read from its outgoing edges directly
+/// (`edge.target()` is the successor, `deps[*edge.weight()]` its dependency).
 pub fn backward_pass(
-    task_map: &mut HashMap<String, Task>,
-    topo_order: &[String],
+    tasks: &mut [Task],
+    topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     project_finish: NaiveDate,
     calendar: &Calendar,
 ) -> Result<(), String> {
-    for node_id in topo_order.iter().rev() {
+    for &idx in topo_order.iter().rev() {
+        let i = idx.index();
         // Completed: late == early, so the task carries zero float and never
         // distorts the critical path. The forward pass already resolved its
         // full-duration span (ADR-0136).
-        if task_map[node_id].is_complete() {
+        if tasks[i].is_complete() {
             let (es, ef) = {
-                let t = &task_map[node_id];
+                let t = &tasks[i];
                 (t.early_start.unwrap(), t.early_finish.unwrap())
             };
-            let t = task_map.get_mut(node_id).unwrap();
+            let t = &mut tasks[i];
             t.late_start = Some(es);
             t.late_finish = Some(ef);
             continue;
         }
 
         // In-progress work's late span covers only its remaining duration.
-        let duration_days = task_map[node_id].effective_duration_days();
+        let duration_days = tasks[i].effective_duration_days();
 
         let mut lf_constraints: Vec<NaiveDate> = vec![project_finish];
         let mut ls_constraints: Vec<NaiveDate> = Vec::new();
 
-        let succs = successors(pg, node_id);
-        for succ_id in &succs {
-            let dep = get_dependency(pg, deps, node_id, succ_id);
+        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let dep = &deps[*edge.weight()];
             let lag_days = dep.lag_days();
 
-            let succ = &task_map[succ_id];
+            let succ = &tasks[edge.target().index()];
             let succ_ls = succ.late_start.unwrap();
             let succ_lf = succ.late_finish.unwrap();
 
@@ -95,7 +100,7 @@ pub fn backward_pass(
             final_lf = lf;
         }
 
-        let task = task_map.get_mut(node_id).unwrap();
+        let task = &mut tasks[i];
         task.late_start = Some(ls);
         task.late_finish = Some(final_lf);
     }
