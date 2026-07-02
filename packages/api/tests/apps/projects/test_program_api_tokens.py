@@ -40,6 +40,15 @@ def member_client(program: Program) -> APIClient:
     return c
 
 
+@pytest.fixture
+def stranger_client(db: object) -> APIClient:
+    """An authenticated user with no membership on ``program`` at all."""
+    stranger = User.objects.create_user(username="tok_stranger", password="pw")
+    c = APIClient()
+    c.force_authenticate(user=stranger)
+    return c
+
+
 def _url(program: Program) -> str:
     return f"/api/v1/programs/{program.pk}/api-tokens/"
 
@@ -105,3 +114,45 @@ def test_program_audit_log_lists_program_entries(admin_client: APIClient, progra
     assert resp.status_code == 200
     actions = [row["action"] for row in resp.data["results"]]
     assert "minted" in actions
+
+
+# ---------------------------------------------------------------------------
+# RBAC negatives — a credential-issuing endpoint is exactly where a missing
+# scoping/DELETE-permission test yields false confidence.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_unauthenticated_rejected(program: Program) -> None:
+    # No force_authenticate: DRF's permission_denied() raises NotAuthenticated
+    # (401) rather than PermissionDenied (403) because no authenticator
+    # succeeded on the request (JWT/Session are both configured — see
+    # REST_FRAMEWORK.DEFAULT_AUTHENTICATION_CLASSES).
+    resp = APIClient().get(_url(program))
+    assert resp.status_code == 401
+    resp = APIClient().post(_url(program), {"name": "CI"}, format="json")
+    assert resp.status_code == 401
+
+
+@pytest.mark.django_db
+def test_non_member_cannot_access(stranger_client: APIClient, program: Program) -> None:
+    # ProgramApiTokenViewSet is a program-nested route (program_pk in the URL
+    # kwargs), so IsProgramMember/IsProgramAdmin enforce membership in
+    # has_permission — a non-member is denied before get_queryset/get_object
+    # ever runs, so this is 403, not a 404-via-queryset-scoping pattern.
+    resp = stranger_client.get(_url(program))
+    assert resp.status_code == 403
+    resp = stranger_client.post(_url(program), {"name": "CI"}, format="json")
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_program_member_cannot_revoke_token(
+    admin_client: APIClient, member_client: APIClient, program: Program
+) -> None:
+    created = admin_client.post(_url(program), {"name": "CI"}, format="json")
+    token_id = created.data["id"]
+    resp = member_client.delete(f"{_url(program)}{token_id}/")
+    assert resp.status_code == 403
+    token = ApiToken.objects.get(pk=token_id)
+    assert token.revoked_at is None
