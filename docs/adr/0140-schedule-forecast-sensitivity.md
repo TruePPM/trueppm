@@ -102,6 +102,16 @@ state — never a faked ranking.
   `perf-check` validates it stays within the synchronous-request budget. If it ever
   regresses, the rank pass is independently cap-able via `MC_SENSITIVITY_CAP` on the
   *number of candidate columns* without touching the simulation itself.
+- **Refinement (#1525):** the rank pass is now computed over a fixed subsample of the
+  runs — the first `MC_SENSITIVITY_SUBSAMPLE` (2 000) rows of the sampled matrix —
+  making the tornado cost O(n_tasks · S log S), **independent of `runs`**, rather than
+  scaling with the full run count. Each run is an i.i.d. iteration with no ordering,
+  so a contiguous slice is a valid, RNG-free, task-order-independent subsample;
+  Spearman rank correlation converges quickly, so the top-N ranking lands within
+  ~0.02 of the full-run correlation — far tighter than the ranking needs. **P50/P80/P95
+  always use the full distribution**; only the sensitivity ranking is subsampled, so
+  percentiles are byte-identical to before. This is a refinement of the same metric,
+  not a new decision.
 - **WASM:** Monte Carlo is Python/numpy-only (the Rust/WASM engine is the deterministic
   CPM pass for offline recompute); sensitivity is an MC output, so there is **no WASM
   parity obligation** for this ADR. (The deterministic CPM contract is unchanged.)

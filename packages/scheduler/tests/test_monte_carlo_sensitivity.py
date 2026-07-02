@@ -23,7 +23,7 @@ from trueppm_scheduler import (
     Task,
     monte_carlo,
 )
-from trueppm_scheduler.engine import _average_ranks
+from trueppm_scheduler.engine import MC_SENSITIVITY_SUBSAMPLE, _average_ranks
 
 
 def _make_project(tasks: list[Task], dependencies: list[Dependency] | None = None) -> Project:
@@ -189,6 +189,28 @@ def test_sensitivity_is_seed_deterministic() -> None:
     assert [(s.task_id, s.index) for s in a.sensitivity] == [
         (s.task_id, s.index) for s in b.sensitivity
     ]
+
+
+def test_sensitivity_subsample_is_deterministic_above_the_cap() -> None:
+    """The tornado is computed on a fixed subsample of runs (#1525), yet stays
+    deterministic and correctly ranked when the run count exceeds that subsample.
+
+    Percentiles use every run; only the sensitivity ranking is computed on the first
+    ``MC_SENSITIVITY_SUBSAMPLE`` rows — a contiguous, RNG-free view. Two seeded runs
+    above the subsample must therefore produce byte-identical tornadoes (the slice
+    adds no nondeterminism), and a pure critical chain must still populate a bounded,
+    in-range tornado. The 1,500-run determinism test above stays *below* the
+    subsample; this one crosses it to exercise the slice itself.
+    """
+    runs = MC_SENSITIVITY_SUBSAMPLE + 3_000  # safely above the subsample threshold
+    a = monte_carlo(_chain(8), runs=runs, seed=42, max_runs=None)
+    b = monte_carlo(_chain(8), runs=runs, seed=42, max_runs=None)
+    assert [(s.task_id, s.index) for s in a.sensitivity] == [
+        (s.task_id, s.index) for s in b.sensitivity
+    ]
+    # Pure chain ⇒ every task is on the critical path, so the tornado is populated.
+    assert len(a.sensitivity) > 0
+    assert all(0.0 <= s.index <= 1.0 for s in a.sensitivity)
 
 
 def test_to_dict_round_trips_sensitivity() -> None:
