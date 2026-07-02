@@ -38,7 +38,6 @@ _RETRIABLE = (ConnectionError, redis_lib.ConnectionError, OperationalError)
 def recalculate_schedule(
     self: object,
     project_id: str,
-    changed_task_ids: list[str] | None = None,
 ) -> None:
     """Run CPM on a project and persist the results.
 
@@ -52,13 +51,13 @@ def recalculate_schedule(
     subscribes to these events instead of the old cpm_queued/complete/error
     events (replaced by ADR-0020).
 
+    A full CPM recompute runs on every dispatch: the engine-level incremental
+    recompute designed in ADR-0027 is tracked separately under #235 (0.5). The
+    earlier API-layer write-back narrowing was removed in #1528 as unreachable
+    dead code — no dispatch site ever supplied the changed-task set.
+
     Args:
         project_id: UUID string of the project to reschedule.
-        changed_task_ids: Optional list of task UUID strings that were mutated.
-            When provided, CPM results are only written back to the database for
-            tasks in the affected subgraph (changed tasks + their descendants).
-            Falls back to a full recompute when the affected set exceeds 25% of
-            all project tasks or when this argument is None.
     """
     from trueppm_api.apps.taskruns.tracker import TaskRunTracker
 
@@ -68,7 +67,7 @@ def recalculate_schedule(
             project_id=project_id,
             task_name="scheduling.recalculate",
         ) as tracker:
-            _run_schedule(project_id, tracker, changed_task_ids=changed_task_ids)
+            _run_schedule(project_id, tracker)
         # Stamp the successful CPM completion so the web Schedule view can show
         # the "recalculating" badge until the first post-import pass lands
         # (#1053). A bulk update avoids a save() + history row + server_version
@@ -479,9 +478,6 @@ def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> N
     )
 
 
-_INCREMENTAL_THRESHOLD = 0.25
-"""Fall back to full-write if the affected subgraph exceeds this fraction of all tasks."""
-
 _WRITEBACK_BATCH_SIZE = 500
 """Rows per ``bulk_update`` statement when persisting CPM results (#1529).
 
@@ -498,47 +494,9 @@ CPM_DELTA_BROADCAST_CAP = 500
 
 Above this the WS frame grows large enough that a client-side full re-fetch is cheaper
 than splicing, so we emit a ``truncated`` signal instead and let the client invalidate.
-A 500-task payload is ≈60 KB; the incremental-CPM path (ADR-0027) already keeps most
-recomputes well under the cap, so the truncated branch is reached only on genuine
-large/full recomputes — the same case that re-fetched everything before this ADR.
+A 500-task payload is ≈60 KB. Every recalc is a full write-back, so the truncated
+branch is reached whenever a project carries more than ~500 schedulable tasks.
 """
-
-
-def _downstream_task_ids(project_id: str, seed_ids: list[str]) -> frozenset[str]:
-    """Return seed_ids plus all task IDs reachable from them via dependency edges.
-
-    Uses a lightweight query of just (predecessor_id, successor_id) pairs — no
-    full Task rows are loaded.  The graph is traversed BFS-style using Python sets
-    so the cost is O(E) where E is the number of dependencies in the project.
-
-    Args:
-        project_id: Only edges within this project are considered.
-        seed_ids: Task IDs from which BFS starts (the mutated tasks).
-
-    Returns:
-        A frozenset of task ID strings (seeds included).
-    """
-    from trueppm_api.apps.projects.models import Dependency
-
-    edges = list(
-        Dependency.objects.filter(predecessor__project_id=project_id).values_list(
-            "predecessor_id", "successor_id"
-        )
-    )
-    # Build adjacency map (forward edges only — we want downstream tasks).
-    adj: dict[str, list[str]] = {}
-    for pred_id, succ_id in edges:
-        adj.setdefault(str(pred_id), []).append(str(succ_id))
-
-    visited: set[str] = set(seed_ids)
-    queue = list(seed_ids)
-    while queue:
-        node = queue.pop()
-        for neighbour in adj.get(node, []):
-            if neighbour not in visited:
-                visited.add(neighbour)
-                queue.append(neighbour)
-    return frozenset(visited)
 
 
 def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
@@ -577,21 +535,16 @@ def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
 def _run_schedule(
     project_id: str,
     tracker: object = None,
-    changed_task_ids: list[str] | None = None,
 ) -> None:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
 
-    When *changed_task_ids* is provided the function attempts an incremental write:
-    CPM still runs on the full project (correctness requirement) but DB writes are
-    limited to the changed tasks and their downstream descendants.  If the affected
-    subgraph exceeds ``_INCREMENTAL_THRESHOLD`` (25%) of all tasks, a full write is
-    performed instead.
+    CPM runs on the full project and every affected task's results are written
+    back. The engine-level incremental recompute (recompute only the changed
+    subgraph) is tracked under #235 (0.5, ADR-0027).
 
     Args:
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
-        changed_task_ids: Optional list of mutated task UUID strings used to narrow
-            the bulk_update set.  None → always perform a full write.
     """
     from trueppm_scheduler.engine import expand_summary_dependencies, schedule
     from trueppm_scheduler.models import Dependency as SchedDependency
@@ -738,13 +691,7 @@ def _run_schedule(
     # program-scoped write-back derive summary dates through identical code.
     apply_summary_rollups(result_map, summary_ids, children_map, db_task_by_id)
 
-    # Determine which tasks need their CPM results written back to the DB.
-    #
-    # When changed_task_ids is provided we attempt an incremental write: only
-    # tasks in the affected subgraph (changed + downstream descendants) are
-    # updated.  If the affected set exceeds _INCREMENTAL_THRESHOLD of all tasks
-    # we fall back to a full write — the subgraph savings no longer justify the
-    # BFS overhead.
+    # Write CPM results back for every task the engine returned.
     #
     # INTENTIONAL DESIGN: bulk_update bypasses VersionedModel.save(), so
     # server_version is NOT incremented for CPM field writes. This is correct:
@@ -753,29 +700,8 @@ def _run_schedule(
     # server_version here would flood every connected mobile client with sync
     # deltas on every schedule recalc — including ones triggered by their own
     # edits. Do NOT change this to save() without understanding that consequence.
-    write_all = True
-    affected_ids: frozenset[str] = frozenset()
-    if changed_task_ids is not None:
-        affected_ids = _downstream_task_ids(project_id, changed_task_ids)
-        ratio = len(affected_ids) / max(len(db_tasks), 1)
-        if ratio <= _INCREMENTAL_THRESHOLD:
-            write_all = False
-            logger.info(
-                "recalculate_schedule: incremental write — %d/%d tasks affected (%.0f%%)",
-                len(affected_ids),
-                len(db_tasks),
-                ratio * 100,
-            )
-        else:
-            logger.info(
-                "recalculate_schedule: incremental threshold exceeded (%.0f%%) — full write",
-                ratio * 100,
-            )
-
     tasks_to_update: list[Task] = []
     for db_task in db_tasks:
-        if not write_all and str(db_task.id) not in affected_ids:
-            continue
         sched = result_map.get(str(db_task.id))
         if sched is None:
             continue
