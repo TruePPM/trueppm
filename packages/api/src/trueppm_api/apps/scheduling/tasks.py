@@ -482,6 +482,17 @@ def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> N
 _INCREMENTAL_THRESHOLD = 0.25
 """Fall back to full-write if the affected subgraph exceeds this fraction of all tasks."""
 
+_WRITEBACK_BATCH_SIZE = 500
+"""Rows per ``bulk_update`` statement when persisting CPM results (#1529).
+
+On PostgreSQL Django's ``bulk_batch_size`` defaults to ``len(objs)``, so an
+unbatched write collapses every task into a single UPDATE built from per-field
+``CASE WHEN pk=… THEN …`` chains (~17 params/row → ~85K interpolated values at 5K
+tasks). psycopg3's client-side binding keeps this under the 65,535 protocol
+ceiling, but the multi-MB SQL string is slow to build, parse, and plan and lands
+on the <500 ms schedule-trigger budget. Batching bounds each statement's size
+without changing the result — the whole writeback still runs in one transaction."""
+
 CPM_DELTA_BROADCAST_CAP = 500
 """Max moved-task count to ship as per-task ``task_dates_updated`` deltas (ADR-0091).
 
@@ -862,6 +873,7 @@ def _run_schedule(
                 "is_critical",
                 "duration",
             ],
+            batch_size=_WRITEBACK_BATCH_SIZE,
         )
 
         # Mark the outbox row done so the drain task knows this project is clean.
@@ -1113,7 +1125,9 @@ def _run_program_schedule(program_id: str) -> None:
 
     with transaction.atomic():
         if tasks_to_update:
-            Task.objects.bulk_update(tasks_to_update, _PROGRAM_WRITE_FIELDS)
+            Task.objects.bulk_update(
+                tasks_to_update, _PROGRAM_WRITE_FIELDS, batch_size=_WRITEBACK_BATCH_SIZE
+            )
 
         # Coalesce: mark exactly the claimed member outbox rows done (DISPATCHED →
         # DONE). Filtering on DISPATCHED avoids racing the drain's orphan recovery.
