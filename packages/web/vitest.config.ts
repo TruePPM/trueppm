@@ -17,13 +17,39 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
-    // Don't crash the vitest fork on unhandled promise rejections. Components
-    // that mount API-backed hooks (TanStack Query, polling) occasionally leak
-    // XHR rejections after the test has finished — orphan rejections that
-    // would otherwise terminate the worker with ERR_IPC_CHANNEL_CLOSED even
-    // though every assertion passes. Real assertion failures still report
-    // normally; this only suppresses async noise from unmounted components.
-    dangerouslyIgnoreUnhandledErrors: true,
+    // Suppress ONLY the known orphan-XHR / abort noise, not every unhandled
+    // rejection. Components that mount API-backed hooks (TanStack Query, polling)
+    // occasionally leak a rejection after the test has finished and the component
+    // unmounted — an aborted/canceled in-flight request, or the ERR_IPC_CHANNEL_CLOSED
+    // that surfaces when the fork tears down while an orphan XHR is still settling.
+    // The previous `dangerouslyIgnoreUnhandledErrors: true` swallowed *all* of these
+    // blanket, which also hid genuine unhandled rejections from product code.
+    // Returning `false` ignores an error; returning `undefined` lets it fail the run,
+    // so a real rejection outside these signatures still trips the suite.
+    onUnhandledError(error) {
+      // Build one haystack from every field the signature might live in: jsdom
+      // reports its XHR AggregateError as an Error whose *message* is
+      // "AggregateError" (name stays "Error") with the telltale frames in the
+      // stack, so matching on `name` alone misses it — key on the combined text.
+      const haystack = [
+        typeof error?.name === 'string' ? error.name : '',
+        typeof error?.message === 'string' ? error.message : '',
+        typeof error?.stack === 'string' ? error.stack : '',
+        String(error),
+      ].join('\n');
+      const isOrphanXhrNoise =
+        // jsdom raises this from its XHR internals when a component leaks an
+        // in-flight request after unmount (TanStack Query polling / deferred
+        // refetch). Keyed on the same jsdom-XHR stack signature that
+        // src/test/setup.ts filters on the VirtualConsole path — the only code
+        // that produces this frame — so both routes for this one noise source
+        // stay suppressed while genuine product-code rejections still fail the run.
+        /jsdom[\\/].+xhr/i.test(haystack) ||
+        /ERR_IPC_CHANNEL_CLOSED/.test(haystack) ||
+        /\b(AbortError|CanceledError)\b/.test(haystack) ||
+        /the operation was aborted|request aborted|canceled|cancelled/i.test(haystack);
+      if (isOrphanXhrNoise) return false;
+    },
     // Exclude Playwright E2E specs — they use playwright's own runner, not Vitest.
     exclude: ['e2e/**', 'node_modules/**'],
     globals: true,
@@ -37,13 +63,21 @@ export default defineConfig({
     fileParallelism: false,
     coverage: {
       provider: 'istanbul',
-      // Only report coverage for files actually loaded during the test run.
-      // Vitest 4 removed the `all` option: setting `coverage.include` now opts
-      // into instrumenting every matching file outside the module graph (the old
-      // `all: true` behavior), which would inflate the coverage denominator with
-      // uncollected files. Leaving `include` unset reproduces the old `all: false`
-      // — only files imported during the run are reported — with `exclude` below
-      // still filtering that loaded set.
+      // `include` is deliberately left unset: vitest 4 would instrument every
+      // matching file outside the module graph (the old `all: true` behavior), and
+      // measurement (issue 1510) showed `include: ['src/**']` drops the merged
+      // package total to ~68.8% — below the 75% floor merge-coverage.mjs enforces —
+      // because the whole untested-but-shipped surface (pages, providers, one-off
+      // components) lands in the denominator at 0%. We do NOT lower the floor to
+      // accommodate that. The new-untested-file hole it was meant to close — a
+      // brand-new `src/**` file with no test never entering lcov.info, so
+      // web:diff-coverage has nothing to measure and passes at 100% — is instead
+      // closed by scripts/check-added-files-covered.mjs, wired into web:coverage
+      // (whose node image can run it; web:diff-coverage's python image cannot):
+      // it fails the gate if any file added in the MR is absent from the merged
+      // coverage map. That targets exactly the dodge (a *new* untested file) without
+      // dragging the historical untested surface into the floor. `exclude` below
+      // still filters the loaded set (generated code, the test double).
       // 'text' prints to stdout for the package-total CI gate; 'lcov' writes
       // coverage/lcov.info which `diff-cover` consumes for the diff-coverage
       // gate (see Makefile coverage-diff-web). 'json' writes coverage-final.json,
@@ -59,16 +93,16 @@ export default defineConfig({
         ...coverageConfigDefaults.exclude,
         'src/test/**',
         'src/api/types.ts', // openapi-typescript generated — not hand-authored code
-        // Canvas 2D renderer files require HTMLCanvasElement.getContext('2d') which
-        // jsdom does not implement. These files are integration-tested via the
-        // GanttEngineStub test double and visual regression tests — not unit-testable
-        // in the jsdom environment.
-        'src/features/schedule/engine/GanttEngineImpl.ts',
-        'src/features/schedule/engine/GanttRenderer.ts',
+        // GanttEngineStub is a hand-written test double, not production code — it
+        // stands in for the canvas-bound engine in component tests, so measuring its
+        // own coverage is meaningless. The formerly-excluded engine/renderer files
+        // (GanttEngineImpl.ts, GanttRenderer.ts, ScheduleAriaOverlay.tsx,
+        // useGanttEngine.ts) are now instrumented: real unit tests exist for them
+        // (GanttEngineImpl.test.ts, GanttRenderer.test.ts, ScheduleAriaOverlay.*.test.ts),
+        // so the "not unit-testable in jsdom" rationale was stale — coverage was
+        // measured and then discarded (issue 1510). The stale CanvasGanttTimeline.tsx
+        // entry was dropped: that file no longer exists.
         'src/features/schedule/engine/GanttEngineStub.ts', // test double — not production code
-        'src/features/schedule/CanvasGanttTimeline.tsx',
-        'src/features/schedule/ScheduleAriaOverlay.tsx',
-        'src/hooks/useGanttEngine.ts',
       ],
       // No per-process thresholds: web:test is sharded (vitest --shard), so each
       // process only loads ~1/3 of the suite and would measure a partial coverage
