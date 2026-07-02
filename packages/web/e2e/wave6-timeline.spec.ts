@@ -366,7 +366,8 @@ test.describe('Status filters', () => {
     await page.getByRole('checkbox', { name: 'In progress' }).uncheck();
 
     // Wait for the new request to arrive (TanStack Query fires on key change)
-    await page.waitForTimeout(1_000);
+    // by polling the captured URL list instead of sleeping a fixed 1s.
+    await expect.poll(() => seenUrls.length).toBeGreaterThan(urlsBefore);
 
     // At least one new request should have been made after unchecking
     const newUrls = seenUrls.slice(urlsBefore);

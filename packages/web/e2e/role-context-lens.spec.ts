@@ -74,16 +74,22 @@ test.describe('Role-context lens (ADR-0162)', () => {
     ).toHaveAttribute('aria-checked', 'true');
   });
 
-  for (const { lens, view } of [
-    { lens: 'pm', view: 'schedule' },
-    { lens: 'scrum_master', view: 'board' },
-    { lens: 'unified', view: 'today' },
+  // Each destination carries a per-view "rendered" locator — a content node that
+  // only appears once that view actually mounted — so the redirect test proves the
+  // landed view rendered, not merely that the URL changed (a redirect can land the
+  // URL and then error the view out).
+  for (const { lens, view, rendered } of [
+    { lens: 'pm', view: 'schedule', rendered: (p: Page) => p.getByRole('grid', { name: 'Task list' }) },
+    { lens: 'scrum_master', view: 'board', rendered: (p: Page) => p.getByRole('heading', { name: /To Do/ }) },
+    { lens: 'unified', view: 'today', rendered: (p: Page) => p.getByRole('heading', { level: 1, name: 'Today' }) },
   ]) {
     test(`the ${lens} lens lands the project index on ${view}`, async ({ page }) => {
       await setup(page, lens);
       await page.goto(`/projects/${PROJECT_ID}`);
       await page.waitForURL(`**/projects/${PROJECT_ID}/${view}`);
       expect(page.url()).toContain(`/projects/${PROJECT_ID}/${view}`);
+      // The landed view actually rendered its content, not just the URL bar.
+      await expect(rendered(page)).toBeVisible({ timeout: 10_000 });
     });
   }
 });

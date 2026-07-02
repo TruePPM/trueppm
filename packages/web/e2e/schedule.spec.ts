@@ -320,4 +320,77 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
       .poll(async () => scroll.evaluate((el) => (el as HTMLElement).scrollLeft))
       .toBeGreaterThan(0);
   });
+
+  // Integration coverage for the pan seam while #805 keeps the real-mouse gesture
+  // above fixme'd (Playwright headless never lands scrollLeft > 0 through
+  // page.mouse — a headless input-delivery limitation, not a product bug; the
+  // GanttPanFSM logic itself is unit-covered). This test drives the SAME engine
+  // path the mouse gesture would (interaction-canvas pointerdown[middle] →
+  // _onPointerDown → panFSM.start → pointermove → panFSM.move → container.scrollLeft)
+  // by dispatching synthetic PointerEvents on the interaction canvas, so the
+  // component→engine→scrollLeft wiring has a live integration check that does not
+  // depend on headless real-mouse delivery. If this ever regresses, the pan is
+  // broken regardless of the mouse-path fixme.
+  test('middle-button pointer sequence pans the engine scrollLeft (#491, integration seam for #805)', async ({
+    page,
+  }) => {
+    const scroll = page.getByTestId('schedule-canvas-scroll');
+    await expect(scroll).toBeVisible();
+
+    // Wait for the engine to build a scrollable timeline (_rebuildScales forces
+    // totalWidth >= 3 × viewport, so scrollWidth exceeds clientWidth) before
+    // driving the pan — otherwise there is nothing to scroll.
+    await expect
+      .poll(async () =>
+        scroll.evaluate((el) => (el as HTMLElement).scrollWidth - (el as HTMLElement).clientWidth),
+      )
+      .toBeGreaterThan(0);
+
+    const startScrollLeft = await scroll.evaluate((el) => (el as HTMLElement).scrollLeft);
+    expect(startScrollLeft).toBe(0);
+
+    // Dispatch the pointer sequence the engine listens for on the interaction
+    // canvas. Middle button (button:1, buttons:4) claims the pan immediately and
+    // bypasses the bar-drag FSM (rule 129). Two moves: the first arms/starts the
+    // FSM, the second produces the delta that the engine subtracts from scrollLeft.
+    const moved = await page.evaluate(() => {
+      const canvas = document.querySelector<HTMLCanvasElement>('canvas[data-layer="interaction"]');
+      if (!canvas) return { ok: false, reason: 'no interaction canvas' };
+      const rect = canvas.getBoundingClientRect();
+      const y = rect.top + rect.height / 2;
+      const startX = rect.left + rect.width * 0.7;
+      const opts = (clientX: number, buttons: number, button: number): PointerEventInit => ({
+        pointerId: 1,
+        pointerType: 'mouse',
+        bubbles: true,
+        cancelable: true,
+        clientX,
+        clientY: y,
+        button,
+        buttons,
+      });
+      // setPointerCapture throws on a synthetic (non-active) pointer; swallow it so
+      // the pan path continues — capture is not required to move scrollLeft.
+      const originalCapture = canvas.setPointerCapture.bind(canvas);
+      canvas.setPointerCapture = (id: number) => {
+        try {
+          originalCapture(id);
+        } catch {
+          /* synthetic pointer is not active in headless — pan does not need capture */
+        }
+      };
+      canvas.dispatchEvent(new PointerEvent('pointerdown', opts(startX, 4, 1)));
+      canvas.dispatchEvent(new PointerEvent('pointermove', opts(startX - 40, 4, -1)));
+      canvas.dispatchEvent(new PointerEvent('pointermove', opts(startX - 200, 4, -1)));
+      canvas.dispatchEvent(new PointerEvent('pointerup', opts(startX - 200, 0, 1)));
+      return { ok: true };
+    });
+    expect(moved.ok, moved.reason).toBe(true);
+
+    // Dragging content left (negative dx) increases scrollLeft — the engine applied
+    // the pan delta to the real scroll container.
+    await expect
+      .poll(async () => scroll.evaluate((el) => (el as HTMLElement).scrollLeft))
+      .toBeGreaterThan(0);
+  });
 });

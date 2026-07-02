@@ -412,8 +412,9 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     // applies uniformly across gutter promote, Gantt drag, drawer date edits,
     // and integration sync (#336). pytest covers the server-side branches
     // exhaustively; this E2E only confirms the wire shape.
-    await page.waitForTimeout(500);
-    expect(patchBody).not.toBeNull();
+    // Poll until the PATCH route handler has captured the body rather than
+    // sleeping a fixed 500ms — the assertion runs the instant the request lands.
+    await expect.poll(() => patchBody).not.toBeNull();
     expect(patchBody!['planned_start']).toBe('2026-05-12');
     expect(patchBody!['status']).toBeUndefined();
     expect(patchBody!['actual_start']).toBeUndefined();

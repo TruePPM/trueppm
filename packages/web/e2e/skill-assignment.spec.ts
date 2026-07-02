@@ -249,7 +249,10 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
   );
 
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
-  await page.waitForLoadState('networkidle');
+  // Gate on the schedule's Task list grid rendering (the page's core reads have
+  // resolved) rather than `networkidle`, which never settles cleanly while the
+  // app-wide hooks poll and the WebSocket handshake runs.
+  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 }
 
 // 401-guard safety net, registered before each test so it is the EARLIEST route

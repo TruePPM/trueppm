@@ -13,8 +13,17 @@ import { defineConfig } from '@playwright/test';
  *
  * `reporter: 'html'` is set here because the base playwright.config.ts uses 'line'
  * in CI, which would emit no HTML report for web:e2e:report to upload.
+ *
+ * The `json` reporter is added alongside so scripts/check-flaky.mjs can read the
+ * merged, cross-shard outcome and surface any test that only passed on retry
+ * (`stats.flaky`) — the gap issue 1514 closed: with CI retries a flaky test
+ * greened the job silently. The stitched JSON is the only place the flaky status
+ * for the WHOLE suite is visible (each shard's blob sees only its own subset).
  */
 export default defineConfig({
   testDir: './e2e',
-  reporter: 'html',
+  reporter: [
+    ['html'],
+    ['json', { outputFile: 'flaky-report.json' }],
+  ],
 });
