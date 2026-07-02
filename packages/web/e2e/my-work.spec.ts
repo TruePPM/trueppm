@@ -35,6 +35,10 @@ const TASK = {
   name: 'Build the login form',
   project_id: PROJECT_ID,
   project_name: 'Design App',
+  // #964: program identity for cross-program wayfinding on the My Work row.
+  program_id: 'prog-mywork-cccc',
+  program_name: 'Apollo Program',
+  program_color: '#3366cc',
   sprint_id: SPRINT_ID,
   sprint_name: 'Sprint 12',
   status: 'IN_PROGRESS',
@@ -174,6 +178,25 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     const row = assigned.locator('li', { hasText: 'Build the login form' });
     // The full visible row text should not say "critical path".
     await expect(row).not.toContainText(/critical path/i);
+  });
+
+  test('row shows the program identity square (decorative) with the program name as the a11y signal (#964)', async ({
+    page,
+  }) => {
+    await setupWithTasks(page);
+    await page.goto('/me/work');
+
+    const assigned = page.getByRole('region', { name: 'Assigned to me' });
+    const row = assigned.locator('li', { hasText: 'Build the login form' });
+    await expect(row).toBeVisible();
+
+    // The program NAME is the accessible signal (the square is aria-hidden).
+    await expect(row.getByText('Apollo Program')).toBeVisible();
+
+    // The identity square renders and carries the program accent via style (not
+    // a hex class), and is decorative (aria-hidden) so it is not double-announced.
+    const square = row.locator('span[aria-hidden="true"][style*="background"]').first();
+    await expect(square).toBeAttached();
   });
 
   test('“N blocked” chip filters the list to flagged-blocked tasks (#1198)', async ({ page }) => {

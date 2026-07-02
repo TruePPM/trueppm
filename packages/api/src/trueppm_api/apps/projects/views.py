@@ -9325,7 +9325,10 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 project__memberships__is_deleted=False,
             )
             .exclude(status=TaskStatus.BACKLOG)
-            .select_related("project", "sprint")
+            # ``project__program`` joins the program in the same query so the
+            # serializer's program_name/program_color (#964) don't fire a
+            # per-row lookup (N+1). project + sprint were already joined.
+            .select_related("project", "sprint", "project__program")
             .annotate(
                 _sort_date=Coalesce("planned_start", "early_start"),
                 # Same due cascade the serializer's ``due`` field uses (ADR-0065),

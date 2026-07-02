@@ -26379,6 +26379,21 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "program_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "program_color": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "sprint_id": {
                         "type": "string",
                         "format": "uuid",
@@ -26464,6 +26479,9 @@
                     "is_blocked",
                     "is_critical",
                     "name",
+                    "program_color",
+                    "program_id",
+                    "program_name",
                     "project_id",
                     "project_name",
                     "remaining_points",

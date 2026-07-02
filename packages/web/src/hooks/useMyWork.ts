@@ -30,6 +30,16 @@ export interface MyWorkTask {
   name: string;
   project_id: string;
   project_name: string;
+  /**
+   * Program identity (#964, follow-up to #963). My Work spans programs, so each
+   * row carries its program's accent + name for cross-program wayfinding. All
+   * three are null for an orphan project (no program) — the row then renders the
+   * neutral unset ProgramIdentitySquare with no name. The square is decorative
+   * (`aria-hidden`); `program_name` is the accessible signal.
+   */
+  program_id: string | null;
+  program_name: string | null;
+  program_color: string | null;
   sprint_id: string | null;
   sprint_name: string | null;
   status: TaskStatus;

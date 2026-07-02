@@ -18,6 +18,7 @@ import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { formatDueLabel } from './dueLabel';
 import { StatusPicker } from './StatusPicker';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
+import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { toast } from '@/components/Toast';
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -166,6 +167,20 @@ export function MyWorkTaskRow({ task }: Props) {
               <PendingAcceptanceChip />
             </>
           )}
+        </p>
+        {/* Program identity line (#964, follow-up to #963). My Work is the
+            genuinely cross-program list, so each row earns a per-row program
+            marker for wayfinding. The square is decorative (aria-hidden); the
+            program NAME is the accessible signal. An orphan project (no program)
+            still renders the neutral unset square, with no name — consistent
+            with the rest of the #963 identity system (shape = program, color =
+            which program). */}
+        <p className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-text-secondary">
+          <ProgramIdentitySquare
+            program={{ color: task.program_color, name: task.program_name ?? '', code: '' }}
+            size="sm"
+          />
+          {task.program_name && <span className="truncate">{task.program_name}</span>}
         </p>
         {/* Blocked badge (#476/#855, ADR-0124 #1135) — the human flag, not the
             board's dependency-readiness signal. Shows the structured type chip +
