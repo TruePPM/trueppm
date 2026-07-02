@@ -7,7 +7,7 @@ import math
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 
 import networkx as nx
 import numpy as np
@@ -533,13 +533,18 @@ def _build_graph(project: Project) -> nx.DiGraph[str]:
     return g
 
 
-def _check_cycles(g: nx.DiGraph[str]) -> None:
-    """Raise CyclicDependencyError if the graph contains a cycle."""
-    try:
-        cycle = nx.find_cycle(g)
-        raise CyclicDependencyError([u for u, _ in cycle] + [cycle[-1][1]])
-    except nx.NetworkXNoCycle:
-        pass
+def _raise_cycle_error(g: nx.DiGraph[str]) -> NoReturn:
+    """Reconstruct and raise the cycle from a graph a topological sort rejected.
+
+    Called only from the ``NetworkXUnfeasible`` handler of a topological sort:
+    the sort has already proved the graph cyclic in ~3ms, so the ~148ms
+    ``nx.find_cycle`` edge-DFS (5K tasks/5.7K edges, #1526) runs only on this
+    error path to reconstruct the user-facing cycle — never on the happy path,
+    where checking cycles eagerly with ``find_cycle`` was 37% of the
+    ``schedule()`` budget for a result the topological sort already proves.
+    """
+    cycle = nx.find_cycle(g)
+    raise CyclicDependencyError([u for u, _ in cycle] + [cycle[-1][1]])
 
 
 @dataclass
@@ -1602,10 +1607,24 @@ def schedule(project: Project) -> ScheduleResult:
     _validate_project(project)
 
     g = _build_graph(project)
-    _check_cycles(g)
 
-    topo_order: list[str] = list(nx.topological_sort(g))
-    tasks = [copy.deepcopy(t) for t in project.tasks]
+    # Detect cycles via the topological sort itself: it raises NetworkXUnfeasible
+    # on a cycle in ~3ms, versus ~148ms for an eager nx.find_cycle on every
+    # happy-path call at 5K tasks (#1526). find_cycle runs only on the error
+    # path, inside _raise_cycle_error, to rebuild the cycle for the message.
+    try:
+        topo_order: list[str] = list(nx.topological_sort(g))
+    except nx.NetworkXUnfeasible:
+        _raise_cycle_error(g)
+
+    # Isolate the caller's input (schedule() must not mutate project.tasks) with
+    # a shallow copy: every Task field is an immutable scalar (str/date/timedelta/
+    # float/enum/None) and each CPM pass *reassigns* the computed attributes
+    # rather than mutating a shared container, so copy.copy is semantically
+    # identical to the prior copy.deepcopy at ~10x the speed — deepcopy spent
+    # ~113ms recursing over 5K tasks for no benefit (#1526). If a mutable field
+    # is ever added to Task, this shallow copy must be revisited.
+    tasks = [copy.copy(t) for t in project.tasks]
     task_map = {t.id: t for t in tasks}
 
     # Per-task calendars (ADR-0120 D3): resolved once and threaded through every
@@ -1987,7 +2006,11 @@ def monte_carlo(
     _validate_project(project)
 
     g = _build_graph(project)
-    _check_cycles(g)
+    # Detect cycles via the topological sort itself (#1526), the same happy-path
+    # optimization as schedule(): the lexicographic sort raises NetworkXUnfeasible
+    # on a cycle in ~3ms, so the ~148ms eager nx.find_cycle runs only on the error
+    # path, in _raise_cycle_error.
+    #
     # Use a lexicographically-keyed topological sort so the RNG is consumed in a
     # deterministic, version-independent order. Plain ``nx.topological_sort`` only
     # guarantees *a* valid topological order; its tie-breaking is an implementation
@@ -1995,7 +2018,10 @@ def monte_carlo(
     # networkx>=3.0,<4) and with task insertion order. Because durations are sampled
     # column-by-column in this order from a single seeded RNG, any reordering would
     # silently change seeded P50/P80/P95. Keying on the stable task id pins the order.
-    topo_order: list[str] = list(nx.lexicographical_topological_sort(g, key=str))
+    try:
+        topo_order: list[str] = list(nx.lexicographical_topological_sort(g, key=str))
+    except nx.NetworkXUnfeasible:
+        _raise_cycle_error(g)
     n_tasks = len(topo_order)
     task_idx = {tid: i for i, tid in enumerate(topo_order)}
 

@@ -133,12 +133,37 @@ class TestScheduleBasic:
             schedule(make_project([]))
 
     def test_original_project_not_mutated(self) -> None:
-        """schedule() must not mutate the input project."""
-        t = task("A", "A", 5)
-        p = make_project([t])
-        original_es = t.early_start
-        schedule(p)
-        assert t.early_start == original_es
+        """schedule() must not mutate the input project.
+
+        The engine copies tasks before running the CPM passes. #1526 replaced the
+        per-task ``copy.deepcopy`` with a shallow ``copy.copy`` (safe because every
+        Task field is immutable and each pass reassigns computed attributes rather
+        than mutating a shared container). This guards that invariant: the caller's
+        task objects must keep their pre-schedule state, with no computed date,
+        float, or criticality leaking back onto the input.
+        """
+        a = task("A", "A", 5)
+        b = task("B", "B", 2)
+        p = make_project([a, b], dependencies=[Dependency("A", "B")])
+
+        result = schedule(p)
+
+        # The input tasks are untouched: every CPM-computed field keeps its default.
+        for t in (a, b):
+            assert t.early_start is None
+            assert t.early_finish is None
+            assert t.late_start is None
+            assert t.late_finish is None
+            assert t.total_float == timedelta()
+            assert t.free_float == timedelta()
+            assert t.is_critical is False
+        # ...and the schedule genuinely computed those fields on its own copies, so
+        # the assertions above are meaningful rather than vacuously true. The result
+        # tasks are distinct objects from the input.
+        assert result.tasks is not p.tasks
+        assert all(rt is not it for rt, it in zip(result.tasks, (a, b), strict=True))
+        assert result.tasks[0].early_start is not None
+        assert result.tasks[0].is_critical is True
 
     def test_returns_schedule_result(self) -> None:
         r = schedule(make_project([task("A", "A", 3)]))
@@ -688,6 +713,22 @@ class TestMonteCarlo:
         assert isinstance(r, MonteCarloResult)
         assert r.runs == 100
         assert r.project_id == "test"
+
+    def test_cyclic_project_raises(self) -> None:
+        """A dependency cycle must raise CyclicDependencyError, not sample.
+
+        monte_carlo() now detects cycles via the topological sort itself (#1526);
+        this guards that the error contract — CyclicDependencyError carrying the
+        offending path — survives dropping the eager _check_cycles call.
+        """
+        p = make_project(
+            tasks=[task("A", "A", 3), task("B", "B", 3)],
+            dependencies=[Dependency("A", "B"), Dependency("B", "A")],
+        )
+        with pytest.raises(CyclicDependencyError) as exc_info:
+            monte_carlo(p, runs=10, seed=0)
+        assert "A" in exc_info.value.cycle
+        assert "B" in exc_info.value.cycle
 
     def test_p50_le_p80_le_p95(self) -> None:
         """Percentile ordering must always hold."""
