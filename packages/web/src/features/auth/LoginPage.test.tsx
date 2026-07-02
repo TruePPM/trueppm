@@ -149,6 +149,7 @@ describe('LoginPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/projects/abc/overview', { replace: true });
     });
 
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.post is a vi.mocked mock, not a bound method
     expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/auth/token/', {
       username: 'anna@example.com',
       password: 'correct-horse',
