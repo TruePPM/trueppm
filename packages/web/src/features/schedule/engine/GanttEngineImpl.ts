@@ -160,6 +160,25 @@ export class GanttEngineImpl implements GanttEngine {
   // flicker as the cursor moved through rows.
   private _barsRepaintPending = false;
 
+  // Header-band repaint tracking (issue 1523). The two-row timeline header and
+  // the vertical grid walk depend only on scrollLeft, scales, fiscal mode, dark
+  // mode, and viewport width — never on scrollTop. A pure vertical scroll leaves
+  // the header band (y 0..HEADER_HEIGHT) pixel-identical, yet _onScroll still
+  // marks a full bg repaint because the row bands and horizontal separators DO
+  // move with scrollTop. Re-walking the (viewport-clamped, but still O(visible
+  // days)) header date range twice — major + minor rows — on every vertical
+  // scroll frame was the dominant per-frame cost the audit flagged. _paintBg
+  // therefore skips drawTimelineHeader and retains the prior header band unless
+  // the header content could actually have changed since it was last drawn.
+  //
+  // The skip is DERIVED from state rather than from a flag each mutator must
+  // remember to set: the header is redrawn whenever scrollLeft differs from the
+  // scrollLeft it was last drawn at (horizontal scroll / zoom recenter) OR
+  // _headerContentDirty is set (scales / fiscal / dark / viewport changed). The
+  // -1 / true seeds force a draw on the first paint.
+  private _headerContentDirty = true;
+  private _lastHeaderScrollLeft = -1;
+
   // rAF
   private _rafId = 0;
   private _isDestroyed = false;
@@ -511,6 +530,7 @@ export class GanttEngineImpl implements GanttEngine {
   setDark(dark: boolean): void {
     this._isDark = dark;
     setRendererColorMode(dark);
+    this._headerContentDirty = true; // header palette changes (issue 1523)
     this._fullRepaintPending = true;
     // The rAF loop may be parked (issue 1569) — re-arm it so the next tick actually
     // runs and picks up the pending full repaint.
@@ -525,6 +545,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._fiscal = config;
     // Only the header tiers change, but a full repaint is the cheapest correct
     // path (header is redrawn on every full paint) and the call is rare.
+    this._headerContentDirty = true; // header quarter/year labels change (issue 1523)
     this._fullRepaintPending = true;
     this._requestRepaint();
   }
@@ -635,6 +656,10 @@ export class GanttEngineImpl implements GanttEngine {
     // Arrow geometry is scale-dependent (dateToLeft/dateToRight) — drop the cache
     // so the next paint rebuilds it. Covers setTasks (calls here) and zoom (#1000).
     this._depLayout = null;
+    // Header cells (units, tick positions, labels) are scale-dependent too, so
+    // force the header band to redraw even if scrollLeft happens to be unchanged
+    // (e.g. a zoom that recenters on the same anchor) (issue 1523).
+    this._headerContentDirty = true;
   }
 
   private _rebuildHitIndex(): void {
@@ -703,6 +728,10 @@ export class GanttEngineImpl implements GanttEngine {
     this._barsCtx.font = CANVAS_FONT;
     this._ixCtx.font = CANVAS_FONT;
 
+    // Resizing the canvas backing store wipes every pixel, including the retained
+    // header band, and the viewport width the header is laid out against just
+    // changed — force a header redraw on the next paint (issue 1523).
+    this._headerContentDirty = true;
     this._fullRepaintPending = true;
   }
 
@@ -732,6 +761,12 @@ export class GanttEngineImpl implements GanttEngine {
     this._scrollLeft = this._container.scrollLeft;
     this._scrollTop = this._container.scrollTop;
     this._emit('scroll', { scrollLeft: this._scrollLeft });
+    // A full bg repaint is still required — row bands and horizontal separators
+    // move with scrollTop — but the header band is NOT invalidated here: _paintBg
+    // derives whether to skip the header date-walk by comparing _scrollLeft to
+    // the scrollLeft it was last drawn at, so a pure vertical scroll retains it
+    // (issue 1523). Comparing at paint time (not here) also collapses correctly
+    // when several scroll events coalesce into one frame.
     this._fullRepaintPending = true;
     this._requestRepaint();
   };
@@ -847,13 +882,36 @@ export class GanttEngineImpl implements GanttEngine {
     const w = this._viewportWidth;
     const h = this._viewportHeight;
 
-    ctx.clearRect(0, 0, w, h);
+    // Redraw the header band only when its content could have moved or changed
+    // (issue 1523). On a pure vertical scroll scrollLeft is unchanged and no
+    // header-affecting state is dirty, so the prior header band is retained and
+    // the expensive drawTimelineHeader date-walk is skipped entirely.
+    const drawHeader =
+      this._headerContentDirty || this._scrollLeft !== this._lastHeaderScrollLeft;
 
-    // Surface fill
-    ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
-    ctx.fillRect(0, 0, w, h);
+    if (drawHeader) {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
+      ctx.fillRect(0, 0, w, h);
+    } else {
+      // Clip every task-area draw below the header band and clear/fill only that
+      // region. Row bands and horizontal separators for rows scrolled above the
+      // fold overflow upward into the header band and normally rely on
+      // drawTimelineHeader (drawn last) to cover them — with the header skipped,
+      // the clip is what keeps them from bleeding over the retained header.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+      ctx.clip();
+      ctx.clearRect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+      ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
+      ctx.fillRect(0, HEADER_HEIGHT, w, h - HEADER_HEIGHT);
+    }
 
-    if (!this._scales) return;
+    if (!this._scales) {
+      if (!drawHeader) ctx.restore();
+      return;
+    }
 
     const { firstRow, lastRow } = this._visibleRange();
 
@@ -868,8 +926,15 @@ export class GanttEngineImpl implements GanttEngine {
       lastRow,
     );
     drawTodayLine(ctx, this._scales, this._scrollLeft, h);
-    // Timeline header drawn last so it paints over any content in the header band
-    drawTimelineHeader(ctx, this._scales, this._scrollLeft, w, this._fiscal);
+
+    if (drawHeader) {
+      // Timeline header drawn last so it paints over any content in the header band
+      drawTimelineHeader(ctx, this._scales, this._scrollLeft, w, this._fiscal);
+      this._headerContentDirty = false;
+      this._lastHeaderScrollLeft = this._scrollLeft;
+    } else {
+      ctx.restore();
+    }
   }
 
   // ---------------------------------------------------------------------------

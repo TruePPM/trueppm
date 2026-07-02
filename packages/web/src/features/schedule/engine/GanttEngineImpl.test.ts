@@ -16,16 +16,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types';
 import { GanttEngineImpl } from './GanttEngineImpl';
 import { CALENDAR_QUARTERS, ZOOM_CONFIGS, dateToLeft } from './GanttScaleData';
-import { prepareDependencyLayout } from './GanttRenderer';
+import { drawRowBands, drawTimelineHeader, prepareDependencyLayout } from './GanttRenderer';
 
 // Spy on the arrow-layout builder while keeping its real implementation, so
 // #1499's regression test can assert *when* the dependency layout cache gets
 // rebuilt without needing to reach into GanttEngineImpl's private state.
+// drawTimelineHeader / drawRowBands are wrapped the same way so the issue-1523
+// header-skip spec can assert *whether* the header date-walk ran on a given
+// paint without inspecting private state.
 vi.mock('./GanttRenderer', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./GanttRenderer')>();
   return {
     ...actual,
     prepareDependencyLayout: vi.fn(actual.prepareDependencyLayout),
+    drawTimelineHeader: vi.fn(actual.drawTimelineHeader),
+    drawRowBands: vi.fn(actual.drawRowBands),
   };
 });
 
@@ -699,5 +704,65 @@ describe('GanttEngineImpl — drag-task-move snapped-date coalescing (#1524)', (
     drag(); // same snapped x as the first drag — must still emit, guard was reset
 
     expect(moves).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue 1523 — vertical-only scroll skips the header/grid date-walk
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — header repaint is skipped on vertical-only scroll (issue 1523)', () => {
+  const headerSpy = vi.mocked(drawTimelineHeader);
+  const bandSpy = vi.mocked(drawRowBands);
+
+  it('repaints the bg body but not the timeline header when only scrollTop changes', () => {
+    const { engine, container, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame(); // initial full repaint draws the header at scrollLeft=0
+
+    const headerBefore = headerSpy.mock.calls.length;
+    const bandBefore = bandSpy.mock.calls.length;
+
+    // Pure vertical scroll: scrollLeft is unchanged, scrollTop moves.
+    container.scrollTop = 240;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrame();
+
+    // The header date-walk (major + minor rows) is the O(visible-days) cost the
+    // audit flagged; it must NOT run — the prior header band is retained.
+    expect(headerSpy.mock.calls.length).toBe(headerBefore);
+    // The bg body still repaints, though: row bands and horizontal separators
+    // move with scrollTop, so drawRowBands is called again.
+    expect(bandSpy.mock.calls.length).toBeGreaterThan(bandBefore);
+  });
+
+  it('redraws the timeline header when scrollLeft changes (horizontal scroll)', () => {
+    const { engine, container, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame(); // header drawn at scrollLeft=0
+
+    const headerBefore = headerSpy.mock.calls.length;
+
+    // Horizontal scroll shifts every header cell — the walk must run again.
+    container.scrollLeft = 320;
+    container.dispatchEvent(new Event('scroll'));
+    flushFrame();
+
+    expect(headerSpy.mock.calls.length).toBeGreaterThan(headerBefore);
+  });
+
+  it('redraws the header on a fiscal-config change even when scrollLeft is unchanged', () => {
+    const { engine, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+
+    const headerBefore = headerSpy.mock.calls.length;
+
+    // Header labels/tiers depend on fiscal mode; content is dirty even though
+    // scrollLeft did not move, so the walk must run.
+    engine.setFiscalConfig({ mode: 'fiscal', startMonth: 3 });
+    flushFrame();
+
+    expect(headerSpy.mock.calls.length).toBeGreaterThan(headerBefore);
   });
 });
