@@ -8,6 +8,7 @@
  * Setup mirrors sprints-planning-surface.spec.ts (the e2e user is Admin → a facilitator).
  */
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-poker-0000-0000-0000-000000000863';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -68,6 +69,15 @@ function json(body: unknown, status = 200) {
 }
 
 async function setup(page: Page) {
+  // Register the 404 catch-all FIRST so more-specific routes below win (Playwright
+  // matches last-registered). Without it, the many endpoints the SprintsView shell
+  // reads but this spec does not mock (monte-carlo, notifications, workspace,
+  // programs, ws/ticket, me/work, dependencies, project-resources, sprint-health,
+  // …) fall through Vite's preview proxy to a dead :8000 backend. Under parallel
+  // workers that 502 storm backs the proxy up until `page.goto` itself gets
+  // ERR_CONNECTION_REFUSED — the intermittent "sprint flickers to null / PLANNED
+  // branch unmounts" instability that originally fixme'd these tests (issue 1514).
+  await setupCatchAll(page);
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -148,7 +158,10 @@ async function setup(page: Page) {
     return r.fulfill(json(live ? [session] : []));
   });
   await page.route(`**/api/v1/poker/ps1/vote/`, (r) => {
-    session.my_vote = { value: 8, comment: '' };
+    // Reflect the caller's actual vote (POST body { value, comment }) rather than
+    // a hardcoded 8, so the mock verifies the real request payload round-trips.
+    const body = (r.request().postDataJSON() ?? {}) as { value?: number | null; comment?: string };
+    session.my_vote = { value: body.value ?? null, comment: body.comment ?? '' };
     session.vote_count = 1;
     return r.fulfill(json(session));
   });
@@ -168,16 +181,17 @@ async function setup(page: Page) {
   });
 }
 
-// NOTE: these two flows are marked `fixme` — the EstimationPokerCard mounts inside the
-// SprintsView planning surface, which does not render stably under this spec's route mocks
-// (the selected sprint flickers to null and the PLANNED branch unmounts before the poker
-// card can query). The card's full behaviour — idle, open-voting, reveal, commit, and the
-// facilitator/participant RBAC split — is covered directly by
-// `src/features/sprints/poker/EstimationPokerCard.test.tsx` (vitest) and the outlier helper +
-// WS invalidation by their own unit specs; the API lifecycle/privacy/RBAC by
-// `tests/apps/projects/test_poker.py`. Un-fixme once the planning-surface mock is stabilized.
+// These flows exercise the EstimationPokerCard mounted inside the real SprintsView
+// planning surface — the integration seam (SprintsView routing/query wiring → card
+// mount → poker query) that the card's own vitest spec cannot cover. They were
+// previously `test.fixme`'d for an intermittent "sprint flickers to null / PLANNED
+// branch unmounts" failure; the root cause was the missing 404 catch-all (see the
+// note in `setup`), now fixed, so the tests run (issue 1514). The card's unit
+// behaviour — idle, open-voting, reveal, commit, RBAC split — remains covered by
+// `src/features/sprints/poker/EstimationPokerCard.test.tsx` (vitest) and the API
+// lifecycle/privacy/RBAC by `tests/apps/projects/test_poker.py`.
 test.describe('Estimation poker — golden path', () => {
-  test.fixme('vote → reveal → commit on an open round', async ({ page }) => {
+  test('vote → reveal → commit on an open round', async ({ page }) => {
     await setup(page);
     await page.goto(BASE_URL);
 
@@ -198,7 +212,7 @@ test.describe('Estimation poker — golden path', () => {
     await expect(card.getByText('Sizing:')).toHaveCount(0);
   });
 
-  test.fixme('the Fibonacci row is a keyboard-navigable radiogroup', async ({ page }) => {
+  test('the Fibonacci row is a keyboard-navigable radiogroup', async ({ page }) => {
     await setup(page);
     await page.goto(BASE_URL);
     const card = page.getByRole('region', { name: 'Estimation poker' });

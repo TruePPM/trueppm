@@ -1780,10 +1780,16 @@ web:e2e:report:
     - retry npm ci --prefer-offline --quiet
   script:
     - npx playwright merge-reports --config=playwright.merge.config.ts ./blob-report
+    # Surface flaky outcomes (tests that only passed on retry) LOUDLY (issue 1514).
+    # CI retries otherwise let a non-deterministic test green the job silently.
+    # Warn-only for now (exit 0); set TRUEPPM_FLAKY_FAIL=1 to make it a hard gate
+    # once the suite is clean. Reads flaky-report.json from the merge step above.
+    - node scripts/check-flaky.mjs
   artifacts:
     when: always
     paths:
       - packages/web/playwright-report/
+      - packages/web/flaky-report.json
     expire_in: 7 days
 
 web:integration:

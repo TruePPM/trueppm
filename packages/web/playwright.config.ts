@@ -28,7 +28,14 @@ export default defineConfig({
   fullyParallel: true,
   // Fail fast on focused tests (.only) in CI — prevents accidental partial runs.
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // One retry in CI (down from 2, issue 1514): a single retry still absorbs the
+  // genuinely non-deterministic infra hiccup (a runner network blip), but does
+  // NOT let a test that fails 2-of-3 attempts green the job — that class of flake
+  // was invisible noise under 2 retries. The web:e2e:report job's flaky-outcome
+  // check (scripts/check-flaky.mjs) surfaces any test that only passed on retry,
+  // so a retry masks nothing silently. Local stays at 0 — flakes must be visible
+  // the moment they are introduced. Contrast playwright.integration.config.ts (0).
+  retries: process.env.CI ? 1 : 0,
   // CI runners are sized at 4 cores; mocked specs are stateless so worker
   // isolation is safe. Local default is Playwright's 50% of cores.
   workers: process.env.CI ? 4 : undefined,

@@ -167,7 +167,9 @@ test.describe('Workshop mode', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
     await openMoreAndClickWorkshop(page, 'start');
-    await page.waitForTimeout(200);
+    // Gate on the workshop banner mounting (session became active via
+    // workshop/current) instead of a fixed 200ms sleep.
+    await expect(page.getByRole('status', { name: /workshop/i })).toBeVisible();
 
     // Click End Workshop in the banner
     await page.getByRole('button', { name: /end workshop/i }).click();
@@ -200,7 +202,9 @@ test.describe('Workshop mode', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
     await openMoreAndClickWorkshop(page, 'start');
-    await page.waitForTimeout(200);
+    // Gate on the workshop banner mounting (session became active via
+    // workshop/current) instead of a fixed 200ms sleep.
+    await expect(page.getByRole('status', { name: /workshop/i })).toBeVisible();
     await page.getByRole('button', { name: /end workshop/i }).click();
 
     // Click End Workshop in the confirmation dialog
@@ -229,7 +233,9 @@ test.describe('Workshop mode', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
     await openMoreAndClickWorkshop(page, 'start');
-    await page.waitForTimeout(200);
+    // Gate on the workshop banner mounting (session became active via
+    // workshop/current) instead of a fixed 200ms sleep.
+    await expect(page.getByRole('status', { name: /workshop/i })).toBeVisible();
     await page.getByRole('button', { name: /end workshop/i }).click();
 
     // Cancel the dialog
@@ -272,7 +278,9 @@ test.describe('Workshop mode', () => {
     await expect(page.getByRole('button', { name: /start workshop session/i })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: /start workshop session/i }).click();
     await moreButton.click();
-    await page.waitForTimeout(200);
+    // Gate on the workshop banner mounting (session active) instead of a fixed
+    // 200ms sleep before asserting the workshop canvas rendered.
+    await expect(page.getByRole('status', { name: /workshop/i })).toBeVisible();
 
     // Workshop canvas should show "Add Phase" button, not the generic empty state
     await expect(page.getByRole('button', { name: /\+ Add Phase/i })).toBeVisible({ timeout: 5_000 });

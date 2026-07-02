@@ -92,7 +92,10 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
   );
 
   await page.goto(`/projects/${PROJECT_ID}/resources/roster`);
-  await page.waitForLoadState('networkidle');
+  // Gate on the roster sub-nav rendering (the resources view has mounted and its
+  // reads resolved) rather than `networkidle`, which never settles cleanly while
+  // the app-wide hooks poll and the WebSocket handshake runs.
+  await expect(page.getByRole('link', { name: 'Roster' })).toBeVisible({ timeout: 10_000 });
 }
 
 test('Team tab is present in ViewTabs and labelled "Team"', async ({ page }) => {

@@ -238,6 +238,30 @@ test.describe('Task notes — detail page section (#740)', () => {
     await expect(page.getByText('Morgan Lee').first()).toBeVisible();
   });
 
+  test('a failed create surfaces an inline error and keeps the draft (#1514)', async ({ page }) => {
+    await setup(page, { role: 300 });
+    // Override the notes POST with a 500 AFTER setup so it wins (last-registered).
+    // GET still falls through to the stateful handler, so the list keeps rendering.
+    await page.route('**/api/v1/projects/*/tasks/*/notes/**', async (route) => {
+      if (route.request().method() === 'POST') {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' });
+      }
+      return route.fallback();
+    });
+    await openNotesSection(page);
+
+    const composer = page.getByRole('textbox', { name: 'Note body' });
+    await expect(composer).toBeVisible();
+    await composer.fill('This note will fail to save.');
+    await page.getByRole('button', { name: 'Add note' }).click();
+
+    // Inline alert appears, the draft text is retained (not cleared on failure),
+    // and the Add note button re-enables so the user can retry.
+    await expect(page.getByRole('alert')).toContainText(/Couldn't add note/i);
+    await expect(composer).toHaveValue('This note will fail to save.');
+    await expect(page.getByRole('button', { name: 'Add note' })).toBeEnabled();
+  });
+
   test('shows the empty state when the task has no notes', async ({ page }) => {
     await setup(page, { role: 300 });
     await openNotesSection(page);
