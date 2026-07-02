@@ -304,7 +304,7 @@ export function WorkspaceGroupsPage() {
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
-                className="h-32 rounded-card bg-neutral-surface-raised border border-neutral-border animate-pulse"
+                className="h-32 rounded-card bg-neutral-surface-raised border border-neutral-border motion-safe:animate-pulse"
               />
             ))}
           </div>

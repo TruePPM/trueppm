@@ -444,13 +444,13 @@ function ActivitySkeleton() {
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex gap-3">
           <div className="flex w-7 shrink-0 flex-col items-center">
-            <div className="h-7 w-7 animate-pulse rounded-full bg-neutral-border" />
+            <div className="h-7 w-7 motion-safe:animate-pulse rounded-full bg-neutral-border" />
             {i < 2 && <div className="mt-1 min-h-4 w-px flex-1 bg-neutral-border/40" />}
           </div>
           <div className="flex-1 pb-4">
             <div className="flex justify-between gap-2">
-              <div className="h-3 w-40 animate-pulse rounded-chip bg-neutral-border" />
-              <div className="h-3 w-12 shrink-0 animate-pulse rounded-chip bg-neutral-border" />
+              <div className="h-3 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-border" />
+              <div className="h-3 w-12 shrink-0 motion-safe:animate-pulse rounded-chip bg-neutral-border" />
             </div>
           </div>
         </div>

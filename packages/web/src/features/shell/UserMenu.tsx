@@ -176,7 +176,7 @@ function AvatarChip({ initials, isLoading, isOpen, onClick, buttonRef }: AvatarC
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={onClick}
-        className="animate-pulse bg-brand-primary/30 rounded-full w-8 h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+        className="motion-safe:animate-pulse bg-brand-primary/30 rounded-full w-8 h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
       />
     );
   }

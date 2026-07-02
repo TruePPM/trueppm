@@ -176,7 +176,7 @@ export function ImportProjectModal({ onClose, onCreated, programId, programName 
                 role="progressbar"
                 aria-label="Uploading file"
               >
-                <div className="h-full w-1/3 animate-pulse rounded-full bg-brand-primary" />
+                <div className="h-full w-1/3 motion-safe:animate-pulse rounded-full bg-brand-primary" />
               </div>
             </div>
           ) : (

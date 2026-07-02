@@ -275,7 +275,7 @@ describe('SprintDailyDeltaPanel (#925)', () => {
   it('renders a loading skeleton', () => {
     useDeltaMock.mockReturnValue({ data: undefined, isLoading: true });
     const { container } = render(<SprintDailyDeltaPanel sprintId="s1" />);
-    expect(container.querySelector('.animate-pulse')).toBeTruthy();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeTruthy();
   });
 
   describe('sub-5-day "N days left" burndown footnote (#1238)', () => {

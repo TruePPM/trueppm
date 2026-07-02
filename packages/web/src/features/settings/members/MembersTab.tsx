@@ -37,7 +37,7 @@ export function MembersTab() {
         {isLoading && (
           <div className="space-y-px">
             {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="h-14 rounded bg-neutral-surface-raised animate-pulse" />
+              <div key={i} className="h-14 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
             ))}
           </div>
         )}

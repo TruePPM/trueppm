@@ -133,7 +133,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
           {[0, 1, 2].map((i) => (
             <div
               key={i}
-              className="h-16 rounded border border-neutral-border bg-neutral-surface-raised animate-pulse"
+              className="h-16 rounded border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse"
             />
           ))}
         </div>

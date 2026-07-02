@@ -104,7 +104,7 @@ export function BlockedRollupPanel(props: Props) {
           {query.isLoading ? (
             <ul className="space-y-1 px-2 py-1" aria-label="Loading blocked tasks">
               {[1, 2].map((i) => (
-                <li key={i} className="h-10 animate-pulse rounded bg-neutral-surface-sunken" aria-hidden="true" />
+                <li key={i} className="h-10 motion-safe:animate-pulse rounded bg-neutral-surface-sunken" aria-hidden="true" />
               ))}
             </ul>
           ) : count === 0 ? (

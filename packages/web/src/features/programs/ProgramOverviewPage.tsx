@@ -150,7 +150,7 @@ function KpiSkeleton() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
         />
       ))}
     </div>

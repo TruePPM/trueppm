@@ -26,8 +26,8 @@ export function WorkspaceEmailPage() {
         {isLoading ? (
           <SettingsCard>
             <div className="px-4 py-4 space-y-2" aria-busy="true" aria-label="Loading email settings">
-              <div className="h-3 w-1/2 bg-neutral-surface-sunken rounded-chip animate-pulse" />
-              <div className="h-3 w-2/3 bg-neutral-surface-sunken rounded-chip animate-pulse" />
+              <div className="h-3 w-1/2 bg-neutral-surface-sunken rounded-chip motion-safe:animate-pulse" />
+              <div className="h-3 w-2/3 bg-neutral-surface-sunken rounded-chip motion-safe:animate-pulse" />
             </div>
           </SettingsCard>
         ) : isError || !data ? (

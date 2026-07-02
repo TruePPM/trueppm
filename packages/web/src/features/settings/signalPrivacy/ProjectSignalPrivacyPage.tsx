@@ -182,7 +182,7 @@ export function ProjectSignalPrivacyPage() {
         {isLoading && (
           <div className="space-y-px" aria-hidden="true">
             {Array.from({ length: 3 }, (_, i) => (
-              <div key={i} className="h-24 rounded bg-neutral-surface-raised animate-pulse" />
+              <div key={i} className="h-24 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
             ))}
           </div>
         )}

@@ -170,7 +170,7 @@ export function NotificationPanel({ onClose }: Props) {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-16 rounded-control border border-neutral-border animate-pulse bg-neutral-surface-raised"
+                className="h-16 rounded-control border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
               />
             ))}
           </div>

@@ -355,7 +355,7 @@ export function UnscheduledGutter({
             style={{ paddingLeft: taskListWidth }}
             className="px-4 py-2"
           >
-            <div className="h-9 rounded-card animate-pulse bg-neutral-border/50" />
+            <div className="h-9 rounded-card motion-safe:animate-pulse bg-neutral-border/50" />
           </div>
         )}
       </div>

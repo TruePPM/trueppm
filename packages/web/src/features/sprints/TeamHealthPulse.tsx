@@ -29,7 +29,7 @@ export function TeamHealthPulse({ sprintId, canRespond }: Props) {
 
   if (trend.isLoading) {
     return (
-      <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+      <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
     );
   }
 

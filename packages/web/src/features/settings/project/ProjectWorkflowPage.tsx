@@ -185,7 +185,7 @@ function CadenceSection({
       </div>
       <div className="px-4 py-4">
         {isLoading || !project ? (
-          <div className="h-16 rounded-card bg-neutral-surface-sunken animate-pulse" />
+          <div className="h-16 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse" />
         ) : isWaterfall ? (
           <p className="text-[12px] text-neutral-text-secondary">
             Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.

@@ -44,12 +44,12 @@ export function ResourcesHeatmapSkeleton({ cols: _cols }: { cols: number }) {
   return (
     <div className="rounded-card border border-neutral-border overflow-hidden">
       {/* Header row skeleton */}
-      <div className="h-9 bg-neutral-surface-sunken border-b border-neutral-border animate-pulse" />
+      <div className="h-9 bg-neutral-surface-sunken border-b border-neutral-border motion-safe:animate-pulse" />
       {/* Person rows skeleton */}
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="h-[52px] border-b border-neutral-border/40 animate-pulse bg-neutral-surface-raised"
+          className="h-[52px] border-b border-neutral-border/40 motion-safe:animate-pulse bg-neutral-surface-raised"
           style={{ opacity: 1 - i * 0.12 }}
         />
       ))}

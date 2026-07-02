@@ -1100,7 +1100,7 @@ export function ScheduleView() {
       >
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-7 rounded-card animate-pulse bg-brand-primary/10" />
+            <div key={i} className="h-7 rounded-card motion-safe:animate-pulse bg-brand-primary/10" />
           ))}
         </div>
         <div className="flex-1 bg-neutral-surface" />

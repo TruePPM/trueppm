@@ -243,7 +243,7 @@ export function WorkspaceGeneralPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-10 rounded-control bg-neutral-surface-raised animate-pulse" />
+          <div key={i} className="h-10 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse" />
         ))}
       </div>
     );

@@ -223,7 +223,7 @@ function ListSkeleton() {
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
-          className="flex items-center gap-3 px-3.5 py-2.5 border-b border-neutral-border/55 animate-pulse"
+          className="flex items-center gap-3 px-3.5 py-2.5 border-b border-neutral-border/55 motion-safe:animate-pulse"
         >
           <span className="w-2 h-2 rounded-full bg-neutral-surface-raised shrink-0" />
           <span className="flex-1">
@@ -245,7 +245,7 @@ function DetailPane({ id }: { id: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex items-center justify-center text-[13px] text-neutral-text-secondary animate-pulse">
+      <div className="flex-1 flex items-center justify-center text-[13px] text-neutral-text-secondary motion-safe:animate-pulse">
         Loading…
       </div>
     );

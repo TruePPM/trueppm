@@ -328,7 +328,7 @@ function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webho
         Recent deliveries
       </div>
       {isLoading ? (
-        <div className="h-16 bg-neutral-surface-sunken rounded animate-pulse" aria-busy="true" />
+        <div className="h-16 bg-neutral-surface-sunken rounded motion-safe:animate-pulse" aria-busy="true" />
       ) : !deliveries || deliveries.length === 0 ? (
         <p className="text-[12px] text-neutral-text-secondary">No deliveries yet.</p>
       ) : (

@@ -430,7 +430,7 @@ export function RiskRegisterView() {
           >
             {isLoading && (
               <div
-                className="flex-1 rounded-card animate-pulse bg-neutral-border/30"
+                className="flex-1 rounded-card motion-safe:animate-pulse bg-neutral-border/30"
                 aria-hidden="true"
               />
             )}
@@ -452,7 +452,7 @@ export function RiskRegisterView() {
               {[0, 1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-14 rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border"
+                  className="h-14 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border"
                   aria-hidden="true"
                 />
               ))}

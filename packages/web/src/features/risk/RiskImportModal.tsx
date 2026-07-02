@@ -239,7 +239,7 @@ export function RiskImportModal({ projectId, onClose }: Props) {
                 role="progressbar"
                 aria-label="Importing file"
               >
-                <div className="h-full w-1/3 animate-pulse rounded-full bg-brand-primary" />
+                <div className="h-full w-1/3 motion-safe:animate-pulse rounded-full bg-brand-primary" />
               </div>
             </div>
           ) : (

@@ -91,7 +91,7 @@ describe('IntegrationsRedirect', () => {
     const { container } = renderShim();
     // The skeleton is a bare pulse-animation div; assert the container is not
     // showing the picker/empty-state copy.
-    expect(container.querySelector('.animate-pulse')).not.toBeNull();
+    expect(container.querySelector('[class*="animate-pulse"]')).not.toBeNull();
     expect(screen.queryByText(/Which project.s integrations/i)).toBeNull();
     expect(
       screen.queryByText(/Integrations are configured per project/i),

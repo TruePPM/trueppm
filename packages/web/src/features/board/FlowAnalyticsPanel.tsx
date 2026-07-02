@@ -168,7 +168,7 @@ function ThroughputForecastCard({
   if (isLoading || !data) {
     return (
       <ForecastFrame>
-        <div className="h-5 w-2/3 animate-pulse rounded bg-neutral-surface-sunken" aria-hidden="true" />
+        <div className="h-5 w-2/3 motion-safe:animate-pulse rounded bg-neutral-surface-sunken" aria-hidden="true" />
       </ForecastFrame>
     );
   }
@@ -295,7 +295,7 @@ function PanelBody({
     return (
       <div className="grid grid-cols-1 gap-3 py-2 lg:grid-cols-3" aria-hidden="true">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-36 animate-pulse rounded-card bg-neutral-surface-sunken" />
+          <div key={i} className="h-36 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken" />
         ))}
       </div>
     );

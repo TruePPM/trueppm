@@ -968,7 +968,7 @@ function LegendItem({ color, dashed, label }: { color: string; dashed: boolean; 
 
 function ChartSkeleton() {
   return (
-    <div className="animate-pulse flex flex-col gap-3 h-[320px] justify-end pb-6">
+    <div className="motion-safe:animate-pulse flex flex-col gap-3 h-[320px] justify-end pb-6">
       <div className="h-0.5 bg-neutral-surface-raised rounded w-full" />
       <div className="h-0.5 bg-neutral-surface-raised rounded w-5/6" />
       <div className="h-0.5 bg-neutral-surface-raised rounded w-2/3" />

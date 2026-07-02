@@ -280,7 +280,7 @@ function LoadingSkeleton() {
         <li
           key={i}
           aria-hidden="true"
-          className="h-11 rounded-card bg-neutral-surface-sunken animate-pulse"
+          className="h-11 rounded-card bg-neutral-surface-sunken motion-safe:animate-pulse"
         />
       ))}
     </ul>

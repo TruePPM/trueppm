@@ -156,7 +156,7 @@ export function HeatmapCellDrawer({
           {isLoading ? (
             <div className="p-5 space-y-3">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+                <div key={i} className="h-16 rounded border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
               ))}
             </div>
           ) : !data || data.length === 0 ? (

@@ -212,11 +212,11 @@ function formatDateCell(value: string | null) {
 function BaselineSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading baseline">
-      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 animate-pulse">
+      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 motion-safe:animate-pulse">
         <div className="h-3 w-32 rounded-chip bg-neutral-border mb-1" />
         <div className="h-3 w-48 rounded-chip bg-neutral-border" />
       </div>
-      <div className="rounded-card border border-neutral-border overflow-hidden animate-pulse">
+      <div className="rounded-card border border-neutral-border overflow-hidden motion-safe:animate-pulse">
         {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="grid grid-cols-4 border-b border-neutral-border last:border-b-0 p-2 gap-2">
             {[0, 1, 2, 3].map((j) => (

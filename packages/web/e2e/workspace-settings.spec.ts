@@ -327,7 +327,7 @@ test.describe('Workspace General page', () => {
     await page.goto('/settings/general');
 
     // Loading skeleton is visible before data arrives
-    await expect(page.locator('.animate-pulse').first()).toBeVisible();
+    await expect(page.locator('[class*="animate-pulse"]').first()).toBeVisible();
 
     // Unblock so the page can finish loading
     resolve(undefined);
@@ -438,7 +438,7 @@ test.describe('Workspace Members page', () => {
 
     await page.goto('/settings/members');
 
-    await expect(page.locator('.animate-pulse').first()).toBeVisible();
+    await expect(page.locator('[class*="animate-pulse"]').first()).toBeVisible();
     resolve(undefined);
   });
 });
@@ -700,7 +700,7 @@ test.describe('Workspace Groups page', () => {
 
     await page.goto('/settings/groups');
 
-    await expect(page.locator('.animate-pulse').first()).toBeVisible();
+    await expect(page.locator('[class*="animate-pulse"]').first()).toBeVisible();
     resolve(undefined);
   });
 });

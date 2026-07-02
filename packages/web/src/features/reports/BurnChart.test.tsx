@@ -167,7 +167,7 @@ describe('BurnChart — project context', () => {
     projectLoading();
     const { container } = renderWithProviders(<BurnChart projectId="proj-1" />);
     // ChartSkeleton renders an animate-pulse div
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).toBeInTheDocument();
   });
 
   it('renders error state with retry button', () => {
@@ -327,7 +327,7 @@ describe('BurnChart — combined variant', () => {
     expect(screen.getByRole('radio', { name: /combined/i })).toHaveAttribute('aria-checked', 'true');
     // Chart area renders (not skeleton/empty/error)
     const { container } = renderWithProviders(<BurnChart projectId="proj-1" defaultVariant="combined" />);
-    expect(container.querySelector('.animate-pulse')).not.toBeInTheDocument();
+    expect(container.querySelector('[class*="animate-pulse"]')).not.toBeInTheDocument();
   });
 });
 

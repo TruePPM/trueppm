@@ -249,11 +249,11 @@ function LoadingSkeleton() {
     <div className="flex-1 space-y-3 p-4" aria-busy="true" aria-label="Loading program schedule">
       {[0, 1, 2].map((lane) => (
         <div key={lane} className="space-y-2">
-          <div className="h-4 w-40 animate-pulse rounded-chip bg-neutral-surface-raised" />
+          <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-raised" />
           {[0, 1].map((row) => (
             <div
               key={row}
-              className="ml-4 h-3 animate-pulse rounded-chip bg-neutral-surface-raised"
+              className="ml-4 h-3 motion-safe:animate-pulse rounded-chip bg-neutral-surface-raised"
               style={{ width: `${40 + ((lane + row) % 3) * 18}%` }}
             />
           ))}

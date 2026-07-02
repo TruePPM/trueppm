@@ -38,7 +38,7 @@ export function IntegrationsRedirect() {
   if (isLoading || !projects) {
     return (
       <div className="px-6 py-8">
-        <div className="h-4 w-1/3 bg-neutral-surface-sunken rounded-chip animate-pulse" />
+        <div className="h-4 w-1/3 bg-neutral-surface-sunken rounded-chip motion-safe:animate-pulse" />
       </div>
     );
   }
