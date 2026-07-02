@@ -207,17 +207,32 @@ export function drawGridLines(
   ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
 
-  // Vertical lines: walk from scales.start to scales.end in 1-day steps.
-  // For large zoom levels this is O(days in range) which is fine for phase 1.
+  // Vertical lines: walk 1-day steps across the VISIBLE window only (#1570).
+  // A multi-year project at day/week zoom has thousands of day-steps between
+  // scales.start and scales.end; since _onScroll marks a full repaint on
+  // every pan/scroll frame (rule 60's dirty-rect design doesn't cover
+  // background-layer content), walking the whole project range here was the
+  // largest per-frame CPU cost in the scroll path. Clip to [scrollLeft,
+  // scrollLeft + viewportWidth] by seeding `ms` at the first visible day and
+  // breaking once we pass the right edge — days outside that span were never
+  // drawn anyway (the old in-loop `if (x in view)` check just skipped them
+  // after paying the iteration cost).
   const startMs = scales.start.getTime();
   const endMs = scales.end.getTime();
   const dayMs = 86_400_000;
+  const viewportWidth = ctx.canvas.width / (window.devicePixelRatio || 1);
+  const pxPerDayPx = dayMs * scales.pxPerMs;
 
   ctx.beginPath();
   let ms = startMs;
+  if (pxPerDayPx > 0) {
+    const firstVisibleSteps = Math.max(0, Math.floor((scrollLeft - 1) / pxPerDayPx));
+    ms = Math.min(endMs, startMs + firstVisibleSteps * dayMs);
+  }
   while (ms <= endMs) {
     const x = (ms - startMs) * scales.pxPerMs - scrollLeft;
-    if (x >= -1 && x <= ctx.canvas.width / (window.devicePixelRatio || 1) + 1) {
+    if (x > viewportWidth + 1) break;
+    if (x >= -1) {
       const date = new Date(ms);
       // Weekend shading (rule 74) — draw on bg canvas, below the header
       if (isWeekend(date)) {
@@ -401,6 +416,43 @@ function minorFormatFor(unit: HeaderUnit): (d: Date) => string {
   }
 }
 
+/** Safety cap on the backward walk in `findCellStart` — the largest possible
+ *  header cell is one year (365/366 days, calendar or fiscal), so this bounds
+ *  the search to a small constant regardless of total project length. */
+const MAX_UNIT_CELL_DAYS = 400;
+
+/**
+ * Find the start (ms, Date, unit key) of the header cell that contains
+ * `fromMs`, walking backward in single-day steps and stopping at the first
+ * day whose `getUnitKey` differs.
+ *
+ * Used to seed the major/minor row walk in `drawTimelineHeader` at the first
+ * VISIBLE day instead of at `scales.start` (#1570) — reusing `getUnitKey`
+ * (rather than computing a unit-start date independently per unit) guarantees
+ * the seeded boundary matches the forward walk exactly, including the fiscal
+ * quarter/year offsets `getUnitKey` applies in fiscal mode. The walk is
+ * bounded by `MAX_UNIT_CELL_DAYS`, so it costs at most one cell's worth of
+ * iterations — not O(days since project start).
+ */
+function findCellStart(
+  fromMs: number,
+  unit: HeaderUnit,
+  fiscal: FiscalConfig,
+): { ms: number; date: Date; key: string } {
+  const dayMs = 86_400_000;
+  let ms = fromMs;
+  let date = new Date(ms);
+  const key = getUnitKey(date, unit, fiscal);
+  for (let i = 0; i < MAX_UNIT_CELL_DAYS; i++) {
+    const prevMs = ms - dayMs;
+    const prevDate = new Date(prevMs);
+    if (getUnitKey(prevDate, unit, fiscal) !== key) break;
+    ms = prevMs;
+    date = prevDate;
+  }
+  return { ms, date, key };
+}
+
 /**
  * Draw the two-row timeline header at y = 0..HEADER_HEIGHT on canvas-bg.
  * Top row: major unit (day, week, month, quarter, or year).
@@ -429,6 +481,17 @@ export function drawTimelineHeader(
   const startMs = scales.start.getTime();
   const endMs = scales.end.getTime();
 
+  // First visible day (#1570) — both rows seed their walk here instead of at
+  // scales.start. A multi-year project at day/week zoom has thousands of
+  // day-steps between scales.start and scales.end, and the header walks that
+  // twice (major + minor); since _onScroll marks a full repaint on every
+  // pan/scroll frame, this was the largest per-frame cost in the scroll path.
+  const pxPerDayPx = dayMs * scales.pxPerMs;
+  const firstVisibleMs =
+    pxPerDayPx > 0
+      ? Math.min(endMs, Math.max(startMs, startMs + Math.floor((scrollLeft - 1) / pxPerDayPx) * dayMs))
+      : startMs;
+
   // Opaque background covers any row bands that reached the header area
   ctx.fillStyle = _palette.surface;
   ctx.fillRect(0, 0, canvasWidth, HEADER_HEIGHT);
@@ -443,31 +506,42 @@ export function drawTimelineHeader(
 
   // --- Major row (top half) ---
   {
-    let prevKey = '';
-    let cellStartCanvasX = 0;
-    let cellStartDate: Date | null = null;
+    // Seed from the unit boundary at/just-left-of the first visible day —
+    // not `''`/`startMs` — so a cell that's already scrolled halfway off the
+    // left edge still opens correctly and renders its sticky label (#96),
+    // instead of being (re)treated as starting at the viewport edge.
+    const seed = findCellStart(firstVisibleMs, majorUnit, fiscal);
+    let prevKey = seed.key;
+    let cellStartCanvasX = (seed.ms - startMs) * scales.pxPerMs;
+    let cellStartDate: Date = seed.date;
 
-    let ms = startMs;
+    let ms = seed.ms + dayMs;
     while (ms <= endMs + dayMs) {
       const date = new Date(ms);
       const key = getUnitKey(date, majorUnit, fiscal);
 
       if (key !== prevKey) {
-        if (cellStartDate !== null) {
-          const canvasX = (ms - startMs) * scales.pxPerMs;
-          const cellX = cellStartCanvasX - scrollLeft;
-          const cellWidth = canvasX - scrollLeft - cellX;
-          const label = unitLabel(cellStartDate, majorUnit, majorFormat, fiscal);
-          drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
-        }
-        cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
+        const canvasX = (ms - startMs) * scales.pxPerMs;
+        const cellX = cellStartCanvasX - scrollLeft;
+        const cellWidth = canvasX - scrollLeft - cellX;
+        const label = unitLabel(cellStartDate, majorUnit, majorFormat, fiscal);
+        drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
+
+        cellStartCanvasX = canvasX;
         cellStartDate = date;
         prevKey = key;
+
+        // Every cell through this one is drawn; once the newly-opened cell
+        // itself starts past the right edge, every later cell is fully
+        // off-screen too (#1570). The after-loop flush below still draws
+        // this cell — drawHeaderCell's cellWidth < 4 guard no-ops it
+        // harmlessly if it turns out to be entirely off-screen.
+        if (cellStartCanvasX - scrollLeft > canvasWidth + 1) break;
       }
       ms += dayMs;
     }
     // Flush last cell
-    if (cellStartDate !== null) {
+    {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
       const label = unitLabel(cellStartDate, majorUnit, majorFormat, fiscal);
@@ -477,31 +551,35 @@ export function drawTimelineHeader(
 
   // --- Minor row (bottom half) ---
   {
-    let prevKey = '';
-    let cellStartCanvasX = 0;
-    let cellStartDate: Date | null = null;
+    const seed = findCellStart(firstVisibleMs, minorUnit, fiscal);
+    let prevKey = seed.key;
+    let cellStartCanvasX = (seed.ms - startMs) * scales.pxPerMs;
+    let cellStartDate: Date = seed.date;
 
-    let ms = startMs;
+    let ms = seed.ms + dayMs;
     while (ms <= endMs + dayMs) {
       const date = new Date(ms);
       const key = getUnitKey(date, minorUnit, fiscal);
 
       if (key !== prevKey) {
-        if (cellStartDate !== null) {
-          const canvasX = (ms - startMs) * scales.pxPerMs;
-          const cellX = cellStartCanvasX - scrollLeft;
-          const cellWidth = canvasX - scrollLeft - cellX;
-          const label = unitLabel(cellStartDate, minorUnit, minorFormat, fiscal);
-          drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
-        }
-        cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
+        const canvasX = (ms - startMs) * scales.pxPerMs;
+        const cellX = cellStartCanvasX - scrollLeft;
+        const cellWidth = canvasX - scrollLeft - cellX;
+        const label = unitLabel(cellStartDate, minorUnit, minorFormat, fiscal);
+        drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
+
+        cellStartCanvasX = canvasX;
         cellStartDate = date;
         prevKey = key;
+
+        // See the major-row loop above (#1570) — stop once the newly-opened
+        // cell itself starts past the right edge.
+        if (cellStartCanvasX - scrollLeft > canvasWidth + 1) break;
       }
       ms += dayMs;
     }
     // Flush last cell
-    if (cellStartDate !== null) {
+    {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
       const label = unitLabel(cellStartDate, minorUnit, minorFormat, fiscal);
