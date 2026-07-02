@@ -240,6 +240,74 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     """
     from trueppm_api.apps.resources.models import TaskResource
 
+    assignment_rows = list(
+        TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
+        .select_related("resource")
+        .values_list(
+            "resource_id",
+            "resource__name",
+            "resource__max_units",
+            "units",
+            "task__early_start",
+            "task__early_finish",
+        )
+    )
+    return _capacity_summary_from_rows(sprint, assignment_rows)
+
+
+def capacity_summaries_for_sprints(sprints: Any) -> dict[Any, dict[str, Any]]:
+    """Batched :func:`capacity_summary` — one ``TaskResource`` query for many sprints.
+
+    ``MeActiveSprintsView`` (#230) renders a capacity ratio for every active
+    sprint the caller is on; calling :func:`capacity_summary` once per sprint
+    issued a ``TaskResource`` query each (the #1012 N+1). This fetches every
+    sprint's assignments in a single query keyed by ``task__sprint_id`` and
+    dispatches each sprint's rows through the same per-assignment math, so the
+    totals are byte-identical to the per-sprint path — only the query count
+    changes.
+
+    Callers should pass sprints with ``project__calendar`` already
+    ``select_related`` so the per-sprint calendar read in the shared helper does
+    not re-introduce a separate N+1.
+
+    Returns a ``{sprint_pk: summary_dict}`` map; a sprint with no assignments
+    maps to the same empty-totals shape :func:`capacity_summary` returns.
+    """
+    from trueppm_api.apps.resources.models import TaskResource
+
+    sprint_list = list(sprints)
+    pks = [s.pk for s in sprint_list]
+    rows_by_sprint: dict[Any, list[Any]] = {}
+    if pks:
+        for row in (
+            TaskResource.objects.filter(task__sprint_id__in=pks, task__is_deleted=False)
+            .select_related("resource")
+            .values_list(
+                "resource_id",
+                "resource__name",
+                "resource__max_units",
+                "units",
+                "task__early_start",
+                "task__early_finish",
+                "task__sprint_id",
+            )
+        ):
+            *core, sprint_id = row
+            rows_by_sprint.setdefault(sprint_id, []).append(tuple(core))
+    return {
+        sprint.pk: _capacity_summary_from_rows(sprint, rows_by_sprint.get(sprint.pk, []))
+        for sprint in sprint_list
+    }
+
+
+def _capacity_summary_from_rows(sprint: Any, assignment_rows: Any) -> dict[str, Any]:
+    """Shared capacity math for :func:`capacity_summary` and its batched twin.
+
+    ``assignment_rows`` is an iterable of ``(resource_id, resource_name,
+    max_units, units, task_early_start, task_early_finish)`` tuples for the
+    sprint. Extracting it keeps the single-sprint and batched paths computing
+    identical totals from one source of truth (#1012).
+    """
     project = sprint.project
     cal = project.calendar
     hours_per_day = float(cal.hours_per_day) if cal else 8.0
@@ -260,20 +328,8 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
             "hours_per_day": hours_per_day,
         }
 
-    assignments = (
-        TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
-        .select_related("resource")
-        .values_list(
-            "resource_id",
-            "resource__name",
-            "resource__max_units",
-            "units",
-            "task__early_start",
-            "task__early_finish",
-        )
-    )
     by_resource: dict[Any, dict[str, Any]] = {}
-    for resource_id, resource_name, max_units, units, task_start, task_end in assignments:
+    for resource_id, resource_name, max_units, units, task_start, task_end in assignment_rows:
         # Compute working-day overlap between the task window and the sprint.
         # Fall back to the full sprint when CPM dates are not yet available.
         t_start = task_start or sprint.start_date
@@ -3692,10 +3748,13 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     Uses ``story_points`` (NOT ``prioritization_score`` — scoring inputs are
     PO-private per the backlog ADR) for the remaining-work sum.
     """
+    from django.db.models import Sum
+
     from trueppm_api.apps.projects.models import (
         ForecastSnapshot,
         Sprint,
         SprintState,
+        Task,
         TaskStatus,
     )
 
@@ -3706,21 +3765,25 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     # Remaining committed backlog: incomplete, pending-excluded story points across
     # the project's not-yet-closed sprints. Re-paced by the velocity band into a
     # sprints-to-complete range (high velocity → fewer sprints, low → more).
-    remaining_points = 0
-    from trueppm_api.apps.projects.models import committed_sprint_tasks
-
-    for sprint_pk in (
-        Sprint.objects.filter(project_id=project_id, is_deleted=False)
-        .exclude(state__in=[SprintState.COMPLETED, SprintState.CANCELLED])
-        .values_list("pk", flat=True)
-    ):
-        remaining_points += sum(
-            p
-            for p in committed_sprint_tasks(sprint_pk)
-            .exclude(status=TaskStatus.COMPLETE)
-            .values_list("story_points", flat=True)
-            if p is not None
+    #
+    # One aggregate over all not-closed sprints, replacing the former
+    # committed_sprint_tasks() round-trip per sprint (#1012). The Task filter mirrors
+    # committed_sprint_tasks() exactly (is_deleted=False, sprint_pending=False) scoped
+    # to the not-CANCELLED/COMPLETED sprints; Sum ignores NULL story_points — matching
+    # the former ``if p is not None`` guard — and None (no matching rows) coalesces to 0.
+    active_sprints = Sprint.objects.filter(project_id=project_id, is_deleted=False).exclude(
+        state__in=[SprintState.COMPLETED, SprintState.CANCELLED]
+    )
+    remaining_points = (
+        Task.objects.filter(
+            sprint__in=active_sprints,
+            is_deleted=False,
+            sprint_pending=False,
         )
+        .exclude(status=TaskStatus.COMPLETE)
+        .aggregate(total=Sum("story_points"))["total"]
+        or 0
+    )
 
     sprints_to_complete_low: float | None = None
     sprints_to_complete_high: float | None = None
@@ -3732,23 +3795,24 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
         sprints_to_complete_low = math.ceil(remaining_points / high)
         sprints_to_complete_high = math.ceil(remaining_points / low)
 
-    # Latest snapshot per bound milestone (one row each, newest taken_at).
+    # Latest snapshot per bound milestone (one row each, newest taken_at). A single
+    # DISTINCT ON (milestone_id) ordered by -taken_at replaces the former per-milestone
+    # ``.first()`` round-trip (#1012): Postgres keeps the first row of each milestone_id
+    # group, which — with taken_at descending — is the newest snapshot. A bound
+    # milestone with no snapshot is naturally absent, matching the former
+    # ``if latest is not None`` skip. Requires PostgreSQL DISTINCT ON (ADR tech stack).
     bound_milestone_ids = list(
         Sprint.objects.filter(project_id=project_id, is_deleted=False)
         .exclude(target_milestone_id=None)
         .values_list("target_milestone_id", flat=True)
         .distinct()
     )
-    milestones: list[ForecastSnapshot] = []
-    for mid in bound_milestone_ids:
-        latest = (
-            ForecastSnapshot.objects.filter(milestone_id=mid)
-            .select_related("milestone")
-            .order_by("-taken_at")
-            .first()
-        )
-        if latest is not None:
-            milestones.append(latest)
+    milestones: list[ForecastSnapshot] = list(
+        ForecastSnapshot.objects.filter(milestone_id__in=bound_milestone_ids)
+        .select_related("milestone")
+        .order_by("milestone_id", "-taken_at")
+        .distinct("milestone_id")
+    )
     milestones.sort(key=lambda s: (s.cpm_finish or date.max, getattr(s.milestone, "name", "")))
 
     return {

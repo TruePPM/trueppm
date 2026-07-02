@@ -11,6 +11,8 @@ from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -22,6 +24,11 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.services import (
+    capacity_summaries_for_sprints,
+    capacity_summary,
+)
+from trueppm_api.apps.resources.models import Resource, TaskResource
 
 User = get_user_model()
 
@@ -237,6 +244,88 @@ def test_results_sorted_by_trend_most_behind_first(calendar: Calendar, alice: ob
     assert resp.status_code == 200
     assert resp.data[0]["project_name"] == "Behind"
     assert resp.data[1]["project_name"] == "Ahead"
+
+
+@pytest.mark.django_db
+def test_active_sprints_query_count_constant_in_sprint_count(
+    calendar: Calendar, alice: object
+) -> None:
+    """#1012: /me/active-sprints/ must not issue a query per active sprint.
+
+    Capacity is batch-fetched (one ``TaskResource`` query for every sprint) and
+    velocity is cached per project, so a project carrying several active sprints
+    issues the same number of queries as one carrying a single sprint. A distinct
+    reader per measurement keeps each request scoped to its own project so the
+    counts are comparable.
+    """
+    res = Resource.objects.create(name="Dev", max_units=1.0)
+
+    def _measure(n: int, uname: str) -> int:
+        user = User.objects.create_user(username=uname, password="pw")
+        project = _project(calendar, f"P-{uname}")
+        _membership(project, user)
+        for i in range(n):
+            sprint = _active_sprint(project, f"S{i}")
+            task = Task.objects.create(
+                project=project,
+                name=f"T{i}",
+                duration=1,
+                sprint=sprint,
+                assignee=user,
+                story_points=5,
+                status=TaskStatus.NOT_STARTED,
+                early_start=sprint.start_date,
+                early_finish=sprint.finish_date,
+            )
+            TaskResource.objects.create(task=task, resource=res, units=1.0)
+        client = _client(user)
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.get("/api/v1/me/active-sprints/")
+            assert resp.status_code == 200
+            assert len(resp.data) == n
+        return len(ctx.captured_queries)
+
+    one = _measure(1, "solo")
+    many = _measure(4, "multi")
+    assert many == one, f"N+1 in /me/active-sprints/: {one} queries for 1 sprint, {many} for 4"
+
+
+@pytest.mark.django_db
+def test_capacity_summaries_for_sprints_matches_per_sprint(
+    calendar: Calendar, alice: object
+) -> None:
+    """The batched capacity helper returns totals byte-identical to the per-sprint
+    ``capacity_summary`` for every sprint, including a sprint with no assignments
+    (#1012 — only the query count changes, never the numbers)."""
+    project = _project(calendar, "Alpha")
+    res = Resource.objects.create(name="Dev", max_units=1.0)
+    sprints = []
+    for i in range(3):
+        sprint = _active_sprint(project, f"S{i}")
+        task = Task.objects.create(
+            project=project,
+            name=f"T{i}",
+            duration=10,
+            sprint=sprint,
+            early_start=sprint.start_date,
+            early_finish=sprint.finish_date,
+        )
+        TaskResource.objects.create(task=task, resource=res, units=1.0)
+        sprints.append(sprint)
+    # A sprint with no assignments exercises the empty-rows branch.
+    sprints.append(_active_sprint(project, "Empty"))
+
+    batched = capacity_summaries_for_sprints(sprints)
+    for sprint in sprints:
+        assert batched[sprint.pk] == capacity_summary(sprint)
+
+
+@pytest.mark.django_db
+def test_capacity_summaries_for_sprints_empty_input() -> None:
+    """No sprints → no query, empty map (guards the ``pks`` short-circuit, #1012)."""
+    with CaptureQueriesContext(connection) as ctx:
+        assert capacity_summaries_for_sprints([]) == {}
+    assert len(ctx.captured_queries) == 0
 
 
 @pytest.mark.django_db

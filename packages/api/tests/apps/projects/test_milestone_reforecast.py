@@ -12,7 +12,9 @@ from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -411,6 +413,36 @@ def test_forecast_returns_latest_snapshot_per_milestone(project: Project) -> Non
     # Two snapshots written, but the read returns the latest one per milestone.
     assert ForecastSnapshot.objects.filter(milestone=milestone).count() == 2
     assert len(data["milestones"]) == 1
+
+
+@pytest.mark.django_db
+def test_forecast_query_count_constant_in_sprints_and_milestones(calendar: Calendar) -> None:
+    """#1012: project_forecast issues a fixed number of queries regardless of the
+    project's not-closed-sprint and bound-milestone counts.
+
+    The remaining-committed backlog is one aggregate across all not-closed sprints
+    (not a ``committed_sprint_tasks()`` round-trip per sprint) and the latest
+    snapshot per milestone is one DISTINCT ON read (not a ``.first()`` per
+    milestone), so a project carrying four bound sprints + milestones costs the
+    same number of queries as one carrying a single pair. Velocity history is held
+    constant (two closed sprints) so only the forecast-scaling paths vary with ``k``.
+    """
+
+    def _measure(k: int, name: str) -> int:
+        project = Project.objects.create(name=name, start_date=date(2026, 4, 1), calendar=calendar)
+        _seed_velocity(project)  # two COMPLETED sprints — excluded from the active set
+        for i in range(k):
+            milestone = _milestone(project, name=f"Gate {i}", early_finish=date(2026, 5, 1))
+            _bound_sprint_with_work(project, milestone, remaining=10)
+            reforecast_bound_milestone(milestone.pk, broadcast=False)
+        with CaptureQueriesContext(connection) as ctx:
+            data = project_forecast(project.pk)
+        assert len(data["milestones"]) == k
+        return len(ctx.captured_queries)
+
+    one = _measure(1, "Single")
+    many = _measure(4, "Many")
+    assert many == one, f"N+1 in project_forecast: {one} queries for 1, {many} for 4"
 
 
 @pytest.mark.django_db
