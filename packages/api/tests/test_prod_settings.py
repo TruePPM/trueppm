@@ -36,16 +36,29 @@ _LOCAL = "django.core.files.storage.FileSystemStorage"
 _VALID_FERNET_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
 
 
+# A DATABASE_URL that clears the #1550 unencrypted-DB boot guard.
+_DB_URL_TLS = "postgres://u:p@db.example.com:5432/trueppm?sslmode=require"
+# A DATABASE_URL that trips the #1550 guard (no sslmode parameter).
+_DB_URL_PLAINTEXT = "postgres://u:p@db.example.com:5432/trueppm"
+
+
 def _load_prod(
-    *, backend: str, allow_local: bool, encryption_key: str = _VALID_FERNET_KEY
+    *,
+    backend: str,
+    allow_local: bool,
+    encryption_key: str = _VALID_FERNET_KEY,
+    database_url: str = _DB_URL_TLS,
+    allow_unencrypted_db: bool = False,
 ) -> ModuleType:
     """Import (or re-import) settings/prod.py with controlled storage + env.
 
-    prod.py reads ALLOWED_HOSTS/SECRET_KEY from the environment and STORAGES/
-    ALLOW_LOCAL_ATTACHMENT_STORAGE/INTEGRATION_ENCRYPTION_KEY from ``base`` at
-    import time. We patch each so the guards run against known inputs without
-    mutating the live settings (the ``DATABASES`` patch keeps prod's CONN_MAX_AGE
-    write off the shared dict).
+    prod.py reads ALLOWED_HOSTS/SECRET_KEY/DATABASE_URL from the environment and
+    STORAGES/ALLOW_LOCAL_ATTACHMENT_STORAGE/INTEGRATION_ENCRYPTION_KEY/
+    ALLOW_UNENCRYPTED_DB from ``base`` at import time. We patch each so the guards
+    run against known inputs without mutating the live settings (the ``DATABASES``
+    patch keeps prod's CONN_MAX_AGE write off the shared dict). ``database_url``
+    defaults to an sslmode=require URL so the #1550 guard passes unless a test
+    deliberately supplies a plaintext one.
     """
     storages = {
         "default": {"BACKEND": backend},
@@ -58,10 +71,12 @@ def _load_prod(
                 "ALLOWED_HOSTS": "prod.example.com",
                 "SECRET_KEY": _STRONG_KEY,
                 "TRUEPPM_SECURE_SSL_REDIRECT": "false",
+                "DATABASE_URL": database_url,
             },
         ),
         mock.patch.object(base, "STORAGES", storages),
         mock.patch.object(base, "ALLOW_LOCAL_ATTACHMENT_STORAGE", allow_local),
+        mock.patch.object(base, "ALLOW_UNENCRYPTED_DB", allow_unencrypted_db),
         mock.patch.object(base, "INTEGRATION_ENCRYPTION_KEY", encryption_key),
         mock.patch.object(base, "DATABASES", {"default": {}}),
     ):
@@ -105,6 +120,29 @@ def test_prod_refuses_empty_integration_encryption_key() -> None:
     """An empty INTEGRATION_ENCRYPTION_KEY stops the boot (#1002)."""
     with pytest.raises(RuntimeError, match="Refusing to start"):
         _load_prod(backend=_S3, allow_local=False, encryption_key="")
+
+
+def test_prod_refuses_unencrypted_database_url() -> None:
+    """A DATABASE_URL without sslmode and no opt-in stops the boot (#1550)."""
+    with pytest.raises(RuntimeError, match="sslmode=require"):
+        _load_prod(backend=_S3, allow_local=False, database_url=_DB_URL_PLAINTEXT)
+
+
+def test_prod_boots_with_sslmode_require() -> None:
+    """A DATABASE_URL carrying sslmode=require clears the #1550 guard."""
+    prod = _load_prod(backend=_S3, allow_local=False, database_url=_DB_URL_TLS)
+    assert prod.DEBUG is False
+
+
+def test_prod_boots_on_unencrypted_db_when_opted_in() -> None:
+    """TRUEPPM_ALLOW_UNENCRYPTED_DB lets a plaintext DATABASE_URL through (#1550)."""
+    prod = _load_prod(
+        backend=_S3,
+        allow_local=False,
+        database_url=_DB_URL_PLAINTEXT,
+        allow_unencrypted_db=True,
+    )
+    assert prod.DEBUG is False
 
 
 # ---------------------------------------------------------------------------

@@ -152,6 +152,11 @@ STORAGES = {
 # backed by a persistent volume). Consumed by validate_attachment_storage.
 ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE", default=False)
 
+# Operator opt-in to run prod against a DATABASE_URL without sslmode=require (e.g.
+# when TLS to the database is enforced at the network layer). Consumed by the
+# unencrypted-DB boot guard in settings/prod.py.
+ALLOW_UNENCRYPTED_DB = env.bool("TRUEPPM_ALLOW_UNENCRYPTED_DB", default=False)
+
 # Origins trusted for cross-origin POST / CSRF — required when the web app is
 # served from a different origin than the API (split dev setup or subdomain
 # split). Empty by default (same-origin reverse-proxy deploy).

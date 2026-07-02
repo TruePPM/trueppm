@@ -16,6 +16,7 @@ from trueppm_api.core.security_checks import (
 from .base import *  # noqa: F403
 from .base import (
     ALLOW_LOCAL_ATTACHMENT_STORAGE,
+    ALLOW_UNENCRYPTED_DB,
     DATABASES,
     INTEGRATION_ENCRYPTION_KEY,
     STORAGES,
@@ -79,17 +80,30 @@ if _integration_key_errors:
         "Refusing to start: " + "; ".join(str(e.msg) for e in _integration_key_errors)
     )
 
-# Warn when DATABASE_URL has no sslmode parameter in a non-DEBUG deployment.
-# Without sslmode=require the connection falls back to whatever the server
-# negotiates, which may be plaintext. This does not change the connection
-# behavior — operators running TLS at the proxy/sidecar layer (where the
-# app-to-DB link is already encrypted) may intentionally omit sslmode.
+# Refuse to boot when DATABASE_URL has no sslmode parameter in a non-DEBUG
+# deployment (#1550). Without sslmode=require the connection falls back to
+# whatever the server negotiates, which may be plaintext — the same fail-closed
+# posture as the SECRET_KEY (#566), attachment-storage (#775), and integration-
+# key (#1002) guards above, since gunicorn/asgi workers never run
+# `manage.py check`. Operators terminating TLS at the proxy/sidecar layer (where
+# the app-to-DB link is already encrypted) opt in via
+# TRUEPPM_ALLOW_UNENCRYPTED_DB=true and keep the warning instead.
 _db_url_raw: str = env("DATABASE_URL", default="")
 if _db_url_raw:
     _db_url_qs = urllib.parse.parse_qs(urllib.parse.urlparse(_db_url_raw).query)
     if "sslmode" not in _db_url_qs:
-        logging.getLogger("trueppm.settings").warning(
-            "DATABASE_URL does not include sslmode=require. "
-            "Database connections may use unencrypted transport. "
-            "Set sslmode=require in DATABASE_URL or enforce TLS at the network layer."
-        )
+        if ALLOW_UNENCRYPTED_DB:
+            logging.getLogger("trueppm.settings").warning(
+                "DATABASE_URL does not include sslmode=require. "
+                "Database connections may use unencrypted transport. "
+                "Proceeding because TRUEPPM_ALLOW_UNENCRYPTED_DB=true is set; "
+                "ensure TLS is enforced at the network layer."
+            )
+        else:
+            raise RuntimeError(
+                "Refusing to start: DATABASE_URL does not include sslmode=require "
+                "in a non-DEBUG environment; database connections may use "
+                "unencrypted transport. Set sslmode=require in DATABASE_URL, or set "
+                "TRUEPPM_ALLOW_UNENCRYPTED_DB=true if TLS is enforced at the network "
+                "layer."
+            )
