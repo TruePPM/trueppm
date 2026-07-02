@@ -61,6 +61,15 @@ describe('StatusBar', () => {
     expect(screen.getByText('Alpha Platform Upgrade · Schedule')).toBeInTheDocument();
   });
 
+  it('derives the view label from the segment after the projectId on a nested route (#1556)', () => {
+    // /board/<cardId> — the last segment is the card id; the label must still be "Board".
+    renderWithRouter(<StatusBar />, {
+      initialEntries: ['/projects/p1/board/card-abc-123'],
+    });
+    expect(screen.getByText('Alpha Platform Upgrade · Board')).toBeInTheDocument();
+    expect(screen.queryByText(/card-abc-123/)).not.toBeInTheDocument();
+  });
+
   it('renders no status note when projectId is null (not inside a project route)', () => {
     mockUseProjectId.mockReturnValue(undefined);
     renderWithRouter(<StatusBar />, { initialEntries: ['/'] });

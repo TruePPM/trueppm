@@ -31,7 +31,8 @@ const FILTERS: { value: Filter; label: string }[] = [
 
 export function NotificationPanel({ onClose }: Props) {
   const [filter, setFilter] = useState<Filter>('unread');
-  const { notifications, isLoading, error } = useNotifications({ filter });
+  const { notifications, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useNotifications({ filter });
   const markAllRead = useMarkAllRead();
   const [announce, setAnnounce] = useState<string>('');
   const firstFocusRef = useRef<HTMLButtonElement>(null);
@@ -181,17 +182,38 @@ export function NotificationPanel({ onClose }: Props) {
           </p>
         )}
         {!isLoading && !error && sorted.length === 0 && (
-          <p className="text-sm text-neutral-text-secondary px-1">
-            {filter === 'unread' && 'No unread mentions. Caught up!'}
-            {filter === 'archived' && 'Nothing archived yet.'}
-            {filter === 'all' && 'When someone @-mentions you, it shows up here.'}
-          </p>
+          <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
+            <span aria-hidden="true" className="text-2xl">
+              {filter === 'archived' ? '🗂️' : '🎉'}
+            </span>
+            <p className="text-sm font-medium text-neutral-text-primary">
+              {filter === 'archived' ? 'Nothing archived yet' : "You're all caught up"}
+            </p>
+            <p className="text-xs text-neutral-text-secondary">
+              {filter === 'unread' && 'No unread mentions right now.'}
+              {filter === 'archived' && 'Archived mentions will collect here.'}
+              {filter === 'all' && 'When someone @-mentions you, it shows up here.'}
+            </p>
+          </div>
         )}
         {!isLoading && !error && sorted.length > 0 && (
           <div className="flex flex-col gap-2">
             {sorted.map((n) => (
               <NotificationRow key={n.id} notification={n} onNavigate={onClose} />
             ))}
+            {hasNextPage && (
+              <button
+                type="button"
+                onClick={() => void fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="self-center mt-1 rounded-control border border-neutral-border px-3 h-8 text-xs font-medium
+                  text-neutral-text-secondary hover:bg-neutral-surface-raised
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                  disabled:opacity-50"
+              >
+                {isFetchingNextPage ? 'Loading…' : 'Load more'}
+              </button>
+            )}
           </div>
         )}
       </div>

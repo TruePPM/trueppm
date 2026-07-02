@@ -45,8 +45,8 @@ function LockGlyph() {
 
 // ---------------------------------------------------------------------------
 // Task-list popover — the at-risk / critical segments open a role="menu" list of
-// the offending tasks. Mirrors BadgePopover's a11y (used by the sidebar); kept
-// local so the cluster reads as one bordered unit, not nested bordered pills.
+// the offending tasks. Kept local so the cluster reads as one bordered unit,
+// not nested bordered pills.
 // ---------------------------------------------------------------------------
 
 interface SegmentPopoverProps {

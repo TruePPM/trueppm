@@ -1,13 +1,61 @@
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { modifierKeyLabel } from '@/lib/platform';
 
 interface Props {
   onClose: () => void;
+}
+
+interface Shortcut {
+  keys: string[];
+  label: string;
+}
+
+interface ShortcutGroup {
+  heading: string;
+  shortcuts: Shortcut[];
+}
+
+/**
+ * The app's real, wired keyboard bindings — each entry maps to a live handler:
+ * the command palette hotkey (useCommandPaletteHotkey), the sidebar toggle
+ * (useSidebarCollapseHotkey), the command-palette navigation (CommandPalette),
+ * and the board roving-focus keys (useBoardKeyboard). Nothing here is aspirational;
+ * grep the handlers before adding a row (issue 1556).
+ */
+function useShortcutGroups(): ShortcutGroup[] {
+  const mod = modifierKeyLabel();
+  return [
+    {
+      heading: 'Global',
+      shortcuts: [
+        { keys: [`${mod}K`], label: 'Open the command palette' },
+        { keys: [`${mod}B`], label: 'Show or hide the sidebar' },
+        { keys: ['Esc'], label: 'Close an open dialog or menu' },
+      ],
+    },
+    {
+      heading: 'Command palette',
+      shortcuts: [
+        { keys: ['↑', '↓'], label: 'Move between results' },
+        { keys: ['↵'], label: 'Run the selected action' },
+        { keys: ['Esc'], label: 'Close the palette' },
+      ],
+    },
+    {
+      heading: 'Board',
+      shortcuts: [
+        { keys: ['J', 'K'], label: 'Move focus between cards' },
+        { keys: ['H', 'L'], label: 'Move focus between columns' },
+      ],
+    },
+  ];
 }
 
 export function KeyboardShortcutsModal({ onClose }: Props) {
   // Modal cheatsheet: contain Tab/Shift+Tab inside the dialog, focus the close
   // button on open, and close on Escape (WCAG 2.4.3 / 2.1.2).
   const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const groups = useShortcutGroups();
 
   return (
     <div
@@ -39,9 +87,35 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
             </svg>
           </button>
         </div>
-        <p className="text-sm text-neutral-text-secondary">
-          Keyboard shortcuts reference coming soon.
-        </p>
+        <div className="flex flex-col gap-4">
+          {groups.map((group) => (
+            <section key={group.heading} className="flex flex-col gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
+                {group.heading}
+              </h3>
+              <dl className="flex flex-col gap-1.5">
+                {group.shortcuts.map((shortcut) => (
+                  <div
+                    key={shortcut.label}
+                    className="flex items-center justify-between gap-4"
+                  >
+                    <dt className="text-sm text-neutral-text-primary">{shortcut.label}</dt>
+                    <dd className="flex shrink-0 items-center gap-1">
+                      {shortcut.keys.map((key) => (
+                        <kbd
+                          key={key}
+                          className="tppm-mono rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary"
+                        >
+                          {key}
+                        </kbd>
+                      ))}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          ))}
+        </div>
       </div>
     </div>
   );
