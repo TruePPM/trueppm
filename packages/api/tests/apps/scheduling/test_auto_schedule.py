@@ -607,6 +607,49 @@ def test_incremental_benchmark_500_tasks_5_changes() -> None:
     )
 
 
+@pytest.mark.django_db
+def test_writeback_passes_batch_size() -> None:
+    """The CPM writeback must chunk ``bulk_update`` via ``batch_size`` (#1529).
+
+    Rationale for asserting on the kwarg rather than SQL/timing: on PostgreSQL an
+    unbatched ``bulk_update`` emits a single UPDATE with per-field ``CASE WHEN``
+    chains regardless of row count, so neither query count nor a tiny fixture's
+    wall-clock reveals whether batching is wired. Dropping ``batch_size`` would
+    silently reintroduce the multi-MB single-statement pathology with no other
+    signal. We spy on the call — the same idiom the incremental benchmark uses to
+    lock perf behavior that is invisible to ``CaptureQueriesContext``.
+    """
+    from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+    from trueppm_api.apps.scheduling.tasks import _WRITEBACK_BATCH_SIZE, _run_schedule
+
+    original_bulk_update = Task.objects.bulk_update
+    seen_batch_sizes: list[int | None] = []
+
+    def spy_bulk_update(objs, fields, *args, **kwargs):  # type: ignore[no-untyped-def]
+        seen_batch_sizes.append(kwargs.get("batch_size"))
+        return original_bulk_update(objs, fields, *args, **kwargs)
+
+    cal = Calendar.objects.create(name="Batch")
+    proj = Project.objects.create(name="BatchProj", start_date=date(2026, 1, 5), calendar=cal)
+    a = Task.objects.create(project=proj, name="A", duration=2)
+    b = Task.objects.create(project=proj, name="B", duration=2)
+    Dependency.objects.create(predecessor=a, successor=b, dep_type="FS")
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        patch.object(Task.objects, "bulk_update", side_effect=spy_bulk_update),
+    ):
+        _run_schedule(str(proj.pk))
+
+    assert seen_batch_sizes, "Task.objects.bulk_update was never called"
+    assert all(bs == _WRITEBACK_BATCH_SIZE for bs in seen_batch_sizes), (
+        f"CPM writeback called bulk_update with batch_size={seen_batch_sizes}; "
+        f"expected every call to pass {_WRITEBACK_BATCH_SIZE}. A missing batch_size "
+        f"reintroduces the single giant-UPDATE pathology (#1529)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Sprint-window SNET floor end-to-end (ADR-0168, #1284): a sprint-assigned task
 # with no planned_start positions in its sprint window, not the project origin.
