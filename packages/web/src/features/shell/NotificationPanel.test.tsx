@@ -49,7 +49,7 @@ describe('NotificationPanel', () => {
     expect(screen.getByLabelText('Loading notifications')).toBeTruthy();
   });
 
-  it('renders the empty state copy for the unread filter', () => {
+  it('renders the friendly caught-up empty state for the unread filter', () => {
     useNotificationsMock.mockReturnValue({
       notifications: [],
       isLoading: false,
@@ -57,7 +57,39 @@ describe('NotificationPanel', () => {
     });
     useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
-    expect(screen.getByText('No unread mentions. Caught up!')).toBeTruthy();
+    expect(screen.getByText("You're all caught up")).toBeTruthy();
+    expect(screen.getByText('No unread mentions right now.')).toBeTruthy();
+  });
+
+  it('renders a Load more button when the hook reports another page', () => {
+    const fetchNextPage = vi.fn();
+    useNotificationsMock.mockReturnValue({
+      notifications: [rowFactory()],
+      isLoading: false,
+      error: null,
+      hasNextPage: true,
+      fetchNextPage,
+      isFetchingNextPage: false,
+    });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    const loadMore = screen.getByRole('button', { name: 'Load more' });
+    fireEvent.click(loadMore);
+    expect(fetchNextPage).toHaveBeenCalled();
+  });
+
+  it('does not render Load more when there are no further pages', () => {
+    useNotificationsMock.mockReturnValue({
+      notifications: [rowFactory()],
+      isLoading: false,
+      error: null,
+      hasNextPage: false,
+      fetchNextPage: vi.fn(),
+      isFetchingNextPage: false,
+    });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   });
 
   it('renders the error state', () => {

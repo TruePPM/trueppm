@@ -6,7 +6,12 @@
  * minimized tab doesn't burn battery or hit the API for nothing.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/api/client';
 
@@ -106,23 +111,42 @@ interface UseNotificationsOptions {
   filter: 'all' | 'unread' | 'archived';
 }
 
-/** GET /me/notifications/ — full list with filter tab support. */
+/**
+ * GET /me/notifications/ — filter-scoped inbox list.
+ *
+ * Page-number pagination accumulated via `useInfiniteQuery` so the slide-out
+ * fetches one PAGE_SIZE (50) page at a time and the panel offers "Load more",
+ * rather than mapping an unbounded result set into a 420px column (issue 1556).
+ * Mirrors the `useDecisions` / `useMyWork` infinite-query pattern.
+ */
 export function useNotifications({ filter }: UseNotificationsOptions) {
-  const query = useQuery({
+  const query = useInfiniteQuery<
+    ListResult,
+    Error,
+    { pages: ListResult[] },
+    string[],
+    number
+  >({
     queryKey: [...NOTIFICATIONS_KEY, filter],
-    queryFn: async () => {
-      const params: Record<string, string> = {};
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
+      const params: Record<string, string | number> = { page: pageParam };
       if (filter === 'unread') params.unread_only = 'true';
       if (filter === 'archived') params.archived = 'true';
       const res = await apiClient.get<ListResult>('/me/notifications/', { params });
-      return res.data.results;
+      return res.data;
     },
+    // DRF returns a full `next` URL; presence means there is another page.
+    getNextPageParam: (lastPage, allPages) => (lastPage.next ? allPages.length + 1 : undefined),
   });
 
   return {
-    notifications: query.data ?? [],
+    notifications: query.data?.pages.flatMap((p) => p.results) ?? [],
     isLoading: query.isLoading,
     error: query.error,
+    hasNextPage: query.hasNextPage,
+    fetchNextPage: query.fetchNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
   };
 }
 

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 
 describe('KeyboardShortcutsModal', () => {
@@ -20,6 +20,28 @@ describe('KeyboardShortcutsModal', () => {
     expect(button).toHaveFocus();
     expect(fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })).toBe(false);
     expect(button).toHaveFocus();
+  });
+
+  it('lists the real, wired shortcuts (not a "coming soon" placeholder)', () => {
+    render(<KeyboardShortcutsModal onClose={vi.fn()} />);
+    // The dead-end placeholder must be gone (#1556).
+    expect(screen.queryByText(/coming soon/i)).toBeNull();
+    // Section groupings.
+    expect(screen.getByRole('heading', { name: 'Global' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Command palette' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
+    // A representative binding from each group.
+    expect(screen.getByText('Open the command palette')).toBeInTheDocument();
+    expect(screen.getByText('Show or hide the sidebar')).toBeInTheDocument();
+    expect(screen.getByText('Run the selected action')).toBeInTheDocument();
+    expect(screen.getByText('Move focus between cards')).toBeInTheDocument();
+  });
+
+  it('renders the OS modifier chip for the command palette shortcut', () => {
+    render(<KeyboardShortcutsModal onClose={vi.fn()} />);
+    // jsdom is not a Mac → modifierKeyLabel() resolves to "Ctrl".
+    expect(screen.getByText('CtrlK')).toBeInTheDocument();
+    expect(screen.getByText('CtrlB')).toBeInTheDocument();
   });
 
   it('calls onClose when Escape is pressed', () => {

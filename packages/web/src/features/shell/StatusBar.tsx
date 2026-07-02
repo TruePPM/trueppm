@@ -69,8 +69,13 @@ export function StatusBar() {
 
   const project = projects?.find((p) => p.id === projectId);
 
-  const pathSegments = location.pathname.split('/').filter(Boolean);
-  const viewSlug = pathSegments[pathSegments.length - 1] ?? '';
+  // Derive the active view from the segment immediately after the projectId —
+  // identical to ViewTabs / BottomNav (ADR-0030). The last segment would misfire
+  // on nested routes (e.g. /board/<cardId>), showing the raw card id instead of
+  // "Board" (issue 1556).
+  const pathSegments = location.pathname.split('/');
+  const projectIdIndex = projectId ? pathSegments.indexOf(projectId) : -1;
+  const viewSlug = (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? '';
   const viewLabel = VIEW_LABELS[viewSlug] ?? viewSlug;
   const statusNote = project ? `${project.name} · ${viewLabel}` : '';
 

@@ -79,7 +79,7 @@ describe('useNotifications', () => {
     vi.clearAllMocks();
   });
 
-  it('sends no filter params for the "all" tab', async () => {
+  it('requests page 1 with no filter params for the "all" tab', async () => {
     getMock.mockResolvedValue({
       data: { count: 1, next: null, previous: null, results: [sampleRow] },
     });
@@ -87,7 +87,7 @@ describe('useNotifications', () => {
       wrapper: makeWrapper(newQc()),
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(getMock).toHaveBeenCalledWith('/me/notifications/', { params: {} });
+    expect(getMock).toHaveBeenCalledWith('/me/notifications/', { params: { page: 1 } });
     expect(result.current.notifications).toHaveLength(1);
   });
 
@@ -100,7 +100,7 @@ describe('useNotifications', () => {
     });
     await waitFor(() =>
       expect(getMock).toHaveBeenCalledWith('/me/notifications/', {
-        params: { unread_only: 'true' },
+        params: { page: 1, unread_only: 'true' },
       }),
     );
   });
@@ -114,9 +114,42 @@ describe('useNotifications', () => {
     });
     await waitFor(() =>
       expect(getMock).toHaveBeenCalledWith('/me/notifications/', {
-        params: { archived: 'true' },
+        params: { page: 1, archived: 'true' },
       }),
     );
+  });
+
+  it('exposes hasNextPage when the server returns a next URL and appends the next page', async () => {
+    // Page 1 has a `next` cursor; page 2 closes it out.
+    getMock.mockImplementation((_url: string, opts: { params: { page: number } }) => {
+      if (opts.params.page === 1) {
+        return Promise.resolve({
+          data: {
+            count: 2,
+            next: 'https://api.test/me/notifications/?page=2',
+            previous: null,
+            results: [{ ...sampleRow, id: 'n1' }],
+          },
+        });
+      }
+      return Promise.resolve({
+        data: { count: 2, next: null, previous: null, results: [{ ...sampleRow, id: 'n2' }] },
+      });
+    });
+
+    const { result } = renderHook(() => useNotifications({ filter: 'all' }), {
+      wrapper: makeWrapper(newQc()),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.notifications).toHaveLength(2));
+    expect(getMock).toHaveBeenCalledWith('/me/notifications/', { params: { page: 2 } });
+    expect(result.current.hasNextPage).toBe(false);
   });
 });
 
