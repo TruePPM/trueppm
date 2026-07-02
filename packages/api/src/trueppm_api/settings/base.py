@@ -690,6 +690,14 @@ REST_FRAMEWORK = {
         # carry. 10/min is snug for a human wiring up integrations yet far below any
         # automated rotation-scraping rate.
         "credential_rotate": "10/min",
+        # Synchronous Monte Carlo simulation (#1552). run_monte_carlo executes an
+        # expensive (up to MC_SIMULATION_CAP iterations, caller-controlled
+        # n_simulations) simulation inline in the request/response cycle, gated only
+        # by project membership. Without a rate cap any single member can loop the
+        # endpoint to exhaust CPU. 10/min leaves ample headroom for a human tuning
+        # estimates and re-running the forecast a handful of times, while blunting a
+        # scripted resource-exhaustion flood.
+        "monte_carlo": "10/min",
     },
 }
 

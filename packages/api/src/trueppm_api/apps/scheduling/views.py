@@ -24,13 +24,14 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
 from rest_framework.generics import ListAPIView
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
@@ -186,6 +187,31 @@ def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
     return dist
 
 
+class MonteCarloRunThrottle(ScopedRateThrottle):
+    """Caps synchronous Monte Carlo runs per member (#1552) to bound DoS.
+
+    ``run_monte_carlo`` executes an expensive simulation inline in the request
+    cycle, gated only by project membership. Scoped per-user via ``monte_carlo``
+    (10/min) so no single account can loop the endpoint to exhaust CPU, while a
+    human tuning estimates and re-running the forecast stays well under the cap.
+
+    ``ScopedRateThrottle`` normally reads its scope from ``view.throttle_scope``,
+    but ``run_monte_carlo`` is a function-based ``@api_view`` that cannot carry
+    that attribute, so the scope is bound from this class instead. The cache key
+    is still per-user + scope (``get_cache_key`` is inherited unchanged).
+    """
+
+    scope = "monte_carlo"
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        # Bind the fixed scope from the class rather than off the view (an
+        # @api_view FBV has no throttle_scope), then apply the standard
+        # SimpleRateThrottle sliding-window check.
+        self.rate = self.get_rate()
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super(ScopedRateThrottle, self).allow_request(request, view)
+
+
 @extend_schema(
     request=OpenApiTypes.OBJECT,
     responses={
@@ -234,6 +260,7 @@ def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsProjectMember, IsProjectNotArchived])
+@throttle_classes([MonteCarloRunThrottle])
 def run_monte_carlo(request: Request, pk: str) -> Response:
     """Run a Monte Carlo probabilistic schedule simulation synchronously.
 
