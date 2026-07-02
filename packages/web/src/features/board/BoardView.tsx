@@ -17,6 +17,7 @@
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
 import {
+  memo,
   useState,
   useEffect,
   useRef,
@@ -570,7 +571,21 @@ const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
 };
 
 
-function BoardCell({
+// Shared empty-array fallbacks (issue 1520). A per-render `?? []` literal is a new
+// identity every render, which would defeat the React.memo on BoardCell/BoardCard;
+// a single frozen constant keeps the prop reference-stable for empty cells/lanes.
+const EMPTY_TASKS: Task[] = [];
+const EMPTY_MILESTONES: Task[] = EMPTY_TASKS;
+const EMPTY_TASKS_BY_STATUS: Record<TaskStatus, Task[]> = {
+  BACKLOG: EMPTY_TASKS,
+  NOT_STARTED: EMPTY_TASKS,
+  IN_PROGRESS: EMPTY_TASKS,
+  REVIEW: EMPTY_TASKS,
+  ON_HOLD: EMPTY_TASKS,
+  COMPLETE: EMPTY_TASKS,
+};
+
+function BoardCellImpl({
   phaseId,
   status,
   tasks,
@@ -653,15 +668,14 @@ function BoardCell({
           <BoardCard
             task={task}
             density={density}
-            onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
+            onMenuMove={onMenuMove}
             columns={columns}
             isKeyboardFocused={focusedCardId === task.id}
             isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
             overallocByResource={overallocByResourcePerTask.get(task.id)}
-            onShowDeps={() => onShowDeps(task)}
-            onShowRisks={() => onShowRisks(task)}
-            onChainHoverEnter={() => onChainHover(task.id)}
-            onChainHoverLeave={() => onChainHover(null)}
+            onShowDeps={onShowDeps}
+            onShowRisks={onShowRisks}
+            onChainHover={onChainHover}
             onCardClick={onCardClick}
             showEvm={showEvm}
             showCost={showCost}
@@ -673,6 +687,12 @@ function BoardCell({
     </div>
   );
 }
+
+// Memoized so a drag-over (which changes `isOver` on at most two cells) or an
+// unrelated board re-render skips every cell whose props are unchanged (issue
+// 1520). `isOver` is a pre-computed boolean and the task lists / callbacks the
+// parent passes are reference-stable, so the default shallow compare is correct.
+const BoardCell = memo(BoardCellImpl);
 
 // ---------------------------------------------------------------------------
 // Phase lane row
@@ -689,21 +709,32 @@ interface PhaseLaneProps {
   }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
   milestones: Task[];
-  overCell: string | null; // `${phaseId}:${status}` or null
+  /**
+   * The drag-over column *within this lane* (or null). Pre-computed by the parent
+   * from the global `overCell` so only the one or two lanes actually under the
+   * pointer get a changed prop — the rest keep `null` and their React.memo skips
+   * the re-render (issue 1520). Passing the raw global `overCell` here would
+   * re-render every lane on every drag-over tick.
+   */
+  overStatus: TaskStatus | null;
   isDragActive: boolean;
   showWip: boolean;
   showColTints: boolean;
   density: BoardDensity;
   collapsed: boolean;
-  onToggleCollapse: () => void;
+  /** Toggle this lane's collapse. Takes the lane's `phase.id` so the parent can
+   *  pass one stable reference for every lane instead of a per-lane closure that
+   *  would defeat the lane's React.memo (issue 1520). */
+  onToggleCollapse: (phaseId: string) => void;
   /** Columns folded to stubs board-wide (issue 1459). */
   collapsedColumns: Set<TaskStatus>;
   /** Expand a folded column from a lane stub cell (issue 1459). */
   onExpandColumn: (status: TaskStatus) => void;
   /** This lane is the active focus target (issue 1460). */
   focused: boolean;
-  /** Toggle phase-lane focus mode on this lane (issue 1460). */
-  onToggleFocus: () => void;
+  /** Toggle phase-lane focus mode on this lane (issue 1460). Takes `phase.id` so
+   *  the parent passes one stable reference across all lanes (issue 1520). */
+  onToggleFocus: (phaseId: string) => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   // Optional: assignee-grouped lanes (324) pass none — a lane id there is a
   // resource, not a parent, so the add-task affordance is suppressed.
@@ -729,12 +760,12 @@ interface PhaseLaneProps {
   dragHandleListeners?: Record<string, unknown>;
 }
 
-function PhaseLane({
+function PhaseLaneImpl({
   phase,
   columns,
   tasksByStatus,
   milestones,
-  overCell,
+  overStatus,
   isDragActive,
   showWip,
   showColTints,
@@ -792,20 +823,20 @@ function PhaseLane({
     (e: ReactKeyboardEvent<HTMLButtonElement>) => {
       if (e.key === '[' && !collapsed) {
         e.preventDefault();
-        onToggleCollapse();
+        onToggleCollapse(phase.id);
       }
       if (e.key === ']' && collapsed) {
         e.preventDefault();
-        onToggleCollapse();
+        onToggleCollapse(phase.id);
       }
     },
-    [collapsed, onToggleCollapse],
+    [collapsed, onToggleCollapse, phase.id],
   );
 
   const collapseToggle = (
     <button
       type="button"
-      onClick={onToggleCollapse}
+      onClick={() => onToggleCollapse(phase.id)}
       onKeyDown={handleKeyDown}
       title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
@@ -825,7 +856,7 @@ function PhaseLane({
   const focusToggle = (
     <button
       type="button"
-      onClick={onToggleFocus}
+      onClick={() => onToggleFocus(phase.id)}
       title={focused ? 'Exit focus' : `Focus on ${phase.name}`}
       data-testid={`focus-lane-${phase.id}`}
       aria-pressed={focused}
@@ -943,8 +974,8 @@ function PhaseLane({
               key={col.status}
               phaseId={phase.id}
               status={col.status}
-              tasks={tasksByStatus[col.status] ?? []}
-              isOver={overCell === `${phase.id}:${col.status}`}
+              tasks={tasksByStatus[col.status] ?? EMPTY_TASKS}
+              isOver={overStatus === col.status}
               isDragActive={isDragActive}
               showWip={showWip}
               showColTints={showColTints}
@@ -971,6 +1002,14 @@ function PhaseLane({
     </div>
   );
 }
+
+// Memoized so a board re-render driven by state that doesn't touch this lane
+// (a search keystroke, another lane's drag-over via the pre-computed `overStatus`,
+// an unrelated toolbar toggle) skips the lane entirely (issue 1520). Effective
+// only because the parent's `laneProps` now feeds reference-stable values —
+// stable task-aware callbacks, hoisted empty fallbacks, and a memoized columns
+// array — instead of per-lane closures.
+const PhaseLane = memo(PhaseLaneImpl);
 
 // ---------------------------------------------------------------------------
 // Sortable phase lane — workshop mode drag-to-reorder wrapper
@@ -1372,11 +1411,11 @@ function MobileBoard({
                     <BoardCard
                       task={task}
                       density={density}
-                      onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
+                      onMenuMove={onMenuMove}
                       columns={columns}
                       isKeyboardFocused={focusedCardId === task.id}
-                      onShowDeps={() => onShowDeps(task)}
-                      onShowRisks={() => onShowRisks(task)}
+                      onShowDeps={onShowDeps}
+                      onShowRisks={onShowRisks}
                       onCardClick={onCardClick}
                       showEvm={showEvm}
                       showCost={showCost}
@@ -1414,7 +1453,13 @@ export function BoardView() {
   // inline column inside each phase. The visible-column list excludes BACKLOG
   // even when the saved board config marks it visible — that flag governs the
   // (now-deprecated) inline column, not the band.
-  const COLUMNS = rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG');
+  // Memoized (issue 1520): a per-render `.filter()` result is a new array identity
+  // every render, which would ripple into `handleMenuMove`'s dep list and every
+  // `columns` prop, defeating the BoardCell/PhaseLane/BoardCard memoization.
+  const COLUMNS = useMemo(
+    () => rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG'),
+    [rawColumns],
+  );
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Board sprint view (#429). The selected sprint scopes the phase columns to a
@@ -2418,6 +2463,15 @@ export function BoardView() {
     setFocusedPhaseId(phaseId);
   }, []);
 
+  // Stable milestone-open handler (issue 1520): keeps `laneProps` from allocating
+  // a fresh `(t) => …` closure per lane, which would defeat the PhaseLane memo.
+  const handleOpenMilestone = useCallback(
+    (t: Task) => {
+      handleCardFocus(t.id, t.status, t.parentId ?? 'root');
+    },
+    [handleCardFocus],
+  );
+
   const handleShowDeps = useCallback(
     (task: Task) => {
       setRiskTask(null);
@@ -3135,26 +3189,26 @@ export function BoardView() {
                   const laneProps = (phase: Phase) => ({
                     phase,
                     columns: COLUMNS,
-                    tasksByStatus: phaseTaskMap.get(phase.id) ?? {
-                      BACKLOG: [],
-                      NOT_STARTED: [],
-                      IN_PROGRESS: [],
-                      REVIEW: [],
-                      ON_HOLD: [],
-                      COMPLETE: [],
-                    },
-                    milestones: milestonesByPhase.get(phase.id) ?? [],
-                    overCell,
+                    tasksByStatus: phaseTaskMap.get(phase.id) ?? EMPTY_TASKS_BY_STATUS,
+                    milestones: milestonesByPhase.get(phase.id) ?? EMPTY_MILESTONES,
+                    // Pre-compute this lane's drag-over column so only the lane under
+                    // the pointer sees a changed prop; every other lane stays null and
+                    // its memo skips the drag-over re-render (issue 1520). overCell is
+                    // `${phaseId}:${status}`; phase ids carry no ':'.
+                    overStatus:
+                      overCell && overCell.startsWith(`${phase.id}:`)
+                        ? (overCell.slice(phase.id.length + 1) as TaskStatus)
+                        : null,
                     isDragActive: activeId !== null,
                     showWip,
                     showColTints,
                     density,
                     collapsed: collapsedIds.has(phase.id),
-                    onToggleCollapse: () => toggleCollapse(phase.id),
+                    onToggleCollapse: toggleCollapse,
                     collapsedColumns,
                     onExpandColumn: expandColumn,
                     focused: focusedLanePhaseId === phase.id,
-                    onToggleFocus: () => toggleFocusLane(phase.id),
+                    onToggleFocus: toggleFocusLane,
                     onMenuMove: handleMenuMove,
                     // Assignee (324) and epic (364) lanes can't host a new task (a
                     // lane id is a resource or an epic, not a WBS parent) — suppress
@@ -3171,9 +3225,7 @@ export function BoardView() {
                     onShowRisks: handleShowRisks,
                     onChainHover: handleChainHover,
                     onCardClick: handleCardClick,
-                    onOpenMilestone: (t: Task) => {
-                      handleCardFocus(t.id, t.status, t.parentId ?? 'root');
-                    },
+                    onOpenMilestone: handleOpenMilestone,
                     showEvm: evmMode,
                     showCost,
                     scopeActions,
