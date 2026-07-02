@@ -46,18 +46,22 @@ describe('MCResultPanel', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('calls onClose when backdrop is clicked', () => {
-    const onClose = vi.fn();
-    render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={onClose} />);
-    // Backdrop is the flex-1 div (aria-hidden) that fills space to the left of the panel
-    const backdrop = document.querySelector('.flex-1.bg-black\\/30') as HTMLElement;
-    fireEvent.click(backdrop);
-    expect(onClose).toHaveBeenCalledOnce();
+  it('renders no modal backdrop scrim (non-modal drawer keeps the schedule usable)', () => {
+    // Rules 89/164: a right-side desktop detail drawer is non-modal and has no
+    // dimming scrim, so the schedule behind it stays visible and interactive.
+    const { container } = render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
+    expect(container.querySelector('.bg-black\\/30')).toBeNull();
   });
 
-  it('has role=dialog with aria-modal=true', () => {
+  it('is a non-modal drawer (aria-modal=false) and does not trap focus', () => {
     render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
     const dialog = screen.getByRole('dialog', { name: /monte carlo confidence/i });
-    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    // Focus the close button (the panel's sole focusable) and Tab away: a
+    // non-modal drawer must NOT intercept Tab (no focus trap), so the keydown is
+    // not defaultPrevented and fireEvent returns true. A trapped modal would
+    // cancel it at the boundary and return false.
+    screen.getByRole('button', { name: /close monte carlo panel/i }).focus();
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(true);
   });
 });

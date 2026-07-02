@@ -1,20 +1,13 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   onClose: () => void;
 }
 
 export function KeyboardShortcutsModal({ onClose }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    closeRef.current?.focus();
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Modal cheatsheet: contain Tab/Shift+Tab inside the dialog, focus the close
+  // button on open, and close on Escape (WCAG 2.4.3 / 2.1.2).
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   return (
     <div
@@ -28,11 +21,14 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
         aria-hidden="true"
         onClick={onClose}
       />
-      <div className="relative z-10 bg-neutral-surface border border-neutral-border rounded-card p-6 w-80 flex flex-col gap-4">
+      <div
+        ref={trapRef}
+        tabIndex={-1}
+        className="relative z-10 bg-neutral-surface border border-neutral-border rounded-card p-6 w-80 flex flex-col gap-4 focus:outline-none"
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-neutral-text-primary">Keyboard shortcuts</h2>
           <button
-            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close keyboard shortcuts"

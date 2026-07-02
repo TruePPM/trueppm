@@ -5,6 +5,7 @@ import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { RoleContextMenuRow } from '@/features/shell/RoleContextMenuRow';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
@@ -211,6 +212,13 @@ export function UserMenu() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Mobile bottom sheet is a modal dialog (role="dialog" aria-modal="true"): trap
+  // Tab/Shift+Tab inside it and land focus on its first control on open so a
+  // keyboard user can't tab out into the obscured app behind it (WCAG 2.4.3 /
+  // 2.1.2). Escape is handled by the existing document listener below, which also
+  // restores focus to the trigger, so no onEscape is passed here. The desktop
+  // dropdown is a non-modal role="menu" and is intentionally not trapped.
+  const sheetRef = useFocusTrap<HTMLDivElement>(isOpen);
   const navigate = useNavigate();
 
   const { user, isLoading } = useCurrentUser();
@@ -322,10 +330,12 @@ export function UserMenu() {
             {/* Bottom sheet — heterogeneous controls (theme toggle, links, buttons)
                 require Tab navigation so role="dialog" is correct here, not role="menu". */}
             <div
+              ref={sheetRef}
+              tabIndex={-1}
               role="dialog"
               aria-modal="true"
               aria-label="User menu"
-              className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2"
+              className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-card border-t border-neutral-border flex flex-col py-2 focus:outline-none"
             >
               <MenuContent {...sharedContentProps} isMobile={true} />
             </div>
