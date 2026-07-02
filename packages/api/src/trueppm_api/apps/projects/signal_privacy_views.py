@@ -160,6 +160,17 @@ def _serialize_proposal(
 
     Pass ``voter_ids`` (the project's roster, computed once) when serializing a list so
     the tally and the ``can_vote`` derivation reuse it instead of querying per proposal.
+
+    Per-voter privacy (ADR-0104 §2 + Amendment A.6/B.2, issue 1553): the individual
+    ``votes`` list (which member voted which way) is a *team* signal — team-readable,
+    never project-wide. A requester who is not on the default-team roster (e.g. a
+    non-team project Admin/PM or a Viewer) is structurally outside the ladder for this
+    signal, so the per-voter choices are redacted for them. They still receive the
+    governance aggregate the policy-GET pending indicator needs — the tally counts,
+    ``threshold``, ``eligible_count``, ``to_ceiling``, ``expires_at`` and their own
+    ``your_vote`` (exactly the A.6 ``open_proposals`` shape) — but never the individual
+    choices. Team members receive the full per-voter list. This mirrors the write-side
+    ``is_team_member`` gate on voting (Amendment A.2 / A.5: no management back-door).
     """
     if voter_ids is None:
         voter_ids = team_member_user_ids(proposal.project_id)
@@ -170,8 +181,18 @@ def _serialize_proposal(
     your_vote: str | None = (
         next((v.choice for v in votes if v.voter_id == uid), None) if uid is not None else None
     )
-    # can_vote is derived from the roster set (no extra is_team_member query).
-    can_vote = proposal.status == CeilingRaiseStatus.OPEN and uid is not None and uid in voter_ids
+    # Team membership drives both can_vote and per-voter-detail visibility; derived
+    # from the roster set already in hand (no extra is_team_member query).
+    is_team_reader = uid is not None and uid in voter_ids
+    can_vote = proposal.status == CeilingRaiseStatus.OPEN and is_team_reader
+    # Per-voter choices stay team-scoped (issue 1553): redact for non-team readers so a
+    # project-level Admin/Viewer cannot see how each teammate voted, while keeping the
+    # aggregate tally that management legitimately reads for the pending indicator.
+    voter_detail = (
+        [{"voter": str(v.voter_id), "choice": v.choice, "created_at": v.created_at} for v in votes]
+        if is_team_reader
+        else []
+    )
     return {
         "id": str(proposal.id),
         "signal": proposal.signal_key,
@@ -184,10 +205,7 @@ def _serialize_proposal(
         "resolved_at": proposal.resolved_at,
         "your_vote": your_vote,
         "can_vote": can_vote,
-        "votes": [
-            {"voter": str(v.voter_id), "choice": v.choice, "created_at": v.created_at}
-            for v in votes
-        ],
+        "votes": voter_detail,
         **tally,
     }
 
@@ -329,7 +347,12 @@ class SignalPrivacyRatchetDownView(_SignalPrivacyBase):
 
 
 class SignalCeilingProposalListView(_SignalPrivacyBase):
-    """GET — list ceiling-raise proposals (open + recently resolved), team-readable."""
+    """GET — list ceiling-raise proposals (open + recently resolved).
+
+    Every project member may read a proposal's governance aggregate (status, tally,
+    threshold, to_ceiling, expiry). The per-voter ``votes`` detail is team-scoped and
+    redacted for non-team readers by ``_serialize_proposal`` (ADR-0104 §2 / issue 1553).
+    """
 
     # How many resolved proposals to surface alongside the open ones — the audit tail.
     _RESOLVED_LIMIT = 20

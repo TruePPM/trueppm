@@ -437,3 +437,70 @@ def test_policy_get_surfaces_open_proposal_pending_indicator(project: Project, t
     assert pending["to_ceiling"] == SignalAudience.PROGRAM_SHARED
     assert pending["threshold"] == 2
     assert pending["your_vote"] is None  # dev has not voted yet
+
+
+# --------------------------------------------------------------------------- #
+# Per-voter choices stay team-scoped (ADR-0104 §2 / Amendment A.6, issue 1553)
+# --------------------------------------------------------------------------- #
+
+
+def test_non_team_admin_list_read_redacts_per_voter_choices(project: Project, team: Team) -> None:
+    """A non-team project Admin sees the aggregate tally but NOT individual votes."""
+    sm = _team_member(project, team, "sm", sm=True)
+    dev = _team_member(project, team, "dev2")
+    outside_admin = _project_only_member(project, "pmo", Role.ADMIN)
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+    # A second team member casts a real vote so per-voter detail is non-empty.
+    _client(dev).post(_vote_url(project, proposal_id), {"choice": "reject"}, format="json")
+
+    listing = _client(outside_admin).get(_proposals_url(project))
+    assert listing.status_code == 200
+    row = next(p for p in listing.data if p["id"] == proposal_id)
+    # The governance aggregate is still visible (management pending indicator)...
+    assert row["approve_count"] == 1
+    assert row["reject_count"] == 1
+    assert row["threshold"] == 2
+    assert row["to_ceiling"] == SignalAudience.PROGRAM_SHARED
+    # ...but the individual per-voter choices are redacted for a non-team reader.
+    assert row["votes"] == []
+    assert row["can_vote"] is False
+
+
+def test_non_team_viewer_policy_get_redacts_per_voter_choices(project: Project, team: Team) -> None:
+    """A non-team Viewer reading the policy GET pending block gets no per-voter detail."""
+    sm = _team_member(project, team, "sm", sm=True)
+    _team_member(project, team, "dev2")
+    outside_viewer = _project_only_member(project, "viewer", Role.VIEWER)
+
+    _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+
+    body = _client(outside_viewer).get(_policy_url(project)).data
+    assert body["can_vote"] is False
+    pending = body["open_proposals"]["velocity"]
+    assert pending["votes"] == []
+    # The aggregate the non-team reader may legitimately see is intact.
+    assert pending["threshold"] == 2
+    assert pending["to_ceiling"] == SignalAudience.PROGRAM_SHARED
+
+
+def test_team_member_list_read_gets_full_per_voter_detail(project: Project, team: Team) -> None:
+    """A team member still reads the full per-voter list (no regression)."""
+    sm = _team_member(project, team, "sm", sm=True)
+    dev = _team_member(project, team, "dev2")
+
+    open_resp = _client(sm).post(
+        _raise_url(project), {"signal": "velocity", "ceiling": "program_shared"}, format="json"
+    )
+    proposal_id = open_resp.data["id"]
+
+    listing = _client(dev).get(_proposals_url(project))
+    row = next(p for p in listing.data if p["id"] == proposal_id)
+    assert len(row["votes"]) == 1  # the proposer's implicit approve is visible to the team
+    assert row["votes"][0]["choice"] == "approve"
+    assert row["can_vote"] is True

@@ -13099,7 +13099,7 @@
         "/api/v1/projects/{project_pk}/signal-privacy/ceiling-proposals/": {
             "get": {
                 "operationId": "v1_projects_signal_privacy_ceiling_proposals_list",
-                "description": "GET — list ceiling-raise proposals (open + recently resolved), team-readable.",
+                "description": "GET — list ceiling-raise proposals (open + recently resolved).\n\nEvery project member may read a proposal's governance aggregate (status, tally,\nthreshold, to_ceiling, expiry). The per-voter ``votes`` detail is team-scoped and\nredacted for non-team readers by ``_serialize_proposal`` (ADR-0104 §2 / issue 1553).",
                 "summary": "List ceiling-raise ratification proposals (open + recent)",
                 "parameters": [
                     {
