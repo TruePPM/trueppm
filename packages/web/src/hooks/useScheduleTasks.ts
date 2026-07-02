@@ -442,6 +442,51 @@ function mapDependency(d: ApiDependency): TaskLink {
   };
 }
 
+// Large first-page size requested from the ScheduleFetchPagination override
+// (issue 1519). The server caps this at max_page_size=500; 200 keeps the first
+// page cheap while collapsing a 1K-task project from ~20 pages to ~5.
+const SCHEDULE_PAGE_SIZE = 200;
+
+/**
+ * Fetch every page of a project-scoped list endpoint, requesting a large first
+ * page and then fetching any remainder IN PARALLEL.
+ *
+ * The Gantt initial load previously walked the DRF `next` cursor serially — one
+ * awaited round trip per 50-row page (~20 for a 1K-task project), repaid on every
+ * cache invalidation (issue 1519). With the client-tunable `page_size` exposed by
+ * ScheduleFetchPagination, we pull page 1 at `SCHEDULE_PAGE_SIZE`, read `count` to
+ * compute the full page set, then issue the remaining page requests concurrently
+ * via `Promise.all`. Pages 2..N have no cross-page dependency, so they need not be
+ * awaited one at a time; requesting them by explicit page number and concatenating
+ * in page order preserves the server's result ordering.
+ */
+async function fetchAllPagesParallel<T>(path: string, projectId: string): Promise<T[]> {
+  const { data: firstPage } = await apiClient.get<PaginatedResponse<T>>(path, {
+    params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE },
+  });
+  const results: T[] = [...firstPage.results];
+  const totalPages = Math.ceil(firstPage.count / SCHEDULE_PAGE_SIZE);
+  if (totalPages <= 1) {
+    return results;
+  }
+  const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+  const pages = await Promise.all(
+    remainingPages.map((page) =>
+      apiClient
+        .get<PaginatedResponse<T>>(path, {
+          params: { project: projectId, page_size: SCHEDULE_PAGE_SIZE, page },
+        })
+        .then((response) => response.data.results),
+    ),
+  );
+  // Concatenate in page order (remainingPages is ascending) so ordering matches
+  // a serial `next` walk exactly.
+  for (const pageResults of pages) {
+    results.push(...pageResults);
+  }
+  return results;
+}
+
 /**
  * Fetch tasks and dependency links for the Gantt view.
  *
@@ -467,23 +512,10 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
     queryKey: ['tasks', resolvedId],
     queryFn: async () => {
       // Fetch all pages — PAGE_SIZE=50 would otherwise silently cap the Gantt
-      // at 50 tasks. Follow the DRF `next` cursor until exhausted.
-      const allApiTasks: ApiTask[] = [];
-      let nextUrl: string | null = '/tasks/';
-      let isFirstPage = true;
-      while (nextUrl) {
-        const params = isFirstPage ? { project: resolvedId } : undefined;
-        const currentUrl: string = nextUrl;
-        isFirstPage = false;
-        const { data: pageData } = await apiClient.get<PaginatedResponse<ApiTask>>(currentUrl, {
-          params,
-        });
-        allApiTasks.push(...pageData.results);
-        // Strip the origin from the next URL so apiClient uses its baseURL.
-        nextUrl = pageData.next
-          ? pageData.next.replace(/^https?:\/\/[^/]+/, '')
-          : null;
-      }
+      // at 50 tasks. Request a large first page and fetch any remainder in
+      // parallel (issue 1519) rather than walking the `next` cursor serially.
+      // `enabled: !!resolvedId` guarantees resolvedId is defined here.
+      const allApiTasks = await fetchAllPagesParallel<ApiTask>('/tasks/', resolvedId!);
       // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
       // tasks (empty start/finish), and _updateProjectRange defaults to today
       // ±30 days when no task has dates yet.
@@ -508,24 +540,10 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
     queryFn: async () => {
       // Fetch all pages — a single GET would cap at PAGE_SIZE=50 dependencies,
       // silently dropping arrows and CPM edges on projects with >50 deps. Mirror
-      // the tasks-query loop above: follow the DRF `next` cursor until exhausted.
-      const allDeps: ApiDependency[] = [];
-      let nextUrl: string | null = '/dependencies/';
-      let isFirstPage = true;
-      while (nextUrl) {
-        const params = isFirstPage ? { project: resolvedId } : undefined;
-        const currentUrl: string = nextUrl;
-        isFirstPage = false;
-        const { data: pageData } = await apiClient.get<PaginatedResponse<ApiDependency>>(
-          currentUrl,
-          { params },
-        );
-        allDeps.push(...pageData.results);
-        // Strip the origin from the next URL so apiClient uses its baseURL.
-        nextUrl = pageData.next
-          ? pageData.next.replace(/^https?:\/\/[^/]+/, '')
-          : null;
-      }
+      // the tasks query: request a large first page, then fetch the remainder in
+      // parallel (issue 1519) instead of walking the `next` cursor serially.
+      // `enabled: !!resolvedId` guarantees resolvedId is defined here.
+      const allDeps = await fetchAllPagesParallel<ApiDependency>('/dependencies/', resolvedId!);
       return allDeps.map(mapDependency);
     },
     enabled: !!resolvedId,

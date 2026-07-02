@@ -2425,6 +2425,23 @@ def _attach_target_milestone_rollups(sprints: list[Sprint]) -> None:
             )
 
 
+class ScheduleFetchPagination(pagination.PageNumberPagination):
+    """Client-tunable pagination for the Schedule view's task/dependency reads (issue 1519).
+
+    The global default (PAGE_SIZE=50) forces the Gantt initial load to walk
+    ``ceil(N / 50)`` pages of the ``next`` cursor sequentially — ~20 serial round
+    trips for a 1K-task project, repaid on every ``['tasks']`` invalidation. Exposing
+    ``page_size`` lets the client request a large first page (200) and fetch the small
+    remainder in parallel, collapsing the round-trip count. ``max_page_size`` caps the
+    per-request cost so a caller cannot force an unbounded single-page fetch. The global
+    default is unchanged; this override applies only to the two Schedule-fetch viewsets.
+    """
+
+    page_size = 50
+    page_size_query_param = "page_size"
+    max_page_size = 500
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -2572,6 +2589,8 @@ class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     serializer_class = TaskSerializer
+    # issue 1519: let the Gantt request a large first page and parallelize the walk.
+    pagination_class = ScheduleFetchPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
@@ -4150,6 +4169,8 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     serializer_class = DependencySerializer
+    # issue 1519: mirror TaskViewSet so the Gantt dependency walk parallelizes too.
+    pagination_class = ScheduleFetchPagination
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
     # ``predecessor__project`` / ``successor__project`` are prefetched so the D5
