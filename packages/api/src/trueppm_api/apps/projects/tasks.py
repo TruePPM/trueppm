@@ -469,3 +469,57 @@ def _do_drain() -> None:
         logger.info(
             "drain_sprint_close_requests: dispatched=%d recovered=%d", dispatched, recovered
         )
+
+
+# ---------------------------------------------------------------------------
+# cascade_project_soft_delete — offloaded child tombstone cascade (#1112)
+# ---------------------------------------------------------------------------
+
+
+@idempotent_task(
+    lock_key_template="project_cascade_soft_delete:{0}",
+    lock_ttl=600,
+    on_contention="skip",
+    max_retries=3,
+    retry_backoff=10,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    soft_time_limit=540,
+    time_limit=600,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.cascade_project_soft_delete",
+)
+def cascade_project_soft_delete(self: object, project_id: str) -> None:
+    """Tombstone a soft-deleted project's children off the request path (#1112).
+
+    ``ProjectViewSet.perform_destroy`` tombstones the project row synchronously
+    (instant, so the project reads as gone) and enqueues this task to drain the
+    potentially huge child cascade — tasks, dependency edges, sprints, risks, and
+    baselines — that #1111 previously ran inline inside the request transaction.
+
+    Idempotency: the cascade only touches rows still ``is_deleted=False``, so a
+    broker-retry, a duplicate dispatch, or the ``on_contention="skip"`` lock all
+    resolve to a safe no-op. A vanished project (hard-deleted in the meantime, so
+    its children are gone via DB CASCADE) is simply skipped.
+
+    No broadcast here: the ``project_deleted`` board event already fired from
+    ``perform_destroy`` on commit, and child tombstones reach mobile clients via
+    the sync delta pull (the ``server_version`` bumps this cascade applies), not
+    over WebSocket — so there is nothing to re-broadcast and no double-fire risk.
+    """
+    from trueppm_api.apps.projects.models import (
+        Project,
+        cascade_project_children_soft_delete,
+    )
+
+    if not Project.objects.filter(pk=project_id).exists():
+        logger.info(
+            "cascade_project_soft_delete: project %s gone (hard-deleted?) — skipping",
+            project_id,
+        )
+        return
+
+    with transaction.atomic():
+        cascade_project_children_soft_delete(project_id)
+    logger.info("cascade_project_soft_delete: cascaded children for project %s", project_id)

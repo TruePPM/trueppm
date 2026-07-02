@@ -13,9 +13,10 @@ Covers:
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import date
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -23,6 +24,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
+    Baseline,
     Calendar,
     Dependency,
     Program,
@@ -31,7 +33,9 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintState,
     Task,
+    cascade_project_children_soft_delete,
 )
+from trueppm_api.apps.projects.tasks import cascade_project_soft_delete
 
 User = get_user_model()
 
@@ -245,32 +249,199 @@ def populated_project(owner: object, calendar: Calendar) -> Project:
     return p
 
 
+@pytest.fixture
+def _mock_redis_lock() -> Iterator[object]:
+    """Bypass the Redis SET NX lock so idempotent_task wrappers run inline.
+
+    Mirrors the fixture in test_sprint_close_drain.py — the cascade task is
+    wrapped by ``@idempotent_task`` and would otherwise need a live Redis.
+    """
+    mock_client = MagicMock()
+    mock_client.set.return_value = True  # SET NX succeeded — we own the lock
+    mock_client.register_script.return_value = MagicMock(return_value=1)
+    with patch("trueppm_api.core.idempotent.redis_lib") as redis_module:
+        redis_module.from_url.return_value = mock_client
+        yield mock_client
+
+
 @pytest.mark.django_db
-def test_soft_delete_cascades_to_all_children(owner: object, populated_project: Project) -> None:
-    """A soft-deleted project leaves no live child row — no orphans (#1111)."""
+def test_soft_delete_cascades_to_all_children(
+    owner: object, populated_project: Project, _mock_redis_lock: object
+) -> None:
+    """After the offloaded cascade runs, no live child row survives — no orphans.
+
+    #1111 established the no-orphan guarantee; #1112 moved the cascade into the
+    ``cascade_project_soft_delete`` task, so the endpoint tombstones the row and
+    the task (run here as the worker would) drains the children.
+    """
     resp = _client(owner).delete(f"/api/v1/projects/{populated_project.pk}/")
     assert resp.status_code == 204
 
     populated_project.refresh_from_db()
     assert populated_project.is_deleted is True
+
+    # Run the enqueued cascade task exactly as the Celery worker would.
+    cascade_project_soft_delete.run(str(populated_project.pk))
+
     assert not Task.objects.filter(project=populated_project, is_deleted=False).exists()
     assert not Sprint.objects.filter(project=populated_project, is_deleted=False).exists()
     assert not Risk.objects.filter(project=populated_project, is_deleted=False).exists()
-    # Dependency edges between the project's tasks are tombstoned via Task.soft_delete.
+    assert not Baseline.objects.filter(project=populated_project, is_deleted=False).exists()
+    # Dependency edges anchored in this project are tombstoned in the edge pass.
     assert not Dependency.objects.filter(
         predecessor__project=populated_project, is_deleted=False
     ).exists()
 
 
 @pytest.mark.django_db
-def test_soft_delete_tombstones_subtask_via_sweep(
+def test_soft_delete_tombstones_subtask_via_cascade(
     owner: object, populated_project: Project
 ) -> None:
-    """The is_subtask row is skipped by the non-subtask loop and caught by the sweep."""
+    """Every task — subtask or not — is tombstoned by the single bulk task update."""
     _client(owner).delete(f"/api/v1/projects/{populated_project.pk}/")
+    cascade_project_children_soft_delete(populated_project.pk)
     assert not Task.objects.filter(
         project=populated_project, is_subtask=True, is_deleted=False
     ).exists()
+
+
+@pytest.mark.django_db
+def test_soft_delete_row_tombstoned_before_cascade_runs(
+    owner: object, populated_project: Project
+) -> None:
+    """The project reads as gone the instant the row is tombstoned — mid-cascade.
+
+    The cascade is deferred, so immediately after DELETE the children are still
+    live, yet the project already 404s on retrieve/overview and drops out of the
+    list. This is the whole point of #1112: an instant tombstone, children drained
+    asynchronously.
+    """
+    client = _client(owner)
+    resp = client.delete(f"/api/v1/projects/{populated_project.pk}/")
+    assert resp.status_code == 204
+
+    # Cascade has NOT run yet (deferred to the worker), so children are still live.
+    assert Task.objects.filter(project=populated_project, is_deleted=False).exists()
+
+    # ...but the project already reads as gone to every reader.
+    populated_project.refresh_from_db()
+    assert populated_project.is_deleted is True
+    assert client.get(f"/api/v1/projects/{populated_project.pk}/").status_code == 404
+    assert client.get(f"/api/v1/projects/{populated_project.pk}/overview/").status_code == 404
+    listing = client.get("/api/v1/projects/")
+    rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
+    assert str(populated_project.pk) not in [row["id"] for row in rows]
+
+
+@pytest.mark.django_db
+def test_cascade_bumps_versions_and_sets_deleted_version(
+    owner: object, populated_project: Project
+) -> None:
+    """Bulk update replicates soft_delete: is_deleted, bumped server_version, and
+    deleted_version == the new server_version."""
+    task = Task.objects.filter(project=populated_project, is_subtask=False).first()
+    assert task is not None
+    before = task.server_version
+
+    cascade_project_children_soft_delete(populated_project)
+
+    task.refresh_from_db()
+    assert task.is_deleted is True
+    assert task.server_version == before + 1
+    assert task.deleted_version == task.server_version
+    assert task.deleted_at is not None
+
+
+@pytest.mark.django_db
+def test_cascade_is_idempotent(owner: object, populated_project: Project) -> None:
+    """A re-run of the cascade tombstones nothing new and bumps no versions."""
+    cascade_project_children_soft_delete(populated_project)
+
+    versions = {str(t.pk): t.server_version for t in Task.objects.filter(project=populated_project)}
+    dep_versions = {
+        str(d.pk): d.server_version
+        for d in Dependency.objects.filter(predecessor__project=populated_project)
+    }
+
+    # Second run must be a pure no-op (idempotency guard: filters is_deleted=False).
+    cascade_project_children_soft_delete(populated_project)
+
+    for t in Task.objects.filter(project=populated_project):
+        assert t.is_deleted is True
+        assert t.server_version == versions[str(t.pk)]
+    for d in Dependency.objects.filter(predecessor__project=populated_project):
+        assert d.is_deleted is True
+        assert d.server_version == dep_versions[str(d.pk)]
+
+
+@pytest.mark.django_db
+def test_cascade_task_skips_hard_deleted_project(owner: object, _mock_redis_lock: object) -> None:
+    """A project hard-deleted before the cascade runs is skipped without error."""
+    import uuid as _uuid
+
+    # A random UUID stands in for a project whose row is already gone.
+    cascade_project_soft_delete.run(str(_uuid.uuid4()))  # must not raise
+
+
+@pytest.mark.django_db
+def test_soft_delete_enqueues_cascade(
+    owner: object,
+    populated_project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+    monkeypatch: Any,
+) -> None:
+    """perform_destroy dispatches the cascade task on commit with the project id."""
+    calls: list[str] = []
+    monkeypatch.setattr(cascade_project_soft_delete, "delay", lambda pid: calls.append(pid))
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _client(owner).delete(f"/api/v1/projects/{populated_project.pk}/")
+    assert resp.status_code == 204
+    assert calls == [str(populated_project.pk)]
+
+
+@pytest.mark.django_db
+def test_cascade_scale_tombstones_all_children_no_orphans(
+    owner: object, calendar: Calendar, _mock_redis_lock: object
+) -> None:
+    """Scale-representative: a ~1000-task / ~1000-edge project fully tombstones with
+    no orphaned task, dependency, sprint, risk, or baseline, and re-runs as a no-op."""
+    p = Project.objects.create(name="Scale", start_date=date(2026, 4, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
+
+    n = 1000
+    tasks = [Task(project=p, name=f"T{i}", duration=1, short_id=f"{i:08X}") for i in range(n)]
+    Task.objects.bulk_create(tasks, batch_size=500)
+    # Chain edges T0->T1->...->T(n-1): ~999 dependency rows.
+    edges = [
+        Dependency(predecessor=tasks[i], successor=tasks[i + 1], dep_type="FS")
+        for i in range(n - 1)
+    ]
+    Dependency.objects.bulk_create(edges, batch_size=500)
+    Sprint.objects.create(
+        project=p,
+        name="S",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+    )
+    Risk.objects.create(project=p, title="R", probability=3, impact=4, created_by=owner)
+    Baseline.objects.create(project=p, name="B0")
+
+    resp = _client(owner).delete(f"/api/v1/projects/{p.pk}/")
+    assert resp.status_code == 204
+
+    cascade_project_soft_delete.run(str(p.pk))
+
+    assert not Task.objects.filter(project=p, is_deleted=False).exists()
+    assert not Dependency.objects.filter(predecessor__project=p, is_deleted=False).exists()
+    assert not Sprint.objects.filter(project=p, is_deleted=False).exists()
+    assert not Risk.objects.filter(project=p, is_deleted=False).exists()
+    assert not Baseline.objects.filter(project=p, is_deleted=False).exists()
+
+    # Idempotent re-run.
+    cascade_project_soft_delete.run(str(p.pk))
+    assert Task.objects.filter(project=p, is_deleted=True).count() == n
 
 
 @pytest.mark.django_db
