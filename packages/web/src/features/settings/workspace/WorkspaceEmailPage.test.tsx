@@ -38,7 +38,9 @@ describe('WorkspaceEmailPage', () => {
     expect(screen.getByText('mail.truescope.io')).toBeInTheDocument();
     expect(screen.getByText('notify@truescope.io')).toBeInTheDocument();
     expect(screen.getByText(/587/)).toBeInTheDocument();
-    expect(screen.getByText(/not yet wired/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/environment variables \/ Helm values and redeploy/i),
+    ).toBeInTheDocument();
   });
 
   it('shows "Not configured" when no host is set', () => {

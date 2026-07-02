@@ -26,11 +26,13 @@ TruePPM uses Django's standard `EMAIL_*` settings. The Beat-driven drain runs on
 the `api`, `celery`, and `celery-beat` workloads, so all three need the same
 transport configuration.
 
-:::caution[Set these via a Django settings override]
-Dedicated environment-variable and Helm bindings for these settings are **not yet
-wired**. Setting bare `EMAIL_HOST` and friends as container environment variables
-has no effect today — configure SMTP with a Django settings override on your image
-(a `local_settings`/override module that the settings package imports).
+:::tip[Set these via environment variables / Helm values]
+Every `EMAIL_*` setting binds directly from the container environment, so you
+configure SMTP with plain environment variables — no settings override needed.
+Under the Helm chart, set them under `env:` in `values.yaml` (they flow to the
+`api`, `celery`, and `celery-beat` workloads automatically); source
+`EMAIL_HOST_PASSWORD` from a Kubernetes Secret via `secretKeyRef`, never plain
+`values.yaml`. Leave `EMAIL_HOST` empty to run without outbound mail.
 :::
 
 | Setting | Purpose |

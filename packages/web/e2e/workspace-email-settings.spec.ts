@@ -87,7 +87,9 @@ test.describe('Workspace Email & SMTP — read-only status', () => {
     await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
     await expect(page.getByText('mail.truescope.io')).toBeVisible();
     await expect(page.getByText('notify@truescope.io')).toBeVisible();
-    await expect(page.getByText(/not yet wired/i)).toBeVisible();
+    await expect(
+      page.getByText(/environment variables \/ Helm values and redeploy/i),
+    ).toBeVisible();
   });
 
   test('shows an error + Retry when the status endpoint fails', async ({ page }) => {

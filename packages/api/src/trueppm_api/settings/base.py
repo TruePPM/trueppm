@@ -694,6 +694,28 @@ SITE_ID = 1
 ACCOUNT_EMAIL_VERIFICATION = "none"
 
 # ---------------------------------------------------------------------------
+# Outbound email transport (#639 read-only status page, #764)
+# ---------------------------------------------------------------------------
+# Bind Django's standard EMAIL_* settings from the environment so operators
+# configure SMTP via container env vars / Helm values with no settings override.
+# The Beat-driven notification drain runs on the api, celery, and celery-beat
+# workloads, so all three must receive the same env. EMAIL_HOST_PASSWORD is read
+# from the environment but never exposed by the API or logged (#639).
+#
+# EMAIL_HOST defaults to "" (not Django's implicit "localhost") so an
+# unconfigured deployment reports "Not configured" on the read-only status page
+# and the drain skips sending, rather than silently attempting localhost:25.
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="notifications@trueppm.local")
+
+# ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)
 # ---------------------------------------------------------------------------
 
