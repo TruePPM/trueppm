@@ -26,13 +26,33 @@ Include:
 
 We will credit reporters in the release notes unless anonymity is requested.
 
+### Safe harbor
+
+We support responsible security research and want to make it safe to report
+what you find. We will **not** pursue or support legal action against you for
+security research and vulnerability disclosure conducted in good faith and
+consistent with this policy — that is, research that:
+
+- respects user privacy and does not access, modify, or destroy data beyond the
+  minimum needed to demonstrate the vulnerability;
+- does not degrade, disrupt, or deny service to others (no denial-of-service,
+  no automated high-volume scanning against shared infrastructure);
+- targets only assets in the [Scope](#scope) section below, on infrastructure
+  you own or are explicitly authorized to test; and
+- gives us a reasonable opportunity to remediate before any public disclosure.
+
+If you are unsure whether a specific test is authorized, ask first at
+**security@trueppm.com** and we will clarify. This safe harbor does not extend
+to actions that violate applicable law, and it does not waive the rights of
+third parties who are not party to this policy.
+
 ## Supported Versions
 
 | Version | Security patches |
 |---------|-----------------|
 | `main` (unreleased) | ✅ Active |
-| `0.2.x` (current alpha) | ✅ Active |
-| < `0.2.0` | ❌ No support |
+| `0.3.x` (current alpha) | ✅ Active |
+| < `0.3.0` | ❌ No support |
 
 Once `1.0.0` is released, the two most recent minor versions will receive security backports.
 
