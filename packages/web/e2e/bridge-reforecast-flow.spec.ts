@@ -20,6 +20,7 @@
  * component units (AdvancingToMilestoneCard / SprintForecastWidget), not here.
  */
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-bridge-reforecast-0000-0000-0000-000010';
 const ROUTE = `/projects/${PROJECT_ID}/sprints`;
@@ -106,7 +107,9 @@ async function setupCommon(page: import('@playwright/test').Page) {
   // Catch-all FIRST so any specific route below wins (Playwright matches routes
   // in reverse-registration order). Object-shaped endpoints the page reads are
   // all mocked explicitly below — never rely on this empty-array net for them.
-  await page.route('**/api/v1/**', (r) => r.fulfill(json([])));
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route('**/api/v1/auth/me/', (r) =>

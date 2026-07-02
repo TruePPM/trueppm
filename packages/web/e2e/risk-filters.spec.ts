@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * #1170 — Risk register filter + sort layer (part of v2 epic #1163).
@@ -127,9 +128,9 @@ async function setup(page: Page) {
   // it those calls fall through to the preview server, take an effective 401,
   // and flip the session-expired modal mid-test. Registered FIRST so the
   // specific routes below take precedence.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200 body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({

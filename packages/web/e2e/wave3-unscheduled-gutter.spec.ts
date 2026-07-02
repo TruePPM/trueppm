@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * E2E tests for wave 3 unscheduled gutter (#213):
@@ -242,13 +243,9 @@ async function gotoSchedule(page: import('@playwright/test').Page, tasks = FIXTU
 // previously passed on timing slack that #647's extra app-wide hook subscriptions
 // removed.
 test.beforeEach(async ({ page }) => {
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,

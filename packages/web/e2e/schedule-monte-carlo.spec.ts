@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Monte Carlo integration tests for the Schedule view — issue #333, consolidated
@@ -154,6 +155,41 @@ async function gotoScheduleWithMC(
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // Project detail — ProjectShell gates every project route on this query (#1111).
+  // An object-shaped 200 keeps the shell mounted; without it the beforeEach
+  // catch-all serves a list `{count,results}` that fails ProjectShell's field
+  // reads (the #1190 vector). Real shape mirrors schedule.spec.ts.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: PROJECT_ID,
+        name: 'MC Test Project',
+        description: '',
+        start_date: '2026-09-01',
+        calendar: 'default',
+        estimation_mode: 'OPEN',
+        agile_features: false,
+        methodology: 'WATERFALL',
+        code: '',
+        health: 'AUTO',
+        visibility: 'WORKSPACE',
+        timezone: '',
+        default_view: 'SCHEDULE',
+        lead: null,
+        lead_detail: null,
+        iteration_label: 'Sprint',
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        recalculated_at: null,
+        is_sample: false,
+        program_detail: null,
+        server_version: 1,
+      }),
+    }),
+  );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
@@ -242,13 +278,28 @@ async function gotoScheduleWithMC(
       body: JSON.stringify({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' }),
     }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/role/`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ role: 300 }), // PM role
-    }),
-  );
+  // Current-user role comes from GET /projects/{id}/members/?self=true — a LIST
+  // (many=True), from which useCurrentUserRole reads res.data[0].role. The old
+  // /projects/{id}/role/ mock hit a nonexistent endpoint, so the bar rendered
+  // role-less; this mocks the real endpoint with an Admin (300) row.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) => {
+    if (route.request().method() === 'GET') {
+      const url = new URL(route.request().url());
+      if (url.searchParams.get('self') === 'true') {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([{ id: 'mem-admin', role: 300, user_id: 'u1' }]),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 'mem-admin', role: 300, user_id: 'u1' }]),
+      });
+    }
+    return route.continue();
+  });
 
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
 }
@@ -263,13 +314,9 @@ async function gotoScheduleWithMC(
 // NOT live in gotoScheduleWithMC: that runs after the per-test /monte-carlo/ route
 // here, and a late catch-all would shadow it (the recomputing-indicator test).
 test.beforeEach(async ({ page }) => {
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 });
 
 test.describe('Monte Carlo Schedule Integration (#333)', () => {

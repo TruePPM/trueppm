@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Project Settings → Integrations → Git-event automation E2E (#1257, backend #329).
@@ -56,9 +57,9 @@ async function commonRoutes(page: Page) {
   });
 
   // 401-guard catch-all (registered first; specific routes below win — last wins).
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: page1([]) }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: page1([FIXTURE_PROJECT]) }),
   );

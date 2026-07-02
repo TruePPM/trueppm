@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Milestone-add dialog E2E — clicking "+ Milestone" opens TaskFormModal in
@@ -140,18 +141,9 @@ test.describe('Schedule "+ Milestone" dialog', () => {
     // wins. Returning a harmless empty body for unmocked endpoints keeps a
     // single missing route from cascading through 401-recovery into the
     // SessionExpired banner, which would intercept all subsequent clicks.
-    await page.route('**/api/v1/**', (route) => {
-      const method = route.request().method();
-      if (method === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-        });
-        return;
-      }
-      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-    });
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+    // being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
 
     // Default tasks handler: GET returns the fixture list; POST returns a
     // generic milestone response. Per-test handlers register a more specific

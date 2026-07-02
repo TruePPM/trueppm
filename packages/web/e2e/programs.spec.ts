@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Programs E2E (#502, ADR-0070).
@@ -90,13 +91,9 @@ async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROG
   // intercepts pointer events and cascades into unrelated failures. Returns the
   // empty list shape; object endpoints the page reads are all mocked explicitly
   // below, so none fall through to this net.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: pj({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),

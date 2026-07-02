@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * #223 — Risk register CSV import (symmetric counterpart of the #222 export,
@@ -73,9 +74,10 @@ async function setup(page: Page, opts: { role?: number; onImport?: (r: Route) =>
 
   // Benign fallback for any authenticated-shell endpoint this spec does not
   // mock explicitly. Registered FIRST so the specific routes below win.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
-  );
+  // Shared 404 catch-all (issue 1513): any endpoint this spec does not mock
+  // 404s loudly instead of being masked by a permissive 200 — turning a future
+  // missing object-shaped mock into an obvious failure (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({
