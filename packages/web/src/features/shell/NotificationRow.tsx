@@ -80,7 +80,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
         type="button"
         onClick={handleNavigate}
         className="flex flex-col gap-1 text-left
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
       >
         <div className="flex items-baseline gap-2 flex-wrap">
           {!notification.is_read && (
@@ -101,7 +101,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
           disabled={update.isPending}
           className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             rounded-control px-2 h-7
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
             disabled:opacity-50"
         >
           {notification.is_read ? 'Mark unread' : 'Mark read'}
@@ -113,7 +113,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
             disabled={update.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded-control px-2 h-7
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
               disabled:opacity-50"
           >
             Archive

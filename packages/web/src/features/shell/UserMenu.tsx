@@ -45,7 +45,7 @@ function MenuContent({
   const rowInteractive = [
     rowBase,
     'hover:bg-chrome-surface-raised',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+    'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
   ].join(' ');
 
   return (
@@ -177,7 +177,7 @@ function AvatarChip({ initials, isLoading, isOpen, onClick, buttonRef }: AvatarC
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={onClick}
-        className="motion-safe:animate-pulse bg-brand-primary/30 rounded-full w-8 h-8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+        className="motion-safe:animate-pulse bg-brand-primary/30 rounded-full w-8 h-8 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary"
       />
     );
   }
@@ -192,7 +192,7 @@ function AvatarChip({ initials, isLoading, isOpen, onClick, buttonRef }: AvatarC
       onClick={onClick}
       className={[
         'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary',
+        'focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary',
         initials
           ? 'bg-brand-primary text-white'
           : 'bg-neutral-surface-raised text-neutral-text-disabled',

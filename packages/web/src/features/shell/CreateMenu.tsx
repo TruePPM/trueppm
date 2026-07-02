@@ -11,7 +11,7 @@ import { useCreateIntentStore, type CreateIntent } from '@/stores/createIntentSt
 import { resolveCreateTargets, type CreateTarget, type CreateTargetKind } from './createTargets';
 
 const TRIGGER =
-  'hidden md:inline-flex shrink-0 items-center gap-1 h-8 px-2.5 rounded-control border border-chrome-border/15 text-sm font-medium text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface';
+  'hidden md:inline-flex shrink-0 items-center gap-1 h-8 px-2.5 rounded-control border border-chrome-border/15 text-sm font-medium text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface';
 
 /**
  * Context-aware, role-aware "+ New" affordance for the v2 unified shell bar (ADR-0131,
@@ -131,7 +131,7 @@ export function CreateMenu() {
               role="menuitem"
               type="button"
               onClick={() => dispatch(t.kind)}
-              className="w-full text-left px-2 py-1.5 rounded-control text-sm capitalize text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+              className="w-full text-left px-2 py-1.5 rounded-control text-sm capitalize text-neutral-text-primary hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
             >
               {t.label}
             </button>

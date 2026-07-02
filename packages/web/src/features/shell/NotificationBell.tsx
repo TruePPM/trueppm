@@ -65,7 +65,7 @@ export function NotificationBell() {
         className={`relative inline-flex items-center justify-center w-11 h-11 rounded-full
           ${hasUnread ? 'text-brand-primary' : 'text-neutral-text-secondary'}
           hover:bg-neutral-surface-raised
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none`}
+          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none`}
       >
         <span aria-hidden="true" className="text-base leading-none">
           {hasUnread ? '🔔' : '🔕'}

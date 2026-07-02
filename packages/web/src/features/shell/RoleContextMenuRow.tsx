@@ -47,7 +47,7 @@ function RoleContextSegmented({
               'flex items-center justify-center',
               // 44px touch target on the mobile bottom sheet (rule 5); compact on desktop.
               isMobile ? 'min-h-[44px] px-3 text-sm' : 'h-7 px-2.5 text-xs',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
               'disabled:cursor-not-allowed disabled:text-neutral-text-disabled',
               isFirst ? 'rounded-l' : '',
               isLast ? 'rounded-r' : 'border-r border-neutral-border',

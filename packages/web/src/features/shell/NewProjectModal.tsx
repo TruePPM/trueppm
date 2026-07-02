@@ -194,7 +194,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     placeholder="My Project"
                     className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -207,7 +207,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     placeholder="Optional"
                     className="px-3 py-2 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
                 </label>
               </>
@@ -230,7 +230,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     aria-required="true"
                     className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface
                       text-sm text-neutral-text-primary
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   />
                 </label>
               </>
@@ -252,7 +252,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                       aria-checked={methodology === m.id}
                       onClick={() => setMethodology(m.id)}
                       className={`flex flex-col gap-1 rounded-control border p-3 text-left
-                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                         ${methodology === m.id
                           ? 'border-brand-primary bg-brand-primary/5'
                           : 'border-neutral-border hover:border-brand-primary/40'}`}
@@ -280,7 +280,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     disabled={createProject.isPending}
                     className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                       text-neutral-text-secondary hover:text-neutral-text-primary
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                   >
                     Back
                   </button>
@@ -293,7 +293,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                   disabled={createProject.isPending}
                   className="h-9 px-4 rounded-control text-sm font-medium border border-neutral-border
                     text-neutral-text-secondary hover:text-neutral-text-primary
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                    focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 >
                   Cancel
                 </button>
@@ -306,8 +306,8 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                   }
                   className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-white
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                    focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                    focus:outline-none focus:ring-2 focus:ring-white
+                    focus:ring-offset-2 focus:ring-offset-brand-primary"
                 >
                   {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
                 </button>
