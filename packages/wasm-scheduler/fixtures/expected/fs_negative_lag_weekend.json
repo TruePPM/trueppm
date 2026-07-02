@@ -1,0 +1,31 @@
+{
+  "project_id": "p-fs-negative-lag-weekend",
+  "project_start": "2026-03-02",
+  "project_finish": "2026-03-09",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-03-06",
+      "late_start": "2026-03-02",
+      "late_finish": "2026-03-06",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "B",
+      "early_start": "2026-03-06",
+      "early_finish": "2026-03-09",
+      "late_start": "2026-03-06",
+      "late_finish": "2026-03-09",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "A",
+    "B"
+  ]
+}

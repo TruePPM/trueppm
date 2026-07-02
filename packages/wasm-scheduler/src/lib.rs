@@ -15,6 +15,10 @@ mod incremental;
 pub mod models;
 mod validate;
 
+// Re-exported so the conformance suite can cross-check the incremental
+// drag-preview recompute against a full schedule (#1505).
+pub use incremental::incremental_update;
+
 use std::collections::HashMap;
 
 use wasm_bindgen::prelude::*;
@@ -232,7 +236,11 @@ mod tests {
             id: "p-ss".to_string(),
             name: "ss".to_string(),
             start_date: NaiveDate::from_ymd_opt(2026, 4, 6).unwrap(),
-            tasks: vec![make_task("ZED", 5), make_task("ABE", 5), make_task("MID", 5)],
+            tasks: vec![
+                make_task("ZED", 5),
+                make_task("ABE", 5),
+                make_task("MID", 5),
+            ],
             dependencies: vec![
                 Dependency {
                     predecessor_id: "ZED".to_string(),

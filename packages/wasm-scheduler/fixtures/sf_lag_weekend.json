@@ -1,0 +1,18 @@
+{
+  "id": "p-sf-lag-weekend",
+  "name": "SF positive lag crossing a weekend",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 172800.0},
+    {"id": "B", "name": "Task B", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SF", "lag": 432000.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
