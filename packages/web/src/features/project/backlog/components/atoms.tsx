@@ -22,7 +22,7 @@ export function DorChip({ dor }: { dor: DorState }) {
   const s = DOR_STYLE[dor];
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded-chip px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}
+      className={`inline-block whitespace-nowrap rounded-chip px-2 py-0.5 text-xs font-semibold ${s.cls}`}
     >
       {s.label}
     </span>
@@ -54,7 +54,7 @@ export function AcMeter({ met, total }: { met: number; total: number }) {
           />
         ))}
       </span>
-      <span className={`font-mono text-[11px] tabular-nums ${color}`}>
+      <span className={`font-mono text-xs tabular-nums ${color}`}>
         {met}/{total}
       </span>
     </span>
@@ -82,7 +82,7 @@ export function SprintCommitmentChip({ story }: { story: Task }) {
   if (story.sprintId) {
     return (
       <span
-        className="inline-flex items-center whitespace-nowrap rounded-chip bg-brand-primary/10 px-2 py-0.5 text-[11px] font-semibold text-brand-primary"
+        className="inline-flex items-center whitespace-nowrap rounded-chip bg-brand-primary/10 px-2 py-0.5 text-xs font-semibold text-brand-primary"
         title={`Committed to a ${itl.lower}`}
       >
         Pulled
@@ -91,7 +91,7 @@ export function SprintCommitmentChip({ story }: { story: Task }) {
   }
   return (
     <span
-      className="inline-flex items-center whitespace-nowrap rounded-chip border border-dashed border-neutral-border px-2 py-0.5 text-[11px] font-semibold text-neutral-text-secondary"
+      className="inline-flex items-center whitespace-nowrap rounded-chip border border-dashed border-neutral-border px-2 py-0.5 text-xs font-semibold text-neutral-text-secondary"
       title={`A backlog candidate — not yet committed to a ${itl.lower}`}
     >
       Proposed
@@ -117,7 +117,7 @@ export function AssigneeAvatar({ assignees }: { assignees: Task['assignees'] }) 
   if (!assignees || assignees.length === 0) {
     return (
       <span
-        className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-neutral-border text-[11px] text-neutral-text-secondary"
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-dashed border-neutral-border text-xs text-neutral-text-secondary"
         aria-label="Unassigned"
         title="Unassigned"
       >
@@ -131,14 +131,14 @@ export function AssigneeAvatar({ assignees }: { assignees: Task['assignees'] }) 
     <span className="flex items-center" aria-label={`Assigned to ${names}`} title={names}>
       <span
         aria-hidden
-        className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-primary/10 text-[11px] font-semibold text-brand-primary"
+        className="flex h-6 w-6 items-center justify-center rounded-full bg-brand-primary/10 text-xs font-semibold text-brand-primary"
       >
         {initials(assignees[0].name)}
       </span>
       {extra > 0 && (
         <span
           aria-hidden
-          className="-ml-1 flex h-6 min-w-6 items-center justify-center rounded-full border border-neutral-surface bg-neutral-surface-sunken px-1 text-[11px] font-semibold text-neutral-text-secondary"
+          className="-ml-1 flex h-6 min-w-6 items-center justify-center rounded-full border border-neutral-surface bg-neutral-surface-sunken px-1 text-xs font-semibold text-neutral-text-secondary"
         >
           +{extra}
         </span>

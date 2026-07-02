@@ -124,7 +124,7 @@ export function TaskRow({
               <span
                 aria-label="Critical path"
                 title="This task is on the critical path — a delay here delays the project end date"
-                className="flex-shrink-0 tppm-mono text-[11px] font-bold
+                className="flex-shrink-0 tppm-mono text-xs font-bold
                   text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
               >
                 CP

@@ -914,7 +914,7 @@ export function BurnChart({
 
       {/* Legend */}
       {!isLoading && !isError && !isEmpty && (
-        <div className="flex flex-wrap items-center gap-4 px-4 pb-4 pt-2 text-[11px] text-neutral-text-secondary">
+        <div className="flex flex-wrap items-center gap-4 px-4 pb-4 pt-2 text-xs text-neutral-text-secondary">
           <LegendItem color={C.actual} dashed={false} label="Actual" />
           {(variant === 'burnup' || variant === 'combined') && (
             <LegendItem color={C.completed} dashed={false} label="Completed" />

@@ -247,7 +247,7 @@ function GoalHint({ on, label }: { on: boolean; label: string }) {
       <span
         aria-hidden
         className={[
-          'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-[10px] font-bold',
+          'inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded text-xs font-bold',
           on
             ? 'bg-semantic-on-track text-navy-900'
             : 'border border-neutral-border text-transparent',

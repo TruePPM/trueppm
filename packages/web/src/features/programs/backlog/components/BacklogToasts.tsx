@@ -42,13 +42,13 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
                   ? "Couldn't reach the server"
                   : `Couldn't pull to ${toast.project.name}`}
               </div>
-              <p className="mt-0.5 text-[11px] text-neutral-text-secondary">
+              <p className="mt-0.5 text-xs text-neutral-text-secondary">
                 {toast.offline
                   ? "You're offline. The item has been reverted to Proposed — try again when you reconnect."
                   : 'The project backlog rejected the task. Item has been reverted to Proposed.'}
               </p>
               {showDetails && (
-                <p className="mt-1.5 rounded-card bg-neutral-surface-sunken p-2 text-[11px] text-neutral-text-secondary">
+                <p className="mt-1.5 rounded-card bg-neutral-surface-sunken p-2 text-xs text-neutral-text-secondary">
                   {toast.message}
                 </p>
               )}
@@ -56,14 +56,14 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
                 <button
                   type="button"
                   onClick={() => setShowDetails((v) => !v)}
-                  className={`text-[11px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary ${FOCUS_RING}`}
+                  className={`text-xs font-medium text-neutral-text-secondary hover:text-neutral-text-primary ${FOCUS_RING}`}
                 >
                   {showDetails ? 'Hide details' : 'Details'}
                 </button>
                 <button
                   type="button"
                   onClick={controller.retryPull}
-                  className={`text-[11px] font-medium text-brand-primary hover:text-brand-primary-dark ${FOCUS_RING}`}
+                  className={`text-xs font-medium text-brand-primary hover:text-brand-primary-dark ${FOCUS_RING}`}
                 >
                   Retry
                 </button>

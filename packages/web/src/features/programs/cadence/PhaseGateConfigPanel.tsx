@@ -165,7 +165,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
 Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
                   className="w-full px-2.5 py-1.5 rounded-control border border-neutral-border bg-neutral-surface-base text-[12px] font-mono leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
                 />
-                <p className="text-[11px] text-neutral-text-secondary mt-1 leading-snug">
+                <p className="text-xs text-neutral-text-secondary mt-1 leading-snug">
                   Available variables: <code>{'{{milestone.name}}'}</code>
                   {' · '}
                   <code>{'{{date}}'}</code>

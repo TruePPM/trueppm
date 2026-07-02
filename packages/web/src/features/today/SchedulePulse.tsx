@@ -42,7 +42,7 @@ function KpiChip({
         : 'text-neutral-text-primary';
   return (
     <div className="flex flex-col">
-      <span className="text-[11px] uppercase tracking-[.06em] text-neutral-text-secondary">
+      <span className="text-xs uppercase tracking-[.06em] text-neutral-text-secondary">
         {label}
       </span>
       <span className={`text-[15px] font-semibold tabular-nums ${valueTone}`}>{value}</span>
@@ -202,7 +202,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
                     />
                   </div>
                 ) : (
-                  <span className="text-[11px] text-neutral-text-secondary">
+                  <span className="text-xs text-neutral-text-secondary">
                     No committed tasks yet
                   </span>
                 )}

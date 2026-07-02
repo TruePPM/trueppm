@@ -279,7 +279,7 @@ function ExternalCardRow({
       <span
         aria-hidden="true"
         className="mt-0.5 shrink-0 w-5 h-5 inline-flex items-center justify-center rounded
-          border border-neutral-border bg-neutral-surface-raised text-[10px] font-semibold text-neutral-text-secondary"
+          border border-neutral-border bg-neutral-surface-raised text-xs font-semibold text-neutral-text-secondary"
       >
         {initial}
       </span>

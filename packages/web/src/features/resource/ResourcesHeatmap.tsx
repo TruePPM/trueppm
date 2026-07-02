@@ -100,7 +100,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
           style={{ gridTemplateColumns: `260px repeat(${weeks.length}, minmax(56px, 1fr))` }}
         >
           <div role="columnheader" className="flex items-center px-[14px]">
-            <span className="text-[11px] font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
+            <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary">
               Resource
             </span>
           </div>
@@ -112,7 +112,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
                 role="columnheader"
                 className="flex items-center justify-center px-1"
               >
-                <span className="text-[11px] font-semibold uppercase tracking-[.06em] text-neutral-text-secondary tppm-mono">
+                <span className="text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary tppm-mono">
                   {wNum}
                 </span>
               </div>
@@ -145,7 +145,7 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
                   {resource.name}
                 </p>
                 {resource.job_role && (
-                  <p className="text-[11px] text-neutral-text-secondary truncate">
+                  <p className="text-xs text-neutral-text-secondary truncate">
                     {resource.job_role}
                   </p>
                 )}

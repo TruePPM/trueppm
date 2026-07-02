@@ -102,7 +102,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
   const styles: Record<TaskReadiness, string> = {
     idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
     estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-    ready: 'text-brand-primary-dark dark:text-brand-primary',
+    ready: 'text-brand-primary',
     baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
   };
   // 'ready' uses brand-accent-light which doesn't exist as a Tailwind utility
@@ -465,7 +465,7 @@ export function BacklogBand({
           ›
         </span>
         <span
-          className="text-[11px] font-semibold uppercase tracking-widest text-neutral-text-secondary"
+          className="text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary"
           style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
         >
           Backlog · {tasks.length}
@@ -535,7 +535,7 @@ export function BacklogBand({
       </div>
 
       {/* Hint — orientation copy for first-time users. */}
-      <div className="px-4 pb-2.5 text-[11px] leading-snug text-neutral-text-secondary">
+      <div className="px-4 pb-2.5 text-xs leading-snug text-neutral-text-secondary">
         Drag right onto a phase to promote to{' '}
         <strong className="font-semibold text-neutral-text-primary">To do</strong>.
       </div>

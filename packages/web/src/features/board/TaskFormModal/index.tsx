@@ -770,7 +770,7 @@ export function TaskFormModal({
                 <option key={opt.id} value={opt.id}>{opt.label}</option>
               ))}
             </select>
-            <p id="task-parent-hint" className="mt-1 text-[11px] text-neutral-text-secondary">
+            <p id="task-parent-hint" className="mt-1 text-xs text-neutral-text-secondary">
               {selectedParentId
                 ? selectedParentIsLeaf
                   ? isMilestoneCreate
@@ -1007,7 +1007,7 @@ export function TaskFormModal({
     return (
       <div className="flex items-start justify-between px-5 py-4 border-b border-neutral-border">
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold tracking-widest uppercase text-neutral-text-secondary mb-0.5">
+          <div className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-0.5">
             {eyebrow}
           </div>
           <h2 id={TITLE_ID} className="text-base font-semibold text-neutral-text-primary line-clamp-2 m-0" title={headerTitle}>

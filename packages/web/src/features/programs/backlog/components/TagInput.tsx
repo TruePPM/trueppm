@@ -47,7 +47,7 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
       {tags.map((tag) => (
         <span
           key={tag}
-          className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken py-0.5 pl-1.5 pr-1 text-[11px] text-neutral-text-secondary"
+          className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken py-0.5 pl-1.5 pr-1 text-xs text-neutral-text-secondary"
         >
           {tag}
           <button
@@ -69,7 +69,7 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
         onBlur={() => add(draft)}
         placeholder={tags.length === 0 ? 'Type to add…' : ''}
         aria-label="Add a tag"
-        className="min-w-[80px] flex-1 bg-transparent px-1 text-[11px] text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
+        className="min-w-[80px] flex-1 bg-transparent px-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
       />
       {listId && (
         <datalist id={listId}>

@@ -87,7 +87,7 @@ export function BacklogListRow({
       {/* Rank / drag grip */}
       <span className="relative flex justify-center">
         <span
-          className={`tppm-mono text-[11px] tabular-nums text-neutral-text-disabled ${draggable ? 'group-hover:opacity-0' : ''}`}
+          className={`tppm-mono text-xs tabular-nums text-neutral-text-disabled ${draggable ? 'group-hover:opacity-0' : ''}`}
         >
           {item.priorityRank}
         </span>
@@ -152,7 +152,7 @@ export function BacklogListRow({
             }}
             aria-label={`Pull ${item.title} to a project`}
             className={`inline-flex h-6 items-center gap-1 rounded-control border border-neutral-border bg-neutral-surface
-              px-2 text-[11px] font-medium text-neutral-text-primary hover:border-brand-primary ${FOCUS_RING}`}
+              px-2 text-xs font-medium text-neutral-text-primary hover:border-brand-primary ${FOCUS_RING}`}
           >
             Pull
             <ArrowRightIcon aria-hidden="true" className="h-3 w-3" />

@@ -90,7 +90,7 @@ export function EpicHeader({
       <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
         Epic
       </span>
-      <span className="font-mono text-[11px] text-neutral-text-secondary">{epic.shortId}</span>
+      <span className="font-mono text-xs text-neutral-text-secondary">{epic.shortId}</span>
       {canEdit ? (
         <button
           type="button"
@@ -112,7 +112,7 @@ export function EpicHeader({
         </span>
       ) : (
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[11px] text-neutral-text-secondary">
+          <span className="font-mono text-xs text-neutral-text-secondary">
             {rollup.pointsDone}/{rollup.pointsTotal} pts · {pct}%
           </span>
           <span

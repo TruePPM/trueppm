@@ -284,7 +284,7 @@ export function ProgramOverviewPage() {
               {program.name}
             </h1>
             {program.code && (
-              <span className="tppm-mono shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
+              <span className="tppm-mono shrink-0 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary">
                 {program.code}
               </span>
             )}

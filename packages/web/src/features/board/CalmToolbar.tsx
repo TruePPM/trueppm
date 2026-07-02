@@ -163,7 +163,7 @@ export function ToolbarToggle({
         'focus-visible:outline-none',
         'disabled:opacity-50 disabled:cursor-wait',
         pressed
-          ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+          ? 'bg-brand-primary/10 text-brand-primary'
           : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
       ].join(' ')}
     >
@@ -210,7 +210,7 @@ export function LayoutSwitcher({ layout, onChange }: LayoutSwitcherProps) {
               'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               'focus-visible:outline-none',
               active
-                ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+                ? 'bg-brand-primary/10 text-brand-primary'
                 : 'text-neutral-text-secondary hover:text-neutral-text-primary',
             ].join(' ')}
           >
@@ -409,7 +409,7 @@ function ChipRadioGroup<K extends string>({
               'rounded-control px-2 py-1 text-left text-xs',
               'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
               isSelected
-                ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+                ? 'bg-brand-primary/10 text-brand-primary'
                 : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
             ].join(' ')}
           >
@@ -521,7 +521,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
             setOpenChip(null);
           }}
         />
-        <p className="px-2 pt-1 text-[11px] text-neutral-text-secondary">
+        <p className="px-2 pt-1 text-xs text-neutral-text-secondary">
           Team grouping is coming in a later release.
         </p>
       </ToolbarChip>
@@ -752,7 +752,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 'disabled:opacity-50',
                 props.workshopMode
-                  ? 'bg-brand-primary/10 text-brand-primary-dark dark:text-brand-primary'
+                  ? 'bg-brand-primary/10 text-brand-primary'
                   : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
               ].join(' ')}
             >

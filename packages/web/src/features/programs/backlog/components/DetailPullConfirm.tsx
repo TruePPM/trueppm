@@ -100,10 +100,10 @@ export function DetailPullConfirm({
             </div>
 
             <div className="rounded-card bg-neutral-surface-sunken p-3">
-              <div className="text-[11px] font-semibold text-neutral-text-primary">
+              <div className="text-xs font-semibold text-neutral-text-primary">
                 What will happen
               </div>
-              <ul className="mt-1.5 space-y-1 text-[11px] leading-relaxed text-neutral-text-secondary">
+              <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-neutral-text-secondary">
                 <li>• This item becomes Pulled</li>
                 <li>• New task in {selected ? `${selected.name}'s` : 'the project'} backlog</li>
                 <li>• Title, description, tags, owner are copied over</li>

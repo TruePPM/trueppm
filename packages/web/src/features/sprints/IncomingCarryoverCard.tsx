@@ -64,7 +64,7 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
                   ? `Rolled into this ${itl.lower}`
                   : `Not rolled into this ${itl.lower}`
               }
-              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-xs font-bold ${
                 t.pulled_in_to_current
                   ? 'border-brand-primary bg-brand-primary text-white'
                   : 'border-neutral-border text-transparent'

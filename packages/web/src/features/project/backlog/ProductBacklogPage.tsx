@@ -247,20 +247,20 @@ function StoryRow({
         </button>
       ) : (
         <span
-          className="flex min-h-[44px] items-center justify-center font-mono text-[11px] tabular-nums text-neutral-text-secondary"
+          className="flex min-h-[44px] items-center justify-center font-mono text-xs tabular-nums text-neutral-text-secondary"
           aria-hidden
         >
           {rank}
         </span>
       )}
-      <span className="font-mono text-[11px] text-neutral-text-secondary">{story.shortId}</span>
+      <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
       <span className="flex min-w-0 flex-col justify-center gap-0.5">
         <span className="flex min-w-0 items-center gap-2">
           <TypeBadge type={story.taskType} />
           <span className="truncate font-medium text-neutral-text-primary">{story.name}</span>
         </span>
         {view === 'ranked' && epicName && (
-          <span className="truncate text-[11px] text-neutral-text-secondary">{epicName}</span>
+          <span className="truncate text-xs text-neutral-text-secondary">{epicName}</span>
         )}
       </span>
       <AcMeter met={story.acMet ?? 0} total={story.acTotal ?? 0} />
@@ -348,7 +348,7 @@ function StoryDragGhost({ story }: { story: Task }) {
       <span className="text-neutral-text-secondary" aria-hidden>
         ⠿
       </span>
-      <span className="font-mono text-[11px] text-neutral-text-secondary">{story.shortId}</span>
+      <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
       <span className="font-medium text-neutral-text-primary">{story.name}</span>
     </div>
   );
@@ -398,7 +398,7 @@ function ViewToggle({ view, onChange }: { view: BacklogView; onChange: (v: Backl
 function LegendStrip() {
   const itl = useIterationLabel();
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-neutral-border bg-neutral-surface px-6 py-2 text-[11px] text-neutral-text-secondary">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-neutral-border bg-neutral-surface px-6 py-2 text-xs text-neutral-text-secondary">
       <span className="inline-flex items-center gap-1.5">
         <span className="rounded-chip bg-brand-primary/10 px-1.5 py-0.5 font-semibold text-brand-primary">
           Pulled
@@ -902,7 +902,7 @@ export function ProductBacklogPage() {
                       )}
                     </div>
                     {createEpic.isError && (
-                      <p role="alert" className="px-2 pt-1 text-[11px] text-semantic-critical">
+                      <p role="alert" className="px-2 pt-1 text-xs text-semantic-critical">
                         Couldn&apos;t add epic — try again.
                       </p>
                     )}

@@ -93,7 +93,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
             className={`mt-1 h-8 ${INPUT_BASE} ${error ? 'border-semantic-critical' : ''}`}
           />
           {error && (
-            <p id="backlog-create-error" className="mt-1 text-[11px] text-semantic-critical">
+            <p id="backlog-create-error" className="mt-1 text-xs text-semantic-critical">
               {error}
             </p>
           )}
@@ -153,7 +153,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-neutral-border bg-neutral-surface-raised px-5 py-3">
-        <span className="text-[11px] text-neutral-text-secondary">
+        <span className="text-xs text-neutral-text-secondary">
           Lands as Proposed, ranked at the bottom.
         </span>
         <div className="flex items-center gap-2">

@@ -242,14 +242,14 @@ function ProviderCard({ credential, onConnect, onRotate, onRevoke }: ProviderCar
 function ConnectionPill({ exists }: { exists: boolean }) {
   if (exists) {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-semantic-on-track">
+      <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-semantic-on-track">
         <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-semantic-on-track" />
         Connected
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-neutral-text-secondary">
+    <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
       <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-neutral-border" />
       Not connected
     </span>

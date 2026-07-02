@@ -371,7 +371,7 @@ export function ScheduleDependencyPicker({
           </div>
         )}
 
-        <div className="px-4 py-2 border-t border-neutral-border text-[11px] text-neutral-text-secondary tppm-mono">
+        <div className="px-4 py-2 border-t border-neutral-border text-xs text-neutral-text-secondary tppm-mono">
           {canCrossProject ? '←→ scope · ↑↓ navigate · Enter add · Esc cancel' : '↑↓ navigate · Enter add · Esc cancel'}
         </div>
       </div>
@@ -478,7 +478,7 @@ function ProgramResults({
     <ul role="listbox" aria-label="Program task results" className="flex-1 overflow-y-auto px-2 pb-2">
       {groups.map((group) => (
         <li key={group.projectId} className="mb-1">
-          <div className="sticky top-0 z-[1] flex items-center gap-1.5 px-2 py-1 bg-neutral-surface text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+          <div className="sticky top-0 z-[1] flex items-center gap-1.5 px-2 py-1 bg-neutral-surface text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-chip bg-neutral-text-disabled" />
             <span className="truncate">{group.projectName}</span>
           </div>
@@ -527,7 +527,7 @@ function ResultRow({
           active ? 'bg-neutral-row-hover' : '',
         ].join(' ')}
       >
-        <span className="tppm-mono text-[11px] text-neutral-text-disabled w-12 shrink-0 truncate">
+        <span className="tppm-mono text-xs text-neutral-text-disabled w-12 shrink-0 truncate">
           {item.isCross ? item.shortId || '—' : item.wbs || '—'}
         </span>
         <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{item.name}</span>
@@ -543,14 +543,14 @@ function ResultRow({
 function StatusChip({ status, isMilestone }: { status: Task['status']; isMilestone: boolean }) {
   if (isMilestone) {
     return (
-      <span className="text-[11px] text-neutral-text-disabled w-24 text-right shrink-0">
+      <span className="text-xs text-neutral-text-disabled w-24 text-right shrink-0">
         — milestone
       </span>
     );
   }
   const label = status.replace('_', ' ').toLowerCase();
   return (
-    <span className="text-[11px] text-neutral-text-secondary w-24 text-right shrink-0 truncate">
+    <span className="text-xs text-neutral-text-secondary w-24 text-right shrink-0 truncate">
       {label}
     </span>
   );

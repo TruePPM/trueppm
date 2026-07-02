@@ -91,7 +91,7 @@ export function BacklogToolbar({ controller, searchInputRef }: BacklogToolbarPro
         />
       </div>
 
-      <span className="ml-auto text-[11px] text-neutral-text-secondary">Sorted by priority</span>
+      <span className="ml-auto text-xs text-neutral-text-secondary">Sorted by priority</span>
     </div>
   );
 }

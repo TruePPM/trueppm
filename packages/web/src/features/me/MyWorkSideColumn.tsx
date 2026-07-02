@@ -32,7 +32,7 @@ function Panel({
         <h2 className="text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
           {title}
         </h2>
-        <span className="tppm-mono text-[11px] text-neutral-text-secondary">{count}</span>
+        <span className="tppm-mono text-xs text-neutral-text-secondary">{count}</span>
       </header>
       {children}
     </section>

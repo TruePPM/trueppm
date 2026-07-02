@@ -172,13 +172,13 @@ export function BoardSprintSwitcher({
                     <span className="truncate font-medium text-neutral-text-primary">{s.name}</span>
                     {chip && (
                       <span
-                        className={`shrink-0 rounded-chip px-1 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${chip.cls}`}
+                        className={`shrink-0 rounded-chip px-1 py-0.5 text-xs font-semibold uppercase tracking-wide ${chip.cls}`}
                       >
                         {chip.label}
                       </span>
                     )}
                   </span>
-                  <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+                  <span className="tppm-mono text-xs text-neutral-text-secondary">
                     {dateRange(s)}
                   </span>
                 </span>

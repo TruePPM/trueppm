@@ -29,7 +29,7 @@ function ReadinessLabel({ readiness }: { readiness: TaskReadiness }) {
   const tone: Record<TaskReadiness, string> = {
     idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
     estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-    ready: 'text-brand-primary-dark dark:text-brand-primary',
+    ready: 'text-brand-primary',
     baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
   };
   return (

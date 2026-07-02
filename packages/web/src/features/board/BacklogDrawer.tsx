@@ -168,7 +168,7 @@ export function BacklogDrawer({
           </>
         )}
         <span className="flex-1" />
-        <span className="text-[11px] italic text-neutral-text-disabled hidden md:inline">
+        <span className="text-xs italic text-neutral-text-disabled hidden md:inline">
           Drag a card down to defer it back to backlog
         </span>
       </button>

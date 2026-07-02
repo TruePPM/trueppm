@@ -42,7 +42,7 @@ export function PresenceAvatarStack({ users }: Props) {
         {visible.map((u) => (
           <span
             key={u.user_id}
-            className="flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-semibold
+            className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold
               bg-brand-primary-light text-brand-primary
               ring-2 ring-neutral-surface"
             aria-hidden="true"

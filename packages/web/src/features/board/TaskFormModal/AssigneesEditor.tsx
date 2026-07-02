@@ -113,7 +113,7 @@ export function AssigneesEditor({
             />
             <span
               aria-hidden="true"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-neutral-text-disabled pointer-events-none"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-text-disabled pointer-events-none"
             >
               %
             </span>
@@ -163,7 +163,7 @@ export function AssigneesEditor({
                 >
                   {pr.resource.name}
                   {pr.roleTitle && (
-                    <span className="ml-2 text-[11px] text-neutral-text-disabled">
+                    <span className="ml-2 text-xs text-neutral-text-disabled">
                       {pr.roleTitle}
                     </span>
                   )}
@@ -177,7 +177,7 @@ export function AssigneesEditor({
       {/* Σ total — David's hero indicator */}
       <div className="flex items-center justify-end pr-1 pt-0.5">
         <span
-          className={`tppm-mono text-[11px] ${totalClass}`}
+          className={`tppm-mono text-xs ${totalClass}`}
           aria-live="polite"
           aria-label={`Total allocation ${total.toFixed(2)}`}
         >

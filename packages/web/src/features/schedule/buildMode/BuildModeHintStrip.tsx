@@ -34,7 +34,7 @@ export interface BuildModeHintStripProps {
 function HintChip({ entry }: { entry: HintEntry }) {
   return (
     <span className="inline-flex items-center">
-      <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-[11px] tppm-mono text-chrome-text-primary">
+      <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-xs tppm-mono text-chrome-text-primary">
         {entry.key}
       </kbd>
       <span className="ml-1.5 text-[12px] text-chrome-text-secondary">
@@ -73,7 +73,7 @@ export function BuildModeHintStrip({ mode, onShowCheatsheet }: BuildModeHintStri
         bg-chrome-surface-raised border-t border-chrome-border
         motion-safe:animate-save-bar-slide"
     >
-      <span className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-widest text-chrome-text-secondary">
+      <span className="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-chrome-text-secondary">
         <span aria-hidden="true">⌨</span>
         Build mode
       </span>
@@ -92,7 +92,7 @@ export function BuildModeHintStrip({ mode, onShowCheatsheet }: BuildModeHintStri
           focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface-raised rounded-control"
         aria-label="Show all keyboard shortcuts"
       >
-        <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-[11px] tppm-mono">
+        <kbd className="inline-flex h-5 px-1.5 items-center rounded-chip border border-chrome-border bg-chrome-surface text-xs tppm-mono">
           ?
         </kbd>
         All shortcuts

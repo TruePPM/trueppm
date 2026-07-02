@@ -822,7 +822,7 @@ function PercentileBar({ preview }: { preview: ReforecastPreview }) {
       </div>
       {!simulated && (
         // Visible caption (not a title tooltip — rules 22a/121); text-xs is the
-        // 12px floor (rule 50, text-[11px] is StatusBar-only).
+        // 12px floor (rule 50, text-xs is StatusBar-only).
         <p className="mt-1.5 text-xs italic leading-snug text-neutral-text-disabled">
           Estimate — velocity-based, not simulated.
         </p>

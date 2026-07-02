@@ -190,7 +190,7 @@ function SkillGroupedOptions({
           {/* Group header — not a listbox option */}
           <div
             role="presentation"
-            className="px-2 py-1 text-[11px] font-semibold tracking-widest uppercase
+            className="px-2 py-1 text-xs font-semibold tracking-widest uppercase
               text-neutral-text-disabled bg-neutral-surface-raised border-b border-neutral-border"
           >
             {group.label}

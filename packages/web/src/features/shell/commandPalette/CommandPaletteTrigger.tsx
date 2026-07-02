@@ -24,7 +24,7 @@ export function CommandPaletteTrigger() {
     >
       <SearchIcon className="h-4 w-4 shrink-0" />
       <span className="text-[13px]">Search or jump to…</span>
-      <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-[11px]">
+      <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs">
         {modifierKeyLabel()}K
       </kbd>
     </button>

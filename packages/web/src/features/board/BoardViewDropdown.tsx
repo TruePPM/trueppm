@@ -221,7 +221,7 @@ export function BoardViewDropdown({
           )}
 
           {/* Built-in views */}
-          <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-secondary">
+          <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
             Quick filters
           </p>
           {BUILTIN_VIEWS.map((bv) => (
@@ -246,7 +246,7 @@ export function BoardViewDropdown({
           {views.length > 0 && (
             <>
               <hr className="border-neutral-border my-1" />
-              <p className="px-3 py-0.5 text-[11px] font-semibold tracking-widest uppercase text-neutral-text-secondary">
+              <p className="px-3 py-0.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
                 Saved views
               </p>
               {views.map((sv) => (

@@ -30,7 +30,7 @@ export function BacklogHeader({ programName, program, canEdit, onCreate }: Backl
             the header, so the rows below stay free of per-row noise. */}
         {program && <ProgramIdentitySquare program={program} size="md" />}
         <div className="min-w-0">
-          <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
+          <div className="text-xs font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
             {programName ?? ' '}
           </div>
           <h1 className="mt-0.5 text-xl font-bold tracking-[-0.01em] text-neutral-text-primary">

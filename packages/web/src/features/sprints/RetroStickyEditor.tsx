@@ -66,7 +66,7 @@ export function RetroStickyEditor({ initialText = '', label, onSubmit, onCancel 
       />
       <div className="flex items-center justify-between">
         <span
-          className="text-[11px] tppm-mono text-neutral-text-disabled"
+          className="text-xs tppm-mono text-neutral-text-disabled"
           aria-live="polite"
         >
           {text.length}/{MAX_LEN}

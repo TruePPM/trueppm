@@ -96,7 +96,7 @@ function TeamCard({ entry }: { entry: MyActiveSprintEntry }) {
           {entry.sprint.name}
         </p>
 
-        <dl className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+        <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
           <Stat
             label="Day"
             value={`${entry.sprint.day}/${entry.sprint.total}`}

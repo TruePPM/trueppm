@@ -80,7 +80,7 @@ export function MobilePullSheet({
             onChange={setSelectedId}
             tall
           />
-          <p className="mt-3 text-[11px] text-neutral-text-secondary">
+          <p className="mt-3 text-xs text-neutral-text-secondary">
             This creates a task and marks the item Pulled.{' '}
             <button
               type="button"
@@ -91,7 +91,7 @@ export function MobilePullSheet({
             </button>
           </p>
           {showDetail && (
-            <ul className="mt-1.5 space-y-1 text-[11px] leading-relaxed text-neutral-text-secondary">
+            <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-neutral-text-secondary">
               <li>• This item becomes Pulled</li>
               <li>• New task in {selected ? `${selected.name}'s` : 'the project'} backlog</li>
               <li>• Title, description, tags, owner are copied over</li>
