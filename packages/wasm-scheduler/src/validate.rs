@@ -23,6 +23,12 @@ pub const MAX_CALENDAR_SCAN_DAYS: i64 = 366 * 100;
 /// plus the magnitude of every lag). Bounds the day-by-day walk regardless of
 /// task count. Mirrors `trueppm_scheduler.engine.MAX_PROJECT_SPAN_DAYS`.
 pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
+/// Ceiling on the raw dependency-edge count as submitted, before any per-edge
+/// pass touches the list. The most fundamental of the edge caps: even the O(E)
+/// validation/graph-build pre-passes and the list's own memory become pathological
+/// for a multi-million-edge payload. Checked from `.len()`, so the guard is O(1).
+/// Mirrors `trueppm_scheduler.engine.MAX_DEPENDENCIES` (#1203).
+pub const MAX_DEPENDENCIES: usize = 100_000;
 
 /// Reject degenerate input before any calendar walk runs.
 ///
@@ -101,6 +107,18 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
                 ));
             }
         }
+    }
+
+    // Bound the raw edge count (#1203) before the loop below — and every later
+    // O(E) pass — iterates it. A `.len()` check, so it rejects a multi-million-edge
+    // payload before any per-edge work or the list's memory footprint is the cost.
+    if project.dependencies.len() > MAX_DEPENDENCIES {
+        return Err(format!(
+            "Project has {} dependencies, exceeding the maximum of {}; the graph \
+             cannot be scheduled within resource limits.",
+            project.dependencies.len(),
+            MAX_DEPENDENCIES
+        ));
     }
 
     for dep in &project.dependencies {
@@ -288,6 +306,24 @@ mod tests {
             dep_type: DependencyType::FS,
             lag: day(MAX_LAG_DAYS + 1),
         }];
+        let p = project(vec![task("A", 1), task("B", 1)], deps, Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_dependency_count_over_max() {
+        // #1203: the raw edge count is capped before the per-edge loop. Every edge
+        // references the same two tasks — the length check fires first, so these
+        // duplicate A->B edges are never examined, keeping the fixture cheap.
+        // Mirrors the Python TestDependencyCount cases at the shared constant.
+        let deps: Vec<Dependency> = (0..=MAX_DEPENDENCIES)
+            .map(|_| Dependency {
+                predecessor_id: "A".to_string(),
+                successor_id: "B".to_string(),
+                dep_type: DependencyType::FS,
+                lag: day(0),
+            })
+            .collect();
         let p = project(vec![task("A", 1), task("B", 1)], deps, Calendar::default());
         assert!(validate_project(&p).is_err());
     }

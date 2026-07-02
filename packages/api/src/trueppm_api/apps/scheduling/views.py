@@ -241,12 +241,27 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     response cycle rather than via Celery. No state is written; results are
     returned directly.
 
+    Synchronous-by-design decision (#1203): keeping this inline is only safe
+    because *every* multiplicative cost factor the run depends on is now bounded
+    by the engine — tasks (MC_TASK_CAP), simulation runs (MC_SIMULATION_CAP),
+    raw dependency edges (MAX_DEPENDENCIES), expanded edges (MAX_EXPANDED_EDGES),
+    the distinct-lag delta arrays (MAX_LAG_DELTA_CELLS), and the velocity horizon
+    (MAX_VELOCITY_SPRINTS) — and #1201 vectorised the previously O(edges x span)
+    per-edge lag precompute. With the input space bounded and the hot path
+    vectorised, the worst-case wall time stays within the request budget, so
+    moving to a Celery job (extra latency, result polling, a new failure surface)
+    would add cost without removing a real risk. A project that breaches the edge
+    cap is rejected by the engine as InvalidScheduleInput (a ValueError) and
+    surfaces below as a clean 400 rather than a stalled worker.
+
     Request body (all optional):
         n_simulations (int): Number of simulation runs. Defaults to
             settings.MC_SIMULATION_CAP. Must not exceed the cap.
 
     Returns 200 on success, 402 if the OSS simulation cap is exceeded,
-    404 if the project does not exist, 403 if the caller lacks read access.
+    400 if the schedule input is invalid (e.g. the dependency-edge cap is
+    breached), 404 if the project does not exist, 403 if the caller lacks
+    read access.
     """
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
     from trueppm_scheduler.models import Dependency as SchedDependency

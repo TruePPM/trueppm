@@ -109,6 +109,18 @@ MAX_PROJECT_SPAN_DAYS = 366 * 1000
 # actionable error rather than allowed to spin. The cost is checked from leaf
 # *counts* before any cross product is materialised, so the guard itself is cheap.
 MAX_EXPANDED_EDGES = 100_000
+# Ceiling on the raw dependency-edge count on the project as submitted, before any
+# summary expansion (#1203). This is the most fundamental of the edge caps: it is
+# the root enabler of every per-edge derived guard — MAX_EXPANDED_EDGES bounds the
+# post-expansion cross product and MAX_LAG_DELTA_CELLS bounds the distinct-lag delta
+# arrays, but both are only reachable after the engine has already iterated the raw
+# edge list at least once (validation, graph build). A caller submitting tens of
+# millions of edges makes even those O(E) pre-passes — and the list's own memory —
+# pathological. 100k raw edges is generous for any real network (a 5,000-task project
+# with a dense-but-sane 20 predecessors each) and is checked from the list length
+# before any per-edge work runs, so the guard is O(1). Applies uniformly to schedule()
+# and monte_carlo() because both route through _validate_project.
+MAX_DEPENDENCIES = 100_000
 # Ceiling on the number of calendar exception ranges (#1206). ``is_working_day`` is
 # called once per day stepped by every calendar walk, and the old linear ``any()``
 # scan over ``exceptions`` made a schedule O(span x E) — a few thousand exceptions on
@@ -1440,6 +1452,16 @@ def _validate_project(project: Project) -> None:
                 "after the project start; the schedule cannot be computed within a "
                 "representable date range."
             )
+    # Bound the raw edge count (#1203) before the loop below (and every later O(E)
+    # pass — graph build, summary expansion) touches it. Checked from len() so it is
+    # O(1) and rejects a multi-million-edge payload before any per-edge work or the
+    # list's memory footprint becomes the cost.
+    if len(project.dependencies) > MAX_DEPENDENCIES:
+        raise InvalidScheduleInput(
+            f"Project has {len(project.dependencies)} dependencies, exceeding the "
+            f"maximum of {MAX_DEPENDENCIES}; the graph cannot be scheduled within "
+            "resource limits."
+        )
     for dep in project.dependencies:
         # Type guard for the direct-object API (#1209): a non-timedelta lag would
         # otherwise leak AttributeError from ``.days`` here and in both passes.
