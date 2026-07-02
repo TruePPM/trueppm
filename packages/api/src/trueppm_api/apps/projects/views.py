@@ -640,6 +640,26 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
             )
             return
 
+        # Capture the team BEFORE the soft-delete + on_commit fan-out so the
+        # recipient set is the membership as it stood at delete time. Memberships
+        # survive a soft-delete (only the hard-delete path removes them), but
+        # binding the ids here keeps the closure independent of later row state.
+        # The actor is excluded — you don't notify yourself of your own action.
+        # IsProjectOwner already guarantees an authenticated user here, so the cast
+        # is safe and narrows request.user off the AnonymousUser union for the query
+        # and the display-name lookup below.
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.access.models import ProjectMembership
+
+        actor = cast(User, self.request.user)
+        team_recipient_ids: list[str | None] = [
+            str(uid)
+            for uid in ProjectMembership.objects.filter(project=instance, is_deleted=False)
+            .exclude(user=actor)
+            .values_list("user_id", flat=True)
+        ]
+
         instance.soft_delete()
         _record_project_audit_event(
             event_type="project_deleted",
@@ -650,6 +670,36 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
+        # In-app team notification (#1115). Only on soft-delete: the project row
+        # survives the retention window, so the Notification.project FK stays valid
+        # and the member can restore it from Trash. The hard-delete path removes the
+        # project row (and cascades its notifications away), so there is nothing to
+        # link back to and no retention window to restore within — no notification
+        # there by design. Deferred via on_commit so the durable inbox rows are
+        # written only if the delete actually commits (mirrors the _notify_event
+        # calls elsewhere). NEVER push: create_event_notifications routes in-app +
+        # opt-in email only, so this can never surface as an unsolicited interrupt.
+        if team_recipient_ids:
+            actor_name = (actor.get_full_name() or actor.get_username()).strip()
+            project_name = instance.name
+            subject = f'Project "{project_name}" was deleted'
+            body = (
+                f'{actor_name} deleted the project "{project_name}". '
+                "You can restore it from Trash while it is in the retention window."
+            )
+            transaction.on_commit(
+                # Literal mirrors NotificationEventType.PROJECT_DELETED — the other
+                # _notify_event sites use the bare event string the same way, and it
+                # keeps the notifications import lazy (inside _notify_event) to avoid
+                # a module-load cycle.
+                lambda: _notify_event(
+                    "project.deleted",
+                    team_recipient_ids,
+                    subject,
+                    body,
+                    project_id,
+                )
+            )
 
     @extend_schema(
         summary="Get the product backlog grooming view",

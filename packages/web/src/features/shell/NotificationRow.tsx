@@ -44,7 +44,13 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     if (!notification.is_read) {
       update.mutate({ id: notification.id, is_read: true });
     }
-    if (isEvent && notification.event_type.startsWith('signal.ceiling_proposal')) {
+    if (isEvent && notification.event_type === 'project.deleted') {
+      // The project this row is about was just soft-deleted (issue 1115), so its
+      // board/schedule routes 404 (the project queryset filters is_deleted=False).
+      // Send the member to the app root instead — their remaining projects and the
+      // Trash/restore surface live there — rather than a dead in-project link.
+      void navigate('/');
+    } else if (isEvent && notification.event_type.startsWith('signal.ceiling_proposal')) {
       // Ceiling-raise proposals (issue 1275) live in a settings section, not a task —
       // deep-link to it so the vote is one click from the inbox (the discovery
       // gap ADR-0104 Amendment B closes). Settings sections are anchors (web-rule 195).

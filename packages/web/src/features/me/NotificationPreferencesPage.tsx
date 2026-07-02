@@ -55,6 +55,11 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a signal-visibility proposal is resolved',
     example: 'A visibility proposal is ratified, rejected, or expires',
   },
+  // Project-delete team notification (#1115). In-app default ON; email opt-in OFF.
+  'project.deleted': {
+    title: 'When a project you belong to is deleted',
+    example: '“Gemini” was deleted — restore it from Trash within the retention window',
+  },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -143,6 +148,7 @@ export function NotificationPreferencesPage() {
         'comment_on_my_task',
         'signal.ceiling_proposal_opened',
         'signal.ceiling_proposal_resolved',
+        'project.deleted',
       ]),
       channels: ordered(channelSet, ['in_app', 'email']),
       prefByKey: byKey,

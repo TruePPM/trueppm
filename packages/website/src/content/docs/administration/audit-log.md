@@ -35,6 +35,10 @@ recorded:
 | `workspace_settings_changed` | Workspace General settings are saved | The workspace | `fields` (the names of the fields that changed) |
 | `workspace_export_triggered` | A workspace export is started | The export job | — |
 
+On a soft delete, the project's members also receive an in-app
+[project-delete notification](/features/task-collaboration/#project-delete-notification)
+so a project never simply vanishes from under the team.
+
 :::caution[The log records field names, not values]
 `workspace_settings_changed` records **which** settings changed (the field
 names), never the values. This keeps the log free of large or sensitive payloads

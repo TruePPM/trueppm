@@ -13,7 +13,9 @@ Covers:
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -293,6 +295,136 @@ def test_deleted_project_excluded_from_retrieve_and_list(owner: object, project:
     assert listing.status_code == 200
     rows = listing.data["results"] if isinstance(listing.data, dict) else listing.data
     assert str(project.pk) not in [row["id"] for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Project delete — audit event + in-app team notification (#1115)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def team_project(owner: object, calendar: Calendar) -> Project:
+    """A project with an owner plus two additional members, for fan-out tests."""
+    p = Project.objects.create(name="Gemini", start_date=date(2026, 4, 1), calendar=calendar)
+    ProjectMembership.objects.create(project=p, user=owner, role=Role.OWNER)
+    member = User.objects.create_user(username="member1", password="pw")
+    viewer = User.objects.create_user(username="viewer1", password="pw")
+    ProjectMembership.objects.create(project=p, user=member, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=p, user=viewer, role=Role.VIEWER)
+    return p
+
+
+@pytest.mark.django_db
+def test_soft_delete_writes_audit_event(owner: object, project: Project) -> None:
+    """Soft-delete records a team-readable operational audit row (#1115/#859)."""
+    from trueppm_api.apps.workspace.models import AuditEvent
+
+    resp = _client(owner).delete(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 204
+
+    event = AuditEvent.objects.get(event_type="project_deleted", target_id=project.pk)
+    assert event.target_type == "project"
+    assert event.target_label == project.name
+    assert event.actor_id == owner.pk  # type: ignore[attr-defined]
+    assert event.metadata == {"mode": "soft"}
+
+
+@pytest.mark.django_db
+def test_hard_delete_writes_audit_event(owner: object, project: Project) -> None:
+    """Hard-delete also records an audit row, tagged mode=hard (#1115/#859)."""
+    from trueppm_api.apps.workspace.models import AuditEvent
+
+    client = _client(owner)
+    client.post(f"/api/v1/projects/{project.pk}/archive/")
+    resp = client.delete(f"/api/v1/projects/{project.pk}/?force=true")
+    assert resp.status_code == 204
+
+    event = AuditEvent.objects.get(event_type="project_deleted", target_id=project.pk)
+    assert event.metadata == {"mode": "hard"}
+
+
+@pytest.mark.django_db
+def test_soft_delete_notifies_team_in_app(
+    owner: object,
+    team_project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Every non-actor member gets an in-app project.deleted notification (#1115)."""
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _client(owner).delete(f"/api/v1/projects/{team_project.pk}/")
+    assert resp.status_code == 204
+
+    notes = Notification.objects.filter(event_type=NotificationEventType.PROJECT_DELETED.value)
+    # One row per member, minus the actor (owner) who took the action.
+    recipients = {n.recipient.username for n in notes}
+    assert recipients == {"member1", "viewer1"}
+    for note in notes:
+        # In-app only — email is opt-in OFF by default, and there is no push channel.
+        assert note.email_pending is False
+        # Links back to the still-existing (soft-deleted) project for restore.
+        assert note.project_id == team_project.pk
+        assert "Gemini" in note.subject
+        assert "restore" in note.body.lower()
+        assert "owner" in note.body  # actor label appears in the body
+
+
+@pytest.mark.django_db
+def test_soft_delete_notification_excludes_actor(
+    owner: object,
+    team_project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """The deleter is never notified of their own action (#1115)."""
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+
+    with django_capture_on_commit_callbacks(execute=True):
+        _client(owner).delete(f"/api/v1/projects/{team_project.pk}/")
+
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.PROJECT_DELETED.value, recipient=owner
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_hard_delete_does_not_notify_team(
+    owner: object,
+    team_project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Permanent delete sends no team notification — no project row to restore (#1115)."""
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+
+    client = _client(owner)
+    client.post(f"/api/v1/projects/{team_project.pk}/archive/")
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = client.delete(f"/api/v1/projects/{team_project.pk}/?force=true")
+    assert resp.status_code == 204
+
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.PROJECT_DELETED.value
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_non_owner_cannot_delete_no_audit_or_notification(
+    team_project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A non-owner delete is blocked before any audit row or notification (#1115)."""
+    from trueppm_api.apps.notifications.models import Notification
+    from trueppm_api.apps.workspace.models import AuditEvent
+
+    member = User.objects.get(username="member1")
+    with django_capture_on_commit_callbacks(execute=True):
+        resp = _client(member).delete(f"/api/v1/projects/{team_project.pk}/")
+    assert resp.status_code == 403
+
+    team_project.refresh_from_db()
+    assert team_project.is_deleted is False
+    assert not AuditEvent.objects.filter(target_id=team_project.pk).exists()
+    assert not Notification.objects.exists()
 
 
 # ---------------------------------------------------------------------------

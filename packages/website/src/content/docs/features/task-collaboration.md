@@ -275,6 +275,18 @@ ADR-0049's `NOTIFICATION_CHANNELS` registry), they appear as additional
 columns/rows automatically — the matrix derives its axes from the
 preferences list.
 
+### Project-delete notification
+
+The same inbox also carries a **project-delete** notification: when a project is
+deleted, every other member gets an in-app row naming who deleted it, with
+guidance to restore the project from Trash while it is still in the retention
+window. It is in-app only — never a push — and email is opt-in off by default,
+toggleable from the same preference matrix ("When a project you belong to is
+deleted"). The deleter is not notified of their own action, and permanent
+(hard) deletes send no notification because there is nothing left to restore.
+Who deleted which project, and when, is also recorded in the
+[workspace audit log](/administration/audit-log/).
+
 ## API
 
 The full REST surface is documented in [docs/api/](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/api/openapi.json).
