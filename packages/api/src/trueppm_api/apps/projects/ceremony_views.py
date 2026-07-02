@@ -28,6 +28,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
     IsProjectMember,
+    IsProjectMemberWrite,
     IsProjectNotArchived,
     _membership_role,
 )
@@ -147,9 +148,11 @@ class ProjectGuardrailPolicyView(IdempotencyMixin, RetrieveUpdateAPIView[Project
     GET — IsProjectMember (Viewer+). Lazy-creates the row with default (all-WARN)
     on first request so existing projects need no data migration.
 
-    PATCH — IsProjectMember at the gate, but escalating a *composition* rule to
-    BLOCK additionally requires ``role >= Role.OWNER`` (the sprint-sovereignty
-    rule: only the team's own Owner may turn a sprint-composition guardrail into a
+    PATCH — IsProjectMemberWrite (Team Member+): a Viewer must not be able to
+    weaken an existing guardrail (downgrade a BLOCK to WARN) or toggle
+    ``acknowledged_by_team``. Escalating a *composition* rule to BLOCK
+    additionally requires ``role >= Role.OWNER`` (the sprint-sovereignty rule:
+    only the team's own Owner may turn a sprint-composition guardrail into a
     wall). Lowering to WARN, and toggling ``acknowledged_by_team``, need only
     member write — acknowledging an external policy is the team's call.
     """
@@ -158,7 +161,12 @@ class ProjectGuardrailPolicyView(IdempotencyMixin, RetrieveUpdateAPIView[Project
     http_method_names = ["get", "patch", "head", "options"]  # noqa: RUF012
 
     def get_permissions(self) -> list[BasePermission]:
-        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        # Safe methods stay Viewer+; unsafe methods (PATCH) require Team Member+
+        # so a Viewer cannot weaken a guardrail. The Owner-only escalation gate
+        # for composition BLOCK is enforced separately in ``perform_update``.
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
     def get_object(self) -> ProjectGuardrailPolicy:
         project_pk = self.kwargs["project_pk"]

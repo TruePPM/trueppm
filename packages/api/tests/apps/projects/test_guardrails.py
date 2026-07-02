@@ -145,6 +145,26 @@ def scheduler_client(project: Project, scheduler_user: object) -> APIClient:
 
 
 @pytest.fixture
+def member_client(project: Project) -> APIClient:
+    """A non-owner Team Member (role=MEMBER) — may make WARN-tier policy edits."""
+    member = User.objects.create_user(username="member", password="pw")
+    ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+    c = APIClient()
+    c.force_authenticate(user=member)
+    return c
+
+
+@pytest.fixture
+def viewer_client(project: Project) -> APIClient:
+    """A read-only Viewer (role=VIEWER) — may GET but must not PATCH the policy."""
+    viewer = User.objects.create_user(username="viewer", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+    c = APIClient()
+    c.force_authenticate(user=viewer)
+    return c
+
+
+@pytest.fixture
 def sprint(project: Project) -> Sprint:
     return Sprint.objects.create(
         project=project,
@@ -284,6 +304,78 @@ def test_scheduler_cannot_escalate_composition_block(
         format="json",
     )
     assert resp.status_code == 403
+
+
+def test_viewer_cannot_patch_policy(viewer_client: APIClient, project: Project) -> None:
+    # Regression for #1549: a Viewer must not be able to weaken a guardrail by
+    # downgrading an existing BLOCK to WARN via PATCH — write requires Member+.
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"phase_in_sprint": GuardrailLevel.BLOCK},
+        source=GuardrailPolicySource.OWNER,
+    )
+    resp = viewer_client.patch(
+        f"/api/v1/projects/{project.id}/guardrail-policy/",
+        {"levels": {"phase_in_sprint": "warn"}},
+        format="json",
+    )
+    assert resp.status_code == 403
+    # The BLOCK is untouched.
+    policy = ProjectGuardrailPolicy.objects.get(project=project)
+    assert policy.levels["phase_in_sprint"] == GuardrailLevel.BLOCK
+
+
+def test_viewer_can_still_get_policy(viewer_client: APIClient, project: Project) -> None:
+    # GET stays Viewer+ after the #1549 write-gate split.
+    resp = viewer_client.get(f"/api/v1/projects/{project.id}/guardrail-policy/")
+    assert resp.status_code == 200
+    assert resp.data["effective_levels"]["phase_in_sprint"] == "warn"
+
+
+def test_member_can_make_warn_tier_change(member_client: APIClient, project: Project) -> None:
+    # A non-owner Team Member may make a WARN-tier edit (does not escalate a
+    # composition rule to BLOCK), so the sovereignty gate does not fire.
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"phase_in_sprint": GuardrailLevel.WARN},
+        source=GuardrailPolicySource.OWNER,
+    )
+    resp = member_client.patch(
+        f"/api/v1/projects/{project.id}/guardrail-policy/",
+        {"acknowledged_by_team": True},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["acknowledged_by_team"] is True
+
+
+def test_member_cannot_escalate_composition_block(
+    member_client: APIClient, project: Project
+) -> None:
+    # The sovereignty gate still holds for Member+: only Owner may escalate a
+    # composition rule to BLOCK.
+    resp = member_client.patch(
+        f"/api/v1/projects/{project.id}/guardrail-policy/",
+        {"levels": {"phase_in_sprint": "block"}},
+        format="json",
+    )
+    assert resp.status_code == 403
+
+
+def test_owner_can_deescalate_composition_block(owner_client: APIClient, project: Project) -> None:
+    # Owner may de-escalate an existing BLOCK back to WARN.
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"phase_in_sprint": GuardrailLevel.BLOCK},
+        source=GuardrailPolicySource.OWNER,
+    )
+    resp = owner_client.patch(
+        f"/api/v1/projects/{project.id}/guardrail-policy/",
+        {"levels": {"phase_in_sprint": "warn"}},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["effective_levels"]["phase_in_sprint"] == "warn"
 
 
 def test_unknown_rule_rejected(owner_client: APIClient, project: Project) -> None:

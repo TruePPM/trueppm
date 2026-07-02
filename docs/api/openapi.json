@@ -11402,7 +11402,7 @@
         "/api/v1/projects/{project_pk}/guardrail-policy/": {
             "get": {
                 "operationId": "v1_projects_guardrail_policy_retrieve",
-                "description": "Singleton sprint/phase/WBS guardrail policy per project (ADR-0101 §3).\n\nURL: ``/api/v1/projects/<project_pk>/guardrail-policy/``\n\nGET — IsProjectMember (Viewer+). Lazy-creates the row with default (all-WARN)\non first request so existing projects need no data migration.\n\nPATCH — IsProjectMember at the gate, but escalating a *composition* rule to\nBLOCK additionally requires ``role >= Role.OWNER`` (the sprint-sovereignty\nrule: only the team's own Owner may turn a sprint-composition guardrail into a\nwall). Lowering to WARN, and toggling ``acknowledged_by_team``, need only\nmember write — acknowledging an external policy is the team's call.",
+                "description": "Singleton sprint/phase/WBS guardrail policy per project (ADR-0101 §3).\n\nURL: ``/api/v1/projects/<project_pk>/guardrail-policy/``\n\nGET — IsProjectMember (Viewer+). Lazy-creates the row with default (all-WARN)\non first request so existing projects need no data migration.\n\nPATCH — IsProjectMemberWrite (Team Member+): a Viewer must not be able to\nweaken an existing guardrail (downgrade a BLOCK to WARN) or toggle\n``acknowledged_by_team``. Escalating a *composition* rule to BLOCK\nadditionally requires ``role >= Role.OWNER`` (the sprint-sovereignty rule:\nonly the team's own Owner may turn a sprint-composition guardrail into a\nwall). Lowering to WARN, and toggling ``acknowledged_by_team``, need only\nmember write — acknowledging an external policy is the team's call.",
                 "parameters": [
                     {
                         "in": "path",
@@ -11439,7 +11439,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_guardrail_policy_partial_update",
-                "description": "Singleton sprint/phase/WBS guardrail policy per project (ADR-0101 §3).\n\nURL: ``/api/v1/projects/<project_pk>/guardrail-policy/``\n\nGET — IsProjectMember (Viewer+). Lazy-creates the row with default (all-WARN)\non first request so existing projects need no data migration.\n\nPATCH — IsProjectMember at the gate, but escalating a *composition* rule to\nBLOCK additionally requires ``role >= Role.OWNER`` (the sprint-sovereignty\nrule: only the team's own Owner may turn a sprint-composition guardrail into a\nwall). Lowering to WARN, and toggling ``acknowledged_by_team``, need only\nmember write — acknowledging an external policy is the team's call.",
+                "description": "Singleton sprint/phase/WBS guardrail policy per project (ADR-0101 §3).\n\nURL: ``/api/v1/projects/<project_pk>/guardrail-policy/``\n\nGET — IsProjectMember (Viewer+). Lazy-creates the row with default (all-WARN)\non first request so existing projects need no data migration.\n\nPATCH — IsProjectMemberWrite (Team Member+): a Viewer must not be able to\nweaken an existing guardrail (downgrade a BLOCK to WARN) or toggle\n``acknowledged_by_team``. Escalating a *composition* rule to BLOCK\nadditionally requires ``role >= Role.OWNER`` (the sprint-sovereignty rule:\nonly the team's own Owner may turn a sprint-composition guardrail into a\nwall). Lowering to WARN, and toggling ``acknowledged_by_team``, need only\nmember write — acknowledging an external policy is the team's call.",
                 "parameters": [
                     {
                         "in": "path",
