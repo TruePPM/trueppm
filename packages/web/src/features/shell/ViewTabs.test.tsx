@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
-import { ViewTabs } from './ViewTabs';
+import { ViewTabs, MethodWorkspaceLabel } from './ViewTabs';
 
 // Default: has a project ID
 vi.mock('@/hooks/useProjectId', () => ({
@@ -239,6 +239,71 @@ describe('ViewTabs', () => {
   it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     const { container } = renderWithRouter(<ViewTabs />, {
+      initialEntries: ['/projects/proj-1/settings/general'],
+    });
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+describe('MethodWorkspaceLabel (issue 1469)', () => {
+  // Compact-badge signal must survive below the xl (1280px) breakpoint where the
+  // full "{METHOD} Workspace" text is hidden. Each methodology maps to a 2-letter
+  // glyph whose accessible name is the full methodology (WCAG 1.4.1 — never
+  // letter- or color-only).
+  const cases = [
+    { methodology: 'HYBRID', code: 'HY', name: 'Hybrid workspace', full: 'Hybrid Workspace' },
+    { methodology: 'WATERFALL', code: 'WF', name: 'Waterfall workspace', full: 'Waterfall Workspace' },
+    { methodology: 'AGILE', code: 'AG', name: 'Agile workspace', full: 'Agile Workspace' },
+  ] as const;
+
+  it.each(cases)(
+    'renders the $code compact badge with a full accessible name for $methodology',
+    ({ methodology, code, name, full }) => {
+      mockUseProjectId.mockReturnValue('proj-1');
+      mockUseProject.mockReturnValueOnce({
+        data: { id: 'proj-1', methodology, effective_methodology: methodology },
+        isLoading: false,
+        error: null,
+      });
+      renderWithRouter(<MethodWorkspaceLabel />, { initialEntries: ['/projects/proj-1/board'] });
+
+      // Compact badge (visible below xl): 2-letter glyph, full accessible name.
+      const badge = screen.getByRole('img', { name });
+      expect(badge).toHaveTextContent(code);
+
+      // Full "{METHOD} Workspace" text still present for xl and up.
+      expect(screen.getByText(full)).toBeInTheDocument();
+    },
+  );
+
+  it('reads the server-resolved preset (effective_methodology, ADR-0107)', () => {
+    // Workspace INHERIT lock: raw per-project AGILE resolves to HYBRID at the server.
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: { id: 'proj-1', methodology: 'AGILE', effective_methodology: 'HYBRID' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<MethodWorkspaceLabel />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('img', { name: 'Hybrid workspace' })).toHaveTextContent('HY');
+  });
+
+  it('falls back to HYBRID before the project loads', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({ data: undefined, isLoading: true, error: null });
+    renderWithRouter(<MethodWorkspaceLabel />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('img', { name: 'Hybrid workspace' })).toHaveTextContent('HY');
+  });
+
+  it('renders null off a project route', () => {
+    mockUseProjectId.mockReturnValue(undefined);
+    const { container } = renderWithRouter(<MethodWorkspaceLabel />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('is suppressed on a project settings route', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    const { container } = renderWithRouter(<MethodWorkspaceLabel />, {
       initialEntries: ['/projects/proj-1/settings/general'],
     });
     expect(container.firstChild).toBeNull();
