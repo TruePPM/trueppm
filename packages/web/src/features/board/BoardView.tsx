@@ -58,7 +58,7 @@ import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
-import { wipState, type WipState } from './wip';
+import { wipState, wipTrend, type WipState, type WipTrend } from './wip';
 import { boardGridTemplate } from './boardGrid';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
@@ -98,7 +98,7 @@ import {
 import { buildAssigneeLanes, buildEpicLanes, epicLaneId, primaryAssigneeLaneId } from './grouping';
 import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
 import { useProject } from '@/hooks/useProject';
-import { useActiveSprint, useSprints } from '@/hooks/useSprints';
+import { useActiveSprint, useFlowMetrics, useSprints } from '@/hooks/useSprints';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useScopeChangeActions } from '@/hooks/useScopeChangeActions';
 import { ScopePendingReviewPanel } from '@/features/sprints/ScopePendingReviewPanel';
@@ -316,6 +316,46 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
     >
       <span aria-hidden="true">⚠</span>
       {state === 'over' ? 'Over limit' : 'At limit'}
+    </span>
+  );
+}
+
+/**
+ * Tiny WIP trend arrow for a column header (issue 1213, VoC Alex).
+ *
+ * The always-on WipBreachChip catches a column that is *already* at/over limit;
+ * this catches the creep *before* it breaches by reading the recent slope of the
+ * column's CFD occupancy (computed by `wipTrend()`). An arrow — not a sparkline —
+ * because a single high-contrast glyph is WCAG-legible at header scale where a
+ * ~2px sparkline bar is not, and the header only needs the one-bit direction
+ * signal (the full curve lives in FlowAnalyticsPanel).
+ *
+ * Color is never the sole cue: the ▲/▼ orientation carries the direction and the
+ * `aria-label` names it. Amber (`approaching`) is reserved for the actionable
+ * "rising and about to tip" case; a rising column comfortably under its limit,
+ * and any falling column, stay neutral. Unlike the breach chip this is *not*
+ * announced by the column <h2> accessible name (it's net-new information), so the
+ * span carries `role="img"` + a label rather than being aria-hidden.
+ */
+function WipTrendArrow({ trend }: { trend: WipTrend }) {
+  const rising = trend.direction === 'rising';
+  const cls = trend.approaching ? 'text-semantic-at-risk' : 'text-neutral-text-secondary';
+  const label = rising
+    ? trend.approaching
+      ? 'trending up toward WIP limit'
+      : 'trending up'
+    : 'trending down';
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="wip-trend-arrow"
+      data-trend={trend.direction}
+      data-approaching={trend.approaching ? 'true' : 'false'}
+      className={`text-xs font-semibold leading-none ${cls}`}
+    >
+      <span aria-hidden="true">{rising ? '▲' : '▼'}</span>
     </span>
   );
 }
@@ -1164,6 +1204,8 @@ interface MobileBoardProps {
   showCost: boolean;
   scopeActions: BoardCardScopeActions;
   readOnly: boolean;
+  /** Per-status CFD daily-count series for the WIP-creep trend arrow (issue 1213). */
+  wipTrendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
 }
 
 /**
@@ -1200,6 +1242,7 @@ function MobileBoard({
   showCost,
   scopeActions,
   readOnly,
+  wipTrendSeriesByStatus,
 }: MobileBoardProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<(HTMLElement | null)[]>([]);
@@ -1291,11 +1334,24 @@ function MobileBoard({
                 <span className="text-xs text-neutral-text-disabled tppm-mono">
                   {cards.length}
                 </span>
-                {(wipBand === 'over' || wipBand === 'at') && (
-                  <span className="ml-auto">
-                    <WipBreachChip state={wipBand} />
-                  </span>
-                )}
+                {(() => {
+                  // WIP-creep arrow (issue 1213) + breach chip share the trailing
+                  // cluster on mobile, same left-to-right order as desktop.
+                  const trend = wipTrend(
+                    wipTrendSeriesByStatus[col.status] ?? [],
+                    col.wipLimit,
+                  );
+                  const breached = wipBand === 'over' || wipBand === 'at';
+                  if (!trend && !breached) return null;
+                  return (
+                    <span className="ml-auto flex items-center gap-1.5">
+                      {trend && <WipTrendArrow trend={trend} />}
+                      {(wipBand === 'over' || wipBand === 'at') && (
+                        <WipBreachChip state={wipBand} />
+                      )}
+                    </span>
+                  );
+                })()}
               </div>
               {cards.length === 0 ? (
                 <div
@@ -1683,6 +1739,29 @@ export function BoardView() {
   const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
   const { data: projectDetail } = useProject(projectId || null);
   const iterationLabel = useIterationLabel(projectId || undefined);
+
+  // WIP-creep trend arrows (issue 1213). The CFD daily per-status counts already
+  // carry each column's recent occupancy; read them at board level so the header
+  // arrows are always-on (passive creep detection is the point). The default
+  // window shares its TanStack Query key with FlowAnalyticsPanel, so opening the
+  // panel reuses this cache rather than re-fetching. Suppressed / errored reads
+  // yield no series → no arrow (ADR-0104; trend is enhancement-only chrome).
+  const { data: flowMetrics } = useFlowMetrics(projectId || null);
+  const wipTrendSeriesByStatus = useMemo(() => {
+    const map: Partial<Record<TaskStatus, number[]>> = {};
+    if (!flowMetrics || flowMetrics.flow_metrics_suppressed) return map;
+    const cfdStatuses = [
+      'BACKLOG',
+      'NOT_STARTED',
+      'IN_PROGRESS',
+      'REVIEW',
+      'COMPLETE',
+    ] as const;
+    for (const status of cfdStatuses) {
+      map[status] = flowMetrics.cfd.map((row) => row.counts[status]);
+    }
+    return map;
+  }, [flowMetrics]);
 
   // Sprint scope-injection approve-gate (ADR-0102). The active sprint carries
   // `pending_count`; a team-owned actor (role >= ADMIN) can open the review
@@ -2855,6 +2934,7 @@ export function BoardView() {
               showCost={showCost}
               scopeActions={scopeActions}
               readOnly={readOnly}
+              wipTrendSeriesByStatus={wipTrendSeriesByStatus}
             />
           )}
           {toolbarPrefs.layout !== 'queue' && !isMobile && (
@@ -2988,6 +3068,17 @@ export function BoardView() {
                           {count}
                         </span>
                         <span className="ml-auto flex items-center gap-1.5">
+                          {(() => {
+                            // WIP-creep arrow (issue 1213): reads before the
+                            // breach chip so the row scans "heading up → current
+                            // breach → number". No series (suppressed / ON_HOLD /
+                            // no limit) → wipTrend returns null → nothing renders.
+                            const trend = wipTrend(
+                              wipTrendSeriesByStatus[col.status] ?? [],
+                              col.wipLimit,
+                            );
+                            return trend ? <WipTrendArrow trend={trend} /> : null;
+                          })()}
                           {breached && <WipBreachChip state={breach} />}
                           {showWip && col.wipLimit != null && (
                             <WipBadge count={count} limit={col.wipLimit} />

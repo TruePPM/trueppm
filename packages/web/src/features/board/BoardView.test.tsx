@@ -64,6 +64,7 @@ const makeMq = (mobile: boolean) => (query: string) => {
 vi.stubGlobal('matchMedia', vi.fn().mockImplementation(makeMq(false)));
 import { FIXTURE_TASKS } from '@/fixtures/tasks';
 import type { Task, TaskStatus } from '@/types';
+import type { FlowMetrics } from '@/hooks/useSprints';
 
 // ---------------------------------------------------------------------------
 // Mocks — module-scope mutable state lets each test choose which tasks /
@@ -79,6 +80,11 @@ let mockColumns: { status: TaskStatus; label: string; visible: boolean; wipLimit
   { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
   { status: 'COMPLETE',    label: 'DONE',          visible: true },
 ];
+
+// Flow-metrics fixture for the WIP-creep trend arrow (issue 1213). Mutable so a
+// test can inject a rising/falling CFD series or a suppressed payload; `undefined`
+// (the default) means "no arrows", matching the board with no flow data.
+let mockFlowMetrics: FlowMetrics | undefined = undefined;
 const updateMutate = vi.fn();
 
 vi.mock('@/hooks/useProjectId', () => ({
@@ -229,8 +235,9 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprints: () => ({ sprints: [], isLoading: false }),
   useActiveSprint: () => ({ sprint: null, isLoading: false }),
   useProjectVelocity: () => ({ data: undefined, isLoading: false }),
-  // FlowAnalyticsPanel (collapsed by default) calls this on every render (#1188).
-  useFlowMetrics: () => ({ data: undefined, isLoading: false, isError: false }),
+  // FlowAnalyticsPanel (collapsed by default) calls this on every render (#1188);
+  // BoardView also reads it for the column WIP-creep trend arrows (#1213).
+  useFlowMetrics: () => ({ data: mockFlowMetrics, isLoading: false, isError: false }),
   // FlowAnalyticsPanel also calls useSprintForecast unconditionally for the
   // throughput forecast card (issue 1280); stub it so the panel renders offline.
   useSprintForecast: () => ({ data: undefined, isLoading: false, isError: false }),
@@ -280,6 +287,7 @@ function resetMocks() {
     { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
     { status: 'COMPLETE',    label: 'DONE',          visible: true },
   ];
+  mockFlowMetrics = undefined;
   updateMutate.mockReset();
   startWorkshopMutate.mockReset();
   endWorkshopMutate.mockReset();
@@ -1323,5 +1331,112 @@ describe('BoardView', () => {
       const bar = screen.getByRole('progressbar', { name: /Phase progress 72 percent/i });
       expect(bar).toHaveAttribute('aria-valuenow', '72');
     });
+  });
+});
+
+describe('WIP-creep trend arrow (issue #1213)', () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  // Builds a flow-metrics payload whose CFD carries the given per-status series
+  // (oldest→newest). Only the fields BoardView reads for the trend matter.
+  function flowMetricsWith(
+    seriesByStatus: Partial<Record<TaskStatus, number[]>>,
+    opts: { suppressed?: boolean } = {},
+  ): FlowMetrics {
+    const days = Math.max(1, ...Object.values(seriesByStatus).map((s) => s?.length ?? 0));
+    const cfd = Array.from({ length: days }, (_, i) => ({
+      date: `2026-06-${String(i + 1).padStart(2, '0')}`,
+      counts: {
+        BACKLOG: seriesByStatus.BACKLOG?.[i] ?? 0,
+        NOT_STARTED: seriesByStatus.NOT_STARTED?.[i] ?? 0,
+        IN_PROGRESS: seriesByStatus.IN_PROGRESS?.[i] ?? 0,
+        REVIEW: seriesByStatus.REVIEW?.[i] ?? 0,
+        COMPLETE: seriesByStatus.COMPLETE?.[i] ?? 0,
+      },
+    }));
+    return {
+      window_days: days,
+      since: '2026-06-01',
+      until: `2026-06-${String(days).padStart(2, '0')}`,
+      cycle_time: { p50: null, p80: null, p95: null },
+      lead_time: { p50: null, p80: null, p95: null },
+      cfd,
+      throughput: [],
+      data_integrity: { bulk_moved_count: 0, backdated_count: 0, missing_transition_count: 0 },
+      flow_metrics_suppressed: opts.suppressed ?? false,
+    };
+  }
+
+  it('renders no arrow when there is no flow-metrics data', () => {
+    mockFlowMetrics = undefined;
+    renderBoard();
+    expect(screen.queryByTestId('wip-trend-arrow')).toBeNull();
+  });
+
+  it('renders a rising, at-risk arrow for a column creeping toward its limit', () => {
+    // IN_PROGRESS limit is 3; series climbs 0→3 → rising and within one card.
+    mockFlowMetrics = flowMetricsWith({ IN_PROGRESS: [0, 1, 2, 3] });
+    renderBoard();
+    const arrow = screen.getByTestId('wip-trend-arrow');
+    expect(arrow).toHaveAttribute('data-trend', 'rising');
+    expect(arrow).toHaveAttribute('data-approaching', 'true');
+    expect(arrow).toHaveAccessibleName('trending up toward WIP limit');
+    expect(arrow).toHaveTextContent('▲');
+  });
+
+  it('renders a neutral rising arrow when the column is comfortably under its limit', () => {
+    // REVIEW limit is 2; a series that ends at 0 rising from... use IN_PROGRESS
+    // with a high headroom scenario: raise the limit implicitly by picking a
+    // column whose latest is far below limit. IN_PROGRESS limit 3, series 0→1.
+    mockFlowMetrics = flowMetricsWith({ IN_PROGRESS: [0, 0, 0, 1] });
+    renderBoard();
+    const arrow = screen.getByTestId('wip-trend-arrow');
+    expect(arrow).toHaveAttribute('data-trend', 'rising');
+    expect(arrow).toHaveAttribute('data-approaching', 'false');
+    expect(arrow).toHaveAccessibleName('trending up');
+  });
+
+  it('renders a falling arrow for a recovering column', () => {
+    // REVIEW limit 2; series falls 3→0.
+    mockFlowMetrics = flowMetricsWith({ REVIEW: [3, 3, 1, 0] });
+    renderBoard();
+    const arrow = screen.getByTestId('wip-trend-arrow');
+    expect(arrow).toHaveAttribute('data-trend', 'falling');
+    expect(arrow).toHaveAttribute('data-approaching', 'false');
+    expect(arrow).toHaveAccessibleName('trending down');
+    expect(arrow).toHaveTextContent('▼');
+  });
+
+  it('renders NO arrow for a column without a WIP limit even if its series rises', () => {
+    // NOT_STARTED has no wipLimit configured → a trend toward "no limit" is
+    // meaningless, so no arrow despite a clearly rising series.
+    mockFlowMetrics = flowMetricsWith({ NOT_STARTED: [0, 2, 5, 9] });
+    renderBoard();
+    expect(screen.queryByTestId('wip-trend-arrow')).toBeNull();
+  });
+
+  it('renders NO arrow when flow metrics are suppressed (ADR-0104)', () => {
+    // Same rising IN_PROGRESS series, but the reader is below the flow_metrics
+    // audience — the trend (team-private CFD) must not leak.
+    mockFlowMetrics = flowMetricsWith({ IN_PROGRESS: [0, 1, 2, 3] }, { suppressed: true });
+    renderBoard();
+    expect(screen.queryByTestId('wip-trend-arrow')).toBeNull();
+  });
+
+  it('renders one arrow per qualifying column, independent of breach state', () => {
+    // IN_PROGRESS (limit 3, rising) and REVIEW (limit 2, falling) both qualify;
+    // COMPLETE / NOT_STARTED have no limit → no arrow.
+    mockFlowMetrics = flowMetricsWith({
+      IN_PROGRESS: [0, 1, 2, 3],
+      REVIEW: [2, 2, 1, 0],
+      COMPLETE: [0, 1, 2, 8],
+    });
+    renderBoard();
+    const arrows = screen.getAllByTestId('wip-trend-arrow');
+    expect(arrows).toHaveLength(2);
+    const trends = arrows.map((a) => a.getAttribute('data-trend')).sort();
+    expect(trends).toEqual(['falling', 'rising']);
   });
 });

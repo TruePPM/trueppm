@@ -46,6 +46,21 @@ const POPULATED_FLOW = {
   flow_metrics_suppressed: false,
 };
 
+/**
+ * A CFD whose IN_PROGRESS column climbs 0→2 over four days (issue 1213). With the
+ * IN_PROGRESS wip_limit of 1 in this board config, the latest count is above the
+ * limit and rising → the header shows a rising, at-risk WIP-creep trend arrow.
+ */
+const RISING_FLOW = {
+  ...POPULATED_FLOW,
+  cfd: [
+    { date: '2026-06-27', counts: { BACKLOG: 5, NOT_STARTED: 3, IN_PROGRESS: 0, REVIEW: 0, COMPLETE: 20 } },
+    { date: '2026-06-28', counts: { BACKLOG: 5, NOT_STARTED: 3, IN_PROGRESS: 0, REVIEW: 1, COMPLETE: 22 } },
+    { date: '2026-06-29', counts: { BACKLOG: 5, NOT_STARTED: 3, IN_PROGRESS: 1, REVIEW: 2, COMPLETE: 24 } },
+    { date: '2026-06-30', counts: { BACKLOG: 4, NOT_STARTED: 3, IN_PROGRESS: 2, REVIEW: 3, COMPLETE: 26 } },
+  ],
+};
+
 /** A ready throughput-basis forecast (ADR-0130 D3). Dates are fixed; the board frames
  * P80 as "~N weeks" relative to the wall clock, so the spec asserts the pattern (not a
  * fixed count) — the card stays "ready" regardless of when the suite runs. */
@@ -143,6 +158,28 @@ test.describe('Flow analytics on the board', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
     // The chip is independent of the "Show WIP limits" toggle.
+    await expect(page.getByTestId('wip-breach-chip').first()).toBeVisible();
+  });
+
+  test('a column creeping toward its WIP limit shows the trend arrow (issue 1213)', async ({ page }) => {
+    await setup(page, RISING_FLOW);
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    const arrow = page.getByTestId('wip-trend-arrow').first();
+    await expect(arrow).toBeVisible();
+    await expect(arrow).toHaveAttribute('data-trend', 'rising');
+    // Direction is carried by the glyph + accessible name, not color alone (WCAG 1.4.1).
+    await expect(arrow).toHaveAccessibleName('trending up toward WIP limit');
+  });
+
+  test('the trend arrow is hidden when flow metrics are suppressed (issue 1213 / ADR-0104)', async ({ page }) => {
+    // Same rising CFD, but the reader is below the flow_metrics audience — the
+    // team-private trend must not leak even though the breach chip stays visible.
+    await setup(page, { ...RISING_FLOW, flow_metrics_suppressed: true });
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('wip-trend-arrow')).toHaveCount(0);
+    // The current-state breach chip is member-visible independent of suppression (ADR-0130 D2).
     await expect(page.getByTestId('wip-breach-chip').first()).toBeVisible();
   });
 
