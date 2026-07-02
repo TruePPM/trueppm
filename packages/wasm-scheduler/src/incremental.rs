@@ -29,7 +29,22 @@ pub fn incremental_update(
     crate::validate::validate_project(project)?;
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
+    compute_downstream(project, &pg, changed_task_id)
+}
 
+/// Run the full CPM over an already-built graph and return only the tasks
+/// downstream of `changed_task_id` (inclusive).
+///
+/// This is the single implementation of the downstream recalc: `incremental_update`
+/// builds the graph fresh each call, while `SchedulerSession` reuses one cached
+/// across a drag session (#1533). Because a drag changes a task's *date*, not the
+/// graph topology, the cached graph stays valid — reusing it here yields output
+/// identical to rebuilding it, which the session unit tests assert.
+pub(crate) fn compute_downstream(
+    project: &Project,
+    pg: &ProjectGraph,
+    changed_task_id: &str,
+) -> Result<ScheduleResult, String> {
     // A stale changed_task_id (e.g. the task was deleted while a drag-preview was
     // in flight) would index-panic in bfs_downstream's `pg.node_index[&id]`,
     // trapping the WASM module (#1087). Reject it as a clean Err first.
@@ -41,7 +56,7 @@ pub fn incremental_update(
 
     // BFS to find downstream tasks (inclusive of the changed task) — a dense
     // `Vec<bool>` visited mask indexed by node position (#1535).
-    let downstream = bfs_downstream(&pg, changed_idx, project.tasks.len());
+    let downstream = bfs_downstream(pg, changed_idx, project.tasks.len());
 
     // Run full CPM on a dense `Vec<Task>` indexed by node position (#1535).
     let mut tasks: Vec<crate::models::Task> = project.tasks.clone();
@@ -49,7 +64,7 @@ pub fn incremental_update(
     forward_pass(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         project.start_date,
         &project.calendar,
@@ -61,7 +76,7 @@ pub fn incremental_update(
     backward_pass(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         project_finish,
         &project.calendar,
@@ -70,7 +85,7 @@ pub fn incremental_update(
     compute_floats(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         &project.calendar,
     )?;
@@ -97,7 +112,7 @@ pub fn incremental_update(
 
     // Deterministic, topologically-valid critical-path order keyed by
     // (early_start, id) — identical to the Python engine (#909).
-    let critical_path: Vec<String> = crate::graph::lexicographical_topo_order(&pg, &tasks)
+    let critical_path: Vec<String> = crate::graph::lexicographical_topo_order(pg, &tasks)
         .into_iter()
         .filter(|&i| tasks[i.index()].is_critical)
         .map(|i| tasks[i.index()].id.clone())

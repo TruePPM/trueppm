@@ -1,8 +1,13 @@
 //! TruePPM WASM Scheduler — CPM engine compiled to WebAssembly.
 //!
-//! Exposes two functions via wasm-bindgen:
+//! Exposes two stateless functions via wasm-bindgen:
 //! - `compute_schedule(project_json)` — full CPM (forward + backward + floats)
-//! - `incremental_update(project_json, changed_task_id)` — downstream-only recalc
+//! - `wasm_incremental_update(project_json, changed_task_id)` — downstream-only recalc
+//!
+//! Both re-parse the whole project and rebuild the graph on every call. For a
+//! drag preview — where the same project is recalculated every animation frame —
+//! [`SchedulerSession`] pays that parse/validate/graph-build cost once and keeps
+//! the parsed [`Project`] and its graph resident across frames (#1533).
 //!
 //! Input/output JSON format matches the Python `trueppm_scheduler` exactly.
 
@@ -19,12 +24,13 @@ mod validate;
 // drag-preview recompute against a full schedule (#1505).
 pub use incremental::incremental_update;
 
+use chrono::NaiveDate;
 use wasm_bindgen::prelude::*;
 
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
-use crate::graph::build_graph;
+use crate::graph::{build_graph, ProjectGraph};
 use crate::models::{Project, ScheduleResult, TaskResult};
 
 /// Run a full CPM schedule on the project and return the result as JSON.
@@ -62,8 +68,93 @@ pub fn wasm_incremental_update(
     serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// A resident scheduling session for drag-preview recalculation (#1533).
+///
+/// The stateless [`compute_schedule`] / [`wasm_incremental_update`] entry points
+/// re-parse the entire project JSON, re-validate it, and rebuild the petgraph on
+/// **every** call — a cost that scales with total project size and, on a drag,
+/// repeats every animation frame before any CPM math runs. A `SchedulerSession`
+/// pays that cost **once**, in [`SchedulerSession::new`]: the parsed [`Project`]
+/// and its built graph stay resident, so each frame only mutates the dragged
+/// task's start ([`set_task_start`](SchedulerSession::set_task_start)) and reruns
+/// the passes over the cached graph
+/// ([`recalc_incremental`](SchedulerSession::recalc_incremental)).
+///
+/// Reusing the graph across the session is sound because a drag moves a bar's
+/// *date*, not the network *topology* — the nodes, edges, and topological order
+/// depend only on the task/dependency structure, which `set_task_start` never
+/// touches. A structural edit (adding or removing a task or dependency) is the
+/// one case that needs a fresh session.
+///
+/// The CPM math is unchanged: the session calls the same `compute_full` /
+/// `compute_downstream` bodies the stateless paths use, so its output is
+/// identical to calling `compute_schedule` / `wasm_incremental_update` on the
+/// mutated project. The session's true-partial forward pass (recomputing only the
+/// changed subgraph) is deliberately left as a follow-up so the full pass remains
+/// the single conformance oracle.
+#[wasm_bindgen]
+pub struct SchedulerSession {
+    project: Project,
+    graph: ProjectGraph,
+}
+
+#[wasm_bindgen]
+impl SchedulerSession {
+    /// Parse, validate, and build the dependency graph once. Every subsequent
+    /// `set_task_start` + `recalc*` call reuses all three.
+    ///
+    /// Returns `Err` (a JS exception) for malformed JSON, an empty project, a
+    /// validation failure, or an unbuildable graph — the same rejections the
+    /// stateless entry points make, just paid up front rather than per frame.
+    #[wasm_bindgen(constructor)]
+    pub fn new(project_json: &str) -> Result<SchedulerSession, JsValue> {
+        let project: Project =
+            serde_json::from_str(project_json).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        if project.tasks.is_empty() {
+            return Err(JsValue::from_str("Project must have at least one task."));
+        }
+        validate::validate_project(&project).map_err(|e| JsValue::from_str(&e))?;
+        let graph = build_graph(&project).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(SchedulerSession { project, graph })
+    }
+
+    /// Override a resident task's planned start (the drag), in place — no
+    /// re-parse, no re-validate, no graph rebuild.
+    ///
+    /// `new_start` is an ISO `YYYY-MM-DD` date. The forward pass treats
+    /// `planned_start` as a start-no-earlier-than floor, so this is the dragged
+    /// bar's new position. Returns `Err` for an unknown id or an unparseable date
+    /// (never panics — a WASM trap poisons the whole module until reload, #1087).
+    pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), JsValue> {
+        let date = NaiveDate::parse_from_str(new_start, "%Y-%m-%d")
+            .map_err(|e| JsValue::from_str(&format!("invalid start date {new_start:?}: {e}")))?;
+        // `node_index[id].index()` is the task's dense position: nodes are added
+        // in `project.tasks` order (#1535), so this indexes the same task.
+        let &idx = self.graph.node_index.get(task_id).ok_or_else(|| {
+            JsValue::from_str(&format!("task_id {task_id:?} does not exist in the project."))
+        })?;
+        self.project.tasks[idx.index()].planned_start = Some(date);
+        Ok(())
+    }
+
+    /// Full CPM over the cached graph → `ScheduleResult` JSON. Identical to
+    /// `compute_schedule` on the current (possibly drag-mutated) project.
+    pub fn recalc(&self) -> Result<String, JsValue> {
+        let result = compute_full(&self.project, &self.graph).map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Downstream-only CPM over the cached graph → `ScheduleResult` JSON.
+    /// Identical to `wasm_incremental_update` on the current project.
+    pub fn recalc_incremental(&self, changed_task_id: &str) -> Result<String, JsValue> {
+        let result = incremental::compute_downstream(&self.project, &self.graph, changed_task_id)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+}
+
 /// Internal implementation of the full CPM schedule (no wasm-bindgen dependency).
-/// Used by both `compute_schedule` and tests.
+/// Used by `compute_schedule`, [`SchedulerSession`], and tests.
 pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     if project.tasks.is_empty() {
         return Err("Project must have at least one task.".to_string());
@@ -71,7 +162,20 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     validate::validate_project(project)?;
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
+    compute_full(project, &pg)
+}
 
+/// Run the three CPM passes (forward → backward → floats) over an already-built
+/// graph and assemble the full [`ScheduleResult`].
+///
+/// This is the single implementation of the full-pass sequence: [`schedule_impl`]
+/// builds the graph fresh each call, while [`SchedulerSession`] reuses one cached
+/// across a drag session (#1533). Keeping one body means the stateful session API
+/// can never drift from the conformance oracle.
+pub(crate) fn compute_full(
+    project: &Project,
+    pg: &ProjectGraph,
+) -> Result<ScheduleResult, String> {
     // Tasks carried in a dense `Vec<Task>` indexed by node position — the passes
     // index it by `NodeIndex::index()`, never by string id (#1535).
     let mut tasks: Vec<models::Task> = project.tasks.clone();
@@ -79,7 +183,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     forward_pass(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         project.start_date,
         &project.calendar,
@@ -95,7 +199,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     backward_pass(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         project_finish,
         &project.calendar,
@@ -104,14 +208,14 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     compute_floats(
         &mut tasks,
         &pg.topo_order,
-        &pg,
+        pg,
         &project.dependencies,
         &project.calendar,
     )?;
 
     // Deterministic, topologically-valid critical-path order keyed by
     // (early_start, id) — identical to the Python engine (#909).
-    let critical_path: Vec<String> = graph::lexicographical_topo_order(&pg, &tasks)
+    let critical_path: Vec<String> = graph::lexicographical_topo_order(pg, &tasks)
         .into_iter()
         .filter(|&i| tasks[i.index()].is_critical)
         .map(|i| tasks[i.index()].id.clone())
@@ -454,5 +558,62 @@ mod tests {
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
         // B's EF >= A's ES (SF constraint)
         assert!(b.early_finish >= a.early_start);
+    }
+
+    #[test]
+    fn session_recalc_matches_stateless_after_drag() {
+        // #1533: a `SchedulerSession` builds the graph once and mutates
+        // `planned_start` between recalcs. Because a drag changes a task's date,
+        // not the topology, reusing the cached graph must yield output
+        // byte-identical to the stateless path (which rebuilds the graph on the
+        // mutated project). We assert at the pure-function level — the
+        // wasm-bindgen `SchedulerSession` methods are a thin delegation over
+        // exactly these `compute_full` / `compute_downstream` calls, and `JsValue`
+        // cannot be exercised in a native test (which is also why `compute_schedule`
+        // itself is tested through `schedule_impl`).
+        let mut project = Project {
+            id: "p".to_string(),
+            name: "drag".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("A", 5), make_task("B", 3), make_task("C", 2)],
+            dependencies: vec![dep("A", "B"), dep("B", "C")],
+            calendar: Calendar::default(),
+            status_date: None,
+        };
+
+        // Graph built ONCE, as `SchedulerSession::new` would.
+        let pg = crate::graph::build_graph(&project).unwrap();
+
+        // Full recalc over the cached graph == stateless `schedule_impl`.
+        let session_full = serde_json::to_string(&compute_full(&project, &pg).unwrap()).unwrap();
+        let stateless_full = serde_json::to_string(&schedule_impl(&project).unwrap()).unwrap();
+        assert_eq!(session_full, stateless_full);
+
+        // Drag: push A's start out a week (what `set_task_start` writes), keeping
+        // the SAME cached graph.
+        project.tasks[0].planned_start = Some(NaiveDate::from_ymd_opt(2026, 4, 8).unwrap());
+
+        // Downstream recalc over the stale-date-but-valid graph == stateless
+        // incremental on the mutated project (which rebuilds the graph).
+        let session_inc = serde_json::to_string(
+            &crate::incremental::compute_downstream(&project, &pg, "A").unwrap(),
+        )
+        .unwrap();
+        let stateless_inc =
+            serde_json::to_string(&crate::incremental::incremental_update(&project, "A").unwrap())
+                .unwrap();
+        assert_eq!(session_inc, stateless_inc);
+
+        // Full recalc after the drag still matches the stateless rebuild...
+        let session_full2 = serde_json::to_string(&compute_full(&project, &pg).unwrap()).unwrap();
+        let stateless_full2 = serde_json::to_string(&schedule_impl(&project).unwrap()).unwrap();
+        assert_eq!(session_full2, stateless_full2);
+
+        // ...and the drag genuinely moved the schedule, so the equivalence above
+        // is not vacuously comparing two identical no-op results.
+        assert_ne!(
+            session_full, session_full2,
+            "dragging A's planned_start should have shifted the downstream schedule"
+        );
     }
 }
