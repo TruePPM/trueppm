@@ -102,14 +102,20 @@ class RetentionImpactQuerySerializer(serializers.Serializer[Any]):
 
 
 class RetentionImpactSerializer(serializers.Serializer[Any]):
+    """Impact estimate for a proposed retention window: rows and bytes eligible for purge."""
+
     eligible_rows = serializers.IntegerField()
     eligible_bytes = serializers.IntegerField(allow_null=True)
 
 
 class PurgeRunRequestSerializer(serializers.Serializer[Any]):
+    """Request body to start a purge run; ``dry_run`` reports eligibility without deleting."""
+
     dry_run = serializers.BooleanField(default=False)
 
 
 class PurgeRunQueuedSerializer(serializers.Serializer[Any]):
+    """Response for a queued purge run, carrying the ``run_id`` to poll for status."""
+
     queued = serializers.BooleanField()
     run_id = serializers.UUIDField()
