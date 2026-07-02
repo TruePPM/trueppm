@@ -43,6 +43,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      content is silently discarded.
     """
 
+    #: One async Redis client per socket, created lazily on the first presence
+    #: call and closed in ``disconnect`` (#1530). ``None`` until first use / after
+    #: close, so ``disconnect`` before ``connect`` is a safe no-op.
+    _redis: Any = None
+
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
         # Authenticate the handshake before calling super() which sends ACCEPT.
@@ -84,6 +89,15 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         if hasattr(self, "_user"):
             await self._presence_leave()
+
+        # Close the single Redis client opened for this socket's presence calls.
+        # Each open client owns a connection pool; leaving it open on disconnect
+        # leaks connections against Valkey/fd limits (#1530). Guarded because
+        # disconnect can fire before connect ever created a client (early close).
+        client = getattr(self, "_redis", None)
+        if client is not None:
+            await client.aclose()
+            self._redis = None
 
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
         # Heartbeat: client messages refresh the presence TTL so the user is
@@ -178,13 +192,28 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         r = await self._get_redis()
         await r.expire(_presence_key(self.project_pk), _PRESENCE_TTL)
 
-    @staticmethod
-    async def _get_redis() -> Any:
-        """Return an async Redis client pointed at the configured REDIS_URL."""
-        import redis.asyncio as aioredis
-        from django.conf import settings
+    async def _get_redis(self) -> Any:
+        """Return this consumer's async Redis client, creating it once and caching it.
 
-        return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        One client (and its connection pool) is created lazily on the socket's
+        first presence call — which happens during ``websocket_connect`` — and
+        reused for every subsequent presence call (join, leave, and each
+        heartbeat frame) for the socket's lifetime, then closed in
+        ``disconnect``. The presence path previously built a fresh
+        ``aioredis.from_url`` client on *every* call: because ``receive_json``
+        heartbeats fire on every inbound frame and nothing ever closed them, the
+        Channels worker steadily leaked a connection pool per message until
+        Valkey/fd limits were hit (#1530). Caching the client here bounds it to
+        one pool per socket, matching the explicit close pattern in ``ws_auth``.
+        """
+        client = getattr(self, "_redis", None)
+        if client is None:
+            import redis.asyncio as aioredis
+            from django.conf import settings
+
+            client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+            self._redis = client
+        return client
 
     # ------------------------------------------------------------------
     # Private helpers (run in thread pool via sync_to_async internally)
