@@ -390,6 +390,33 @@ function paginatedResponse(results: ApiTask[], next: string | null = null) {
   return { data: { results, next, previous: null, count: results.length } };
 }
 
+// A count-driven fake server (issue 1519). The hook derives the full page set
+// from `count` (not the `next` cursor), so `count` can advertise more rows than
+// any single page returns; each `page` param selects that page's slice. This
+// lets us exercise the multi-page parallel walk without materializing 200+ rows.
+type GetConfig = { params?: Record<string, unknown> };
+
+// Extract the request params from a recorded getMock call (call[1] is the axios
+// config). Typed so the assertions stay free of `any`-unsafe member access.
+function callParams(call: unknown[]): Record<string, unknown> {
+  return (call[1] as GetConfig | undefined)?.params ?? {};
+}
+function countDrivenGet<T>(
+  path: string,
+  total: number,
+  pages: Record<number, T[]>,
+): (url: string, config?: GetConfig) => Promise<{ data: unknown }> {
+  return (url: string, config?: GetConfig) => {
+    if (url !== path) {
+      return Promise.resolve({ data: { results: [], next: null, previous: null, count: 0 } });
+    }
+    const page = Number(config?.params?.page ?? 1);
+    return Promise.resolve({
+      data: { results: pages[page] ?? [], next: null, previous: null, count: total },
+    });
+  };
+}
+
 describe('useScheduleTasks pagination', () => {
   let qc: QueryClient;
 
@@ -419,46 +446,71 @@ describe('useScheduleTasks pagination', () => {
     expect(result.current.tasks![0].id).toBe('t-1');
   });
 
-  it('follows the next cursor and accumulates all pages', async () => {
+  it('fetches remaining pages in parallel and concatenates in page order (issue 1519)', async () => {
+    // count=450 with page_size=200 → 3 pages. Serve distinct slices per page.
     const page1 = [makeApiTask('t-1'), makeApiTask('t-2')];
-    const page2 = [makeApiTask('t-3')];
-
-    getMock.mockImplementation((url: string) => {
-      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
-      if (url === '/tasks/') return Promise.resolve(paginatedResponse(page1, 'http://api/tasks/?cursor=abc'));
-      if (url === '/tasks/?cursor=abc') return Promise.resolve(paginatedResponse(page2, null));
-      return Promise.resolve(paginatedResponse([]));
-    });
+    const page2 = [makeApiTask('t-3'), makeApiTask('t-4')];
+    const page3 = [makeApiTask('t-5')];
+    getMock.mockImplementation(
+      countDrivenGet('/tasks/', 450, { 1: page1, 2: page2, 3: page3 }),
+    );
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.tasks).toHaveLength(3);
-    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+    // Order preserved across the parallel fetch: page1 ++ page2 ++ page3.
+    expect(result.current.tasks!.map((t) => t.id)).toEqual([
+      't-1',
+      't-2',
+      't-3',
+      't-4',
+      't-5',
+    ]);
   });
 
-  it('strips the origin from the next URL', async () => {
-    const task = makeApiTask('t-1');
-    getMock.mockImplementation((url: string) => {
-      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
-      if (url === '/tasks/') {
-        return Promise.resolve(
-          paginatedResponse([task], 'https://api.trueppm.com/tasks/?cursor=xyz'),
-        );
-      }
-      if (url === '/tasks/?cursor=xyz') return Promise.resolve(paginatedResponse([], null));
-      return Promise.resolve(paginatedResponse([]));
-    });
+  it('requests page 1 at page_size=200 and the remainder by explicit page number', async () => {
+    getMock.mockImplementation(
+      countDrivenGet('/tasks/', 450, {
+        1: [makeApiTask('t-1')],
+        2: [makeApiTask('t-2')],
+        3: [makeApiTask('t-3')],
+      }),
+    );
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    // Both calls should have been made via apiClient (origin stripped).
-    expect(getMock).toHaveBeenCalledWith('/tasks/?cursor=xyz', expect.anything());
+
+    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
+    // Page 1: large page_size, no explicit page param.
+    expect(callParams(taskCalls[0])).toEqual({ project: 'proj-1', page_size: 200 });
+    // Remaining pages requested by number (parallel dispatch — all three total).
+    const requestedPages = taskCalls
+      .map((c) => callParams(c).page)
+      .filter(Boolean)
+      .sort();
+    expect(requestedPages).toEqual([2, 3]);
+    expect(taskCalls).toHaveLength(3);
+  });
+
+  it('fetches a single page when count fits in one page (no page param)', async () => {
+    getMock.mockImplementation(
+      countDrivenGet('/tasks/', 1, { 1: [makeApiTask('t-1')] }),
+    );
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks).toHaveLength(1);
+    const taskCalls = getMock.mock.calls.filter(([url]) => url === '/tasks/');
+    expect(taskCalls).toHaveLength(1);
+    expect(callParams(taskCalls[0]).page).toBeUndefined();
   });
 });
 
@@ -488,17 +540,13 @@ describe('useScheduleTasks dependency pagination (#773)', () => {
     getMock.mockReset();
   });
 
-  it('follows the next cursor and accumulates all dependency pages', async () => {
+  it('fetches remaining dependency pages in parallel and preserves order (issue 1519)', async () => {
     const depPage1 = [makeApiDep('d-1'), makeApiDep('d-2')];
     const depPage2 = [makeApiDep('d-3')];
-
-    getMock.mockImplementation((url: string) => {
-      if (url === '/tasks/') return Promise.resolve(paginatedResponse([]));
-      if (url === '/dependencies/')
-        return Promise.resolve(depPage(depPage1, 'http://api/dependencies/?cursor=abc'));
-      if (url === '/dependencies/?cursor=abc') return Promise.resolve(depPage(depPage2, null));
-      return Promise.resolve(paginatedResponse([]));
-    });
+    // count=250 with page_size=200 → 2 pages.
+    getMock.mockImplementation(
+      countDrivenGet('/dependencies/', 250, { 1: depPage1, 2: depPage2 }),
+    );
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
@@ -509,23 +557,23 @@ describe('useScheduleTasks dependency pagination (#773)', () => {
     expect(result.current.links!.map((l) => l.id)).toEqual(['d-1', 'd-2', 'd-3']);
   });
 
-  it('strips the origin from the next dependencies URL', async () => {
-    getMock.mockImplementation((url: string) => {
-      if (url === '/tasks/') return Promise.resolve(paginatedResponse([]));
-      if (url === '/dependencies/')
-        return Promise.resolve(
-          depPage([makeApiDep('d-1')], 'https://api.trueppm.com/dependencies/?cursor=xyz'),
-        );
-      if (url === '/dependencies/?cursor=xyz') return Promise.resolve(depPage([], null));
-      return Promise.resolve(paginatedResponse([]));
-    });
+  it('requests dependency pages by explicit page number (page 1 at page_size=200)', async () => {
+    getMock.mockImplementation(
+      countDrivenGet('/dependencies/', 250, {
+        1: [makeApiDep('d-1')],
+        2: [makeApiDep('d-2')],
+      }),
+    );
 
     const { result } = renderHook(() => useScheduleTasks('proj-1'), {
       wrapper: makeWrapper(qc),
     });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(getMock).toHaveBeenCalledWith('/dependencies/?cursor=xyz', expect.anything());
+    const depCalls = getMock.mock.calls.filter(([url]) => url === '/dependencies/');
+    expect(callParams(depCalls[0])).toEqual({ project: 'proj-1', page_size: 200 });
+    expect(depCalls.map((c) => callParams(c).page).filter(Boolean)).toEqual([2]);
+    expect(depCalls).toHaveLength(2);
   });
 
   it('derives link isCritical from endpoint task criticality (the API has no is_critical on deps)', async () => {

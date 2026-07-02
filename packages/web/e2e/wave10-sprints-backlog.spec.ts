@@ -190,10 +190,11 @@ async function setupCommon(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
-  // Full project task list (project= only, no sprint=) → the useScheduleTasks
-  // source the detail drawer reads. The `$` anchor keeps this from also matching
-  // the project=&sprint= backlog URL below.
-  await page.route(/\/api\/v1\/tasks\/\?project=[^&]+$/, (route) =>
+  // Full project task list (project=, no sprint=) → the useScheduleTasks source
+  // the detail drawer reads. useScheduleTasks always appends page_size (and, for
+  // >1 page, page) to this request, so match on the absence of sprint= rather
+  // than anchoring the end of the query string right after project=<id>.
+  await page.route(/\/api\/v1\/tasks\/\?(?!.*sprint=).*project=/, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
