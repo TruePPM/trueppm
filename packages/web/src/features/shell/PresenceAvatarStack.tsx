@@ -28,13 +28,19 @@ export function PresenceAvatarStack({ users }: Props) {
   const visible = users.slice(0, MAX_VISIBLE);
   const overflow = users.length - MAX_VISIBLE;
 
-  const tooltipLabel = users.map((u) => u.display_name).join(', ') + ' online';
+  // "viewing" (not "online") so the stack reads as "who has this open", not as
+  // an availability/load signal (#1560).
+  const tooltipLabel = users.map((u) => u.display_name).join(', ') + ' viewing';
+  // Anonymity contract (#1560): presence names who is present, never who is
+  // editing what. Kept as a native tooltip + accessible description — no popover.
+  const presenceContract = "Shows who's online, never who's editing what.";
 
   return (
     <div
       className="hidden md:flex items-center"
       aria-label={tooltipLabel}
-      title={tooltipLabel}
+      aria-describedby="presence-stack-contract"
+      title={`${tooltipLabel}. ${presenceContract}`}
       role="status"
     >
       {/* Avatar circles — overlap slightly with negative margin */}
@@ -61,6 +67,11 @@ export function PresenceAvatarStack({ users }: Props) {
           +{overflow}
         </span>
       )}
+
+      {/* Anonymity contract, exposed to assistive tech via aria-describedby */}
+      <span id="presence-stack-contract" className="sr-only">
+        {presenceContract}
+      </span>
     </div>
   );
 }

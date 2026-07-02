@@ -30,10 +30,20 @@ beforeEach(() => {
 });
 
 describe('StatusBar', () => {
-  it('renders the live dot and online count when connected', () => {
+  it('renders the live dot and viewing count when connected', () => {
     renderWithRouter(<StatusBar />);
     expect(screen.getByRole('contentinfo', { name: /application status/i })).toBeInTheDocument();
-    expect(screen.getByText(/live · 2 online/i)).toBeInTheDocument();
+    expect(screen.getByText(/live · 2 viewing/i)).toBeInTheDocument();
+  });
+
+  it('surfaces the anonymity contract as a tooltip and accessible description when live', () => {
+    renderWithRouter(<StatusBar />);
+    // The contract copy is visible on hover (title) and announced to screen
+    // readers via aria-describedby (#1560).
+    expect(screen.getByText(/never who's editing what/i)).toBeInTheDocument();
+    const pill = screen.getByLabelText(/Live — connected, 2 viewing/i);
+    expect(pill).toHaveAttribute('title', expect.stringContaining("never who's editing what"));
+    expect(pill).toHaveAttribute('aria-describedby', 'statusbar-presence-contract');
   });
 
   it('renders the build hash', () => {
@@ -66,9 +76,9 @@ describe('StatusBar', () => {
     it('hides the connection pill when there is no active project channel', () => {
       mockUseProjectId.mockReturnValue(undefined);
       renderWithRouter(<StatusBar />, { initialEntries: ['/'] });
-      // No project → no live channel → pill omitted (rather than a misleading "Live · 0 online").
+      // No project → no live channel → pill omitted (rather than a misleading "Live · 0 viewing").
       expect(
-        screen.queryByText(/online|Connecting|Reconnecting|Connection lost|Disconnected/),
+        screen.queryByText(/viewing|Connecting|Reconnecting|Connection lost|Disconnected/),
       ).not.toBeInTheDocument();
     });
 
@@ -99,10 +109,12 @@ describe('StatusBar', () => {
       expect(screen.getByLabelText(/session expired/i)).toBeInTheDocument();
     });
 
-    it('does not show the online count outside the live state', () => {
+    it('does not show the viewing count (or its anonymity contract) outside the live state', () => {
       useWsConnectionStore.setState({ state: 'stale', reconnectAttempts: 3 });
       renderWithRouter(<StatusBar />);
-      expect(screen.queryByText(/online/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/viewing/)).not.toBeInTheDocument();
+      // The contract copy only renders alongside the live viewing count.
+      expect(screen.queryByText(/never who's editing what/i)).not.toBeInTheDocument();
     });
   });
 });

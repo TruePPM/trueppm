@@ -34,9 +34,18 @@ describe('PresenceAvatarStack', () => {
     expect(screen.getByText('DA')).toBeInTheDocument();
   });
 
-  it('exposes a role=status with aggregated label', () => {
+  it('exposes a role=status with aggregated "viewing" label', () => {
     render(<PresenceAvatarStack users={USERS.slice(0, 2)} />);
     const status = screen.getByRole('status');
-    expect(status).toHaveAttribute('aria-label', 'Alice Smith, Bob Jones online');
+    expect(status).toHaveAttribute('aria-label', 'Alice Smith, Bob Jones viewing');
+  });
+
+  it('surfaces the anonymity contract as a tooltip and accessible description', () => {
+    render(<PresenceAvatarStack users={USERS.slice(0, 2)} />);
+    const status = screen.getByRole('status');
+    // Contract copy is announced (aria-describedby) and shown on hover (title) (#1560).
+    expect(screen.getByText(/never who's editing what/i)).toBeInTheDocument();
+    expect(status).toHaveAttribute('title', expect.stringContaining("never who's editing what"));
+    expect(status).toHaveAttribute('aria-describedby', 'presence-stack-contract');
   });
 });
