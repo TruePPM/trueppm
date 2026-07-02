@@ -705,7 +705,11 @@ def test_inbound_create_fires_board_event(project: Project, admin_user: Any) -> 
             format="json",
         )
         assert resp.status_code == 201
-        assert broadcast_mock.called
+        # A create must dispatch the "task_created" event specifically. Merely
+        # asserting `.called` passes even if a create wrongly emits "task_updated"
+        # (or any other name) — mirror the sibling update test and pin the type.
+        event_types = [call.args[1] for call in broadcast_mock.call_args_list]
+        assert "task_created" in event_types
 
 
 @pytest.mark.django_db(transaction=True)

@@ -231,10 +231,14 @@ def test_team_velocity_per_day_excludes_flagged_sprint(project: Project) -> None
             project, name=f"S{i}", points_committed=30, points_completed=30, closed_offset_days=off
         )
     with_flag = compute_team_velocity_per_day(project.pk)
-    # All three eligible sprints completed 30 points over the same window, so the
-    # per-day figure must reflect 30-point sprints, not a contaminated mix.
-    assert with_flag is not None
-    assert with_flag > 0
+    # All three eligible sprints completed 30 points over the same 10-working-day
+    # window (Jan 1–14 2026) = 3.0 pts/day each; fmean([3, 3, 3]) = 3.000. If the
+    # flagged near-zero Sprint 0 leaked past velocity_eligible_sprints it would add
+    # a 0.1/day sample, dragging the mean to ~2.275 — so pin the exact value, not
+    # merely "> 0", or the wiring this test exists to prove could silently break.
+    from decimal import Decimal
+
+    assert with_flag == Decimal("3.000")
 
 
 # ---------------------------------------------------------------------------

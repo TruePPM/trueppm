@@ -329,8 +329,14 @@ def test_mc_gate_pending_estimates_treated_as_none(
     # (not PERT samples).
     c = _client(sa_scheduler)
     resp = c.post(f"/api/v1/projects/{suggest_project.pk}/monte-carlo/", format="json")
-    # Monte Carlo should run (200 or 202) without error even with pending estimates.
-    assert resp.status_code in (200, 202)
+    assert resp.status_code == 200
+    # A withheld (pending) triple must NOT reach the engine: with no variance-bearing
+    # task the forecast collapses to a single date (P50 == P80 == P95) and the
+    # diagnostic names the pending approval. If the gate broke and the PERT triple
+    # leaked in, the band would open (P95 > P50) — status_code alone can't tell the
+    # two directions apart, which is the vacuity this test exists to close.
+    assert resp.data["p50"] == resp.data["p80"] == resp.data["p95"]
+    assert resp.data["forecast_diagnostic"]["reason"] == "estimates_pending_approval"
 
 
 @pytest.mark.django_db
@@ -348,7 +354,14 @@ def test_mc_gate_accepted_estimates_pass_through(
     )
     c = _client(sa_scheduler)
     resp = c.post(f"/api/v1/projects/{suggest_project.pk}/monte-carlo/", format="json")
-    assert resp.status_code in (200, 202)
+    assert resp.status_code == 200
+    # An ACCEPTED triple (opt 3 / ml 5 / pess 8) passes the gate and reaches the
+    # PERT sampler, so the forecast carries a real uncertainty band (P95 > P50) and
+    # the diagnostic reports no suppression reason. This is the opposite direction
+    # from the pending case above — asserting the band opens is what makes the two
+    # tests distinguishable.
+    assert date.fromisoformat(resp.data["p95"]) > date.fromisoformat(resp.data["p50"])
+    assert resp.data["forecast_diagnostic"]["reason"] is None
 
 
 # ---------------------------------------------------------------------------

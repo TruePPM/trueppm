@@ -207,8 +207,13 @@ def test_tracker_progress_update(project: Project) -> None:
 
     assert task_run_id is not None
     run = TaskRun.objects.get(pk=task_run_id)
-    # After success exit pct is overwritten to 100; check intermediate update occurred.
     assert run.status == TaskRunStatus.SUCCESS
+    # The success exit overwrites progress_pct to 100 but never touches progress_msg,
+    # so the intermediate update()'s message survives. A no-op update() would leave
+    # progress_msg at the "" default while status still reached SUCCESS on clean exit —
+    # so assert the written message, not merely the terminal status.
+    assert run.progress_msg == "Processing items…"
+    assert run.progress_pct == 100
 
 
 # transaction=True: tracker broadcasts are now deferred with transaction.on_commit
@@ -298,11 +303,19 @@ def test_tracker_debounce_skips_rapid_updates(project: Project) -> None:
             task_name="test.debounce",
         ) as tracker,
     ):
+        task_run_id = tracker.task_run_id
         tracker.update(10, "first")
         tracker.update(20, "second")  # should be skipped by debounce
 
-    # Only one debounce check was needed; confirm Redis.get was called.
     assert mock_redis.get.called
+    # Both updates are debounced (the mock returns a far-future timestamp on every
+    # get, so now - last < 1.0 always holds), so neither progress write reaches the
+    # DB — progress_msg stays the "" default. If the `< 1.0` comparison were inverted
+    # (the #809 flood-disabling regression), both writes would land and progress_msg
+    # would be "second". Asserting the write was skipped is what makes this test able
+    # to fail; `mock_redis.get.called` alone is true either way.
+    run = TaskRun.objects.get(pk=task_run_id)
+    assert run.progress_msg == ""
 
 
 @pytest.mark.django_db
