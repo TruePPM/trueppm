@@ -168,6 +168,14 @@ always yields the same P50/P80/P95 forecast for the same input. This is a
 supported, tested property you can rely on for reproducible reports and
 regression baselines — not an implementation detail.
 
+## Security
+
+Found a vulnerability in the scheduling engine? Please report it privately —
+do **not** open a public issue. Email **security@trueppm.com** or open a
+confidential GitLab issue. Full policy, response SLAs, and safe-harbor terms are
+in [`SECURITY.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/SECURITY.md)
+at the monorepo root.
+
 ## License
 
 Apache 2.0

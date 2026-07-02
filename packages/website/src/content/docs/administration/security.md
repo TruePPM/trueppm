@@ -184,4 +184,17 @@ Key security properties:
 
 ## Reporting vulnerabilities
 
-If you discover a security vulnerability in TruePPM, please report it responsibly via the [GitLab repository](https://gitlab.com/trueppm/trueppm). Do not open a public issue for security vulnerabilities.
+If you discover a security vulnerability in TruePPM, please report it privately —
+**do not open a public issue.** Report through either channel:
+
+- **Email** — **security@trueppm.com** (preferred).
+- **Confidential GitLab issue** — open an issue in the
+  [GitLab repository](https://gitlab.com/trueppm/trueppm/-/issues/new) and tick
+  **"This issue is confidential"** so it is visible only to project members.
+
+Our full policy — supported versions, response SLAs (2 business days to
+acknowledge), coordinated-disclosure process, and **safe-harbor terms** for
+good-faith research — lives in
+[`SECURITY.md`](https://gitlab.com/trueppm/trueppm/-/blob/main/SECURITY.md) at
+the repository root. We publish a GitLab Security Advisory and credit reporters
+(unless anonymity is requested) when a fix ships.
