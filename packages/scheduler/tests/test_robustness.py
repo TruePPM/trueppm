@@ -26,6 +26,7 @@ from trueppm_scheduler import (
     schedule,
 )
 from trueppm_scheduler.engine import (
+    MAX_DEPENDENCIES,
     MAX_DURATION_DAYS,
     MAX_LAG_DAYS,
     MAX_PROJECT_SPAN_DAYS,
@@ -204,6 +205,35 @@ class TestLagBounds:
         )
         with pytest.raises(InvalidScheduleInput, match="lag exceeds"):
             schedule(p)
+
+
+class TestDependencyCount:
+    """The raw dependency-edge count is capped (#1203) before any O(E) pass.
+
+    A caller submitting tens of millions of edges makes even the validation and
+    graph-build pre-passes — and the list's own memory — pathological. The guard is
+    a length check ahead of the per-edge lag loop, so it rejects such a payload in
+    O(1). Both engine entry points route through ``_validate_project`` and must
+    reject identically. Only rejection is asserted: an "at cap" acceptance test would
+    need 100k distinct DAG edges (100k+ tasks), whose forward pass is far too heavy
+    for a unit test — the same trade-off the distinct-lag cell-cap test makes.
+    """
+
+    def _over_cap_project(self) -> Project:
+        # Every edge past the cap references the same two tasks: the count check
+        # fires before the per-edge loop, so these duplicate A→B edges are never
+        # examined (nor reach cycle/duplicate-edge detection). That keeps the fixture
+        # a cheap length-only construction, not a 100k-task graph.
+        deps = [Dependency("A", "B", DependencyType.FS) for _ in range(MAX_DEPENDENCIES + 1)]
+        return make_project([task("A", 1), task("B", 1)], deps)
+
+    def test_dependency_count_over_max_rejected_in_schedule(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match="exceeding the maximum"):
+            schedule(self._over_cap_project())
+
+    def test_dependency_count_over_max_rejected_in_monte_carlo(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match="exceeding the maximum"):
+            monte_carlo(self._over_cap_project(), runs=10, max_tasks=None)
 
 
 class TestProjectSpan:
