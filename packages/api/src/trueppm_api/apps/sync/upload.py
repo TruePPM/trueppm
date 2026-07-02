@@ -222,6 +222,11 @@ def apply_task_changes(
             if not _can_write_existing(existing, user.pk, role):
                 raise PermissionDenied("You may not edit this task.")
             old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
+            # We already know this row exists (it came from the batched
+            # existing_by_id fetch), so tell VersionedModel.save() to skip its
+            # per-row exists() probe. DRF's serializer.save() can't forward a
+            # save() kwarg, so the known state is carried on the instance (#1527).
+            existing._sync_known_exists = True  # type: ignore[attr-defined]
             ser = TaskSerializer(existing, data=_content(row), partial=True, context=ctx)
             ser.is_valid(raise_exception=True)
             task = ser.save()
@@ -262,6 +267,10 @@ def apply_task_changes(
         # sprint via sync enters pending-acceptance, same as the REST PATCH path —
         # otherwise an offline edit could land work straight into the commitment.
         old_sprint_id = str(target.sprint_id) if target.sprint_id else None
+        # ``target`` came from the batched existing_by_id fetch — the row exists, so
+        # skip VersionedModel.save()'s per-row exists() probe (#1527). Carried on the
+        # instance because DRF's serializer.save() can't forward a save() kwarg.
+        target._sync_known_exists = True  # type: ignore[attr-defined]
         ser = TaskSerializer(target, data=_content(row), partial=True, context=ctx)
         ser.is_valid(raise_exception=True)
         saved = ser.save()

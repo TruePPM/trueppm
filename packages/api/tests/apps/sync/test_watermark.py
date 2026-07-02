@@ -164,3 +164,30 @@ def test_fallback_flag_uses_union(project: Project, settings: object) -> None:
     assert ProjectSyncView._watermark(project) == _union(project)
     settings.SYNC_WATERMARK_USE_COLUMN = True  # type: ignore[attr-defined]
     assert ProjectSyncView._watermark(project) == _column(project)
+
+
+@pytest.mark.django_db
+def test_coalesced_bumps_match_union(project: Project) -> None:
+    """A batch inside ``coalesce_watermark_bumps`` still leaves column == union (#1527).
+
+    The batch context defers each row's per-row watermark UPDATE and flushes a
+    single ``Greatest`` UPDATE on exit. Because ``Greatest`` is monotonic, the
+    coalesced result must equal the authoritative union — the amplification is
+    removed without changing the observable watermark. Creating then updating rows
+    inside the context drives server_version past the pre-context value, so the
+    assertion fails if the deferred flush never ran.
+    """
+    from django.db import transaction
+
+    from trueppm_api.apps.sync.receivers import coalesce_watermark_bumps
+
+    with transaction.atomic(), coalesce_watermark_bumps():
+        tasks = [Task.objects.create(project=project, name=f"BT{i}", duration=1) for i in range(3)]
+        for t in tasks:
+            t.name = f"{t.name}-x"
+            t.save(known_exists=True)
+
+    # Flush ran on context exit (inside the transaction); the max server_version
+    # across the three tasks is 2 (create=1, then one update=2).
+    assert _column(project) == 2
+    _assert_in_sync(project)
