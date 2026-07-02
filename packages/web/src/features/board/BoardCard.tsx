@@ -1,4 +1,5 @@
 import {
+  memo,
   useState,
   useRef,
   useEffect,
@@ -45,7 +46,13 @@ interface BoardCardProps {
   task: Task;
   isOverlay?: boolean;
   isStalled?: boolean;
-  onMenuMove: (newStatus: TaskStatus) => void;
+  /**
+   * Move-to-status handler. Takes the card's own `task` so the parent can pass
+   * a single stable reference for the whole grid instead of a per-card closure
+   * (`(newStatus) => onMenuMove(task, newStatus)`), which would allocate a new
+   * identity for every card on every render and defeat `React.memo` (issue 1520).
+   */
+  onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string; slaDays?: number }[];
   density?: BoardDensity;
   /**
@@ -57,12 +64,14 @@ interface BoardCardProps {
   isKeyboardFocused?: boolean;
   /** True when card should dim because it's not in the active dep highlight set (issue 182). */
   isDimmed?: boolean;
-  /** Click handlers for chain / risk icons (issue 182, issue 188). */
-  onShowDeps?: () => void;
-  onShowRisks?: () => void;
-  /** Hover handlers for chain icon — drives board-level "dim non-connected" state. */
-  onChainHoverEnter?: () => void;
-  onChainHoverLeave?: () => void;
+  /** Click handlers for chain / risk icons (issue 182, issue 188). Task-aware so
+   *  the parent passes one stable reference per grid, not a per-card closure. */
+  onShowDeps?: (task: Task) => void;
+  onShowRisks?: (task: Task) => void;
+  /** Hover handler for the chain icon — drives board-level "dim non-connected"
+   *  state. Task-aware (`taskId | null`) so the parent passes one stable
+   *  reference; the enter/leave closures are bound internally from `task`. */
+  onChainHover?: (taskId: string | null) => void;
   /** Which EVM indicators to show (issue 185). Default 'off'. */
   showEvm?: EvmMode;
   /** When true, show budget/cost chips when task has cost data (issue 189). */
@@ -177,7 +186,7 @@ function riskIconClass(severity: number | null | undefined): string {
   }
 }
 
-export function BoardCard({
+function BoardCardImpl({
   task,
   isOverlay,
   isStalled: isOverrideStalled,
@@ -189,8 +198,7 @@ export function BoardCard({
   isDimmed = false,
   onShowDeps,
   onShowRisks,
-  onChainHoverEnter,
-  onChainHoverLeave,
+  onChainHover,
   showEvm = 'off',
   showCost = false,
   onCardClick,
@@ -205,6 +213,12 @@ export function BoardCard({
     id: task.id,
     disabled: readOnly,
   });
+
+  // Bind the task-aware chain-hover handler to this card once per render. These
+  // live inside the component (not in the parent's map) so the card's incoming
+  // props stay a single stable reference and React.memo can skip it (issue 1520).
+  const handleChainHoverEnter = () => onChainHover?.(task.id);
+  const handleChainHoverLeave = () => onChainHover?.(null);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
@@ -401,12 +415,12 @@ export function BoardCard({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onShowDeps?.();
+              onShowDeps?.(task);
             }}
-            onPointerEnter={onChainHoverEnter}
-            onPointerLeave={onChainHoverLeave}
-            onFocus={onChainHoverEnter}
-            onBlur={onChainHoverLeave}
+            onPointerEnter={handleChainHoverEnter}
+            onPointerLeave={handleChainHoverLeave}
+            onFocus={handleChainHoverEnter}
+            onBlur={handleChainHoverLeave}
             className={[
               'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
               'before:absolute before:inset-[-12px]',
@@ -434,7 +448,7 @@ export function BoardCard({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onShowRisks?.();
+              onShowRisks?.(task);
             }}
             className={[
               'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
@@ -540,7 +554,7 @@ export function BoardCard({
                     focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onMenuMove(col.status);
+                    onMenuMove(task, col.status);
                     setMenuOpen(false);
                     setMoveOpen(false);
                   }}
@@ -1081,3 +1095,12 @@ export function BoardCard({
     </div>
   );
 }
+
+/**
+ * Memoized so an unrelated board re-render (drag-over, another card's focus,
+ * chain-hover, a search keystroke) skips every card whose props are unchanged
+ * (issue 1520). The default shallow prop comparison is correct here because the
+ * parent now feeds only primitives (`isKeyboardFocused`, `isDimmed`), the stable
+ * `task` reference, and stable task-aware callbacks — no per-card closures.
+ */
+export const BoardCard = memo(BoardCardImpl);

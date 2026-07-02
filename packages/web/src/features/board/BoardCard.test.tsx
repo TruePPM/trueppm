@@ -7,9 +7,19 @@ import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import type { ComponentProps, ReactNode } from 'react';
+import { useState, type ComponentProps, type ReactNode } from 'react';
 import { BoardCard } from './BoardCard';
 import type { Task, TaskStatus } from '@/types';
+import { useIterationLabel } from '@/hooks/useIterationLabel';
+
+// Wrap the real hook in a spy so a test can count how many times BoardCard's
+// render body actually runs (useIterationLabel is called unconditionally at the
+// top of the component). The spy delegates to the real implementation, so every
+// other test in this file sees unchanged behavior.
+vi.mock('@/hooks/useIterationLabel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useIterationLabel')>();
+  return { ...actual, useIterationLabel: vi.fn(actual.useIterationLabel) };
+});
 
 // 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
 const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
@@ -222,7 +232,9 @@ describe('BoardCard', () => {
     expect(screen.queryByRole('menuitem', { name: 'IN PROGRESS' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'DONE' }));
-    expect(onMenuMove).toHaveBeenCalledWith('COMPLETE');
+    // onMenuMove is now task-aware (issue 1520): the card passes its own task so
+    // the parent can share one stable callback across the grid.
+    expect(onMenuMove).toHaveBeenCalledWith(baseTask, 'COMPLETE');
   });
 
   it('supports keyboard navigation in the overflow menu (#838)', () => {
@@ -1017,6 +1029,65 @@ describe('BoardCard', () => {
         screen.queryByRole('button', { name: /show health details/i }),
       ).not.toBeInTheDocument();
       expect(screen.getByText('CP')).toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // React.memo — the whole point of issue 1520: an unrelated board re-render
+  // (drag-over, another card's focus, a search keystroke) must not re-render a
+  // card whose own props are unchanged.
+  // ---------------------------------------------------------------------------
+  describe('memoization (issue 1520)', () => {
+    const renderSpy = vi.mocked(useIterationLabel);
+
+    // Stable references live outside the harness so every parent render passes
+    // BoardCard the *same* task, callback, and columns — the condition under
+    // which React.memo is allowed to bail out.
+    const stableProps: ComponentProps<typeof BoardCard> = {
+      task: baseTask,
+      onMenuMove: () => {},
+      columns: COLUMNS,
+    };
+
+    it('skips re-render when unrelated parent state changes but its props are stable', () => {
+      function Harness() {
+        const [n, setN] = useState(0);
+        return (
+          <DndContext>
+            <button type="button" onClick={() => setN((v) => v + 1)}>
+              bump {n}
+            </button>
+            <BoardCard {...stableProps} />
+          </DndContext>
+        );
+      }
+      render(<Harness />);
+      // Clear the mount call(s); count only renders triggered by the bump below.
+      renderSpy.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: /bump/ }));
+      expect(screen.getByRole('button', { name: 'bump 1' })).toBeInTheDocument();
+      // The memoized card bailed out — its render body (and thus the hook) never ran.
+      expect(renderSpy).not.toHaveBeenCalled();
+    });
+
+    it('does re-render when a primitive prop it reads actually changes', () => {
+      function Harness() {
+        const [dimmed, setDimmed] = useState(false);
+        return (
+          <DndContext>
+            <button type="button" onClick={() => setDimmed(true)}>
+              dim
+            </button>
+            <BoardCard {...stableProps} isDimmed={dimmed} />
+          </DndContext>
+        );
+      }
+      render(<Harness />);
+      renderSpy.mockClear();
+      fireEvent.click(screen.getByRole('button', { name: 'dim' }));
+      // isDimmed flipped false → true, so the card must re-render (guards against
+      // an over-eager comparator swallowing a real change).
+      expect(renderSpy).toHaveBeenCalled();
     });
   });
 });

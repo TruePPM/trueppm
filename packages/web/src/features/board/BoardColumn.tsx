@@ -59,12 +59,7 @@ export function BoardColumn({
       {/* Cards */}
       <div className="flex flex-col gap-2 overflow-y-auto min-h-0 flex-1">
         {tasks.map((task) => (
-          <BoardCard
-            key={task.id}
-            task={task}
-            onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
-            columns={COLUMNS}
-          />
+          <BoardCard key={task.id} task={task} onMenuMove={onMenuMove} columns={COLUMNS} />
         ))}
       </div>
     </div>
