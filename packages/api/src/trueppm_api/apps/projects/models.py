@@ -1585,6 +1585,15 @@ class Task(VersionedModel):
     # lazy generation (paired with recurrence_rule in the unique constraint below).
     recurrence_occurrence_date = models.DateField(null=True, blank=True)
 
+    # Timestamp of the most recent soft_delete() call — mirrors Attachment.deleted_at.
+    # Registered as the tombstone reap age_field (sync/tasks.py) so a soft-deleted
+    # task survives TRUEPPM_TOMBSTONE_RETENTION_DAYS before hard-deletion, giving an
+    # offline mobile client a grace window to reconnect and receive the tombstone
+    # instead of it disappearing on the very next nightly reap. Set only by
+    # soft_delete(); an ordinary save() never touches it, so it stays null while
+    # the row is live.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     # Default manager — unfiltered. Listed first so it remains _default_manager
@@ -1738,6 +1747,11 @@ class Task(VersionedModel):
 
         Subtask children (is_subtask=True) are cascade-deleted when the parent
         is deleted — they have no independent existence outside the parent task.
+
+        Stamps ``deleted_at`` before delegating to ``VersionedModel.soft_delete()``
+        (which performs the actual save), so the nightly tombstone reap can apply
+        the TRUEPPM_TOMBSTONE_RETENTION_DAYS grace window instead of treating every
+        soft-deleted task as immediately eligible for hard deletion.
         """
         # Soft-delete all edges where this task is predecessor or successor.
         edges = Dependency.objects.filter(predecessor=self) | Dependency.objects.filter(
@@ -1756,6 +1770,7 @@ class Task(VersionedModel):
             ).select_for_update()
             for child in list(subtask_children):
                 child.soft_delete()
+        self.deleted_at = timezone.now()
         super().soft_delete()
 
 
@@ -1987,6 +2002,14 @@ class Dependency(VersionedModel):
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
 
+    # Timestamp of the most recent soft_delete() call — mirrors Task.deleted_at /
+    # Attachment.deleted_at. Registered as the tombstone reap age_field (sync/tasks.py)
+    # so a soft-deleted dependency edge survives TRUEPPM_TOMBSTONE_RETENTION_DAYS
+    # before hard-deletion, giving an offline mobile client a grace window to
+    # reconnect and receive the tombstone. Set only by soft_delete(); an ordinary
+    # save() never touches it, so it stays null while the edge is live.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:
@@ -2006,6 +2029,16 @@ class Dependency(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.predecessor} {self.dep_type}+{self.lag}d {self.successor}"
+
+    def soft_delete(self) -> None:
+        """Stamp deleted_at before delegating to VersionedModel.soft_delete().
+
+        Mirrors Task.soft_delete()'s stamping so the nightly tombstone reap can
+        apply the same TRUEPPM_TOMBSTONE_RETENTION_DAYS grace window to dependency
+        edges as it does to the tasks they connect.
+        """
+        self.deleted_at = timezone.now()
+        super().soft_delete()
 
 
 # ---------------------------------------------------------------------------

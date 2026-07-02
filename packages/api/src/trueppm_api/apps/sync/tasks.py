@@ -78,13 +78,17 @@ def _do_purge(*, dry_run: bool = False, override_value: int | None = None) -> in
 
 # Registry of (Model, project_filter_kwargs, age_field_or_None).
 #
-# ``age_field`` is the DateTimeField used to enforce the retention window — only
-# models that explicitly declare ``updated_at`` (auto_now=True) can use it,
-# because soft_delete() calls save() which sets auto_now fields. For models
-# that have no such timestamp (Task, Dependency) ``age_field`` is None and
-# every soft-deleted row in a live project is eligible immediately. This is
-# safe in practice: the nightly task fires well after mobile clients have
-# synced, and we only touch rows whose owning project is still live.
+# ``age_field`` is the DateTimeField used to enforce the retention window. Two
+# flavors are in use: an ``updated_at`` (auto_now=True) column that reflects the
+# most recent save (Risk, Sprint), or a ``deleted_at`` column stamped only by
+# ``soft_delete()`` (mirrors Attachment.deleted_at) — used by Task and
+# Dependency so a tombstone reliably survives TRUEPPM_TOMBSTONE_RETENTION_DAYS
+# regardless of when the row last happened to be saved for an unrelated reason.
+# ``age_field=None`` remains a valid registry entry for a model that
+# deliberately opts out of a grace window, but every model below enforces one —
+# an offline mobile client must have a window to reconnect and receive a
+# tombstone before it is hard-deleted, or the deleted row becomes a permanent
+# phantom on that device.
 #
 # Extend this list when new VersionedModel subclasses are added that carry
 # ``is_deleted`` tombstones in the projects domain.
@@ -102,11 +106,13 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
     from trueppm_api.apps.projects.models import Dependency, Risk, Sprint, Task
 
     return [
-        # Task: no updated_at — reap all tombstones in live projects.
+        # Task: deleted_at is stamped in Task.soft_delete() (mirrors Attachment) —
+        # enforce the retention window so a tombstone survives long enough for an
+        # offline client to reconnect and receive it.
         (
             Task,
             {"project__is_deleted": False, "project__is_archived": False},
-            None,
+            "deleted_at",
         ),
         # Risk: has updated_at — enforce the retention window.
         (
@@ -120,17 +126,18 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             {"project__is_deleted": False, "project__is_archived": False},
             "updated_at",
         ),
-        # Dependency: no direct project FK, no updated_at — reap via predecessor.
-        # Same-project and cross-project edges are both handled: once the
-        # predecessor's project is live and the edge is soft-deleted, there is
-        # no further sync value in the tombstone row.
+        # Dependency: no direct project FK — reap via predecessor. deleted_at is
+        # stamped in Dependency.soft_delete() (mirrors Task) — enforce the same
+        # retention window. Same-project and cross-project edges are both
+        # handled: once the predecessor's project is live and the edge is past
+        # the retention window, there is no further sync value in the row.
         (
             Dependency,
             {
                 "predecessor__project__is_deleted": False,
                 "predecessor__project__is_archived": False,
             },
-            None,
+            "deleted_at",
         ),
     ]
 
@@ -146,8 +153,9 @@ def reap_domain_tombstones(self: object) -> dict[str, int]:
 
     Runs nightly via Celery Beat. For each model in ``_TOMBSTONE_MODEL_REGISTRY``:
     - Filters ``is_deleted=True`` rows in live (non-deleted, non-archived) projects.
-    - For models with ``updated_at``, further restricts to rows updated before
-      the ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` cutoff (default 90 days).
+    - For models with an ``age_field`` (``updated_at`` or ``deleted_at``), further
+      restricts to rows older than the ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` cutoff
+      (default 90 days).
     - Hard-deletes the eligible rows.
 
     Returns a dict mapping ``{app_label.model_name: rows_deleted}`` for each

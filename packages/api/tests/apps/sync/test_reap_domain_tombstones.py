@@ -6,8 +6,9 @@ helper directly so they never touch the Redis lock.
 Key behaviours verified:
 - Soft-deleted rows in live projects are hard-deleted.
 - Live (non-deleted) rows in the same project survive.
-- The retention window is respected for models that have ``updated_at``
-  (Risk, Sprint) — recently-deleted rows outlast the cutoff.
+- The retention window is respected for every model carrying an ``age_field``:
+  ``updated_at`` (Risk, Sprint) or ``deleted_at`` (Task, Dependency) — recently
+  soft-deleted rows outlast the cutoff.
 - Rows in archived or soft-deleted projects are left alone.
 - The function returns a dict of ``{label: count}`` for every registered model.
 """
@@ -21,6 +22,7 @@ from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Dependency,
     Project,
     Risk,
     Task,
@@ -68,9 +70,25 @@ def archived_project(calendar: Calendar) -> Project:
 def _make_task(project: Project, *, soft_delete: bool = False) -> Task:
     task = Task.objects.create(project=project, name="T", duration=1)
     if soft_delete:
-        Task.objects.filter(pk=task.pk).update(is_deleted=True)
+        # Raw update() bypasses Task.soft_delete() (and its dependency/subtask
+        # cascade) for test speed, so deleted_at must be stamped explicitly here
+        # too — it is the tombstone-reap age_field and a null value would never
+        # satisfy the reaper's `deleted_at__lt=cutoff` filter.
+        Task.objects.filter(pk=task.pk).update(is_deleted=True, deleted_at=timezone.now())
         task.refresh_from_db()
     return task
+
+
+def _make_dependency(
+    predecessor: Task, successor: Task, *, soft_delete: bool = False
+) -> Dependency:
+    dep = Dependency.objects.create(predecessor=predecessor, successor=successor)
+    if soft_delete:
+        # Raw update() bypasses Dependency.soft_delete() for test speed — see
+        # _make_task's note on why deleted_at must be stamped explicitly here.
+        Dependency.objects.filter(pk=dep.pk).update(is_deleted=True, deleted_at=timezone.now())
+        dep.refresh_from_db()
+    return dep
 
 
 def _make_risk(project: Project, *, soft_delete: bool = False) -> Risk:
@@ -89,6 +107,18 @@ def _backdate_risk_updated_at(risk: Risk, days_ago: int) -> None:
     Risk.objects.filter(pk=risk.pk).update(updated_at=timezone.now() - timedelta(days=days_ago))
 
 
+def _backdate_task_deleted_at(task: Task, days_ago: int) -> None:
+    """Move a Task's deleted_at into the past to simulate an aged tombstone."""
+    Task.objects.filter(pk=task.pk).update(deleted_at=timezone.now() - timedelta(days=days_ago))
+
+
+def _backdate_dependency_deleted_at(dep: Dependency, days_ago: int) -> None:
+    """Move a Dependency's deleted_at into the past to simulate an aged tombstone."""
+    Dependency.objects.filter(pk=dep.pk).update(
+        deleted_at=timezone.now() - timedelta(days=days_ago)
+    )
+
+
 # ---------------------------------------------------------------------------
 # test_reap_domain_tombstones_deletes_old_tombstones
 # ---------------------------------------------------------------------------
@@ -96,18 +126,21 @@ def _backdate_risk_updated_at(risk: Risk, days_ago: int) -> None:
 
 @pytest.mark.django_db
 def test_reap_domain_tombstones_deletes_old_tombstones(live_project: Project) -> None:
-    """Soft-deleted Task rows in a live project are hard-deleted.
+    """Soft-deleted Task rows past the retention window are hard-deleted.
 
-    Task has no ``updated_at`` so there is no time-window restriction —
-    every tombstone in a live project is eligible. Three deleted tasks should
-    disappear; the one live task must survive untouched.
+    Task's age_field is ``deleted_at`` (stamped by soft_delete(), same mechanism
+    as Risk/Sprint's ``updated_at``). override_days=0 makes the cutoff == now,
+    so the tombstones stamped moments ago in _make_task() are already past the
+    (zero-width) window and eligible — same override_days=0 pattern used by
+    test_reap_domain_tombstones_skips_archived_projects below. Three deleted
+    tasks should disappear; the one live task must survive untouched.
     """
     t1 = _make_task(live_project, soft_delete=True)
     t2 = _make_task(live_project, soft_delete=True)
     t3 = _make_task(live_project, soft_delete=True)
     live = _make_task(live_project, soft_delete=False)
 
-    counts = _do_reap(override_days=90)
+    counts = _do_reap(override_days=0)
 
     remaining_ids = set(Task.objects.values_list("pk", flat=True))
     assert t1.pk not in remaining_ids, "tombstoned task t1 should be hard-deleted"
@@ -149,6 +182,76 @@ def test_reap_domain_tombstones_respects_retention_window(live_project: Project)
 
 
 # ---------------------------------------------------------------------------
+# test_reap_domain_tombstones_respects_retention_window_for_task
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reap_domain_tombstones_respects_retention_window_for_task(live_project: Project) -> None:
+    """Soft-deleted Tasks younger than the retention window are NOT hard-deleted.
+
+    Task carries ``deleted_at`` (stamped only by soft_delete(), mirrors
+    Attachment/Dependency), the age_field that closes the gap where every
+    Task tombstone was previously eligible for hard deletion on the very next
+    nightly reap regardless of how recently it was deleted — leaving an
+    offline mobile client no grace window to receive the tombstone. A Task
+    soft-deleted moments ago must survive a 90-day window; an old one
+    (deleted 95 days ago) must be reaped.
+    """
+    recent_task = _make_task(live_project, soft_delete=True)
+    # deleted_at is already recent — leave it as-is.
+
+    old_task = _make_task(live_project, soft_delete=True)
+    _backdate_task_deleted_at(old_task, days_ago=95)
+
+    _do_reap(override_days=90)
+
+    assert Task.objects.filter(pk=recent_task.pk).exists(), (
+        "task soft-deleted within the retention window should not be reaped"
+    )
+    assert not Task.objects.filter(pk=old_task.pk).exists(), (
+        "task tombstone older than the retention window should be hard-deleted"
+    )
+
+
+# ---------------------------------------------------------------------------
+# test_reap_domain_tombstones_respects_retention_window_for_dependency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reap_domain_tombstones_respects_retention_window_for_dependency(
+    live_project: Project,
+) -> None:
+    """Soft-deleted Dependency edges younger than the retention window are NOT hard-deleted.
+
+    Dependency carries ``deleted_at`` (stamped only by soft_delete(), mirrors
+    Task), the same age_field mechanism, applied to the dependency edges that
+    feed the scheduler's CPM/float math — an offline client that misses a
+    dependency deletion needs the same reconnect grace window a task deletion
+    gets.
+    """
+    pred = _make_task(live_project)
+    succ = _make_task(live_project)
+    recent_dep = _make_dependency(pred, succ, soft_delete=True)
+    # deleted_at is already recent — leave it as-is.
+
+    pred2 = _make_task(live_project)
+    succ2 = _make_task(live_project)
+    old_dep = _make_dependency(pred2, succ2, soft_delete=True)
+    _backdate_dependency_deleted_at(old_dep, days_ago=95)
+
+    _do_reap(override_days=90)
+
+    assert Dependency.objects.filter(pk=recent_dep.pk).exists(), (
+        "dependency soft-deleted within the retention window should not be reaped"
+    )
+    assert not Dependency.objects.filter(pk=old_dep.pk).exists(), (
+        "dependency tombstone older than the retention window should be hard-deleted"
+    )
+
+
+# ---------------------------------------------------------------------------
 # test_reap_domain_tombstones_skips_archived_projects
 # ---------------------------------------------------------------------------
 
@@ -165,8 +268,9 @@ def test_reap_domain_tombstones_skips_archived_projects(
     archived_task = _make_task(archived_project, soft_delete=True)
     live_task = _make_task(live_project, soft_delete=True)
 
-    # Use override_days=0 so any time-filtered model also clears its window;
-    # Task has no time filter so archived vs live is the only distinguisher.
+    # Use override_days=0 so every time-filtered model (Task included, now that
+    # it carries deleted_at) also clears its window — archived vs live remains
+    # the only distinguisher.
     _do_reap(override_days=0)
 
     assert Task.objects.filter(pk=archived_task.pk).exists(), (

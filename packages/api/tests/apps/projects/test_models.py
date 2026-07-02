@@ -157,6 +157,29 @@ class TestTaskSoftDelete:
         dep.refresh_from_db()
         assert dep.is_deleted is True
 
+    def test_deleted_at_stamped(self) -> None:
+        """soft_delete() stamps deleted_at — the tombstone-reap age_field (sync/tasks.py)."""
+        t = Task.objects.create(project=self.project, name="T", duration=1)
+        assert t.deleted_at is None
+        t.soft_delete()
+        t.refresh_from_db()
+        assert t.deleted_at is not None
+
+    def test_cascaded_dependency_stamps_its_own_deleted_at(self) -> None:
+        """A cascade-soft-deleted Dependency edge stamps its own deleted_at.
+
+        Each cascaded row calls its own soft_delete() rather than inheriting the
+        parent's timestamp — the dependency's retention grace period should be
+        measured from when the edge itself was tombstoned.
+        """
+        t1 = Task.objects.create(project=self.project, name="A", duration=1)
+        t2 = Task.objects.create(project=self.project, name="B", duration=1)
+        dep = Dependency.objects.create(predecessor=t1, successor=t2)
+        assert dep.deleted_at is None
+        t1.soft_delete()
+        dep.refresh_from_db()
+        assert dep.deleted_at is not None
+
 
 @pytest.mark.django_db
 class TestDependency:
@@ -184,3 +207,34 @@ class TestDependency:
     def test_str(self) -> None:
         dep = Dependency(predecessor=self.t1, successor=self.t2, dep_type="FS", lag=0)
         assert "FS" in str(dep)
+
+
+@pytest.mark.django_db
+class TestDependencySoftDelete:
+    """Dependency.soft_delete() — tombstone, server_version bump, deleted_at stamp."""
+
+    def setup_method(self) -> None:
+        self.project = Project.objects.create(name="DepSoftDelProj", start_date=date(2026, 3, 2))
+        self.t1 = Task.objects.create(project=self.project, name="A", duration=1)
+        self.t2 = Task.objects.create(project=self.project, name="B", duration=1)
+
+    def test_tombstone_set(self) -> None:
+        dep = Dependency.objects.create(predecessor=self.t1, successor=self.t2)
+        dep.soft_delete()
+        dep.refresh_from_db()
+        assert dep.is_deleted is True
+
+    def test_server_version_bumped(self) -> None:
+        dep = Dependency.objects.create(predecessor=self.t1, successor=self.t2)
+        version_before = dep.server_version
+        dep.soft_delete()
+        dep.refresh_from_db()
+        assert dep.server_version > version_before
+
+    def test_deleted_at_stamped(self) -> None:
+        """soft_delete() stamps deleted_at — the tombstone-reap age_field (sync/tasks.py)."""
+        dep = Dependency.objects.create(predecessor=self.t1, successor=self.t2)
+        assert dep.deleted_at is None
+        dep.soft_delete()
+        dep.refresh_from_db()
+        assert dep.deleted_at is not None
