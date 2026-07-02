@@ -91,6 +91,24 @@ describe('NotificationRow', () => {
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/settings#signal-privacy');
   });
 
+  it('routes a project.deleted event to the app root, not the dead in-project board (#1115)', () => {
+    // The project is soft-deleted, so /projects/:id/board 404s — the member goes
+    // to the root, where their remaining projects and Trash/restore live.
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'project.deleted',
+          subject: 'Project "Gemini" was deleted',
+          body: 'Owner deleted the project "Gemini". You can restore it from Trash while it is in the retention window.',
+          task_id: null,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Project "Gemini" was deleted'));
+    expect(navigateMock).toHaveBeenCalledWith('/');
+  });
+
   it('does not crash when a row omits event_type (older mention mocks)', () => {
     // Some notification payloads (and hand-written e2e mocks) omit event_type for
     // mention rows; the ceiling-proposal routing must short-circuit on the falsy

@@ -88,6 +88,13 @@ class NotificationEventType(models.TextChoices):
         "signal.ceiling_proposal_resolved",
         "Team signal visibility proposal resolved",
     )
+    # Project-delete team notification (#1115, VoC Option C). A project soft-delete
+    # is a large destructive write that removes the whole team's workspace; every
+    # member (bar the deleter) is told in-app who deleted it, so a project does not
+    # simply vanish from under them. In-app ON by default; email strictly opt-in OFF
+    # (Priya's hard-NO on un-opted email); NEVER push — the durable inbox row is the
+    # only channel, so the notification can never arrive as an unsolicited interrupt.
+    PROJECT_DELETED = "project.deleted", "A project I belong to was deleted"
 
 
 class NotificationChannel(models.TextChoices):
@@ -400,6 +407,10 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED, NotificationChannel.EMAIL, False),
     (NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED, NotificationChannel.IN_APP, True),
     (NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED, NotificationChannel.EMAIL, False),
+    # #1115 — project-delete team notification. In-app ON so every member learns
+    # their project was deleted; email opt-in OFF (Priya's un-opted-email hard-NO).
+    (NotificationEventType.PROJECT_DELETED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.PROJECT_DELETED, NotificationChannel.EMAIL, False),
 ]
 
 
