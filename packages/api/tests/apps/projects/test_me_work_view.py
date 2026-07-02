@@ -27,6 +27,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Program,
     Project,
     RetroActionItem,
     Sprint,
@@ -824,4 +825,105 @@ def test_me_work_retro_items_query_count_bounded_by_membership(
         f"Query count grew from {baseline_q} to {len(ctx_after.captured_queries)} "
         "after adding 50 non-member retro action items. "
         "_me_work_retro_action_items is not properly scoped to member projects."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Program identity (#964, follow-up to #963)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_program_fields_present_when_project_has_program(calendar: Calendar, alice: object) -> None:
+    """A task on a project that belongs to a program carries program_id/name/color."""
+    program = Program.objects.create(name="Apollo Program", color="#3366cc")
+    proj = _project(calendar, "P1")
+    proj.program = program
+    proj.save(update_fields=["program"])
+    _member(proj, alice)
+    Task.objects.create(project=proj, name="T", duration=1, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/work/")
+    row = resp.data["results"][0]
+    assert row["program_id"] == str(program.pk)
+    assert row["program_name"] == "Apollo Program"
+    assert row["program_color"] == "#3366cc"
+
+
+@pytest.mark.django_db
+def test_program_color_null_when_program_has_no_color(calendar: Calendar, alice: object) -> None:
+    """A program with an unset accent color returns null program_color (not '')."""
+    program = Program.objects.create(name="Neutral Program")  # color defaults to null
+    proj = _project(calendar, "P1")
+    proj.program = program
+    proj.save(update_fields=["program"])
+    _member(proj, alice)
+    Task.objects.create(project=proj, name="T", duration=1, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/work/")
+    row = resp.data["results"][0]
+    assert row["program_id"] == str(program.pk)
+    assert row["program_name"] == "Neutral Program"
+    assert row["program_color"] is None
+
+
+@pytest.mark.django_db
+def test_program_fields_null_for_orphan_project(calendar: Calendar, alice: object) -> None:
+    """A task on a project with no program returns null for all three program fields.
+
+    The UI renders this as the neutral unset ProgramIdentitySquare with no name,
+    consistent with the rest of the #963 program-identity system.
+    """
+    proj = _project(calendar, "P1")  # no program
+    _member(proj, alice)
+    Task.objects.create(project=proj, name="T", duration=1, assignee=alice)
+
+    resp = _client(alice).get("/api/v1/me/work/")
+    row = resp.data["results"][0]
+    assert row["program_id"] is None
+    assert row["program_name"] is None
+    assert row["program_color"] is None
+
+
+@pytest.mark.django_db
+def test_program_fields_do_not_add_per_row_queries(calendar: Calendar, alice: object) -> None:
+    """program_name/program_color must be served from select_related('project__program').
+
+    Add tasks across several programs and assert the query count does not grow
+    per row — a missing join would fire one program lookup per task (N+1).
+    """
+    # One task: establishes the baseline query count with the program join warm.
+    prog0 = Program.objects.create(name="Program 0", color="#111111")
+    proj0 = _project(calendar, "P0")
+    proj0.program = prog0
+    proj0.save(update_fields=["program"])
+    _member(proj0, alice)
+    Task.objects.create(project=proj0, name="T0", duration=1, assignee=alice)
+
+    with CaptureQueriesContext(connection) as ctx_baseline:
+        resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+    baseline_q = len(ctx_baseline.captured_queries)
+
+    # Add several more tasks, each on a distinct project + distinct program.
+    for i in range(1, 6):
+        prog = Program.objects.create(name=f"Program {i}", color="#222222")
+        proj = _project(calendar, f"P{i}")
+        proj.program = prog
+        proj.save(update_fields=["program"])
+        _member(proj, alice)
+        Task.objects.create(project=proj, name=f"T{i}", duration=1, assignee=alice)
+
+    with CaptureQueriesContext(connection) as ctx_after:
+        resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 6
+
+    # The join means the program comes back with each task row — no extra query
+    # per additional program. Allow a small constant slack for pagination /
+    # count queries that scale with row count, but not one-per-row.
+    assert len(ctx_after.captured_queries) <= baseline_q + 2, (
+        f"Query count grew from {baseline_q} to {len(ctx_after.captured_queries)} "
+        "after adding 5 tasks on distinct programs — program serialization is "
+        "firing a per-row query (missing select_related('project__program'))."
     )

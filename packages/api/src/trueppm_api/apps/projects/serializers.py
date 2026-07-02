@@ -5355,6 +5355,15 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
     name = serializers.CharField(read_only=True)
     project_id = serializers.UUIDField(read_only=True)
     project_name = serializers.SerializerMethodField()
+    # Program identity (#964, follow-up to #963). My Work is the genuinely
+    # cross-program list, so each row carries its program's identity square +
+    # name for wayfinding. All three are null for an orphan project (no program),
+    # which the UI renders as the neutral unset square with no name — consistent
+    # with the rest of the #963 program-identity system. No new permission
+    # surface: the queryset is already hard-scoped to the caller's assignments.
+    program_id = serializers.SerializerMethodField()
+    program_name = serializers.SerializerMethodField()
+    program_color = serializers.SerializerMethodField()
     sprint_id = serializers.UUIDField(read_only=True, allow_null=True)
     sprint_name = serializers.SerializerMethodField()
     # ADR-0102 §6: a pending injection SHOWS in My Work (the contributor needs to
@@ -5408,6 +5417,22 @@ class MeWorkTaskSerializer(serializers.Serializer[Any]):
 
     def get_project_name(self, obj: Any) -> str:
         return str(obj.project.name)
+
+    def get_program_id(self, obj: Any) -> str | None:
+        # ``project.program_id`` is the FK column — no related-object load needed
+        # to know whether a program exists. Returns null for an orphan project.
+        program_id = obj.project.program_id
+        return str(program_id) if program_id else None
+
+    def get_program_name(self, obj: Any) -> str | None:
+        # ``project__program`` is select_related in MeWorkView.get_queryset, so
+        # reading ``.program`` here does not trigger a per-row query (no N+1).
+        program = obj.project.program if obj.project.program_id else None
+        return program.name if program else None
+
+    def get_program_color(self, obj: Any) -> str | None:
+        program = obj.project.program if obj.project.program_id else None
+        return program.color if program else None
 
     def get_sprint_name(self, obj: Any) -> str | None:
         return obj.sprint.name if obj.sprint_id else None

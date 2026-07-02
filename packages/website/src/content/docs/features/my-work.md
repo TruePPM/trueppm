@@ -21,6 +21,7 @@ Each row shows:
 
 - **Task name** — clicks open the task in its project's Schedule view
 - **Project · sprint** — the project the task belongs to, and the active sprint if it's in one
+- **Program marker** — a small colored square and the program name, so you can tell at a glance which program a task belongs to. My Work spans every program you contribute to, so this cross-program cue lives on each row. A task on a project that isn't part of a program shows a neutral square with no name.
 - **Status chip** — tap to change between `Not started`, `In progress`, `In review`, and `Complete`
 - **Story points** — `5pts` or `5pts · 2 left` when remaining points differ
 - **Due date** with a source label so you know what the date means:

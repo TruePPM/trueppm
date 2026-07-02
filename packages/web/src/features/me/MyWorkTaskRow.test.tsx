@@ -37,6 +37,9 @@ const BASE: MyWorkTask = {
   name: 'Build login',
   project_id: 'p1',
   project_name: 'App',
+  program_id: 'prog1',
+  program_name: 'Apollo Program',
+  program_color: '#3366cc',
   sprint_id: null,
   sprint_name: null,
   status: 'IN_PROGRESS',
@@ -127,5 +130,34 @@ describe('MyWorkTaskRow complete checkbox (#1226)', () => {
     expect(checkbox).toBeDisabled();
     expect(checkbox).toHaveAttribute('aria-pressed', 'true');
     expect(warmSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('MyWorkTaskRow program identity (#964)', () => {
+  it('renders the program name as the accessible signal', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    // The program NAME is the a11y signal — the square itself is aria-hidden.
+    expect(screen.getByText('Apollo Program')).toBeInTheDocument();
+  });
+
+  it('renders a decorative (aria-hidden) identity square carrying the accent color', () => {
+    const { container } = wrap(<MyWorkTaskRow task={BASE} />);
+    const square = container.querySelector('span[aria-hidden="true"][style]');
+    expect(square).not.toBeNull();
+    // Dynamic accent flows through the style prop (never a hex class).
+    expect(square).toHaveStyle({ backgroundColor: '#3366cc' });
+  });
+
+  it('renders the neutral unset square and no name for an orphan project (no program)', () => {
+    wrap(
+      <MyWorkTaskRow
+        task={{ ...BASE, program_id: null, program_name: null, program_color: null }}
+      />,
+    );
+    // No program name text when the project has no program.
+    expect(screen.queryByText('Apollo Program')).not.toBeInTheDocument();
+    // The neutral square still renders (faint filled square, no inline color).
+    const square = document.querySelector('span[aria-hidden="true"].bg-neutral-surface-sunken');
+    expect(square).not.toBeNull();
   });
 });
