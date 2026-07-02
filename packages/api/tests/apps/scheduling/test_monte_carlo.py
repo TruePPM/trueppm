@@ -6,7 +6,9 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Sprint, SprintState, Task
@@ -518,3 +520,66 @@ def test_monte_carlo_overflow_error_returns_400(
         )
     assert r.status_code == 400
     assert "representable date range" in r.data["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Monte Carlo endpoint — scoped rate throttle (#1552, DoS defense)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestMonteCarloThrottle:
+    """run_monte_carlo runs an expensive simulation inline in the request cycle
+    (#1552); the ``monte_carlo`` scoped throttle bounds how fast a single member
+    can loop it, preventing an authenticated resource-exhaustion DoS.
+
+    The rate is patched on the throttle class rather than via ``override_settings``:
+    DRF binds ``THROTTLE_RATES`` to a class attribute at import, so a settings
+    override never reaches the already-bound throttle (mirrors #814/test_auth_cookie).
+    The throttle history lives in the (LocMem) cache; clear it before and after so
+    the count starts from zero and a later test isn't left pre-throttled.
+    """
+
+    def test_exceeding_rate_returns_429(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            ScopedRateThrottle,
+            "THROTTLE_RATES",
+            {**ScopedRateThrottle.THROTTLE_RATES, "monte_carlo": "2/min"},
+        )
+        cache.clear()
+        try:
+            url = f"/api/v1/projects/{project.pk}/monte-carlo/"
+            # Two runs inside the window are processed (200); the third is rejected
+            # by the throttle (429) before the simulation runs.
+            statuses = [
+                member_client.post(url, {"n_simulations": 10}, format="json").status_code
+                for _ in range(3)
+            ]
+            assert statuses == [200, 200, 429]
+        finally:
+            cache.clear()
+
+    def test_single_run_not_throttled(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """Regression: the default rate must not be so tight that one interactive
+        run is rejected."""
+        cache.clear()
+        try:
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/monte-carlo/",
+                {"n_simulations": 10},
+                format="json",
+            )
+            assert r.status_code == 200
+        finally:
+            cache.clear()
