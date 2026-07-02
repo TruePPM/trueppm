@@ -5,7 +5,6 @@ Covers:
   - Response shape: 5 components (fixed order), beat panel, scheduled tasks,
     dead-letter summary, retention config
   - Beat component is crit when no heartbeat, ok when fresh
-  - Retention-purge component is always "unknown" (no purge-run telemetry, §3)
   - Dead-letter summary reflects only DEAD rows + by-status breakdown
   - Scheduled tasks are derived from CELERY_BEAT_SCHEDULE (config, not last-run)
 """
@@ -117,10 +116,8 @@ class TestSystemHealthShape:
 
 @pytest.mark.django_db
 class TestComponentStatuses:
-    def test_retention_purge_is_always_unknown(self) -> None:
-        """No purge-run model exists in OSS, so this degrades to unknown, not error."""
-        card = _components_by_key(_admin_client().get(URL).data)["retention_purge"]
-        assert card["status"] == "unknown"
+    # The retention-purge component's unknown → ok/warn/crit derivation from the
+    # latest PurgeRun (ADR-0173) is covered by test_retention.py::TestSystemHealthCard.
 
     def test_beat_crit_when_no_heartbeat(self) -> None:
         data = _admin_client().get(URL).data
