@@ -44,7 +44,7 @@ const sampleResponse = {
   ],
   dead_letter: { parked: 0, oldest_age_seconds: null, top_cause: null, by_status: {} },
   retention: [
-    { key: 'failed_tasks', label: 'Failed task records', unit: 'days', value: 30, disabled: false },
+    { key: 'TRUEPPM_WEBHOOK_RETENTION_DAYS', label: 'Webhook delivery records', unit: 'days', value: 30, disabled: false },
   ],
 };
 
