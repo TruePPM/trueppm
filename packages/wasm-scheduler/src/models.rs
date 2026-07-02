@@ -31,11 +31,12 @@ pub struct DateRange {
 ///
 /// `deny_unknown_fields` (#1505): the Python `Task` model carries scheduling-
 /// affecting fields this engine does not yet implement — `calendar_id` (per-task
-/// calendars, ADR-0120 D3), `actual_start`/`actual_finish` and `delivery_mode`/
-/// `story_points`. Silently ignoring them would make the WASM engine schedule a
-/// task on the wrong calendar (or ignore actuals) and quietly disagree with the
-/// server. Rejecting the input at parse time is honest: the offline recompute
-/// refuses work it cannot faithfully reproduce rather than returning wrong dates.
+/// calendars, ADR-0120 D3) and `delivery_mode`/`story_points`. Silently ignoring
+/// them would make the WASM engine schedule a task on the wrong calendar and
+/// quietly disagree with the server. Rejecting the input at parse time is honest:
+/// the offline recompute refuses work it cannot faithfully reproduce rather than
+/// returning wrong dates. Progress fields (`actual_start`/`actual_finish`/
+/// `percent_complete`, ADR-0132) are now consumed — see the forward/backward pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Task {
@@ -72,6 +73,15 @@ pub struct Task {
     #[serde(default)]
     pub percent_complete: f64,
 
+    // Actuals (ADR-0132). `actual_finish` (or `percent_complete >= 100`) marks a
+    // task complete: it is pinned to its recorded span at full duration and taken
+    // out of network logic. `actual_start` records when work began. Both mirror
+    // the Python `Task` dataclass fields of the same name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_start: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_finish: Option<NaiveDate>,
+
     // Three-point PERT estimates (seconds)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub optimistic_duration: Option<f64>,
@@ -85,6 +95,36 @@ impl Task {
     /// Duration in working days.
     pub fn duration_days(&self) -> i32 {
         (self.duration / 86400.0).round() as i32
+    }
+
+    /// Whether the task counts as finished for layout purposes (ADR-0136).
+    ///
+    /// True when an `actual_finish` is recorded *or* `percent_complete` has
+    /// reached 100. Mirrors the Python `_is_complete`: the dataclass has no
+    /// `status` field, so completion is read from these two facts alone. A
+    /// completed task is laid out at its *full* duration, never through
+    /// [`effective_duration_days`](Self::effective_duration_days).
+    pub fn is_complete(&self) -> bool {
+        self.actual_finish.is_some() || self.percent_complete >= 100.0
+    }
+
+    /// Working-day duration of the *remaining* work on a task (ADR-0132).
+    ///
+    /// A not-started task (`percent_complete <= 0`) contributes its full
+    /// estimate; an in-progress task contributes `duration - floor(duration *
+    /// pct/100)`, clamped to `[0, duration]`. The elapsed portion truncates like
+    /// Python's `int(...)` so the two engines agree bit-for-bit (the conformance
+    /// contract). A completed task is laid out at full duration by the caller and
+    /// never routed through here.
+    pub fn effective_duration_days(&self) -> i32 {
+        let full = self.duration_days();
+        let pct = self.percent_complete;
+        if pct <= 0.0 {
+            return full;
+        }
+        // Truncate toward zero, matching Python `int(full * min(pct,100)/100)`.
+        let elapsed = (f64::from(full) * pct.min(100.0) / 100.0) as i32;
+        (full - elapsed).max(0)
     }
 }
 
@@ -155,9 +195,10 @@ impl Default for Calendar {
 ///
 /// `deny_unknown_fields` (#1505): rejects a project that carries Python-only
 /// fields this engine does not implement — the `calendars` per-task registry
-/// (ADR-0120 D3), `velocity_samples`/`sprint_length_days` (agile Monte Carlo),
-/// or `status_date` (progress forecasting). See the `Task` note above: honest
-/// rejection beats a silently-wrong offline schedule.
+/// (ADR-0120 D3) or `velocity_samples`/`sprint_length_days` (agile Monte Carlo).
+/// See the `Task` note above: honest rejection beats a silently-wrong offline
+/// schedule. `status_date` (the data date, ADR-0132) is now consumed by the
+/// progress-aware forward pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -170,6 +211,11 @@ pub struct Project {
     pub dependencies: Vec<Dependency>,
     #[serde(default)]
     pub calendar: Calendar,
+    /// The data date (ADR-0132): remaining and not-started work is floored here,
+    /// so future work is never scheduled in the past. `None` → a pure planning
+    /// pass identical to the pre-progress behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_date: Option<NaiveDate>,
 }
 
 /// Output of a CPM schedule calculation.
@@ -193,4 +239,55 @@ pub struct TaskResult {
     pub total_float: f64,
     pub free_float: f64,
     pub is_critical: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task(days: f64, pct: f64) -> Task {
+        Task {
+            id: "t".into(),
+            name: "t".into(),
+            duration: days * 86400.0,
+            planned_start: None,
+            planned_finish: None,
+            early_start: None,
+            early_finish: None,
+            late_start: None,
+            late_finish: None,
+            total_float: 0.0,
+            free_float: 0.0,
+            is_critical: false,
+            percent_complete: pct,
+            actual_start: None,
+            actual_finish: None,
+            optimistic_duration: None,
+            most_likely_duration: None,
+            pessimistic_duration: None,
+        }
+    }
+
+    #[test]
+    fn is_complete_reads_actual_finish_and_percent() {
+        assert!(!task(5.0, 0.0).is_complete());
+        assert!(!task(5.0, 99.9).is_complete());
+        assert!(task(5.0, 100.0).is_complete());
+        let mut t = task(5.0, 0.0);
+        t.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap());
+        assert!(t.is_complete());
+    }
+
+    #[test]
+    fn effective_duration_truncates_like_python_int() {
+        // Not started: full duration.
+        assert_eq!(task(10.0, 0.0).effective_duration_days(), 10);
+        assert_eq!(task(10.0, -5.0).effective_duration_days(), 10);
+        // 40% of 10d elapsed = int(4.0) → 6 remaining.
+        assert_eq!(task(10.0, 40.0).effective_duration_days(), 6);
+        // 45% of 10d elapsed = int(4.5) → truncates to 4 → 6 remaining.
+        assert_eq!(task(10.0, 45.0).effective_duration_days(), 6);
+        // Over-100 is capped, never negative.
+        assert_eq!(task(10.0, 150.0).effective_duration_days(), 0);
+    }
 }

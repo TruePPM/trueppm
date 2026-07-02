@@ -14,6 +14,12 @@ use crate::graph::{get_dependency, successors, ProjectGraph};
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// Compute late_start and late_finish for every task (in-place).
+///
+/// Progress-aware (ADR-0132/0136), mirroring the Python `_backward_pass`: a
+/// completed task carries zero float (late == early — it is done, it has no
+/// slack), reusing the full-duration span the forward pass resolved; an
+/// in-progress task's late dates span only its remaining duration, matching the
+/// forward pass so total/free float stay internally consistent.
 pub fn backward_pass(
     task_map: &mut HashMap<String, Task>,
     topo_order: &[String],
@@ -23,7 +29,22 @@ pub fn backward_pass(
     calendar: &Calendar,
 ) -> Result<(), String> {
     for node_id in topo_order.iter().rev() {
-        let duration_days = task_map[node_id].duration_days();
+        // Completed: late == early, so the task carries zero float and never
+        // distorts the critical path. The forward pass already resolved its
+        // full-duration span (ADR-0136).
+        if task_map[node_id].is_complete() {
+            let (es, ef) = {
+                let t = &task_map[node_id];
+                (t.early_start.unwrap(), t.early_finish.unwrap())
+            };
+            let t = task_map.get_mut(node_id).unwrap();
+            t.late_start = Some(es);
+            t.late_finish = Some(ef);
+            continue;
+        }
+
+        // In-progress work's late span covers only its remaining duration.
+        let duration_days = task_map[node_id].effective_duration_days();
 
         let mut lf_constraints: Vec<NaiveDate> = vec![project_finish];
         let mut ls_constraints: Vec<NaiveDate> = Vec::new();

@@ -87,6 +87,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         &project.dependencies,
         project.start_date,
         &project.calendar,
+        project.status_date,
     )?;
 
     let project_finish = task_map
@@ -119,7 +120,15 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         .filter(|id| task_map[id].is_critical)
         .collect();
 
-    let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
+    // The earliest early_start across ALL tasks — mirrors Python's
+    // `min(t.early_start ...)`. `topo_order[0]` is normally the earliest, but
+    // out-of-sequence actuals (a completed successor pinned before its
+    // predecessor) can put the minimum on a later topo node (#1494).
+    let project_start = task_map
+        .values()
+        .filter_map(|t| t.early_start)
+        .min()
+        .unwrap();
 
     let tasks: Vec<TaskResult> = pg
         .topo_order
@@ -169,6 +178,8 @@ mod tests {
             free_float: 0.0,
             is_critical: false,
             percent_complete: 0.0,
+            actual_start: None,
+            actual_finish: None,
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
@@ -194,6 +205,7 @@ mod tests {
             tasks: vec![make_task("A", 5), make_task("B", 3), make_task("C", 2)],
             dependencies: vec![dep("A", "B"), dep("B", "C")],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -252,6 +264,7 @@ mod tests {
                 dep("ABE", "MID"),
             ],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -278,6 +291,7 @@ mod tests {
                 lag: 36525.0 * 86400.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         assert!(schedule_impl(&project).is_err());
@@ -295,6 +309,7 @@ mod tests {
             tasks: vec![make_task("A", 5), make_task("B", 3), make_task("C", 2)],
             dependencies: vec![dep("A", "C"), dep("B", "C")],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -321,6 +336,7 @@ mod tests {
             tasks: vec![make_task("A", 5), make_task("M", 0), make_task("B", 3)],
             dependencies: vec![dep("A", "M"), dep("M", "B")],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -343,6 +359,7 @@ mod tests {
             tasks: vec![task_a],
             dependencies: vec![],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -361,6 +378,7 @@ mod tests {
             tasks: vec![make_task("A", 5), make_task("B", 3)],
             dependencies: vec![dep("A", "B")],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let json = serde_json::to_string(&project).unwrap();
@@ -385,6 +403,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -409,6 +428,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -433,6 +453,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
 
         let result = schedule_impl(&project).unwrap();
