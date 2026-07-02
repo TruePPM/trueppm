@@ -627,3 +627,77 @@ describe('GanttEngineImpl — destroy', () => {
     expect(() => flushFrame()).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// #1524 — drag-task-move is coalesced to snapped-day changes
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — drag-task-move snapped-date coalescing (#1524)', () => {
+  it('emits drag-task-move only when the snapped day changes, not per pointermove', () => {
+    const { engine, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+
+    const moves: number[] = [];
+    engine.on('drag-task-move', (ev) => moves.push(ev.left));
+
+    // Drive _onPointerMove directly with a seeded FSM. jsdom has no
+    // setPointerCapture and returns a zeroed getBoundingClientRect, so the full
+    // pointerdown hit-test pipeline is not exercisable here — but _pointerToCanvas
+    // maps clientX→canvasX 1:1 under those zeros, which is all the snap needs.
+    const internals = engine as unknown as {
+      _dragFSM: {
+        onPointerDown: (id: string, x: number, y: number, p: number, t: 'move' | 'resize') => void;
+      };
+      _dragOffsetX: number;
+      _onPointerMove: (e: PointerEvent) => void;
+    };
+    internals._dragOffsetX = 0;
+    internals._dragFSM.onPointerDown('a', 300, 40, 1, 'move');
+
+    const move = (clientX: number) =>
+      internals._onPointerMove({ clientX, clientY: 40, pointerType: 'mouse' } as PointerEvent);
+
+    move(340); // crosses the 4px threshold → FSM 'started', no emit
+    move(340); // → 'moved' → first emit at snap(340)
+    move(340); // identical x → identical snapped day → coalesced away
+    expect(moves).toHaveLength(1);
+
+    // A move a whole day away produces a distinct snapped date → emits again.
+    const px = Math.ceil(engine.pxPerDay ?? 30);
+    move(340 + px * 3);
+    expect(moves).toHaveLength(2);
+    expect(moves[1]).not.toBe(moves[0]);
+  });
+
+  it('resets the coalescing guard between drags so a new drag always emits its first move', () => {
+    const { engine, flushFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+
+    const moves: number[] = [];
+    engine.on('drag-task-move', (ev) => moves.push(ev.left));
+
+    const internals = engine as unknown as {
+      _dragFSM: {
+        onPointerDown: (id: string, x: number, y: number, p: number, t: 'move' | 'resize') => void;
+        reset: () => void;
+      };
+      _dragOffsetX: number;
+      _onPointerMove: (e: PointerEvent) => void;
+    };
+    internals._dragOffsetX = 0;
+
+    const drag = () => {
+      internals._dragFSM.onPointerDown('a', 300, 40, 1, 'move');
+      internals._onPointerMove({ clientX: 340, clientY: 40, pointerType: 'mouse' } as PointerEvent);
+      internals._onPointerMove({ clientX: 340, clientY: 40, pointerType: 'mouse' } as PointerEvent);
+    };
+
+    drag();
+    engine.cancelDrag(); // ends the drag, clearing _lastEmittedDragX
+    drag(); // same snapped x as the first drag — must still emit, guard was reset
+
+    expect(moves).toHaveLength(2);
+  });
+});
