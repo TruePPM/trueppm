@@ -54,6 +54,7 @@ pub fn incremental_update(
         &project.dependencies,
         project.start_date,
         &project.calendar,
+        project.status_date,
     )?;
 
     let project_finish = task_map
@@ -106,7 +107,14 @@ pub fn incremental_update(
         .filter(|id| task_map[id].is_critical)
         .collect();
 
-    let project_start = task_map[&pg.topo_order[0]].early_start.unwrap();
+    // Earliest early_start across ALL tasks — mirrors Python and the full
+    // schedule path; out-of-sequence actuals can move the minimum off
+    // `topo_order[0]` (#1494).
+    let project_start = task_map
+        .values()
+        .filter_map(|t| t.early_start)
+        .min()
+        .unwrap();
 
     Ok(ScheduleResult {
         project_id: project.id.clone(),
@@ -164,6 +172,8 @@ mod tests {
             free_float: 0.0,
             is_critical: false,
             percent_complete: 0.0,
+            actual_start: None,
+            actual_finish: None,
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
@@ -183,6 +193,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         }
     }
 

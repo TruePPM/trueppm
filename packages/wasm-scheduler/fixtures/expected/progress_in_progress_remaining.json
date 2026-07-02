@@ -1,0 +1,31 @@
+{
+  "project_id": "p-progress-in-progress",
+  "project_start": "2026-04-08",
+  "project_finish": "2026-04-20",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-04-08",
+      "early_finish": "2026-04-15",
+      "late_start": "2026-04-08",
+      "late_finish": "2026-04-15",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "B",
+      "early_start": "2026-04-16",
+      "early_finish": "2026-04-20",
+      "late_start": "2026-04-16",
+      "late_finish": "2026-04-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "A",
+    "B"
+  ]
+}

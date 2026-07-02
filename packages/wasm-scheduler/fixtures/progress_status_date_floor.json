@@ -1,0 +1,19 @@
+{
+  "id": "p-progress-status-floor",
+  "name": "Not-started work is floored at the data date, not the project start",
+  "start_date": "2026-04-01",
+  "status_date": "2026-04-15",
+  "tasks": [
+    {"id": "A", "name": "Not started", "duration": 432000.0},
+    {"id": "B", "name": "Next", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

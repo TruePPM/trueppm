@@ -15,6 +15,14 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// Compute early_start and early_finish for every task (in-place).
 ///
+/// Progress-aware (ADR-0132), mirroring the Python `_forward_pass`: a completed
+/// task (`actual_finish` set, or `percent_complete >= 100`) is pinned to its
+/// recorded span at full duration and taken out of network logic; an in-progress
+/// task contributes only its remaining duration; and when `status_date` (the data
+/// date) is given, remaining/not-started work is floored at it so future work is
+/// never scheduled in the past. With no actuals and no status date the result is
+/// byte-identical to a pure planning pass.
+///
 /// Returns `Err` (instead of panicking) when a calendar walk cannot reach a
 /// working day within the scan bound — see `calendar::next_working_day` (#908).
 pub fn forward_pass(
@@ -24,15 +32,72 @@ pub fn forward_pass(
     deps: &[Dependency],
     project_start: NaiveDate,
     calendar: &Calendar,
+    status_date: Option<NaiveDate>,
 ) -> Result<(), String> {
-    let start = next_working_day(project_start, calendar)?;
+    // The project-start floor; and the data-date floor for not-yet-finished work.
+    // Both are node-independent under a single project calendar (the WASM engine
+    // has no per-task calendars), so they are hoisted out of the loop.
+    let start_base = next_working_day(project_start, calendar)?;
+    let start = match status_date {
+        // A status date at or before project start is already covered by the
+        // project-start floor, hence the max().
+        Some(sd) => start_base.max(next_working_day(sd, calendar)?),
+        None => start_base,
+    };
 
     for node_id in topo_order {
-        let duration_days = task_map[node_id].duration_days();
+        // Completed (actual_finish set, or percent_complete >= 100): laid out at
+        // its FULL duration so the bar keeps its shape (ADR-0136). Actuals are
+        // truth, so a pinned task is taken out of network logic entirely — it may
+        // even sit before a predecessor (out-of-sequence reality is surfaced).
+        let (is_complete, actual_start, actual_finish, full_days) = {
+            let t = &task_map[node_id];
+            (
+                t.is_complete(),
+                t.actual_start,
+                t.actual_finish,
+                t.duration_days(),
+            )
+        };
+        if is_complete {
+            if let Some(af) = actual_finish {
+                // Finish known; start is the recorded actual, else a full duration
+                // back from the finish.
+                let es = match actual_start {
+                    Some(a) => a,
+                    None => start_from_finish(af, full_days, calendar)?,
+                };
+                let t = task_map.get_mut(node_id).unwrap();
+                t.early_start = Some(es);
+                t.early_finish = Some(af);
+                continue;
+            }
+            if let Some(a) = actual_start {
+                // Start known (e.g. done, awaiting sign-off): lay full duration
+                // forward from it.
+                let ef = finish_from_start(a, full_days, calendar)?;
+                let t = task_map.get_mut(node_id).unwrap();
+                t.early_start = Some(a);
+                t.early_finish = Some(ef);
+                continue;
+            }
+            // Complete via percent_complete only, no actuals: full-duration
+            // planning position, anchored at the un-floored project start (falls
+            // through to the network logic below).
+        }
+
+        // In-progress work contributes only what is left, laid forward from the
+        // data date; not-started work uses its full estimate; a complete-without-
+        // actuals task uses full duration anchored at the un-floored start.
+        let (duration_days, base_es) = if is_complete {
+            (full_days, start_base)
+        } else {
+            (task_map[node_id].effective_duration_days(), start)
+        };
         let planned_start = task_map[node_id].planned_start;
 
         // Collect ES constraints from predecessors.
-        let mut es_constraints: Vec<NaiveDate> = vec![start];
+        let mut es_constraints: Vec<NaiveDate> = vec![base_es];
         if let Some(ps) = planned_start {
             es_constraints.push(next_working_day(ps, calendar)?);
         }

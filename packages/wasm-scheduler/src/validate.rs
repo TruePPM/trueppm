@@ -212,6 +212,8 @@ mod tests {
             free_float: 0.0,
             is_critical: false,
             percent_complete: 0.0,
+            actual_start: None,
+            actual_finish: None,
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
@@ -226,6 +228,7 @@ mod tests {
             tasks,
             dependencies: deps,
             calendar: cal,
+            status_date: None,
         }
     }
 

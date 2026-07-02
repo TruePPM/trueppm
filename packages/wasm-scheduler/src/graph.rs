@@ -213,6 +213,8 @@ mod tests {
             free_float: 0.0,
             is_critical: false,
             percent_complete: 0.0,
+            actual_start: None,
+            actual_finish: None,
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
@@ -233,6 +235,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
         let pg = build_graph(&project).unwrap();
         assert_eq!(pg.topo_order, vec!["A", "B"]);
@@ -260,6 +263,7 @@ mod tests {
                 },
             ],
             calendar: Calendar::default(),
+            status_date: None,
         };
         assert!(build_graph(&project).is_err());
     }
@@ -280,6 +284,7 @@ mod tests {
                 lag: 0.0,
             }],
             calendar: Calendar::default(),
+            status_date: None,
         };
         assert!(matches!(
             build_graph(&project),
