@@ -178,4 +178,35 @@ describe('UserMenu', () => {
     fireEvent.click(darkBtns[0]);
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
   });
+
+  // The mobile bottom sheet is the modal (role="dialog" aria-modal="true") variant;
+  // the desktop dropdown is a non-modal role="menu" and is intentionally untrapped.
+  // getByRole('dialog') therefore uniquely targets the sheet even though JSDOM
+  // renders both variants.
+  const TRAP_FOCUSABLES =
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  it('traps Tab focus inside the mobile bottom sheet (Tab from last → first)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const focusables = sheet.querySelectorAll<HTMLElement>(TRAP_FOCUSABLES);
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    expect(document.activeElement).toBe(last);
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(focusables[0]);
+  });
+
+  it('traps Shift+Tab focus inside the mobile bottom sheet (Shift+Tab from first → last)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const focusables = sheet.querySelectorAll<HTMLElement>(TRAP_FOCUSABLES);
+    const first = focusables[0];
+    first.focus();
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(focusables[focusables.length - 1]);
+  });
 });

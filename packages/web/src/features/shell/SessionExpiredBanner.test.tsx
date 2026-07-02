@@ -60,4 +60,22 @@ describe('SessionExpiredBanner', () => {
     expect(useAuthStore.getState().sessionExpired).toBe(false);
     expect(screen.getByTestId('login-screen')).toBeInTheDocument();
   });
+
+  it('traps focus inside the re-auth gate — Tab cannot escape behind the scrim', () => {
+    renderWithLoginRoute();
+    act(() => {
+      useAuthStore.getState().markSessionExpired();
+    });
+    const button = screen.getByRole('button', { name: /Sign in/ });
+    button.focus();
+    expect(button).toHaveFocus();
+    // Sign in is the sole focusable, so the trap must cancel Tab / Shift+Tab at
+    // the boundary (fireEvent returns false when the event is defaultPrevented)
+    // and keep focus on it rather than tabbing out into the stale UI behind the
+    // scrim. Without the trap the event would bubble uncanceled.
+    expect(fireEvent.keyDown(document, { key: 'Tab' })).toBe(false);
+    expect(button).toHaveFocus();
+    expect(fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })).toBe(false);
+    expect(button).toHaveFocus();
+  });
 });

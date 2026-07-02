@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 /**
  * Modal banner shown when the user's session has expired (#352).
@@ -23,15 +23,10 @@ export function SessionExpiredBanner() {
   const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const navigate = useNavigate();
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  // Auto-focus the action so screen readers announce the banner and a
-  // keyboard user can dismiss it with a single Enter press.
-  useEffect(() => {
-    if (sessionExpired) {
-      buttonRef.current?.focus();
-    }
-  }, [sessionExpired]);
+  // Contain Tab/Shift+Tab inside the banner and land focus on the Sign in action
+  // on open (WCAG 2.4.3 / 2.1.2). No onEscape is passed: this is a blocking
+  // re-auth gate, so Escape must NOT dismiss it — the user has to sign in again.
+  const trapRef = useFocusTrap<HTMLDivElement>(sessionExpired);
 
   if (!sessionExpired) return null;
 
@@ -50,7 +45,11 @@ export function SessionExpiredBanner() {
       aria-describedby="session-expired-body"
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 motion-safe:animate-scrim-fade"
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-[420px] max-w-[90vw] p-5 motion-safe:animate-modal-scale-in">
+      <div
+        ref={trapRef}
+        tabIndex={-1}
+        className="bg-neutral-surface border border-neutral-border rounded-card w-[420px] max-w-[90vw] p-5 focus:outline-none motion-safe:animate-modal-scale-in"
+      >
         <h2
           id="session-expired-title"
           className="text-base font-semibold text-neutral-text-primary m-0 mb-2"
@@ -66,7 +65,6 @@ export function SessionExpiredBanner() {
         </p>
         <div className="flex justify-end">
           <button
-            ref={buttonRef}
             type="button"
             onClick={handleSignIn}
             className="h-9 px-4 rounded-control bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
