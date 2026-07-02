@@ -1,12 +1,19 @@
 # ADR-0027: Incremental CPM recompute
 
 ## Status
-Accepted — implemented on main with a deviation from the design below: the incremental
-narrowing shipped at the API write-back layer (`_downstream_task_ids` in
-`apps/scheduling/tasks.py`), not as the engine-level incremental compute this ADR
-specified. The scheduler `schedule()` signature never took a `changed_task_ids`
-parameter and the `SCHEDULER_INCREMENTAL_*` threshold settings were not added. Status
-corrected 2026-06-30 after ADR audit.
+Accepted — **design not yet implemented**; tracked under #235 (0.5).
+
+History: an API write-back narrowing (`_downstream_task_ids` + a 25% threshold in
+`apps/scheduling/tasks.py`) was shipped as a partial stand-in for the engine-level
+incremental compute this ADR specifies — but it was **unreachable**: no dispatch site
+ever supplied `changed_task_ids` (the `ScheduleRequest` outbox row carries only
+`project_id`, and both `drain_schedule_queue` and `enqueue_recalculate` dispatch with
+project_id alone). It was removed in #1528 (2026-07-02) as dead code. The scheduler
+`schedule()` signature never took a `changed_task_ids` parameter and the
+`SCHEDULER_INCREMENTAL_*` threshold settings were never added. Every dispatch therefore
+runs a full CPM recompute and a full write-back today. The engine-level design below
+remains the plan of record for #235, including its non-negotiable bit-exact fuzz gate.
+(Status corrected 2026-06-30 after ADR audit; dead-code removal recorded 2026-07-02.)
 
 ## Context
 

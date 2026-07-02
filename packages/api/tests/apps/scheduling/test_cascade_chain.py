@@ -92,7 +92,7 @@ def test_chain_propagates_through_b_c_d_when_head_duration_grows(
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        _run_schedule(str(project.pk), changed_task_ids=[str(a.pk)])
+        _run_schedule(str(project.pk))
 
     _, b_after, c_after, d_after = _refresh_chain(chain)
 
@@ -128,7 +128,7 @@ def test_chain_propagates_when_head_dependency_lag_grows(
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        _run_schedule(str(project.pk), changed_task_ids=[str(b.pk)])
+        _run_schedule(str(project.pk))
 
     _, b_after, c_after, d_after = _refresh_chain(chain)
 
