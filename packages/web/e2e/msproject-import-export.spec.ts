@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * MS Project import/export E2E (#68).
@@ -53,6 +54,41 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
         next: null,
         previous: null,
         results: FIXTURE_API_PROJECTS,
+      }),
+    }),
+  );
+  // Project detail — ProjectShell gates every project route on this query (#1111).
+  // Without an object-shaped 200 the beforeEach catch-all serves a list
+  // `{count,results}` for it (the #1190 vector, one unguarded field read from a
+  // crash). Real shape mirrors schedule.spec.ts.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        name: 'Alpha Platform Upgrade',
+        description: '',
+        start_date: '2026-01-01',
+        calendar: 'default',
+        estimation_mode: 'OPEN',
+        agile_features: false,
+        methodology: 'WATERFALL',
+        code: '',
+        health: 'AUTO',
+        visibility: 'WORKSPACE',
+        timezone: '',
+        default_view: 'SCHEDULE',
+        lead: null,
+        lead_detail: null,
+        iteration_label: 'Sprint',
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        recalculated_at: null,
+        is_sample: false,
+        program_detail: null,
+        server_version: 1,
       }),
     }),
   );
@@ -127,13 +163,9 @@ async function openImportModal(page: import('@playwright/test').Page) {
 // removed. Must NOT live in gotoSchedule(): that runs after per-test routes here,
 // and a late catch-all would shadow them.
 test.beforeEach(async ({ page }) => {
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-    }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/auth/me/', (route) =>
     route.fulfill({
       status: 200,

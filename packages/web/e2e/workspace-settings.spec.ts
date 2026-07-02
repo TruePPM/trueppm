@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Workspace settings — General, Members, and Groups pages.
@@ -93,9 +94,9 @@ async function setup(page: Page) {
   });
 
   // Catch-all — prevents unmocked requests from 401ing into the session-expired loop.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({

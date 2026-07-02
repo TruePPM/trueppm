@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Project Settings → Team E2E (ADR-0078, #927).
@@ -98,9 +99,9 @@ async function setup(page: Page, opts: SetupOpts = {}) {
   // fire their own endpoints. Without this net those unmocked requests hit the
   // preview server, 401, and trip the session-expired modal — which replaces the
   // app and detaches the Team switches. Specific routes below override it.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),

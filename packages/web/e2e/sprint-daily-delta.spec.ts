@@ -4,6 +4,7 @@
  * moved cards, new blockers, scope, burndown swing, and a per-actor at-a-glance.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 const PROJECT_ID = 'e2e-daily-delta-0000-0000-0000-000000000925';
 const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
@@ -67,11 +68,11 @@ async function setup(page: Page) {
     status, contentType: 'application/json', body: JSON.stringify(body),
   });
 
-  // Catch-all FIRST so every specific route below wins — Playwright matches
-  // routes in reverse-registration order (the last-registered handler is tried
-  // first). Registered last, this would clobber the sprints-list + daily-delta
-  // mocks and the active sprint would never render.
-  await page.route('**/api/v1/**', (r) => r.fulfill(json({ count: 0, next: null, previous: null, results: [] })));
+  // Shared 404 catch-all FIRST (issue 1513) so every specific route below wins —
+  // Playwright matches routes in reverse-registration order (last-registered is
+  // tried first). Unmocked endpoints now 404 loudly instead of being masked by a
+  // permissive 200-list body (the #1190 flake class this spec's retro mocks fix).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill(json({ count: 1, next: null, previous: null, results: [
@@ -87,6 +88,26 @@ async function setup(page: Page) {
   await page.route(/\/api\/v1\/sprints\/.*\/capacity\//, (r) => r.fulfill(json({ members: [], totals: { committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0, label: 'on_track', pto_days: 0 }, working_days: 0, hours_per_day: 8 })));
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (r) => r.fulfill(json({ sprints: [], rolling_avg_points: null, rolling_stdev_points: null, forecast_range_low: null, forecast_range_high: null, rolling_avg_tasks: null, rolling_stdev_tasks: null })));
   await page.route('**/api/v1/me/active-sprints/', (r) => r.fulfill(json([])));
+  // Live retro board + team-health pulse (ADR-0117). The retro panel
+  // (RetroPanel → RetroBoardSurface) mounts for any ACTIVE sprint and fires these
+  // on mount. Without object-shaped mocks the own 200 list catch-all above serves
+  // `{count,results}` for retro-board/, and RetroColumns reads `columns[0]?.key`
+  // on an undefined `columns` → TypeError → root error boundary tears down the app
+  // (the #1190 flake). Object-shaped defaults: empty board, no own pulse, GATED
+  // trend (private-pulse wall — no data leak).
+  await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (r) => r.fulfill(json({ detail: 'None' }, 404)));
+  await page.route(/\/api\/v1\/sprints\/.*\/retro-board\//, (r) =>
+    r.fulfill(json({
+      columns: [
+        { key: 'went_well', label: 'What went well' },
+        { key: 'to_improve', label: 'What to improve' },
+        { key: 'ideas', label: 'Ideas & discussion' },
+      ],
+      items: [],
+    })),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse-trend\//, (r) => r.fulfill(json({ gated: true })));
+  await page.route(/\/api\/v1\/sprints\/.*\/pulse\//, (r) => r.fulfill({ status: 204, body: '' }));
   await page.route('**/api/v1/projects/*/presence/', (r) => r.fulfill(json([])));
   await page.route('**/api/v1/projects/*/status-summary/', (r) => r.fulfill(json({ task_count: 0, critical_path_count: 0, monte_carlo_p80: null, at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null })));
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));

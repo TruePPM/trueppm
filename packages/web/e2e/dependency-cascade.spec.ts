@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Dependency cascade — regression for #314.
@@ -93,17 +94,9 @@ test.describe('Dependency cascade refresh (#314)', () => {
     // otherwise cascade through 401-recovery into the SessionExpired banner,
     // which then intercepts every click. #647's extra app-wide subscriptions
     // removed the timing slack that previously let this spec pass without it.
-    await page.route('**/api/v1/**', (route) => {
-      if (route.request().method() === 'GET') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-        });
-        return;
-      }
-      route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-    });
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+    // being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     // Real current-user so the shell does not treat the session as
     // unauthenticated (the empty-list catch-all above would otherwise stand in).
     await page.route('**/api/v1/auth/me/', (route) =>
@@ -115,6 +108,42 @@ test.describe('Dependency cascade refresh (#314)', () => {
           email: 'pm@example.com',
           first_name: 'P',
           last_name: 'M',
+        }),
+      }),
+    );
+
+    // Project detail — ProjectShell gates every project route on this query
+    // (#1111). Without an object-shaped 200 the catch-all above serves a list
+    // `{count,results}` for it (the #1190 vector). Real shape mirrors
+    // schedule.spec.ts.
+    await page.route(`**/api/v1/projects/${PROJECT}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: PROJECT,
+          name: 'Parity Project',
+          description: '',
+          start_date: '2026-05-01',
+          calendar: 'default',
+          estimation_mode: 'OPEN',
+          agile_features: false,
+          methodology: 'WATERFALL',
+          code: '',
+          health: 'AUTO',
+          visibility: 'WORKSPACE',
+          timezone: '',
+          default_view: 'SCHEDULE',
+          lead: null,
+          lead_detail: null,
+          iteration_label: 'Sprint',
+          is_archived: false,
+          archived_at: null,
+          archived_by: null,
+          recalculated_at: null,
+          is_sample: false,
+          program_detail: null,
+          server_version: 1,
         }),
       }),
     );

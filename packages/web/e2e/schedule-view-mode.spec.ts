@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Schedule Grid ↔ Timeline view toggle E2E (#1221, v2 redesign epic #1163).
@@ -52,9 +53,9 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // page's object-shaped endpoints (overview, status-summary) are all mocked
   // explicitly below, so the list shape never reaches a component that expects
   // an object.
-  await page.route('**/api/v1/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }) }),
   );

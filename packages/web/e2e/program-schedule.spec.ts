@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Program schedule view E2E (#1118, ADR-0120 §D6 / ADR-0182).
@@ -112,13 +113,9 @@ async function setup(page: Page, scheduleResponse: { status: number; body: unkno
   // Catch-all 401-guard: every unmocked request returns an empty LIST shape.
   // Object endpoints this page reads (program detail, schedule) are mocked
   // explicitly below so the catch-all never serves them a malformed object.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: pj({ results: [], count: 0, next: null, previous: null }),
-    }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );

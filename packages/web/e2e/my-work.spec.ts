@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * E2E coverage for the My Work contributor surface (ADR-0065 Gap 2, issue #499).
@@ -177,13 +178,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
   test('“N blocked” chip filters the list to flagged-blocked tasks (#1198)', async ({ page }) => {
     // 401-guard net first (last-registered-wins); specific mocks below override it.
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupWithTasks(page);
 
     // Override /me/work/ with one blocked + one unblocked task.
@@ -230,13 +227,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   });
 
   test('no “blocked” chip when nothing is blocked (#1198)', async ({ page }) => {
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupWithTasks(page); // default fixture task is is_blocked: false
     await page.goto('/me/work');
 
@@ -252,13 +245,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     // 401-guard safety net (CLAUDE.md): registered FIRST so the specific mocks
     // below win (last-registered-wins). Without it an unmocked request can 401
     // during the click-retry window and the session-expired modal intercepts.
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupWithTasks(page);
 
     // Capture the PATCH request to verify the body + header.
@@ -300,13 +289,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     // below win (Playwright uses last-registered-wins). Without it, an unmocked
     // request can 401 during the click-retry window and the session-expired
     // modal intercepts the click.
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupWithTasks(page);
     await page.route(`**/api/v1/tasks/${TASK_ID}/`, (route) =>
       route.fulfill({
@@ -378,13 +363,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   }) => {
     // 401-guard net first (last-registered-wins) so the board destination's
     // unmocked reads don't 401 into the session-expired modal.
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupAuthenticatedPage(page);
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill({
@@ -477,13 +458,9 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     // 401-guard safety net (CLAUDE.md): registered FIRST so the specific mocks
     // below win (last-registered-wins). The focus cards + side column read only
     // the /me/work/ payload, so no extra object endpoints to mock.
-    await page.route('**/api/v1/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
+    // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead
+    // of being masked by a permissive 200-list body (the #1190 flake class).
+    await setupCatchAll(page);
     await setupWithTasks(page);
     await page.goto('/me/work');
 

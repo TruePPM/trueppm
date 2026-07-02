@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * #1179 — context-aware "+ New" in the v2 unified shell bar (ADR-0131). Golden path:
@@ -33,7 +34,9 @@ async function setup(page: import('@playwright/test').Page) {
   // Catch-all FIRST (Playwright: later routes win) so no unmocked /api request 401s —
   // a 401 trips the session-expired modal in this preview env. Auth endpoints get
   // explicit success shapes so the bootstrap never declares the session expired.
-  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(page200) }));
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200 body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/auth/token/refresh/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ access: 'e2e-access' }) }));
   await page.route('**/api/v1/auth/me/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ id: 1, username: 'e2e', email: 'e2e@example.com', workspace_role: 300 }) }));
   await page.route('**/api/v1/me/notifications/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }));

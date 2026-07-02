@@ -13,6 +13,7 @@
  * All API calls are intercepted via page.route() so no backend is required.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 const pj = (data: unknown) => JSON.stringify(data);
 const json = (body: unknown) => ({
@@ -77,9 +78,9 @@ async function baseSetup(page: Page) {
   });
 
   // Catch-all 401-guard — keeps unmocked requests from tripping the session loop.
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill(

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * "Preview — not yet saved" banner E2E (#538).
@@ -69,9 +70,9 @@ async function setup(page: Page) {
 
   const pj = (data: unknown) => JSON.stringify(data);
 
-  await page.route('**/api/v1/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
@@ -97,11 +98,14 @@ async function setup(page: Page) {
       }),
     }),
   );
+  // Overview reads res.data.items / res.data.tasks (object-shaped, not lists) —
+  // useProjectAttention/useMyTasks in ProjectOverviewPage.tsx. A bare `[]` left
+  // both undefined; the real shapes keep the Overview transit clean.
   await page.route('**/api/v1/projects/*/attention/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ items: [] }) }),
   );
   await page.route('**/api/v1/projects/*/my-tasks/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ tasks: [] }) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Project Settings → Signal privacy E2E (ADR-0104, #553/#854).
@@ -79,7 +80,9 @@ async function setup(page: Page, policyBody: Record<string, unknown> = policy())
   // this net those unmocked requests 401 and trip the session-expired modal,
   // which replaces the app and detaches the signal-privacy ladders. Specific
   // routes below override it (Playwright applies routes LIFO).
-  await page.route('**/api/v1/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
+  // being masked by a permissive 200-list body (the #1190 flake class).
+  await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }));
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) }));
