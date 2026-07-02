@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Wave 1 — TopBar health cluster (issue #205, updated for the v2 methodology-adaptive
@@ -61,6 +62,11 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
     );
   });
 
+  // Catch-all 401-guard FIRST (last-registered-wins): the project shell + ⌘K
+  // palette read endpoints this spec does not mock (notifications, ws ticket,
+  // calendars, …) which would otherwise fall through to the real backend and
+  // 401 into the session-expired modal mid-test (issue 1572 / #1190 class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,

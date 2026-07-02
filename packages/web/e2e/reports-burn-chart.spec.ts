@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Issue #53 — Burn Charts, Reports tab (ADR-0062).
@@ -59,6 +60,11 @@ async function setup(page: Page, burnStatus = 200, burnBody: unknown = BURN_RESP
   const pj = (results: unknown[]) =>
     JSON.stringify({ count: results.length, next: null, previous: null, results });
 
+  // Catch-all 401-guard FIRST (last-registered-wins): the project shell + ⌘K
+  // palette read endpoints this spec does not mock (notifications, ws ticket,
+  // calendars, …) which would otherwise fall through to the real backend and
+  // 401 into the session-expired modal mid-test (issue 1572 / #1190 class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );

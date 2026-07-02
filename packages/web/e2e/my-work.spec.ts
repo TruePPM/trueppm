@@ -148,6 +148,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('renders task grouped by active sprint with critical indicator and due-source label', async ({
     page,
   }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets setupWithTasks'
+    // specific routes override it.
+    await setupCatchAll(page);
     await setupWithTasks(page);
     await page.goto('/me/work');
 
@@ -183,6 +188,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('row shows the program identity square (decorative) with the program name as the a11y signal (#964)', async ({
     page,
   }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets setupWithTasks'
+    // specific routes override it.
+    await setupCatchAll(page);
     await setupWithTasks(page);
     await page.goto('/me/work');
 
@@ -336,6 +346,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   });
 
   test('Sidebar surfaces a "due today" badge when due_today_count > 0', async ({ page }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets setupWithTasks'
+    // specific routes override it.
+    await setupCatchAll(page);
     await setupWithTasks(page);
     await page.goto('/me/work');
     // The expanded Sidebar shows "My Work" with the count chip; both
@@ -346,6 +361,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('empty state — no projects — shows the Explore a demo project CTA and docs link', async ({
     page,
   }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets the specific routes
+    // below override it.
+    await setupCatchAll(page);
     await setupAuthenticatedPage(page);
 
     await page.route('**/api/v1/projects/', (route) =>
@@ -441,6 +461,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('empty state — projects exist but no assignments — shows the unassigned flavor', async ({
     page,
   }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets the specific routes
+    // below override it.
+    await setupCatchAll(page);
     await setupAuthenticatedPage(page);
 
     await page.route('**/api/v1/projects/', (route) =>
@@ -522,6 +547,11 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
   test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({
     page,
   }) => {
+    // Shared 404 catch-all (issue 1513/1572): unmocked endpoints 404 loudly
+    // instead of being masked by a permissive 200-list body (the #1190 flake
+    // class). Registered first — last-registered-wins lets the specific routes
+    // below override it.
+    await setupCatchAll(page);
     await setupAuthenticatedPage(page);
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill({
