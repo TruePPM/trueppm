@@ -195,7 +195,10 @@ class VersionedModel(models.Model):
         pk_col = quote(pk_field.column)
         with connection.cursor() as cursor:
             cursor.execute(
-                f"UPDATE {table} SET {version_col} = {version_col} + 1 "
+                # Table/column names come from model _meta and are quoted via
+                # connection.ops.quote_name (not user input); the pk is bound
+                # as a parameter below.
+                f"UPDATE {table} SET {version_col} = {version_col} + 1 "  # nosec B608
                 f"WHERE {pk_col} = %s RETURNING {version_col}",
                 [self.pk],
             )
