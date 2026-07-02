@@ -2,15 +2,16 @@
 //!
 //! Mirrors the Python `_forward_pass` function from `trueppm_scheduler.engine`.
 
-use std::collections::HashMap;
-
 use chrono::NaiveDate;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, finish_from_start, next_working_day,
     start_from_finish,
 };
-use crate::graph::{get_dependency, predecessors, ProjectGraph};
+use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// Compute early_start and early_finish for every task (in-place).
@@ -25,9 +26,15 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 ///
 /// Returns `Err` (instead of panicking) when a calendar walk cannot reach a
 /// working day within the scan bound — see `calendar::next_working_day` (#908).
+///
+/// Tasks are carried in a `Vec<Task>` indexed by node position (#1535); each
+/// node's predecessors are read by iterating its incoming edges directly
+/// (`edge.source()` is the predecessor, `deps[*edge.weight()]` its dependency),
+/// eliminating the per-node `Vec<String>` allocation and the id-keyed
+/// `get_dependency` edge scan.
 pub fn forward_pass(
-    task_map: &mut HashMap<String, Task>,
-    topo_order: &[String],
+    tasks: &mut [Task],
+    topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     project_start: NaiveDate,
@@ -45,13 +52,14 @@ pub fn forward_pass(
         None => start_base,
     };
 
-    for node_id in topo_order {
+    for &idx in topo_order {
+        let i = idx.index();
         // Completed (actual_finish set, or percent_complete >= 100): laid out at
         // its FULL duration so the bar keeps its shape (ADR-0136). Actuals are
         // truth, so a pinned task is taken out of network logic entirely — it may
         // even sit before a predecessor (out-of-sequence reality is surfaced).
         let (is_complete, actual_start, actual_finish, full_days) = {
-            let t = &task_map[node_id];
+            let t = &tasks[i];
             (
                 t.is_complete(),
                 t.actual_start,
@@ -67,7 +75,7 @@ pub fn forward_pass(
                     Some(a) => a,
                     None => start_from_finish(af, full_days, calendar)?,
                 };
-                let t = task_map.get_mut(node_id).unwrap();
+                let t = &mut tasks[i];
                 t.early_start = Some(es);
                 t.early_finish = Some(af);
                 continue;
@@ -76,7 +84,7 @@ pub fn forward_pass(
                 // Start known (e.g. done, awaiting sign-off): lay full duration
                 // forward from it.
                 let ef = finish_from_start(a, full_days, calendar)?;
-                let t = task_map.get_mut(node_id).unwrap();
+                let t = &mut tasks[i];
                 t.early_start = Some(a);
                 t.early_finish = Some(ef);
                 continue;
@@ -92,9 +100,9 @@ pub fn forward_pass(
         let (duration_days, base_es) = if is_complete {
             (full_days, start_base)
         } else {
-            (task_map[node_id].effective_duration_days(), start)
+            (tasks[i].effective_duration_days(), start)
         };
-        let planned_start = task_map[node_id].planned_start;
+        let planned_start = tasks[i].planned_start;
 
         // Collect ES constraints from predecessors.
         let mut es_constraints: Vec<NaiveDate> = vec![base_es];
@@ -103,12 +111,11 @@ pub fn forward_pass(
         }
         let mut ef_constraints: Vec<NaiveDate> = Vec::new();
 
-        let preds = predecessors(pg, node_id);
-        for pred_id in &preds {
-            let dep = get_dependency(pg, deps, pred_id, node_id);
+        for edge in pg.graph.edges_directed(idx, Direction::Incoming) {
+            let dep = &deps[*edge.weight()];
             let lag_days = dep.lag_days();
 
-            let pred = &task_map[pred_id];
+            let pred = &tasks[edge.source().index()];
             let pred_es = pred.early_start.unwrap();
             let pred_ef = pred.early_finish.unwrap();
 
@@ -151,7 +158,7 @@ pub fn forward_pass(
             final_es = es;
         }
 
-        let task = task_map.get_mut(node_id).unwrap();
+        let task = &mut tasks[i];
         task.early_start = Some(final_es);
         task.early_finish = Some(ef);
     }

@@ -2,26 +2,33 @@
 //!
 //! Mirrors the Python `_compute_floats` function from `trueppm_scheduler.engine`.
 
-use std::collections::HashMap;
+use petgraph::graph::NodeIndex;
+use petgraph::visit::EdgeRef;
+use petgraph::Direction;
 
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, next_working_day, working_days_between,
 };
-use crate::graph::{get_dependency, successors, ProjectGraph};
+use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
 
 /// Compute total_float, free_float, and is_critical for every task (in-place).
+///
+/// Dense-index (#1535): tasks are carried in a `Vec<Task>` indexed by node
+/// position and each node's successors are read from its outgoing edges directly
+/// (`edge.target()` is the successor, `deps[*edge.weight()]` its dependency).
 pub fn compute_floats(
-    task_map: &mut HashMap<String, Task>,
-    topo_order: &[String],
+    tasks: &mut [Task],
+    topo_order: &[NodeIndex],
     pg: &ProjectGraph,
     deps: &[Dependency],
     calendar: &Calendar,
 ) -> Result<(), String> {
-    for node_id in topo_order {
-        let es = task_map[node_id].early_start.unwrap();
-        let ef = task_map[node_id].early_finish.unwrap();
-        let ls = task_map[node_id].late_start.unwrap();
+    for &idx in topo_order {
+        let i = idx.index();
+        let es = tasks[i].early_start.unwrap();
+        let ef = tasks[i].early_finish.unwrap();
+        let ls = tasks[i].late_start.unwrap();
 
         // Total float: working days between ES and LS.
         let tf_days = working_days_between(es, ls, calendar);
@@ -33,12 +40,12 @@ pub fn compute_floats(
         // `succ_date` is the successor's matching early date. Capped at total
         // float, which is also the value when there are no successors.
         let mut ff_days = tf_days;
-        let succs = successors(pg, node_id);
-        for succ_id in &succs {
-            let dep = get_dependency(pg, deps, node_id, succ_id);
+        for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let dep = &deps[*edge.weight()];
             let lag_days = dep.lag_days();
-            let succ_es = task_map[succ_id].early_start.unwrap();
-            let succ_ef = task_map[succ_id].early_finish.unwrap();
+            let succ = &tasks[edge.target().index()];
+            let succ_es = succ.early_start.unwrap();
+            let succ_ef = succ.early_finish.unwrap();
             let (imposed, succ_date) = match dep.dep_type {
                 DependencyType::FS => (
                     next_working_day(checked_offset_days(ef, 1 + lag_days)?, calendar)?,
@@ -53,7 +60,7 @@ pub fn compute_floats(
         }
         ff_days = ff_days.max(0);
 
-        let task = task_map.get_mut(node_id).unwrap();
+        let task = &mut tasks[i];
         task.total_float = tf_days as f64 * 86400.0;
         task.free_float = ff_days as f64 * 86400.0;
         task.is_critical = is_critical;

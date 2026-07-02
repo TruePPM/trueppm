@@ -3,13 +3,15 @@
 //! Used for drag preview: only recomputes tasks downstream of the changed task.
 //! Mirrors the BFS approach in `buildSubgraph.ts` combined with a forward pass.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
+
+use petgraph::graph::NodeIndex;
 
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
 use crate::graph::{build_graph, ProjectGraph};
-use crate::models::{Project, ScheduleResult, Task, TaskResult};
+use crate::models::{Project, ScheduleResult, TaskResult};
 
 /// Run an incremental update: override the changed task's start, then recompute
 /// the full CPM for the project (forward + backward + floats) and return only
@@ -31,24 +33,21 @@ pub fn incremental_update(
     // A stale changed_task_id (e.g. the task was deleted while a drag-preview was
     // in flight) would index-panic in bfs_downstream's `pg.node_index[&id]`,
     // trapping the WASM module (#1087). Reject it as a clean Err first.
-    if !pg.node_index.contains_key(changed_task_id) {
+    let Some(&changed_idx) = pg.node_index.get(changed_task_id) else {
         return Err(format!(
             "changed_task_id {changed_task_id:?} does not exist in the project."
         ));
-    }
+    };
 
-    // BFS to find downstream tasks (inclusive of the changed task)
-    let downstream = bfs_downstream(&pg, changed_task_id);
+    // BFS to find downstream tasks (inclusive of the changed task) — a dense
+    // `Vec<bool>` visited mask indexed by node position (#1535).
+    let downstream = bfs_downstream(&pg, changed_idx, project.tasks.len());
 
-    // Run full CPM
-    let mut task_map: HashMap<String, Task> = project
-        .tasks
-        .iter()
-        .map(|t| (t.id.clone(), t.clone()))
-        .collect();
+    // Run full CPM on a dense `Vec<Task>` indexed by node position (#1535).
+    let mut tasks: Vec<crate::models::Task> = project.tasks.clone();
 
     forward_pass(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -57,14 +56,10 @@ pub fn incremental_update(
         project.status_date,
     )?;
 
-    let project_finish = task_map
-        .values()
-        .filter_map(|t| t.early_finish)
-        .max()
-        .unwrap();
+    let project_finish = tasks.iter().filter_map(|t| t.early_finish).max().unwrap();
 
     backward_pass(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -73,7 +68,7 @@ pub fn incremental_update(
     )?;
 
     compute_floats(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -81,12 +76,12 @@ pub fn incremental_update(
     )?;
 
     // Collect results for downstream tasks only
-    let tasks: Vec<TaskResult> = pg
+    let task_results: Vec<TaskResult> = pg
         .topo_order
         .iter()
-        .filter(|id| downstream.contains(id.as_str()))
-        .map(|id| {
-            let t = &task_map[id];
+        .filter(|&&i| downstream[i.index()])
+        .map(|&i| {
+            let t = &tasks[i.index()];
             TaskResult {
                 id: t.id.clone(),
                 early_start: t.early_start.unwrap(),
@@ -102,47 +97,43 @@ pub fn incremental_update(
 
     // Deterministic, topologically-valid critical-path order keyed by
     // (early_start, id) — identical to the Python engine (#909).
-    let critical_path: Vec<String> = crate::graph::lexicographical_topo_order(&pg, &task_map)
+    let critical_path: Vec<String> = crate::graph::lexicographical_topo_order(&pg, &tasks)
         .into_iter()
-        .filter(|id| task_map[id].is_critical)
+        .filter(|&i| tasks[i.index()].is_critical)
+        .map(|i| tasks[i.index()].id.clone())
         .collect();
 
     // Earliest early_start across ALL tasks — mirrors Python and the full
     // schedule path; out-of-sequence actuals can move the minimum off
     // `topo_order[0]` (#1494).
-    let project_start = task_map
-        .values()
-        .filter_map(|t| t.early_start)
-        .min()
-        .unwrap();
+    let project_start = tasks.iter().filter_map(|t| t.early_start).min().unwrap();
 
     Ok(ScheduleResult {
         project_id: project.id.clone(),
         project_start,
         project_finish,
-        tasks,
+        tasks: task_results,
         critical_path,
     })
 }
 
-/// BFS forward from `start_id` to find all downstream task IDs (inclusive).
-fn bfs_downstream(pg: &ProjectGraph, start_id: &str) -> HashSet<String> {
-    let mut visited = HashSet::new();
+/// BFS forward from `start` to mark all downstream nodes (inclusive) in a dense
+/// `Vec<bool>` indexed by node position (#1535). `node_count` is `pg`'s node
+/// count, so the mask covers every task even those the BFS never reaches.
+fn bfs_downstream(pg: &ProjectGraph, start: NodeIndex, node_count: usize) -> Vec<bool> {
+    let mut visited = vec![false; node_count];
     let mut queue = VecDeque::new();
-    queue.push_back(start_id.to_string());
+    queue.push_back(start);
+    visited[start.index()] = true;
 
-    while let Some(id) = queue.pop_front() {
-        if !visited.insert(id.clone()) {
-            continue;
-        }
-        let idx = pg.node_index[&id];
+    while let Some(idx) = queue.pop_front() {
         for neighbor in pg
             .graph
             .neighbors_directed(idx, petgraph::Direction::Outgoing)
         {
-            let neighbor_id = pg.graph[neighbor].clone();
-            if !visited.contains(&neighbor_id) {
-                queue.push_back(neighbor_id);
+            if !visited[neighbor.index()] {
+                visited[neighbor.index()] = true;
+                queue.push_back(neighbor);
             }
         }
     }

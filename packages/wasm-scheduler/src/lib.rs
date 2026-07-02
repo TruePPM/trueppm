@@ -19,8 +19,6 @@ mod validate;
 // drag-preview recompute against a full schedule (#1505).
 pub use incremental::incremental_update;
 
-use std::collections::HashMap;
-
 use wasm_bindgen::prelude::*;
 
 use crate::backward::backward_pass;
@@ -74,14 +72,12 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
 
-    let mut task_map: HashMap<String, models::Task> = project
-        .tasks
-        .iter()
-        .map(|t| (t.id.clone(), t.clone()))
-        .collect();
+    // Tasks carried in a dense `Vec<Task>` indexed by node position — the passes
+    // index it by `NodeIndex::index()`, never by string id (#1535).
+    let mut tasks: Vec<models::Task> = project.tasks.clone();
 
     forward_pass(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -90,14 +86,14 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
         project.status_date,
     )?;
 
-    let project_finish = task_map
-        .values()
+    let project_finish = tasks
+        .iter()
         .filter_map(|t| t.early_finish)
         .max()
         .ok_or("No tasks with early_finish after forward pass")?;
 
     backward_pass(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -106,7 +102,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     )?;
 
     compute_floats(
-        &mut task_map,
+        &mut tasks,
         &pg.topo_order,
         &pg,
         &project.dependencies,
@@ -115,26 +111,23 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
 
     // Deterministic, topologically-valid critical-path order keyed by
     // (early_start, id) — identical to the Python engine (#909).
-    let critical_path: Vec<String> = graph::lexicographical_topo_order(&pg, &task_map)
+    let critical_path: Vec<String> = graph::lexicographical_topo_order(&pg, &tasks)
         .into_iter()
-        .filter(|id| task_map[id].is_critical)
+        .filter(|&i| tasks[i.index()].is_critical)
+        .map(|i| tasks[i.index()].id.clone())
         .collect();
 
     // The earliest early_start across ALL tasks — mirrors Python's
     // `min(t.early_start ...)`. `topo_order[0]` is normally the earliest, but
     // out-of-sequence actuals (a completed successor pinned before its
     // predecessor) can put the minimum on a later topo node (#1494).
-    let project_start = task_map
-        .values()
-        .filter_map(|t| t.early_start)
-        .min()
-        .unwrap();
+    let project_start = tasks.iter().filter_map(|t| t.early_start).min().unwrap();
 
     let tasks: Vec<TaskResult> = pg
         .topo_order
         .iter()
-        .map(|id| {
-            let t = &task_map[id];
+        .map(|&i| {
+            let t = &tasks[i.index()];
             TaskResult {
                 id: t.id.clone(),
                 early_start: t.early_start.unwrap(),
