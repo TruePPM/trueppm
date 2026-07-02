@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Program resource-contention view E2E (#1149).
@@ -86,6 +87,11 @@ async function setup(page: Page, contention: { status: number; body: unknown }) 
   });
   const pj = (data: unknown) => JSON.stringify(data);
 
+  // Catch-all 401-guard FIRST (last-registered-wins): the program shell + ⌘K
+  // palette read endpoints this spec does not mock (notifications, ws ticket,
+  // calendars, …) which would otherwise fall through to the real backend and
+  // 401 into the session-expired modal mid-test (issue 1572 / #1190 class).
+  await setupCatchAll(page);
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );

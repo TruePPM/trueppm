@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Project Settings → Members E2E (#144).
@@ -75,6 +76,13 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
 
   const pj = (data: unknown) => JSON.stringify(data);
 
+  // Catch-all 401-guard FIRST (ADR-0146): ProjectSettingsPage mounts every
+  // section on one scrolling page, so sibling sections (workflow, guardrails,
+  // integrations, notifications, …) fire their own endpoints too. Without this
+  // net those unmocked requests hit the preview server, 401, and trip the
+  // session-expired modal — which replaces the app and detaches the Members
+  // controls (issue 1572 / #1190 class). Specific routes below override it.
+  await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
   );
