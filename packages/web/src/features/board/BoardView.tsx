@@ -2290,6 +2290,12 @@ export function BoardView() {
 
   const handleMenuMove = useCallback(
     (task: Task, newStatus: TaskStatus) => {
+      // A closed-sprint board is read-only: drag is already disabled per card
+      // (useSortable disabled), but the keyboard "Move to…" menu is a second
+      // write path into the same status mutation. Guard it here so a closed
+      // sprint can never be mutated regardless of which affordance triggers the
+      // move — the banner alone was purely cosmetic (issue 1512).
+      if (readOnly) return;
       if (
         showWip &&
         newStatus !== task.status &&
@@ -2303,7 +2309,7 @@ export function BoardView() {
         ariaLiveRef.current.textContent = `${task.name} moved to ${colLabel}`;
       }
     },
-    [projectId, updateStatus, COLUMNS, showWip, totalByStatus],
+    [projectId, updateStatus, COLUMNS, showWip, totalByStatus, readOnly],
   );
 
   const handleAddTask = useCallback((phaseId: string, phaseName: string, isSynthetic = false) => {

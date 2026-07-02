@@ -160,7 +160,13 @@ test.describe('Project last-visited ping (#1182, ADR-0150)', () => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
     await page.waitForURL(new RegExp(`/projects/${PROJECT_ID}/overview`), { timeout: 10_000 });
 
-    await expect.poll(() => visits.length, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+    // The ping fires once on mount…
+    await expect.poll(() => visits.length, { timeout: 10_000 }).toBe(1);
+    // …and stays singular. Re-check after a settle window so a render-loop ping
+    // storm (an effect that re-fires on every re-render) fails instead of
+    // sliding through a `>= 1` assertion (issue 1512).
+    await page.waitForTimeout(750);
+    expect(visits.length).toBe(1);
     expect(visits.every((m) => m === 'POST')).toBe(true);
   });
 

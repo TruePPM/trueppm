@@ -273,13 +273,20 @@ test.describe('Sprint header buttons (#299)', () => {
     await expect.poll(() => closeBody?.carry_over_to).toBe('sp-planned');
   });
 
-  test('Activate → on the last planned card calls /activate/ and surfaces capacity warnings', async ({ page }) => {
+  test('Activate → on the last planned card activates it and the board reflects the ACTIVE transition', async ({ page }) => {
     let activateCalled = false;
     await setupCommon(page);
+    // Stateful sprints list — mirrors the live invalidate-then-refetch after
+    // activate (useSprintMutations invalidates ['sprints', projectId]). Before:
+    // Alpha ACTIVE, Bravo PLANNED. After activate advances the cadence: Alpha
+    // closes, Bravo becomes the sole active. A body-blind mock that returns
+    // PLANNED forever lets a deleted cache-invalidation ship green — the button
+    // stays "Activate →" and users double-activate (issue 1512).
+    let sprintsList: Array<Record<string, unknown>> = [ACTIVE_SPRINT, PLANNED_SPRINT];
     await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
       r.fulfill({
         status: 200, contentType: 'application/json',
-        body: JSON.stringify({ count: 2, next: null, previous: null, results: [ACTIVE_SPRINT, PLANNED_SPRINT] }),
+        body: JSON.stringify({ count: sprintsList.length, next: null, previous: null, results: sprintsList }),
       }),
     );
     await page.route(/\/api\/v1\/tasks\//, (r) =>
@@ -290,6 +297,10 @@ test.describe('Sprint header buttons (#299)', () => {
     );
     await page.route(/\/api\/v1\/sprints\/sp-planned\/activate\//, (r) => {
       activateCalled = true;
+      sprintsList = [
+        { ...ACTIVE_SPRINT, state: 'COMPLETED', closed_at: '2026-04-15T00:00:00Z' },
+        { ...PLANNED_SPRINT, state: 'ACTIVE', activated_at: '2026-04-15T00:00:00Z' },
+      ];
       return r.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({
@@ -310,6 +321,15 @@ test.describe('Sprint header buttons (#299)', () => {
     await activate.click();
 
     await expect.poll(() => activateCalled).toBe(true);
-    await expect(page.getByText(/Alice at 130%/)).toBeVisible();
+
+    // The UI reflects the ACTIVE transition after the refetch: Bravo has left the
+    // planned bucket, so its "Activate →" affordance is gone. This is the exact
+    // regression the issue names — a deleted cache-invalidation leaves the button
+    // reading "Activate →" and lets users double-activate. Asserting the request
+    // fired is not enough; this proves the list actually re-read and re-rendered.
+    // (The transient capacity-warning banner is intentionally cleared by
+    // SprintsView when the active sprint rolls over, so it is not asserted here —
+    // it only ever "persisted" under the old body-blind mock that never flipped.)
+    await expect(page.getByRole('button', { name: 'Activate →' })).toHaveCount(0, { timeout: 10_000 });
   });
 });

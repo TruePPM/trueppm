@@ -69,9 +69,15 @@ const FIXTURE_TASKS = [
 
 test.describe('Dependency cycle detection (#356)', () => {
   let depPostAttempts = 0;
+  // Capture the proposed edge so the test can assert the request actually
+  // carries the selected predecessor as predecessor, the new task as successor,
+  // and a concrete dep_type — a body-blind mock stays green when those are
+  // swapped or dropped (issue 1512).
+  let depPostBody: { predecessor?: string; successor?: string; dep_type?: string } | null = null;
 
   test.beforeEach(async ({ page }) => {
     depPostAttempts = 0;
+    depPostBody = null;
 
     await setupAuth(page);
     await setupCatchAll(page);
@@ -111,6 +117,11 @@ test.describe('Dependency cycle detection (#356)', () => {
     await page.route('**/api/v1/dependencies/**', (route) => {
       if (route.request().method() === 'POST') {
         depPostAttempts += 1;
+        depPostBody = route.request().postDataJSON() as {
+          predecessor?: string;
+          successor?: string;
+          dep_type?: string;
+        };
         return route.fulfill({
           status: 400,
           contentType: 'application/json',
@@ -164,5 +175,13 @@ test.describe('Dependency cycle detection (#356)', () => {
     // The single attempted POST got a 400; no further attempts persist a
     // cycle silently.
     expect(depPostAttempts).toBe(1);
+
+    // The proposed edge carries the real orientation: the selected task is the
+    // predecessor, the just-created task is the successor, and a concrete
+    // dep_type is sent. This is what makes the 400 the *server's* verdict on a
+    // genuine edge rather than a mock echoing a canned payload for any body.
+    expect(depPostBody?.predecessor).toBe('find-suppliers');
+    expect(depPostBody?.successor).toBe('new-task');
+    expect(depPostBody?.dep_type).toBe('FS');
   });
 });

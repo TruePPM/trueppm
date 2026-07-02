@@ -77,6 +77,9 @@ function task(id: string, name: string, sprint: string | null) {
 
 const IN_SPRINT = task('t-in', 'In the sprint', SPRINT_ID);
 const OUT_SPRINT = task('t-out', 'Not in the sprint', null);
+// A task inside the COMPLETED sprint so the closed-sprint board renders a card
+// whose write path can be exercised (and must stay blocked).
+const DONE_SPRINT_TASK = task('t-done', 'Done sprint task', DONE_SPRINT_ID);
 
 function sprintFixture(id: string, name: string, state: string) {
   return {
@@ -105,7 +108,7 @@ const SPRINTS = [
 ];
 
 async function setup(page: import('@playwright/test').Page) {
-  const tasks = [SUMMARY_TASK, IN_SPRINT, OUT_SPRINT];
+  const tasks = [SUMMARY_TASK, IN_SPRINT, OUT_SPRINT, DONE_SPRINT_TASK];
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -164,5 +167,52 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
 
     // A shared ?sprint= link to a COMPLETED sprint surfaces the read-only banner.
     await expect(page.getByText(/Closed sprint — read only/i)).toBeVisible();
+  });
+
+  test('closed sprint blocks the keyboard "Move to…" write path (#1141)', async ({ page }) => {
+    await setup(page);
+
+    // Spy every task PATCH. The read-only banner is cosmetic; the actual
+    // write-protection is that no status mutation may leave the board. The
+    // keyboard "Move to…" menu is a second write path alongside (disabled) drag,
+    // so it must be exercised — a banner-only assertion misses a regressed
+    // readOnly guard entirely (issue 1512).
+    let taskPatches = 0;
+    await page.route('**/api/v1/tasks/*/', (route) => {
+      if (route.request().method() === 'PATCH') {
+        taskPatches += 1;
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 't-done', status: 'COMPLETE' }),
+        });
+      }
+      return route.continue();
+    });
+
+    // The action button is opacity-0 until hover and the card lifts on hover —
+    // reduced motion removes the transform so the button settles as "stable".
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`${BASE_URL}/board?sprint=${DONE_SPRINT_ID}`);
+    await expect(page.getByText(/Closed sprint — read only/i)).toBeVisible();
+
+    const card = page.getByText('Done sprint task', { exact: true });
+    await expect(card).toBeVisible();
+    await card.hover();
+
+    // Open the card's action menu → Move to… → Done, then confirm the mutation
+    // never fired. The card carries aria-disabled (dnd-kit's sortable is disabled
+    // on a closed sprint), which Playwright reports as "not enabled" for its
+    // descendants — but the buttons still respond to a real click, so force past
+    // the advisory ARIA state to exercise the actual write path.
+    await page.getByRole('button', { name: 'Actions for Done sprint task' }).click({ force: true });
+    await page.getByRole('menuitem', { name: 'Move to…' }).click({ force: true });
+    await page.getByRole('menuitem', { name: 'Done' }).click({ force: true });
+
+    // Give any in-flight PATCH a window to arrive, then assert none did.
+    await page.waitForTimeout(500);
+    expect(taskPatches).toBe(0);
+    // The card stays put on the closed board.
+    await expect(page.getByText('Done sprint task', { exact: true })).toBeVisible();
   });
 });
