@@ -1300,11 +1300,15 @@ wasm:conformance:
   stage: test
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
   needs:
-    - scheduler:lint
-    # wasm:lint is optional: this job also fires on scheduler-only changes
-    # (where wasm:lint is skipped). Without optional, GitLab fails the whole
-    # pipeline with "needs job does not exist" the moment an MR touches
-    # scheduler but not wasm-scheduler.
+    # Both needs are optional: this job fires on scheduler OR wasm-scheduler
+    # changes, but scheduler:lint only fires on scheduler changes and
+    # wasm:lint only fires on wasm-scheduler changes. A wasm-scheduler-only
+    # MR schedules conformance + wasm:lint but not scheduler:lint (and vice
+    # versa for a scheduler-only MR). Without optional on both, GitLab fails
+    # the whole pipeline with "needs job does not exist" the moment either
+    # side is scheduled without the other.
+    - job: scheduler:lint
+      optional: true
     - job: wasm:lint
       optional: true
   rules:
