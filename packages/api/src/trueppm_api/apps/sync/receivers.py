@@ -39,7 +39,10 @@ which neither the union nor the column counts.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import threading
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from django.db import models
@@ -52,6 +55,15 @@ from django.db.models.signals import post_save
 #: the indirection costs no extra round-trip).
 Resolver = Callable[[Any], Iterable[Any]]
 
+# Per-thread accumulator for the coalesced-bump context (see
+# ``coalesce_watermark_bumps``). ``None`` outside a batch context, so the receiver
+# behaves exactly as before for every non-batch save.
+_batch_state = threading.local()
+
+
+def _active_accumulator() -> list[tuple[list[Any], int]] | None:
+    return getattr(_batch_state, "active", None)
+
 
 def _bump(project_ids: Iterable[Any], server_version: int) -> None:
     from trueppm_api.apps.projects.models import Project
@@ -59,6 +71,67 @@ def _bump(project_ids: Iterable[Any], server_version: int) -> None:
     Project.objects.filter(pk__in=project_ids).update(
         last_sync_version=Greatest(F("last_sync_version"), Value(server_version))
     )
+
+
+def _flush(accumulated: list[tuple[list[Any], int]]) -> None:
+    """Apply every deferred bump as a minimal set of ``Greatest`` UPDATEs.
+
+    The per-row receiver issues one ``UPDATE projects_project`` per saved row; a
+    500-row sync batch therefore re-locked and re-updated the same project row 500
+    times inside one transaction (#1527). ``Greatest`` is monotonic, so the final
+    ``last_sync_version`` depends only on each project's *maximum* server_version —
+    we collapse to that max per project, then group projects that share a max so
+    the common single-project batch issues exactly ONE UPDATE. The outcome is
+    identical to the per-row path.
+    """
+    if not accumulated:
+        return
+    from trueppm_api.apps.projects.models import Project
+
+    # server_version is always >= 1, so 0 is a safe "unseen" floor.
+    project_max: dict[Any, int] = {}
+    for project_ids, version in accumulated:
+        for pid in project_ids:
+            if version > project_max.get(pid, 0):
+                project_max[pid] = version
+
+    by_version: dict[int, list[Any]] = defaultdict(list)
+    for pid, version in project_max.items():
+        by_version[version].append(pid)
+
+    for version, pids in by_version.items():
+        Project.objects.filter(pk__in=pids).update(
+            last_sync_version=Greatest(F("last_sync_version"), Value(version))
+        )
+
+
+@contextmanager
+def coalesce_watermark_bumps() -> Iterator[None]:
+    """Defer per-row watermark UPDATEs and flush them as one coalesced set on exit.
+
+    Wrap a batch apply (the sync upload loop) in this context so the per-model
+    ``post_save`` receivers accumulate ``(project_ids, server_version)`` instead of
+    issuing an ``UPDATE projects_project`` per row; a single ``Greatest`` UPDATE per
+    project is issued when the block exits normally (see :func:`_flush`), removing
+    the write amplification (#1527).
+
+    The flush runs *inside* the caller's transaction (before the ``with`` block
+    exits), so a rollback still discards the watermark, exactly as the per-row
+    receiver did. On an exception the block propagates without flushing — the
+    transaction rolls back and no watermark is written, which is the correct
+    all-or-nothing behavior. Re-entrancy is a no-op: a nested call shares the
+    outermost accumulator so bumps flush once.
+    """
+    if _active_accumulator() is not None:
+        yield
+        return
+    accumulator: list[tuple[list[Any], int]] = []
+    _batch_state.active = accumulator
+    try:
+        yield
+        _flush(accumulator)
+    finally:
+        _batch_state.active = None
 
 
 def register_watermark_receivers() -> None:
@@ -116,6 +189,14 @@ def register_watermark_receivers() -> None:
                 # mid-fixture-load, so skip — the backfill migration / a later
                 # real save establishes the value.
                 if kwargs.get("raw"):
+                    return
+                accumulator = _active_accumulator()
+                if accumulator is not None:
+                    # Inside a batch context: defer the UPDATE and coalesce (#1527).
+                    # Resolve owner ids now (the direct-FK resolvers used on the sync
+                    # hot path are free; indirect ones would have run as a subquery
+                    # anyway) and stash them with this row's server_version.
+                    accumulator.append((list(resolve(instance)), instance.server_version))
                     return
                 _bump(resolve(instance), instance.server_version)
 

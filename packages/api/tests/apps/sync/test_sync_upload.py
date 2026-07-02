@@ -534,6 +534,136 @@ def test_existing_row_lookup_is_a_single_bulk_fetch(
 
 
 # ---------------------------------------------------------------------------
+# Write-amplification regression (#1527)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_bulk_upload_watermark_updates_project_once(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A multi-row batch issues ONE watermark UPDATE, not one per row (#1527).
+
+    The per-row ``post_save`` watermark receiver used to UPDATE projects_project
+    once per saved task, re-locking the same project row N times inside the batch
+    transaction. ``coalesce_watermark_bumps`` now folds them into a single
+    ``Greatest`` UPDATE. Ten updated rows must produce exactly one watermark write.
+    """
+    tasks = [Task.objects.create(project=project, name=f"T{i}") for i in range(10)]
+    payload = _payload(
+        updated=[{"id": str(t.pk), "notes": f"note {i}"} for i, t in enumerate(tasks)]
+    )
+    with CaptureQueriesContext(connection) as ctx:
+        resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200
+
+    watermark_updates = [
+        q
+        for q in ctx.captured_queries
+        if 'UPDATE "projects_project"' in q["sql"] and "last_sync_version" in q["sql"]
+    ]
+    assert len(watermark_updates) == 1
+
+
+@pytest.mark.django_db
+def test_bulk_upload_server_version_increment_uses_returning(
+    admin_client: APIClient, project: Project
+) -> None:
+    """Each row's server_version bump is one ``UPDATE ... RETURNING`` (#1527).
+
+    Previously VersionedModel.save() did ``update(server_version=F(...) + 1)`` then a
+    separate ``values_list(...).get()`` refetch — two queries per row. It is now a
+    single statement, so a five-row update batch produces five RETURNING updates and
+    no separate server_version refetch.
+    """
+    tasks = [Task.objects.create(project=project, name=f"T{i}") for i in range(5)]
+    payload = _payload(
+        updated=[{"id": str(t.pk), "notes": f"note {i}"} for i, t in enumerate(tasks)]
+    )
+    with CaptureQueriesContext(connection) as ctx:
+        resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200
+
+    returning_bumps = [
+        q
+        for q in ctx.captured_queries
+        if 'UPDATE "projects_task"' in q["sql"]
+        and "server_version" in q["sql"]
+        and "RETURNING" in q["sql"]
+    ]
+    assert len(returning_bumps) == 5
+
+
+@pytest.mark.django_db
+def test_bulk_batch_versions_and_watermark_are_correct(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A 50-row mixed batch yields the same versions + watermark as the per-row path.
+
+    #1527 must not change any observable value. Created rows land at
+    server_version 1; updated rows (created at 1) advance to 2; the denormalized
+    ``Project.last_sync_version`` must equal both the batch max and the
+    authoritative union snapshot.
+    """
+    from trueppm_api.apps.sync.views import ProjectSyncView
+
+    existing = [Task.objects.create(project=project, name=f"E{i}") for i in range(25)]
+    created_ids = [str(uuid.uuid4()) for _ in range(25)]
+    payload = _payload(
+        created=[{"id": cid, "name": f"C{i}"} for i, cid in enumerate(created_ids)],
+        updated=[{"id": str(t.pk), "notes": f"u{i}"} for i, t in enumerate(existing)],
+    )
+    resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200
+
+    for cid in created_ids:
+        assert Task.objects.get(pk=cid).server_version == 1
+    for t in existing:
+        t.refresh_from_db()
+        assert t.server_version == 2
+
+    project.refresh_from_db()
+    assert project.last_sync_version == 2
+    assert project.last_sync_version == ProjectSyncView._snapshot_max_version(project)
+    assert resp.json()["timestamp"] == 2
+
+
+@pytest.mark.django_db
+def test_versioned_save_default_path_still_probes_existence() -> None:
+    """Outside a sync batch, save() still runs the exists() probe (unchanged path).
+
+    #1527 only skips the probe when the caller passes ``known_exists`` (or Django's
+    ``force_insert``). The default path must be byte-for-byte identical for every
+    other caller, so an update of a loaded row still issues the disambiguating
+    ``SELECT ... LIMIT 1`` probe. Uses Calendar — a VersionedModel that does not
+    override save() — to isolate the base behavior from Task's own probes.
+    """
+    cal = Calendar.objects.create(name="Cal")
+    cal.name = "Cal2"
+    with CaptureQueriesContext(connection) as ctx:
+        cal.save()
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    assert any(s.lstrip().startswith("SELECT") and " LIMIT 1" in s for s in sqls)
+    assert any("RETURNING" in s and "server_version" in s for s in sqls)
+
+
+@pytest.mark.django_db
+def test_versioned_save_known_exists_skips_probe() -> None:
+    """``save(known_exists=True)`` skips the exists() probe but still increments (#1527)."""
+    cal = Calendar.objects.create(name="Cal")
+    start = cal.server_version
+    cal.name = "Cal2"
+    with CaptureQueriesContext(connection) as ctx:
+        cal.save(known_exists=True)
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    assert not any(s.lstrip().startswith("SELECT") and " LIMIT 1" in s for s in sqls)
+    assert any("RETURNING" in s and "server_version" in s for s in sqls)
+    cal.refresh_from_db()
+    assert cal.name == "Cal2"
+    assert cal.server_version == start + 1
+
+
+# ---------------------------------------------------------------------------
 # Cross-project IDOR in the created (upsert) bucket (#887)
 # ---------------------------------------------------------------------------
 

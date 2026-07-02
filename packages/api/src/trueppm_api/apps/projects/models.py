@@ -104,16 +104,51 @@ class VersionedModel(models.Model):
     class Meta:
         abstract = True
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        # Increment server_version atomically on every save (INSERT and UPDATE).
+    def save(self, *args: Any, known_exists: bool | None = None, **kwargs: Any) -> None:
+        """Increment ``server_version`` atomically on every save (INSERT and UPDATE).
+
+        Args:
+            known_exists: When the caller already knows whether this row exists in
+                the database, pass ``True``/``False`` to skip the ``exists()`` probe
+                this method otherwise runs to disambiguate INSERT from UPDATE. The
+                sync upload holds a batched ``existing_by_id`` map, so it knows the
+                state per row and passes it to avoid one query per row (#1527).
+                Leave ``None`` (the default) for the authoritative probe — behavior
+                is then byte-for-byte identical to every non-sync caller.
+
+        On the UPDATE path the increment and read-back are a single
+        ``UPDATE ... RETURNING`` round-trip (see
+        :meth:`_increment_server_version_returning`), preserving the prior atomic
+        ``F()`` semantics — concurrent writers serialize on the row lock and get a
+        strict version order — while removing the separate refetch query (#1527).
+        """
         manager = type(self).objects  # type: ignore[attr-defined]
-        if self.pk and manager.filter(pk=self.pk).exists():
-            # UPDATE path: atomically increment via F() expression so concurrent
-            # writes produce a strict version order rather than a lost-update race.
-            manager.filter(pk=self.pk).update(server_version=models.F("server_version") + 1)
-            self.server_version = manager.values_list("server_version", flat=True).get(pk=self.pk)
+        # DRF's serializer.save() cannot forward an extra save() kwarg down to the
+        # model, so the sync upload marks the instance instead; the marker is a
+        # fallback source for ``known_exists`` and is scoped to the one instance it
+        # is set on, so it cannot leak into a nested save of a different row.
+        if known_exists is None:
+            known_exists = getattr(self, "_sync_known_exists", None)
+
+        if kwargs.get("force_insert"):
+            # Django/DRF ``create()`` always passes ``force_insert=True`` — this is
+            # unambiguously an INSERT, so never spend a query probing for a row that
+            # cannot yet exist (a duplicate pk would raise IntegrityError anyway).
+            is_update = False
+        elif known_exists is not None:
+            is_update = known_exists
+        else:
+            is_update = bool(self.pk) and manager.filter(pk=self.pk).exists()
+
+        if is_update:
+            # UPDATE path: atomically increment and read back the new value in one
+            # round-trip so concurrent writes produce a strict version order rather
+            # than a lost-update race.
+            self._increment_server_version_returning()
             # Exclude server_version from the subsequent UPDATE so super().save()
-            # does not overwrite the increment applied above via F() expression.
+            # does not overwrite the increment applied and read back above. Passing
+            # update_fields also forces Django to UPDATE (not INSERT) even when the
+            # instance was constructed fresh with an explicit pk.
             if kwargs.get("update_fields") is not None:
                 kwargs["update_fields"] = [
                     f for f in kwargs["update_fields"] if f != "server_version"
@@ -130,6 +165,50 @@ class VersionedModel(models.Model):
             self.server_version = 1
         super().save(*args, **kwargs)
 
+    def _increment_server_version_returning(self) -> None:
+        """Atomically ``server_version += 1`` and read the new value in one round-trip.
+
+        Folds the previous two-query dance (``update(server_version=F(...) + 1)``
+        then a ``values_list(...).get()`` refetch) into a single
+        ``UPDATE ... RETURNING`` statement (#1527). The increment stays one SQL
+        expression evaluated under the row write lock, so concurrent writers still
+        serialize and produce a strict version order — the lost-update guarantee is
+        unchanged; only the redundant refetch query is removed.
+
+        Table and column names come from the model ``_meta`` (not user input) and
+        are passed through the backend's identifier quoter, so the interpolated SQL
+        is safe; the pk is bound as a parameter.
+        """
+        from django.db import connections, router
+
+        model = type(self)
+        connection = connections[router.db_for_write(model, instance=self)]
+        quote = connection.ops.quote_name
+        pk_field = model._meta.pk
+        version_column = model._meta.get_field("server_version").column
+        # A concrete model always has a pk and both columns bound to real DB names;
+        # narrow the stub-broadened ``str | None`` so the quoted identifiers are str.
+        assert pk_field is not None and pk_field.column is not None
+        assert version_column is not None
+        table = quote(model._meta.db_table)
+        version_col = quote(version_column)
+        pk_col = quote(pk_field.column)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                # Table/column names come from model _meta and are quoted via
+                # connection.ops.quote_name (not user input); the pk is bound
+                # as a parameter below.
+                f"UPDATE {table} SET {version_col} = {version_col} + 1 "  # nosec B608
+                f"WHERE {pk_col} = %s RETURNING {version_col}",
+                [self.pk],
+            )
+            row = cursor.fetchone()
+        # ``row`` is None only if the pk vanished between the caller's existence
+        # check and this UPDATE (e.g. a concurrent hard delete). Leave
+        # server_version untouched; super().save()'s UPDATE then no-ops too.
+        if row is not None:
+            self.server_version = row[0]
+
     def soft_delete(self) -> None:
         """Mark the row as deleted and increment server_version.
 
@@ -137,7 +216,9 @@ class VersionedModel(models.Model):
         return its ID in the 'deleted' tombstone list to mobile clients.
         """
         self.is_deleted = True
-        self.save()
+        # A row being soft-deleted was, by definition, loaded from the DB, so the
+        # UPDATE path is known — skip the exists() probe (#1527).
+        self.save(known_exists=True)
         # Record the version at which deletion occurred for GC purposes.
         type(self).objects.filter(pk=self.pk).update(  # type: ignore[attr-defined]
             deleted_version=self.server_version

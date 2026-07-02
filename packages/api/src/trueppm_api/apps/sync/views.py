@@ -374,6 +374,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         from trueppm_api.apps.scheduling.services import enqueue_recalculate
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
         from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
+        from trueppm_api.apps.sync.receivers import coalesce_watermark_bumps
         from trueppm_api.apps.sync.upload import apply_task_changes
 
         with transaction.atomic():
@@ -383,9 +384,13 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 actor_user=request.user,  # type: ignore[misc]
                 status=SyncBatchStatus.PENDING,
             )
-            applied = apply_task_changes(
-                project=project, request=request, role=role, changes=changes
-            )
+            # Coalesce the per-row watermark UPDATEs into one Greatest UPDATE for the
+            # whole batch (#1527); the flush runs inside this atomic block so a
+            # rollback still discards the watermark.
+            with coalesce_watermark_bumps():
+                applied = apply_task_changes(
+                    project=project, request=request, role=role, changes=changes
+                )
             body = {
                 "client_batch_id": str(client_batch_id),
                 "applied": {
