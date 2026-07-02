@@ -122,7 +122,7 @@ class CookieTokenObtainPairView(TokenObtainPairView):
         serializer = TokenObtainPairSerializer(data=request.data)
         try:
             serializer.is_valid(raise_exception=True)
-        except TokenError as exc:  # pragma: no cover - simplejwt maps to 401 below
+        except TokenError as exc:
             raise InvalidToken(exc.args[0]) from exc
 
         # Password-login policy seam (ADR-0187 §4). OSS always allows password

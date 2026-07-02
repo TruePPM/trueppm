@@ -225,6 +225,42 @@ def test_flush_expired_blacklisted_tokens_task_runs(user) -> None:
     assert result["status"] == "ok"
 
 
+def test_login_maps_serializer_tokenerror_to_invalid_token(monkeypatch) -> None:
+    """A ``TokenError`` raised during login validation is re-raised as ``InvalidToken``.
+
+    #1516: pins the defense-in-depth error mapping in ``CookieTokenObtainPairView.post``.
+    simplejwt's login serializer normally raises ``AuthenticationFailed`` on bad
+    credentials, but a token-construction failure surfaces as ``TokenError``; the
+    view must translate it to ``InvalidToken`` (HTTP 401) rather than let a raw
+    500 escape. Reached by direct call because no HTTP request naturally drives
+    this branch.
+    """
+    from rest_framework.parsers import JSONParser
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+    from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+
+    from trueppm_api.core import auth_views
+
+    class _RaisingSerializer:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def is_valid(self, raise_exception: bool = False) -> bool:
+            raise TokenError("token construction failed")
+
+    monkeypatch.setattr(auth_views, "TokenObtainPairSerializer", _RaisingSerializer)
+
+    raw = APIRequestFactory().post(_LOGIN_URL, {"username": "x", "password": "y"}, format="json")
+    request = Request(raw, parsers=[JSONParser()])
+
+    with pytest.raises(InvalidToken) as excinfo:
+        auth_views.CookieTokenObtainPairView().post(request)
+
+    # simplejwt's InvalidToken maps to a 401 through DRF's exception handler.
+    assert excinfo.value.status_code == 401
+
+
 def test_login_openapi_schema_omits_phantom_refresh_field() -> None:
     """#997: the generated OpenAPI login response must NOT declare a ``refresh``
     field. The body only ever carries ``access`` (refresh is an httpOnly cookie),

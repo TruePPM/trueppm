@@ -106,7 +106,7 @@ class IntegrationCredentialViewSet(
         impossible by construction.
         """
         user = self.request.user
-        if not user.is_authenticated:  # pragma: no cover — IsAuthenticated guards
+        if not user.is_authenticated:
             return IntegrationCredential.objects.none()
         return IntegrationCredential.objects.filter(user=user)
 
@@ -278,7 +278,7 @@ class TaskLinkViewSet(
         ``TaskAttachmentViewSet``.
         """
         user = self.request.user
-        if not user.is_authenticated:  # pragma: no cover — IsAuthenticated guards
+        if not user.is_authenticated:
             return TaskLink.objects.none()
         project_pk = self.kwargs["project_pk"]
         task_pk = self.kwargs["task_pk"]
@@ -407,7 +407,7 @@ class TaskLinkViewSet(
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         user = request.user
-        if not user.is_authenticated:  # pragma: no cover — IsProjectMember guards
+        if not user.is_authenticated:
             return Response(status=status.HTTP_403_FORBIDDEN)
 
         link = self.get_object()
