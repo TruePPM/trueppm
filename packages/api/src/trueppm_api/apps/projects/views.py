@@ -73,6 +73,7 @@ from trueppm_api.apps.access.permissions import (
     McpReadableViewMixin,
     ProjectScopedViewSet,
     TokenHasScope,
+    can_user_edit_task,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -5335,6 +5336,24 @@ class TaskBulkView(IdempotencyMixin, APIView):
 
                 elif op_type == "update":
                     task = locked_tasks[op["id"]]
+                    # Enforce the SAME per-task ownership rule the single-task
+                    # TaskViewSet.update path applies via IsProjectMemberWriteOrOwn
+                    # (ADR-0133 can_user_edit_task): Admin+ edit any task, a Member
+                    # only their own assigned task, PO the EPIC/STORY items. Without
+                    # this a plain Member could bulk-edit tasks assigned to others,
+                    # bypassing the check enforced everywhere else (#1548). Non-
+                    # editable tasks 403 the whole request, mirroring the delete
+                    # branch below so both bulk ops behave consistently.
+                    if not can_user_edit_task(request, task, method="PATCH"):
+                        return Response(
+                            {
+                                "operations": [
+                                    "You do not have permission to edit one or more tasks "
+                                    "in this batch."
+                                ]
+                            },
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
                     serializer_ctx = {"request": request, "caller_role": caller_role}
                     task_serializer = TaskSerializer(
                         task, data=data, partial=True, context=serializer_ctx
