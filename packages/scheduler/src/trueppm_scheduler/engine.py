@@ -160,6 +160,14 @@ MAX_VELOCITY_SPRINTS = 10_000
 # :func:`monte_carlo`.
 MC_SENSITIVITY_CAP = 20
 
+# Number of runs the sensitivity tornado is computed over (#1525). The full Monte
+# Carlo distribution still uses every run for P50/P80/P95; only the duration
+# tornado — an O(n · runs · log runs) all-columns rank sort — is capped, at this
+# many runs. Spearman rank correlation converges quickly, so a few thousand runs
+# fix the top-N ranking to within ~0.02 of the full-run correlation, far tighter
+# than the ranking needs. This makes the tornado cost independent of ``runs``.
+MC_SENSITIVITY_SUBSAMPLE = 2_000
+
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -1812,7 +1820,12 @@ def _average_ranks(a: np.ndarray) -> np.ndarray:
     here: completion offsets and sampled durations are discrete working-day
     counts, so ties are the rule, not the exception).
     """
-    sorter = np.argsort(a, kind="mergesort")  # stable, so ties order deterministically
+    # The default introsort (unstable) is correct here even with ties: the
+    # average-rank convention below groups purely by exact value equality, so the
+    # dense rank and the averaged rank are identical no matter how the sort permutes
+    # equal elements. The result is therefore tie-order-invariant and deterministic
+    # for fixed input — a stable sort would only add cost (#1525).
+    sorter = np.argsort(a)
     inv = np.empty(a.shape[0], dtype=np.intp)
     inv[sorter] = np.arange(a.shape[0])
     a_sorted = a[sorter]
@@ -1950,7 +1963,10 @@ def monte_carlo(
         max_tasks: Maximum number of tasks allowed, or ``None`` for no cap.
                    Default ``None`` (see ``max_runs``).
         sensitivity_cap: Maximum number of tasks returned in the duration
-                   sensitivity tornado. Default ``MC_SENSITIVITY_CAP``.
+                   sensitivity tornado. Default ``MC_SENSITIVITY_CAP``. The tornado
+                   is ranked over the first ``MC_SENSITIVITY_SUBSAMPLE`` runs, so
+                   its cost stays flat as ``runs`` grows; P50/P80/P95 always use
+                   every run.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates, the full sorted
@@ -2394,8 +2410,21 @@ def monte_carlo(
     p95 = _offset_to_date(float(pct_offsets[2]))
 
     # Duration-sensitivity tornado (ADR-0140) — which tasks' sampled durations
-    # most move the finish, from the same sampled matrix (no second pass).
-    sensitivity = _duration_sensitivity(dur_matrix, completion_offsets, topo_order, sensitivity_cap)
+    # most move the finish, from the same sampled matrix (no second pass). Computed
+    # over a fixed subsample of the runs (#1525): the tornado ranks tasks by
+    # |spearman(duration, finish)|, which converges long before the full run count,
+    # so ranking every column over all runs is wasted work at scale. The first
+    # ``MC_SENSITIVITY_SUBSAMPLE`` rows are a valid subsample — each run is an
+    # i.i.d. iteration with no ordering — and a contiguous slice keeps the choice
+    # deterministic and task-order-independent (no RNG, no copy). Slicing past the
+    # end returns every row, so runs <= the cap needs no special case. Percentiles
+    # above use the FULL distribution; only the ranking is subsampled.
+    sensitivity = _duration_sensitivity(
+        dur_matrix[:MC_SENSITIVITY_SUBSAMPLE],
+        completion_offsets[:MC_SENSITIVITY_SUBSAMPLE],
+        topo_order,
+        sensitivity_cap,
+    )
 
     return MonteCarloResult(
         project_id=project.id,

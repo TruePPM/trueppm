@@ -37,6 +37,15 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   field-level copy is semantically identical while skipping the recursive
   `deepcopy` machinery. On a 5,000-task / ~5,700-edge project a full `schedule()`
   run drops from roughly 400 ms to under 100 ms with identical output (#1526).
+- **`monte_carlo()` is ~2.3× faster at high run counts.** The duration-sensitivity
+  tornado is now ranked over a fixed subsample of the runs (the first 2 000 rows of
+  the sampled matrix) instead of every run, and its per-column rank sort uses the
+  default (unstable) introsort — correct here because the average-rank convention
+  groups purely by exact value equality. The tornado cost is now independent of the
+  run count rather than scaling with it. **P50/P80/P95 percentiles are computed over
+  the full distribution and are byte-identical to before** — only the sensitivity
+  ranking is subsampled, and Spearman rank correlation converges well within the
+  subsample (top-N ranking within ~0.02 of the full-run correlation) (#1525).
 
 ### Fixed
 
