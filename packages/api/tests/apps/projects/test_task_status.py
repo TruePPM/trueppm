@@ -460,9 +460,21 @@ def test_explicit_status_overrides_auto_review(
     member_client: APIClient,
     project: Project,
     task: Task,
+    member_user: object,
     member_membership: ProjectMembership,
 ) -> None:
-    """If the caller explicitly sends status=COMPLETE, the auto-REVIEW logic does not override."""
+    """If the caller explicitly sends status=COMPLETE, the auto-REVIEW logic does not override.
+
+    PATCHing the shared **unassigned** ``task`` fixture with ``member_client``
+    would 403 (a MEMBER cannot edit an unassigned task per
+    ``can_user_edit_task``), which would leave any assertion after the request
+    unreachable. Assigning the task to ``member_user`` (and giving it a
+    ``planned_start`` so the percent_complete progress-anchor gate, ADR-0057
+    Q5, doesn't itself 400 a non-ADMIN caller) lets the PATCH reach the
+    serializer so the assertion below is unconditional.
+    """
+    task.assignee = member_user
+    task.planned_start = date(2026, 4, 1)
     task.status = TaskStatus.IN_PROGRESS
     task.save()
     with (
@@ -474,13 +486,9 @@ def test_explicit_status_overrides_auto_review(
             {"percent_complete": 100, "status": "COMPLETE"},
             format="json",
         )
-    # Permission may reject this depending on RBAC — what we assert is that
-    # if the request reaches the serializer, an explicit status wins. If the
-    # permission layer denies this entirely, the test still pins behavior:
-    # auto-REVIEW only fires when status was NOT in the payload.
-    if r.status_code == 200:
-        task.refresh_from_db()
-        assert task.status == TaskStatus.COMPLETE
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.status == TaskStatus.COMPLETE
 
 
 @pytest.mark.django_db
@@ -488,6 +496,7 @@ def test_backlog_progress_100_does_not_auto_promote(
     member_client: APIClient,
     project: Project,
     task: Task,
+    member_user: object,
     member_membership: ProjectMembership,
 ) -> None:
     """A BACKLOG card with percent_complete=100 stays BACKLOG.
@@ -495,7 +504,12 @@ def test_backlog_progress_100_does_not_auto_promote(
     Promotion from idea to delivery is a manual decision — a contributor
     setting progress on an uncommitted idea should not skip past TO DO and
     IN_PROGRESS into REVIEW silently.
+
+    See ``test_explicit_status_overrides_auto_review`` docstring — assigned
+    + anchored so the MEMBER PATCH actually reaches the serializer.
     """
+    task.assignee = member_user
+    task.planned_start = date(2026, 4, 1)
     task.status = TaskStatus.BACKLOG
     task.save()
     with (
@@ -505,9 +519,9 @@ def test_backlog_progress_100_does_not_auto_promote(
         r = member_client.patch(
             f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json"
         )
-    if r.status_code == 200:
-        task.refresh_from_db()
-        assert task.status == TaskStatus.BACKLOG
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.status == TaskStatus.BACKLOG
 
 
 @pytest.mark.django_db
@@ -515,9 +529,16 @@ def test_review_card_with_progress_100_stays_review(
     member_client: APIClient,
     project: Project,
     task: Task,
+    member_user: object,
     member_membership: ProjectMembership,
 ) -> None:
-    """A card already in REVIEW does not flip back when percent_complete is set to 100."""
+    """A card already in REVIEW does not flip back when percent_complete is set to 100.
+
+    See ``test_explicit_status_overrides_auto_review`` docstring — assigned
+    + anchored so the MEMBER PATCH actually reaches the serializer.
+    """
+    task.assignee = member_user
+    task.planned_start = date(2026, 4, 1)
     task.status = TaskStatus.REVIEW
     task.percent_complete = 80.0
     task.save()
@@ -528,9 +549,9 @@ def test_review_card_with_progress_100_stays_review(
         r = member_client.patch(
             f"/api/v1/tasks/{task.pk}/", {"percent_complete": 100}, format="json"
         )
-    if r.status_code == 200:
-        task.refresh_from_db()
-        assert task.status == TaskStatus.REVIEW
+    assert r.status_code == 200, r.content
+    task.refresh_from_db()
+    assert task.status == TaskStatus.REVIEW
 
 
 # ---------------------------------------------------------------------------

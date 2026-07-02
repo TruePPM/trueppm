@@ -709,6 +709,28 @@ def test_activate_only_from_planned(member_client: APIClient, project: Project) 
     assert resp.status_code == 400
 
 
+def test_viewer_cannot_activate(viewer_client: APIClient, project: Project) -> None:
+    # activate/close/cancel are top-level detail routes (no project_pk kwarg),
+    # so IsProjectMemberWrite defers to has_object_permission via
+    # self.check_object_permissions(request, sprint) inside the action itself
+    # (ADR-0037) — a Viewer (role 0 < MEMBER) is rejected there, not at
+    # has_permission. A Viewer able to mutate committed_points/state here
+    # would be a real RBAC hole; by inspection this is not one.
+    s = _make_sprint(project)
+    resp = viewer_client.post(f"/api/v1/sprints/{s.pk}/activate/")
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.PLANNED
+
+
+def test_stranger_cannot_activate(stranger_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = stranger_client.post(f"/api/v1/sprints/{s.pk}/activate/")
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.PLANNED
+
+
 # ---------------------------------------------------------------------------
 # Cancel
 # ---------------------------------------------------------------------------
@@ -726,6 +748,22 @@ def test_cancel_active_rejected(member_client: APIClient, project: Project) -> N
     s = _make_sprint(project, state=SprintState.ACTIVE)
     resp = member_client.post(f"/api/v1/sprints/{s.pk}/cancel/")
     assert resp.status_code == 400
+
+
+def test_viewer_cannot_cancel(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = viewer_client.post(f"/api/v1/sprints/{s.pk}/cancel/")
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.PLANNED
+
+
+def test_stranger_cannot_cancel(stranger_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = stranger_client.post(f"/api/v1/sprints/{s.pk}/cancel/")
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.PLANNED
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +820,26 @@ def test_close_rejects_carry_over_to_other_project(
         format="json",
     )
     assert resp.status_code == 400
+
+
+def test_viewer_cannot_close(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = viewer_client.post(
+        f"/api/v1/sprints/{s.pk}/close/", {"carry_over_to": "backlog"}, format="json"
+    )
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.ACTIVE
+
+
+def test_stranger_cannot_close(stranger_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = stranger_client.post(
+        f"/api/v1/sprints/{s.pk}/close/", {"carry_over_to": "backlog"}, format="json"
+    )
+    assert resp.status_code == 403
+    s.refresh_from_db()
+    assert s.state == SprintState.ACTIVE
 
 
 # ---------------------------------------------------------------------------
