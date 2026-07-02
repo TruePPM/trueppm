@@ -9146,7 +9146,7 @@ class MeActiveSprintsView(APIView):
 
     def get(self, request: Request) -> Response:
         from trueppm_api.apps.projects.services import (
-            capacity_summary,
+            capacity_summaries_for_sprints,
             velocity_summary,
         )
 
@@ -9172,7 +9172,7 @@ class MeActiveSprintsView(APIView):
 
         sprints = list(
             Sprint.objects.filter(pk__in=sprint_ids, is_deleted=False)
-            .select_related("project", "target_milestone")
+            .select_related("project", "project__calendar", "target_milestone")
             # Prefetch the most-recent burn snapshot per sprint so the loop
             # below can read `sprint._latest_snapshot` without one extra query
             # per sprint.  to_attr names the list; we take [0] when non-empty.
@@ -9185,6 +9185,11 @@ class MeActiveSprintsView(APIView):
             )
             .order_by("project__name")
         )
+
+        # One TaskResource query for every sprint's capacity instead of one per
+        # sprint (#1012); project__calendar is select_related above so the shared
+        # capacity helper's calendar read doesn't re-introduce a per-sprint query.
+        capacities = capacity_summaries_for_sprints(sprints)
 
         today = timezone.localdate()
         results: list[dict[str, Any]] = []
@@ -9200,7 +9205,7 @@ class MeActiveSprintsView(APIView):
             ideal_now = committed * (1 - day / window) if window > 0 else 0
             trend_pts = round(ideal_now - remaining)  # positive = ahead
 
-            cap = capacity_summary(sprint)
+            cap = capacities[sprint.pk]
             project_id = str(sprint.project_id)
             if project_id not in velocity_cache:
                 velocity_cache[project_id] = velocity_summary(sprint.project_id)
