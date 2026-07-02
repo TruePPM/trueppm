@@ -3,15 +3,54 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { renderWithRouter } from '@/test/utils';
+import { useAuthStore } from '@/stores/authStore';
+import { queryClient } from '@/lib/queryClient';
+import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { LoginPage, loginRedirectDest } from './LoginPage';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
 
+// Stub useNavigate so the success-path tests can assert the post-login
+// destination without depending on the MemoryRouter actually swapping routes
+// (renderWithRouter's single catch-all "*" route renders the same element
+// regardless of where navigate() sends it).
+const mockNavigate = vi.fn();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
+function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
+  return {
+    id: 'user-1',
+    username: 'anna@example.com',
+    display_name: 'Anna Khoury',
+    initials: 'AK',
+    email: 'anna@example.com',
+    max_project_role: 300,
+    workspace_role: 100,
+    can_access_admin_settings: false,
+    default_landing: 'auto',
+    landing: { intent: 'my_work', path: '/me/work', resolved_by: 'role_policy' },
+    hidden_views: [],
+    role_context: 'unified',
+    ...overrides,
+  };
+}
+
 // useNavigate and useSearchParams come from the MemoryRouter in renderWithRouter.
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockNavigate.mockClear();
+    useAuthStore.setState({
+      accessToken: null,
+      isAuthenticated: false,
+      sessionExpired: false,
+      _hasHydrated: true,
+    });
+    queryClient.clear();
   });
 
   it('renders the brand, email field, password field, and sign-in button', () => {
@@ -90,6 +129,57 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent('unexpected error');
     });
+  });
+
+  it('completes sign-in: stores the token, seeds the me cache, and navigates to the resolved landing', async () => {
+    const currentUser = makeCurrentUser({
+      landing: { intent: 'project_overview', path: '/projects/abc/overview', resolved_by: 'role_policy' },
+    });
+    mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
+    mockedAxios.get.mockResolvedValueOnce({ data: currentUser });
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'correct-horse');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/projects/abc/overview', { replace: true });
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/auth/token/', {
+      username: 'anna@example.com',
+      password: 'correct-horse',
+      remember_me: false,
+    });
+    expect(useAuthStore.getState().accessToken).toBe('minted-token');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(queryClient.getQueryData(['current-user'])).toEqual(currentUser);
+  });
+
+  it('completes sign-in and falls back to the root path when the me fetch fails', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
+    mockedAxios.get.mockRejectedValueOnce(new Error('me fetch failed'));
+
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+    await user.type(screen.getByLabelText('Password'), 'correct-horse');
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    // Sign-in still completes — a failed `me` fetch must not block login. There
+    // is no landing path to defer to, so navigation falls through to `/`
+    // (RootRedirect resolves the real landing once `me` lands in the cache).
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+    });
+
+    expect(useAuthStore.getState().accessToken).toBe('minted-token');
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    expect(queryClient.getQueryData(['current-user'])).toBeUndefined();
   });
 
   it('shows SSO tooltip when SSO button is clicked', async () => {
