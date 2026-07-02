@@ -6,8 +6,39 @@
 
 use chrono::{Datelike, Duration, NaiveDate};
 
-use crate::models::Calendar;
+use crate::models::{Calendar, DateRange, Task};
 use crate::validate::MAX_CALENDAR_SCAN_DAYS;
+
+/// Build the sorted, merged exception index used by [`Calendar::is_working_day`].
+///
+/// Each `DateRange` becomes an inclusive `[start_ord, end_ord]` pair of
+/// proleptic-Gregorian day ordinals; the ranges are sorted and coalesced so the
+/// result is disjoint and ascending, letting the containment test binary-search
+/// instead of scanning every exception per day (#1534). An inverted range
+/// (`start > end`) matches no day in the original `start <= d <= end` test, so it
+/// is dropped here — preserving byte-identical results.
+fn build_exception_index(exceptions: &[DateRange]) -> Vec<(i32, i32)> {
+    let mut ranges: Vec<(i32, i32)> = exceptions
+        .iter()
+        .map(|e| (e.start.num_days_from_ce(), e.end.num_days_from_ce()))
+        .filter(|(s, e)| s <= e)
+        .collect();
+    ranges.sort_unstable();
+    let mut merged: Vec<(i32, i32)> = Vec::with_capacity(ranges.len());
+    for (s, e) in ranges {
+        // Coalesce overlapping OR day-adjacent ranges: for integer day ordinals
+        // `[1,5]` and `[6,10]` cover every day in `[1,10]` with no gap, so
+        // `s <= last.end + 1` is a safe merge that never swallows an uncovered day.
+        if let Some(last) = merged.last_mut() {
+            if s <= last.1 + 1 {
+                last.1 = last.1.max(e);
+                continue;
+            }
+        }
+        merged.push((s, e));
+    }
+    merged
+}
 
 /// Error raised when a calendar walk cannot reach a working day within the
 /// scan bound (the calendar's exceptions blanket the schedule), or when the
@@ -41,16 +72,99 @@ pub fn checked_offset_days(d: NaiveDate, days: i64) -> Result<NaiveDate, String>
 
 impl Calendar {
     /// Returns true if `d` is a working day (in the weekly mask and not an exception).
+    ///
+    /// The exception test binary-searches a lazily-built, sorted-and-merged index
+    /// (memoized on first use) rather than scanning `exceptions` linearly, so the
+    /// CPM passes cost O(log X) per day-check instead of O(X) (#1534). The result
+    /// is identical to the linear `d >= exc.start && d <= exc.end` test — only the
+    /// lookup strategy changed.
     pub fn is_working_day(&self, d: NaiveDate) -> bool {
         // NaiveDate::weekday(): Mon=0 .. Sun=6 (via .num_days_from_monday())
         let weekday_bit = d.weekday().num_days_from_monday();
         if (self.working_days >> weekday_bit) & 1 == 0 {
             return false;
         }
-        !self
-            .exceptions
-            .iter()
-            .any(|exc| d >= exc.start && d <= exc.end)
+        let index = self
+            .exception_index
+            .get_or_init(|| build_exception_index(&self.exceptions));
+        let ord = d.num_days_from_ce();
+        // Rightmost merged range whose start is <= ord; `ord` is an exception iff
+        // that range also covers it (ord <= its end).
+        let pos = index.partition_point(|&(start, _)| start <= ord);
+        let covered = pos > 0 && ord <= index[pos - 1].1;
+        !covered
+    }
+}
+
+/// O(log span) working-day span counts over a fixed date range (#1534).
+///
+/// [`working_days_between`] is an O(span) day loop, and `compute_floats` calls it
+/// twice per successor link, so the float pass was O((V+E)·span·X). This
+/// precomputes the sorted proleptic-Gregorian ordinals of every working day in
+/// `[lo, hi]` once (the Rust counterpart to the Python engine's
+/// `_WorkingDayCounter`); [`WorkingDayCounter::between`] then counts a span with
+/// two binary searches.
+///
+/// `between(start, end)` reproduces [`working_days_between`] *exactly* — working
+/// days in `[start, end)` — as `partition_point(end) - partition_point(start)`
+/// (the array holds exactly the working days, so `o < end` excludes `end` and
+/// `o < start` includes `start`). The scalar function stays the conformance
+/// reference: a span that falls outside the built range falls back to it, so a
+/// miscovered range can never silently miscount.
+pub struct WorkingDayCounter<'a> {
+    ords: Vec<i32>,
+    lo_ord: i32,
+    hi_ord: i32,
+    cal: &'a Calendar,
+}
+
+impl<'a> WorkingDayCounter<'a> {
+    /// Build a counter covering every working day in the inclusive range spanned
+    /// by the tasks' resolved dates (`min early_start` .. `max late_finish`) — the
+    /// range every `compute_floats` span query lands in. An empty or inverted
+    /// range yields an always-fall-back counter.
+    pub fn build(tasks: &[Task], cal: &'a Calendar) -> Self {
+        let lo = tasks.iter().filter_map(|t| t.early_start).min();
+        let hi = tasks.iter().filter_map(|t| t.late_finish).max();
+        let mut ords: Vec<i32> = Vec::new();
+        let (lo_ord, hi_ord) = match (lo, hi) {
+            (Some(lo), Some(hi)) if hi >= lo => {
+                let mut current = lo;
+                while current <= hi {
+                    if cal.is_working_day(current) {
+                        ords.push(current.num_days_from_ce());
+                    }
+                    current += Duration::days(1);
+                }
+                (lo.num_days_from_ce(), hi.num_days_from_ce())
+            }
+            // Sentinel empty range: lo_ord > hi_ord forces every query to fall back.
+            _ => (0, -1),
+        };
+        Self {
+            ords,
+            lo_ord,
+            hi_ord,
+            cal,
+        }
+    }
+
+    /// Count working days in `[start, end)`; identical to [`working_days_between`].
+    pub fn between(&self, start: NaiveDate, end: NaiveDate) -> i32 {
+        if end <= start {
+            return 0;
+        }
+        let s_ord = start.num_days_from_ce();
+        let e_ord = end.num_days_from_ce();
+        // `[start, end)` counts working days up to `end - 1`; the indexed answer is
+        // valid only when the whole span lies inside the built range. Otherwise
+        // defer to the scalar reference (defensive — callers stay within span).
+        if s_ord < self.lo_ord || e_ord - 1 > self.hi_ord {
+            return working_days_between(start, end, self.cal);
+        }
+        let lo = self.ords.partition_point(|&o| o < s_ord);
+        let hi = self.ords.partition_point(|&o| o < e_ord);
+        (hi - lo) as i32
     }
 }
 
@@ -263,5 +377,118 @@ mod tests {
         let cal = weekday_cal();
         let start = NaiveDate::from_ymd_opt(2026, 3, 30).unwrap();
         assert_eq!(finish_from_start(start, 0, &cal).unwrap(), start);
+    }
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    /// Reference implementation of the pre-#1534 linear exception test, to assert
+    /// the merged-index `is_working_day` is byte-identical over a scan of days.
+    fn is_working_day_linear(cal: &Calendar, day: NaiveDate) -> bool {
+        let weekday_bit = day.weekday().num_days_from_monday();
+        if (cal.working_days >> weekday_bit) & 1 == 0 {
+            return false;
+        }
+        !cal.exceptions.iter().any(|e| day >= e.start && day <= e.end)
+    }
+
+    #[test]
+    fn test_is_working_day_index_matches_linear_scan_with_overlaps() {
+        // Overlapping, adjacent, unsorted, and inverted exception ranges — the
+        // merged index must agree with the linear scan on every day across a
+        // two-month window (#1534).
+        let cal = Calendar {
+            exceptions: vec![
+                DateRange { start: d(2026, 4, 10), end: d(2026, 4, 20) }, // base
+                DateRange { start: d(2026, 4, 15), end: d(2026, 4, 25) }, // overlaps
+                DateRange { start: d(2026, 4, 26), end: d(2026, 4, 26) }, // day-adjacent
+                DateRange { start: d(2026, 4, 1), end: d(2026, 4, 3) },   // earlier, unsorted
+                DateRange { start: d(2026, 5, 5), end: d(2026, 5, 4) },   // inverted → no-op
+            ],
+            ..Calendar::default()
+        };
+        let mut day = d(2026, 3, 20);
+        let end = d(2026, 5, 20);
+        while day <= end {
+            assert_eq!(
+                cal.is_working_day(day),
+                is_working_day_linear(&cal, day),
+                "mismatch on {day}"
+            );
+            day += Duration::days(1);
+        }
+    }
+
+    fn task_spanning(id: &str, es: NaiveDate, lf: NaiveDate) -> Task {
+        Task {
+            id: id.to_string(),
+            name: id.to_string(),
+            duration: 86400.0,
+            planned_start: None,
+            planned_finish: None,
+            early_start: Some(es),
+            early_finish: Some(es),
+            late_start: Some(lf),
+            late_finish: Some(lf),
+            total_float: 0.0,
+            free_float: 0.0,
+            is_critical: false,
+            percent_complete: 0.0,
+            actual_start: None,
+            actual_finish: None,
+            optimistic_duration: None,
+            most_likely_duration: None,
+            pessimistic_duration: None,
+        }
+    }
+
+    #[test]
+    fn test_working_day_counter_matches_scalar_in_range() {
+        let cal = Calendar {
+            exceptions: vec![DateRange { start: d(2026, 4, 10), end: d(2026, 4, 17) }],
+            ..Calendar::default()
+        };
+        // Range spanned by the tasks: [2026-04-01, 2026-05-01].
+        let tasks = vec![
+            task_spanning("A", d(2026, 4, 1), d(2026, 5, 1)),
+            task_spanning("B", d(2026, 4, 6), d(2026, 4, 20)),
+        ];
+        let counter = WorkingDayCounter::build(&tasks, &cal);
+        // Every in-range [start, end) pair must equal the scalar reference.
+        let lo = d(2026, 4, 1);
+        let hi = d(2026, 5, 1);
+        let mut a = lo;
+        while a <= hi {
+            let mut b = a;
+            while b <= hi {
+                assert_eq!(
+                    counter.between(a, b),
+                    working_days_between(a, b, &cal),
+                    "counter/scalar mismatch for [{a}, {b})"
+                );
+                b += Duration::days(1);
+            }
+            a += Duration::days(1);
+        }
+    }
+
+    #[test]
+    fn test_working_day_counter_falls_back_out_of_range() {
+        let cal = weekday_cal();
+        let tasks = vec![task_spanning("A", d(2026, 4, 6), d(2026, 4, 10))];
+        let counter = WorkingDayCounter::build(&tasks, &cal);
+        // A span starting before lo and one ending after hi both defer to the
+        // scalar reference and must still be exact.
+        let before = (d(2026, 3, 1), d(2026, 4, 8));
+        let after = (d(2026, 4, 8), d(2026, 6, 1));
+        assert_eq!(
+            counter.between(before.0, before.1),
+            working_days_between(before.0, before.1, &cal)
+        );
+        assert_eq!(
+            counter.between(after.0, after.1),
+            working_days_between(after.0, after.1, &cal)
+        );
     }
 }

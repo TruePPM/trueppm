@@ -4,6 +4,8 @@
 //! Field names, JSON serialization format, and semantics must stay in sync
 //! with the Python implementation — the shared fixture suite enforces this.
 
+use std::cell::OnceCell;
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -168,6 +170,14 @@ pub struct Calendar {
     pub hours_per_day: f64,
     #[serde(default = "default_timezone")]
     pub timezone: String,
+    /// Memoized, sorted-and-merged exception day-ordinal ranges, built lazily on
+    /// the first `is_working_day` call so the exception test is O(log X) instead
+    /// of an O(X) linear scan per day across the CPM passes (#1534). Not part of
+    /// the wire format — `#[serde(skip)]` keeps it out of the shared JSON that the
+    /// conformance fixtures compare, and it defaults to empty (rebuilt on demand)
+    /// after any deserialize or clone.
+    #[serde(skip)]
+    pub(crate) exception_index: OnceCell<Vec<(i32, i32)>>,
 }
 
 fn default_working_days() -> u8 {
@@ -187,6 +197,7 @@ impl Default for Calendar {
             exceptions: Vec::new(),
             hours_per_day: default_hours_per_day(),
             timezone: default_timezone(),
+            exception_index: OnceCell::new(),
         }
     }
 }
