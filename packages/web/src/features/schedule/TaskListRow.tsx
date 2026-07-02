@@ -20,6 +20,7 @@ import {
   type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
 import { formatRelative } from '@/lib/formatRelative';
+import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
@@ -43,7 +44,13 @@ interface Props {
   visible: ColumnWidths['visible'];
   hasChildren?: boolean;
   isExpanded?: boolean;
-  onToggle?: () => void;
+  /**
+   * Collapse/expand callback. Takes the task id so the parent can pass its own
+   * stable handler directly instead of wrapping it in a per-row closure — a
+   * fresh closure per render defeated this memoized row's shallow compare and
+   * re-rendered every visible row on every virtualizer scroll frame (issue 1521).
+   */
+  onToggleId?: (id: string) => void;
   /** Previous visible task id — null at the top. Drives ArrowUp navigation. */
   prevTaskId?: string | null;
   /** Next visible task id — null at the bottom. Drives ArrowDown navigation. */
@@ -93,11 +100,16 @@ interface Props {
 const REORDER_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt';
 
+// Route row start/finish dates through the shared cached UTC formatter
+// (lib/formatUtcDate). WHY: building a fresh Intl.DateTimeFormat per row per
+// scroll frame is wasteful (issue 1521), and pinning UTC keeps the list in
+// agreement with the timeline / MC surfaces on the displayed day (ADR-0144).
+// fmtUtcShort returns the raw input when unparseable; collapse that to an em
+// dash to preserve the row's prior empty/invalid rendering.
 function formatDate(iso: string): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const formatted = fmtUtcShort(iso);
+  return formatted === iso ? '—' : formatted;
 }
 
 /**
@@ -143,7 +155,7 @@ function TaskListRowInner({
   visible,
   hasChildren = false,
   isExpanded = false,
-  onToggle,
+  onToggleId,
   prevTaskId = null,
   nextTaskId = null,
   dimmed = false,
@@ -722,7 +734,7 @@ function TaskListRowInner({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onToggle?.();
+              onToggleId?.(task.id);
             }}
             aria-expanded={isExpanded}
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
@@ -1232,6 +1244,11 @@ function TaskListRowInner({
  *     data changes).
  *   - `onHoverChange` / `onAddDependencyRequest` are stable (useState setter
  *     and useCallback).
+ *   - `onToggleId` takes the task id, so the parent passes its own stable
+ *     handler straight through instead of a per-row `() => onToggle(id)`
+ *     closure. The closure form allocated a fresh function every render,
+ *     failing this shallow compare and re-rendering every visible row on every
+ *     virtualizer scroll frame (issue 1521).
  *   - `dimmed` is the boolean that does change per hover — that's the prop
  *     we actually want re-renders to track.
  */

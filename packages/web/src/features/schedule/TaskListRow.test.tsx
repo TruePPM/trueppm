@@ -27,7 +27,7 @@ const base: Task = {
 const defaultTreeProps = {
   hasChildren: false,
   isExpanded: false,
-  onToggle: vi.fn(),
+  onToggleId: vi.fn(),
 };
 
 describe('truncateWbsPath', () => {
@@ -393,7 +393,7 @@ describe('TaskListRow', () => {
         widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={false}
-        onToggle={toggleFn}
+        onToggleId={toggleFn}
       />,
     );
     expect(screen.getByLabelText(/Expand Design Phase/i)).toBeInTheDocument();
@@ -407,7 +407,7 @@ describe('TaskListRow', () => {
         widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={true}
-        onToggle={vi.fn()}
+        onToggleId={vi.fn()}
       />,
     );
     expect(screen.getByLabelText(/Collapse Design Phase/i)).toBeInTheDocument();
@@ -424,11 +424,13 @@ describe('TaskListRow', () => {
         widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={false}
-        onToggle={toggleFn}
+        onToggleId={toggleFn}
       />,
     );
     await userEvent.click(screen.getByLabelText(/Expand Design Phase/i));
     expect(toggleFn).toHaveBeenCalledTimes(1);
+    // The row passes its own task id so the parent handler stays stable (issue 1521).
+    expect(toggleFn).toHaveBeenCalledWith(base.id);
     // Should not toggle selection (stopPropagation)
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
