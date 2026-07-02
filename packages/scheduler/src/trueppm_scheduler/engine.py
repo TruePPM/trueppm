@@ -1900,11 +1900,16 @@ def monte_carlo(
     :func:`schedule` — a fully deterministic project (no estimates,
     no velocity signal) simulates to precisely the CPM finish date.
 
-    Per-task calendars are **not** honored here: Monte Carlo samples every task
-    on the pass-level ``project.calendar``. ``Task.calendar_id`` /
-    ``Project.calendars`` affect only the deterministic :func:`schedule` pass; a
-    project carrying them simulates as though every task shared the project
-    calendar.
+    Per-task calendars (ADR-0120 D3) are **not** honored here: the vectorised pass
+    shares one project-wide working-day index and one set of lag-delta arrays across
+    every task and run, and :func:`schedule` gets per-task calendars "for free" only
+    because its forward/backward passes stay in scalar ``date`` arithmetic per node.
+    Rather than silently simulate a ``Project.calendars`` project on the wrong
+    calendar (P50/P80/P95 disagreeing with :func:`schedule` with no error), a
+    project that declares a non-empty ``calendars`` registry is rejected outright —
+    see ``Raises`` below. Cross-project/program projects that need calendar-aware
+    probabilistic bands must wait for that support; deterministic :func:`schedule`
+    is unaffected and already honors ``Project.calendars`` in full.
     Computation is vectorised with numpy:
     10 000 runs on a 200-task project completes in well under 100 ms, so the
     library imposes **no** run or task cap by default — ``monte_carlo(project,
@@ -1938,11 +1943,26 @@ def monte_carlo(
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If the calendar has no working day, a duration
             or lag is negative/out of range, the project has no tasks,
-            ``runs`` is less than 1, or ``seed`` is not a non-negative int
-            or ``None``.
+            ``runs`` is less than 1, ``seed`` is not a non-negative int or
+            ``None``, or the project declares a non-empty ``calendars``
+            registry (per-task calendars are not honored by this pass — see
+            the note above).
     """
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
+    if project.calendars:
+        # ADR-0120 D3: schedule() resolves a per-task calendar for every node
+        # (_resolve_task_calendars); this vectorised pass shares one working-day
+        # index and one lag-delta table across all tasks, so it cannot honor them.
+        # Simulating anyway would silently disagree with schedule() on P50/P80/P95
+        # (issue #1566) — reject loudly instead of guessing on the wrong calendar.
+        raise InvalidScheduleInput(
+            "monte_carlo() does not support per-task calendars (Project.calendars "
+            f"declares {len(project.calendars)} calendar(s)). Per-task calendars are "
+            "honored by schedule() only; remove Project.calendars/Task.calendar_id "
+            "to run a Monte Carlo simulation on this project, or simulate the "
+            "sub-project(s) individually on their own calendar."
+        )
     # seed is passed straight to np.random.default_rng(seed); a negative int raises
     # a bare numpy ValueError and a float/non-int a bare TypeError, both escaping the
     # documented SchedulerError contract for a documented public parameter (#1453).
@@ -2191,14 +2211,48 @@ def monte_carlo(
         status_floor = float(sd_off) if sd_off is not None else float(len(wd_index) - 1)
 
     def _completed_offsets(t: Task) -> tuple[float, float]:
-        """Constant (ES, exclusive-EF) offset pair for a completed task."""
-        assert t.actual_finish is not None
-        fin_wd = _prev_working_day(t.actual_finish, calendar)
-        fin_off = offset_of.get(fin_wd)
-        if fin_off is None:
-            ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
-        else:
-            ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
+        """Constant (ES, exclusive-EF) offset pair for a completed task (ADR-0136).
+
+        Mirrors the three completed-task branches of ``_forward_pass`` (issue
+        #1565) so ``schedule()`` and ``monte_carlo()`` agree on every combination
+        of actuals, not only when ``actual_finish`` is set:
+
+        1. ``actual_finish`` recorded: the finish is truth; the start is the
+           recorded ``actual_start`` if present, else a full duration back from
+           the finish.
+        2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting
+           sign-off): the full duration lays forward from the known start.
+        3. No actuals at all (``percent_complete >= 100`` alone): the full
+           duration lays forward from the *un-floored* project start —
+           ``wd_index[0]``/offset 0, the same ``start_base`` anchor
+           ``_forward_pass`` uses for this case. Unlike ``_forward_pass``, this
+           does not additionally fold in predecessor/``planned_start``
+           constraints: those can vary per Monte Carlo run, which would break
+           the constant-offset pin this fast path relies on, so a completed
+           task chained after an unresolved predecessor is out of scope here
+           (an inherently anomalous data state — a completed task is not
+           expected to depend on incomplete work).
+        """
+        full_days = t.duration.days
+        if t.actual_finish is not None:
+            fin_wd = _prev_working_day(t.actual_finish, calendar)
+            fin_off = offset_of.get(fin_wd)
+            if fin_off is None:
+                ef_off = 0.0 if fin_wd < wd_index[0] else float(len(wd_index) - 1)
+            else:
+                ef_off = float(fin_off + 1)  # exclusive EF: one past the inclusive last day
+            if t.actual_start is not None:
+                st_wd = _next_working_day(t.actual_start, calendar)
+                st_off = offset_of.get(st_wd)
+                es_off = (
+                    float(st_off)
+                    if st_off is not None
+                    else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
+                )
+                es_off = min(es_off, ef_off)
+            else:
+                es_off = max(0.0, ef_off - 1.0)
+            return es_off, ef_off
         if t.actual_start is not None:
             st_wd = _next_working_day(t.actual_start, calendar)
             st_off = offset_of.get(st_wd)
@@ -2207,23 +2261,23 @@ def monte_carlo(
                 if st_off is not None
                 else (0.0 if st_wd < wd_index[0] else float(len(wd_index) - 1))
             )
-            es_off = min(es_off, ef_off)
-        else:
-            es_off = max(0.0, ef_off - 1.0)
-        return es_off, ef_off
+            return es_off, es_off + float(full_days)
+        # No actuals: full duration anchored at the un-floored project start.
+        return 0.0, float(full_days)
 
-    # Completed tasks are pinned to their actuals with zero variance — not
-    # re-sampled. In-progress tasks have a fixed elapsed portion subtracted from
-    # every sampled duration, so only the *remaining* work carries uncertainty
-    # (and a deterministic in-progress task still simulates to exactly its CPM
-    # finish, preserving that invariant). ``elapsed_days`` uses the same integer
-    # rule as _effective_duration_days so the two engines agree.
+    # Completed tasks (_is_complete: actual_finish set, or percent_complete >=
+    # 100 even with no actuals recorded) are pinned to a constant offset pair —
+    # not re-sampled. In-progress tasks have a fixed elapsed portion subtracted
+    # from every sampled duration, so only the *remaining* work carries
+    # uncertainty (and a deterministic in-progress task still simulates to
+    # exactly its CPM finish, preserving that invariant). ``elapsed_days`` uses
+    # the same integer rule as _effective_duration_days so the two engines agree.
     completed_offsets: dict[str, tuple[float, float]] = {
-        t.id: _completed_offsets(t) for t in task_map.values() if t.actual_finish is not None
+        t.id: _completed_offsets(t) for t in task_map.values() if _is_complete(t)
     }
     elapsed_days: dict[str, float] = {}
     for t in task_map.values():
-        if t.actual_finish is None and t.percent_complete and t.percent_complete > 0:
+        if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
             elapsed_days[t.id] = float(
                 int(t.duration.days * min(t.percent_complete, 100.0) / 100.0)
             )

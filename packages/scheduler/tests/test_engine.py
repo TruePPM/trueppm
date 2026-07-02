@@ -1462,6 +1462,26 @@ class TestCompletedFullDuration:
         assert t.total_float == timedelta(0)  # done => no slack
         assert t.is_critical
 
+    def test_monte_carlo_agrees_with_schedule_on_completed_without_actuals(self) -> None:
+        """monte_carlo() must pin a percent_complete=100/no-actual task to the same
+        full-duration span schedule() computes, not collapse it to a single working
+        day (issue #1565 — the two public entry points previously disagreed by 4
+        working days on this exact input). The project is fully deterministic (no
+        PERT/velocity inputs), so every Monte Carlo run — and therefore P50/P80/P95
+        and the whole distribution — must land on precisely the CPM finish."""
+        p = make_project(
+            [task("A", "A", 5, percent_complete=100.0)],
+            start=date(2026, 3, 2),  # Monday
+        )
+        det = schedule(p).tasks[0]
+        assert det.early_finish == date(2026, 3, 6)  # Fri — full 5 working days
+
+        mc = monte_carlo(p, runs=50, seed=0)
+        assert mc.p50 == det.early_finish
+        assert mc.p80 == det.early_finish
+        assert mc.p95 == det.early_finish
+        assert all(d == det.early_finish for d in mc.distribution)
+
     def test_completed_without_actuals_drives_successor(self) -> None:
         """A completed-but-undated task still anchors its FS successor from its
         resolved (full-duration) early finish."""
