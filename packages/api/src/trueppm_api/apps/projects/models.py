@@ -47,7 +47,11 @@ def validate_working_day_mask(value: int) -> None:
 # CPM path can never produce misleading user-attributed audit rows.
 # Fields excluded from django-simple-history tracking on all versioned models.
 # CPM output fields only exist on Task; Project and Dependency use the base list.
-_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version"]
+# ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
+# tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
+# ``is_deleted`` transition it accompanies is already captured in history, and
+# excluded_fields silently no-ops for models that don't declare the field.
+_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version", "deleted_at"]
 _HISTORY_EXCLUDED_TASK = [
     *_HISTORY_EXCLUDED_BASE,
     "early_start",
