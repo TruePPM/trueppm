@@ -7,7 +7,7 @@
  * - The rAF loop parks itself (cancels its own reschedule) once idle — no
  *   pending repaint flag and no active drag/pan gesture — instead of looping
  *   at 60fps forever. Every mutator that sets a repaint flag re-arms it via
- *   `_requestRepaint()` (#1569).
+ *   `_requestRepaint()` (issue 1569).
  * - Row virtualisation — only paints visible rows + 5-row overscan (rule 61).
  * - devicePixelRatio scaling applied once at init and on ResizeObserver (rule 62).
  * - prefers-reduced-motion evaluated at init and on media query change (rule 70).
@@ -165,7 +165,7 @@ export class GanttEngineImpl implements GanttEngine {
   private _isDestroyed = false;
   private _hasEmittedReady = false;
   // True once the interaction canvas has content drawn to it that a later,
-  // gesture-idle tick still needs to clear (#1569). Lets the tick skip
+  // gesture-idle tick still needs to clear (issue 1569). Lets the tick skip
   // `_paintInteraction`/`_clearIxCanvas` entirely while genuinely idle instead
   // of clearRect-ing an already-blank canvas at 60fps.
   private _ixDirty = false;
@@ -504,7 +504,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._isDark = dark;
     setRendererColorMode(dark);
     this._fullRepaintPending = true;
-    // The rAF loop may be parked (#1569) — re-arm it so the next tick actually
+    // The rAF loop may be parked (issue 1569) — re-arm it so the next tick actually
     // runs and picks up the pending full repaint.
     this._requestRepaint();
   }
@@ -543,7 +543,7 @@ export class GanttEngineImpl implements GanttEngine {
     fsm.reset();
     this._clearIxCanvas();
     // The gesture ended synchronously here — nothing left for the tick to
-    // clear on a follow-up frame (#1569).
+    // clear on a follow-up frame (issue 1569).
     this._ixDirty = false;
     this._updateCursor(null);
   }
@@ -734,7 +734,7 @@ export class GanttEngineImpl implements GanttEngine {
   /**
    * Re-arms the rAF loop if it is currently parked.
    *
-   * The loop cancels its own reschedule once idle (#1569) — an open, static
+   * The loop cancels its own reschedule once idle (issue 1569) — an open, static
    * Gantt must not pin the compositor at 60fps with an unconditional
    * `clearRect`. Every mutator that flips a repaint flag (or starts a
    * drag/pan gesture) calls this so the next paint isn't stranded waiting for
@@ -749,7 +749,7 @@ export class GanttEngineImpl implements GanttEngine {
     if (this._isDestroyed) return;
     // Consume this frame's id up front; re-armed at the bottom only if work
     // remains. Parking here (rather than always rescheduling) is what lets an
-    // idle Gantt stop running entirely instead of spinning at 60fps (#1569).
+    // idle Gantt stop running entirely instead of spinning at 60fps (issue 1569).
     this._rafId = 0;
 
     if (!this._scales) {
@@ -791,7 +791,7 @@ export class GanttEngineImpl implements GanttEngine {
     // Interaction layer: paint (and mark dirty) only while a drag/resize
     // gesture is actually live. Once idle, clear once more if the last frame
     // left something drawn, then stop touching this canvas — an idle Gantt
-    // must not clearRect the full viewport every frame (#1569). Note that
+    // must not clearRect the full viewport every frame (issue 1569). Note that
     // pointerup/pointercancel/cancelDrag already clear synchronously and reset
     // `_ixDirty`, so this branch is normally a no-op safety net, not the
     // primary cleanup path.
@@ -1112,7 +1112,7 @@ export class GanttEngineImpl implements GanttEngine {
     const result = this._dragFSM.onPointerMove(x, y);
     if (result !== 'none') {
       // The FSM just entered (or is continuing) DRAG_STARTED/DRAGGING/RESIZING
-      // — the tick may be parked (#1569), and nothing else marks a repaint
+      // — the tick may be parked (issue 1569), and nothing else marks a repaint
       // flag for the interaction-canvas drag shadow, so wake it explicitly.
       this._requestRepaint();
     }
@@ -1194,7 +1194,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._ixCanvas.releasePointerCapture(e.pointerId);
     this._clearIxCanvas();
     // The gesture ended synchronously here — nothing left for the tick to
-    // clear on a follow-up frame (#1569).
+    // clear on a follow-up frame (issue 1569).
     this._ixDirty = false;
     this._updateCursor(null);
   };

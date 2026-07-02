@@ -207,7 +207,7 @@ export function drawGridLines(
   ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
 
-  // Vertical lines: walk 1-day steps across the VISIBLE window only (#1570).
+  // Vertical lines: walk 1-day steps across the VISIBLE window only (issue 1570).
   // A multi-year project at day/week zoom has thousands of day-steps between
   // scales.start and scales.end; since _onScroll marks a full repaint on
   // every pan/scroll frame (rule 60's dirty-rect design doesn't cover
@@ -427,7 +427,7 @@ const MAX_UNIT_CELL_DAYS = 400;
  * day whose `getUnitKey` differs.
  *
  * Used to seed the major/minor row walk in `drawTimelineHeader` at the first
- * VISIBLE day instead of at `scales.start` (#1570) — reusing `getUnitKey`
+ * VISIBLE day instead of at `scales.start` (issue 1570) — reusing `getUnitKey`
  * (rather than computing a unit-start date independently per unit) guarantees
  * the seeded boundary matches the forward walk exactly, including the fiscal
  * quarter/year offsets `getUnitKey` applies in fiscal mode. The walk is
@@ -481,7 +481,7 @@ export function drawTimelineHeader(
   const startMs = scales.start.getTime();
   const endMs = scales.end.getTime();
 
-  // First visible day (#1570) — both rows seed their walk here instead of at
+  // First visible day (issue 1570) — both rows seed their walk here instead of at
   // scales.start. A multi-year project at day/week zoom has thousands of
   // day-steps between scales.start and scales.end, and the header walks that
   // twice (major + minor); since _onScroll marks a full repaint on every
@@ -533,7 +533,7 @@ export function drawTimelineHeader(
 
         // Every cell through this one is drawn; once the newly-opened cell
         // itself starts past the right edge, every later cell is fully
-        // off-screen too (#1570). The after-loop flush below still draws
+        // off-screen too (issue 1570). The after-loop flush below still draws
         // this cell — drawHeaderCell's cellWidth < 4 guard no-ops it
         // harmlessly if it turns out to be entirely off-screen.
         if (cellStartCanvasX - scrollLeft > canvasWidth + 1) break;
@@ -572,7 +572,7 @@ export function drawTimelineHeader(
         cellStartDate = date;
         prevKey = key;
 
-        // See the major-row loop above (#1570) — stop once the newly-opened
+        // See the major-row loop above (issue 1570) — stop once the newly-opened
         // cell itself starts past the right edge.
         if (cellStartCanvasX - scrollLeft > canvasWidth + 1) break;
       }
