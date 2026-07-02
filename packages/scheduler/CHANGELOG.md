@@ -26,6 +26,18 @@ between releases. Pin an exact version (e.g. `trueppm-scheduler==0.2.0a1`).
   stochastic sweep runs on a schedule. This is robustness/contract fuzzing, not
   security/memory-safety fuzzing (#1456).
 
+### Changed
+
+- **`schedule()` and `monte_carlo()` are faster on large projects.** Cycle
+  detection no longer runs an eager `nx.find_cycle` on every call — the
+  topological sort the engine already performs raises on a cyclic graph, so the
+  expensive edge-DFS runs only on the error path to reconstruct the offending
+  cycle for the message. And `schedule()` shallow-copies its input tasks instead
+  of deep-copying them: every `Task` field is an immutable scalar, so a
+  field-level copy is semantically identical while skipping the recursive
+  `deepcopy` machinery. On a 5,000-task / ~5,700-edge project a full `schedule()`
+  run drops from roughly 400 ms to under 100 ms with identical output (#1526).
+
 ### Fixed
 
 - **`Task.percent_complete` now holds the documented exception contract on the
