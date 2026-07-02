@@ -18,13 +18,28 @@ function wbsParent(wbs: string): string {
   return parts.slice(0, -1).join('.');
 }
 
-/** All same-level siblings of a task (tasks with matching parent wbs path). */
-function computeSiblingIds(task: Task, allTasks: Task[]): string[] {
-  const parentPath = wbsParent(task.wbs);
-  const level = wbsLevel(task.wbs);
-  return allTasks
-    .filter((t) => wbsLevel(t.wbs) === level && wbsParent(t.wbs) === parentPath)
-    .map((t) => t.id);
+/**
+ * Same-level sibling ids for every task, keyed by task id, in one O(n) pass.
+ *
+ * WHY: computing this per task by filtering all tasks was O(n²) — ~1M
+ * String.split comparisons at 1K tasks, rebuilt on every [tasks] identity
+ * change (every refetch / WS splice) (issue 1522). A task's WBS parent path
+ * uniquely encodes its level (level = parent-segment-count + 1), so grouping
+ * ids by `wbsParent` alone reproduces the exact "same level AND same parent"
+ * sibling set. Each task's sibling list is its own group — self included, in
+ * task order — matching the previous per-task filter semantics.
+ */
+export function buildSiblingIdsMap(tasks: Task[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const task of tasks) {
+    const parentPath = wbsParent(task.wbs);
+    const group = groups.get(parentPath);
+    if (group) group.push(task.id);
+    else groups.set(parentPath, [task.id]);
+  }
+  const map = new Map<string, string[]>();
+  for (const task of tasks) map.set(task.id, groups.get(wbsParent(task.wbs)) ?? []);
+  return map;
 }
 
 /** Ancestor summary tasks for a milestone, closest first (up to 3 levels). */
@@ -152,11 +167,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
 
   // Derived maps computed once per tasks change — passed to each row for #343/#345/#347
-  const siblingIdsMap = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const task of tasks) map.set(task.id, computeSiblingIds(task, tasks));
-    return map;
-  }, [tasks]);
+  const siblingIdsMap = useMemo(() => buildSiblingIdsMap(tasks), [tasks]);
 
   // Per-task sibling NAMES (not just ids) — used by the Duplicate action to
   // suffix "(copy)" uniquely without collisions. Cached once per tasks change.
@@ -237,7 +248,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   visible={visible}
                   hasChildren={summaryIds.has(task.id)}
                   isExpanded={expandedIds.has(task.id)}
-                  onToggle={() => onToggle(task.id)}
+                  onToggleId={onToggle}
                   prevTaskId={virtualRow.index > 0 ? tasks[virtualRow.index - 1].id : null}
                   nextTaskId={virtualRow.index < tasks.length - 1 ? tasks[virtualRow.index + 1].id : null}
                   dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
