@@ -7,7 +7,7 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
 use crate::calendar::{
-    advance_calendar_days, checked_offset_days, next_working_day, working_days_between,
+    advance_calendar_days, checked_offset_days, next_working_day, WorkingDayCounter,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -17,6 +17,10 @@ use crate::models::{Calendar, Dependency, DependencyType, Task};
 /// Dense-index (#1535): tasks are carried in a `Vec<Task>` indexed by node
 /// position and each node's successors are read from its outgoing edges directly
 /// (`edge.target()` is the successor, `deps[*edge.weight()]` its dependency).
+///
+/// Working-day span counts (`ES..LS` per task, `imposed..succ_date` per edge) go
+/// through a [`WorkingDayCounter`] built once over the schedule's date range,
+/// turning each count from an O(span) day loop into two binary searches (#1534).
 pub fn compute_floats(
     tasks: &mut [Task],
     topo_order: &[NodeIndex],
@@ -24,6 +28,7 @@ pub fn compute_floats(
     deps: &[Dependency],
     calendar: &Calendar,
 ) -> Result<(), String> {
+    let counter = WorkingDayCounter::build(tasks, calendar);
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
@@ -31,7 +36,7 @@ pub fn compute_floats(
         let ls = tasks[i].late_start.unwrap();
 
         // Total float: working days between ES and LS.
-        let tf_days = working_days_between(es, ls, calendar);
+        let tf_days = counter.between(es, ls);
         let is_critical = tf_days == 0;
 
         // Free float: smallest slack to any successor across every dependency
@@ -55,7 +60,7 @@ pub fn compute_floats(
                 DependencyType::FF => (advance_calendar_days(ef, lag_days, calendar)?, succ_ef),
                 DependencyType::SF => (advance_calendar_days(es, lag_days, calendar)?, succ_ef),
             };
-            let slack = working_days_between(imposed, succ_date, calendar);
+            let slack = counter.between(imposed, succ_date);
             ff_days = ff_days.min(slack.max(0));
         }
         ff_days = ff_days.max(0);
