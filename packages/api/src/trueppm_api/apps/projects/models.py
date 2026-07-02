@@ -47,13 +47,16 @@ def validate_working_day_mask(value: int) -> None:
 # CPM path can never produce misleading user-attributed audit rows.
 # Fields excluded from django-simple-history tracking on all versioned models.
 # CPM output fields only exist on Task; Project and Dependency use the base list.
-# ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
-# tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
-# ``is_deleted`` transition it accompanies is already captured in history, and
-# excluded_fields silently no-ops for models that don't declare the field.
-_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version", "deleted_at"]
+# NOTE: simple_history's HistoricalRecords.get_instance() calls
+# ``model._meta.get_field(name)`` for every entry in excluded_fields
+# unconditionally (see simple_history/models.py get_extra_fields) — it does
+# NOT no-op for a field the model lacks, it raises FieldDoesNotExist on the
+# next post_save. So a field name may only appear in a model's excluded_fields
+# list if that model actually declares it.
+_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version"]
 _HISTORY_EXCLUDED_TASK = [
     *_HISTORY_EXCLUDED_BASE,
+    "deleted_at",
     "early_start",
     "early_finish",
     "late_start",
@@ -62,6 +65,10 @@ _HISTORY_EXCLUDED_TASK = [
     "free_float",
     "is_critical",
 ]
+# ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
+# tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
+# ``is_deleted`` transition it accompanies is already captured in history.
+_HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at"]
 
 
 class ImmutableModelError(Exception):
@@ -2014,7 +2021,7 @@ class Dependency(VersionedModel):
     # save() never touches it, so it stays null while the edge is live.
     deleted_at = models.DateTimeField(null=True, blank=True)
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_DEPENDENCY)
 
     class Meta:
         db_table = "projects_dependency"
