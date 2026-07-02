@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import date
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from channels.db import database_sync_to_async
@@ -823,3 +823,89 @@ async def test_receive_json_without_user_is_a_noop(project: Project) -> None:
         await consumer.receive_json({"type": "ping"})
 
     get_redis.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Redis client lifecycle: one client per socket, closed on disconnect (#1530)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_single_redis_client_reused_across_frames_and_closed_on_disconnect(
+    user: object, project: Project
+) -> None:
+    """The consumer builds one Redis client for its lifetime and closes it (#1530).
+
+    Regression for the presence connection leak: ``_get_redis`` previously called
+    ``aioredis.from_url`` on every presence call (connect + every heartbeat frame)
+    and nothing ever closed the resulting connection pools. This drives a real
+    connect followed by three heartbeat frames and a disconnect, asserting
+    ``from_url`` is invoked exactly once and the client's ``aclose`` runs on
+    disconnect. ``_get_redis`` is deliberately NOT mocked so the caching + close
+    lifecycle is the code under test; only ``aioredis.from_url`` is stubbed.
+    """
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.close = AsyncMock()
+
+    # aioredis.from_url is synchronous and returns the client; the client's async
+    # methods (hset/expire/hdel/aclose) are awaited, so the client is an AsyncMock.
+    mock_client = AsyncMock()
+    from_url_mock = MagicMock(return_value=mock_client)
+
+    with (
+        patch(
+            "trueppm_api.apps.sync.consumers.authenticate_scope",
+            new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+        ),
+        patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.MEMBER)),
+        patch(
+            "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
+            new=AsyncMock(),
+        ),
+        patch("trueppm_api.apps.sync.broadcast.abroadcast_board_event", new=AsyncMock()),
+        patch("redis.asyncio.from_url", new=from_url_mock),
+    ):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+        await consumer.receive_json({"type": "ping"})
+        await consumer.receive_json({"type": "ping"})
+        await consumer.receive_json({"type": "ping"})
+
+        # One client for connect + three heartbeat frames — no per-call leak.
+        from_url_mock.assert_called_once()
+        mock_client.aclose.assert_not_awaited()
+
+        await consumer.disconnect(1000)
+
+    # The single client is closed exactly once on disconnect.
+    mock_client.aclose.assert_awaited_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_disconnect_before_connect_does_not_close_missing_client(
+    project: Project,
+) -> None:
+    """disconnect() must not blow up when no Redis client was ever created.
+
+    A socket rejected during the handshake never reaches a presence call, so
+    ``self._redis`` is unset; the ``getattr(..., None)`` guard skips the close.
+    """
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+
+    # Must not raise even though no group/user/redis lifecycle ran.
+    await consumer.disconnect(1000)
