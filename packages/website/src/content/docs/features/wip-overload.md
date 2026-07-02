@@ -26,6 +26,18 @@ Moving a task into a column that would push it past its limit:
 
 Both drag-and-drop and the keyboard "Move to…" menu route through the same guard. Declining cancels; accepting proceeds with the existing status mutation.
 
+## Trend arrow — catching creep before the breach
+
+The at/over chips catch a column that is *already* full. To catch the creep building toward it, 0.4 will add a tiny trend arrow to the column header, next to the breach chip. It reads the column's recent occupancy from the [flow-analytics](/features/flow-analytics/) daily series and shows direction:
+
+- **▲ rising** — the column is filling. It turns amber ("trending up toward WIP limit") once the column is within one card of its limit; below that it stays neutral, purely informational.
+- **▼ falling** — the column is draining. Always neutral — recovery needs no alarm.
+- No arrow when the trend is flat, no WIP limit is set, or the recent flow series is empty.
+
+Because the trend reads the team-private flow series, it follows the same audience rule as the [flow-analytics charts](/features/flow-analytics/): a viewer who cannot see the flow charts does not see the trend arrow either. The current-state at/over breach chip stays visible to every board member regardless.
+
+Direction is carried by the arrow shape and its screen-reader label, not by color alone, so it reads the same with color vision differences.
+
 ## Where to find it in the app
 
 - Route: `/projects/:projectId/board`
