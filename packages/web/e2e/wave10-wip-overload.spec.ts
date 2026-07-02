@@ -178,10 +178,22 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
   test('move-to triggers a confirm prompt and cancels when user declines', async ({ page }) => {
     await setupCommon(page);
     let dialogShown = false;
+    // Resolve a promise once the dialog has been observed AND dismissed,
+    // instead of sleeping a fixed window afterward. The confirm/cancel path
+    // (confirmWipMove) is synchronous, so by the time `dismiss()` resolves
+    // the app has already decided not to call mutate() — polling for a
+    // signal that may never fire (no PATCH) can't tell us anything a sleep
+    // couldn't, but this ties the wait to the actual dialog lifecycle rather
+    // than a guessed duration.
+    let resolveDialogHandled: () => void;
+    const dialogHandled = new Promise<void>((resolve) => {
+      resolveDialogHandled = resolve;
+    });
     page.on('dialog', async (dlg) => {
       dialogShown = true;
       expect(dlg.message()).toMatch(/at its WIP limit/i);
       await dlg.dismiss();
+      resolveDialogHandled();
     });
 
     let patchCalled = false;
@@ -201,8 +213,7 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
     await page.getByRole('menuitem', { name: /^Move to/i }).click();
     await page.getByRole('menuitem', { name: /In Progress/i }).click();
 
-    // Give the page a tick for any async path (no PATCH should fire on dismiss).
-    await page.waitForTimeout(150);
+    await dialogHandled;
     expect(dialogShown).toBe(true);
     expect(patchCalled).toBe(false);
   });

@@ -209,8 +209,13 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await page.getByRole('menuitem', { name: 'Move to…' }).click({ force: true });
     await page.getByRole('menuitem', { name: 'Done' }).click({ force: true });
 
-    // Give any in-flight PATCH a window to arrive, then assert none did.
-    await page.waitForTimeout(500);
+    // No sleep-and-hope: handleMenuMove's `if (readOnly) return;` guard
+    // (BoardView.tsx) is the first statement in a fully synchronous handler
+    // chain — it either returns before updateStatus.mutate() is ever called,
+    // or it doesn't. There is no await between the click and that decision,
+    // so waiting longer can't surface anything a fixed sleep couldn't; it
+    // only added flake risk (too short on loaded CI, dead time otherwise)
+    // without adding coverage. Assert immediately.
     expect(taskPatches).toBe(0);
     // The card stays put on the closed board.
     await expect(page.getByText('Done sprint task', { exact: true })).toBeVisible();

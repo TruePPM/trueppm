@@ -77,18 +77,22 @@ async function gotoSchedule(page: Page, fiscalMonth: number) {
 // Continuous zoom (#351) replaced the segmented tier buttons with a −/+ stepper
 // and a derived-tier readout. Step zoom-out until the readout reads "Quarter".
 // The role="status" readout is the debounced sr-only announcement (#793) — it
-// settles ~250ms after the last step, so wait past the debounce before deciding
-// whether to keep stepping; a lagging read would otherwise overshoot the band.
+// settles ~250ms after the last step. Gate the stepping loop on the instant,
+// aria-hidden tier label instead (ZoomControl.tsx: it tracks pxPerDay
+// synchronously, no debounce), so we never guess a wait window past the
+// debounce — a fixed 300ms sleep against a ~250ms debounce was only a 50ms
+// margin and could overshoot the band on a loaded runner. Poll the debounced
+// readout once at the end to confirm it settles onto the final tier.
 async function zoomToQuarter(page: Page) {
   const group = page.getByRole('group', { name: 'Timeline zoom' });
   const zoomOut = group.getByRole('button', { name: 'Zoom out' });
   const readout = group.getByRole('status');
+  const instantLabel = group.locator('span[aria-hidden="true"]');
   for (let i = 0; i < 12; i++) {
-    if ((await readout.textContent())?.trim() === 'Quarter') break;
+    if ((await instantLabel.textContent())?.trim() === 'Quarter') break;
     await zoomOut.click();
-    await page.waitForTimeout(300);
   }
-  await expect(readout).toHaveText('Quarter');
+  await expect.poll(async () => (await readout.textContent())?.trim()).toBe('Quarter');
 }
 
 test.describe('Schedule fiscal quarter toggle (#755)', () => {

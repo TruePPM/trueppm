@@ -202,8 +202,10 @@ test.describe('Workspace General page', () => {
     page,
   }) => {
     await setup(page);
+    let patchBody: Record<string, unknown> | undefined;
     await page.route('**/api/v1/workspace/', (r) => {
       if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON();
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -218,11 +220,13 @@ test.describe('Workspace General page', () => {
     const nameInput = page.locator('input[value="TrueScope Aerospace"]');
     await nameInput.fill('Updated Corp');
 
-    // The dirty form registers a save handler — invoke it via the shell's save bar.
-    const saveBar = page.getByRole('button', { name: /save/i });
-    if (await saveBar.isVisible()) {
-      await saveBar.click();
-    }
+    // The dirty form registers a save handler — invoke it via the shell's
+    // save bar. No isVisible guard: if the save bar never renders, the test
+    // must fail here rather than silently skip past the save-then-PATCH
+    // path (issue 1574). Capture and assert the PATCH body like the
+    // sibling forecast-history and fiscal-year tests above.
+    await page.getByRole('button', { name: /save/i }).click();
+    await expect.poll(() => patchBody).toMatchObject({ name: 'Updated Corp' });
   });
 
   test('fiscal year — picking a preset chip dispatches the structured month/day', async ({
