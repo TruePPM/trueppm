@@ -62,7 +62,7 @@ export function ScheduleLegend({ taskListWidth, showBaselines = true }: Schedule
         <span
           aria-hidden="true"
           className={[
-            'inline-block w-2 text-[11px] transition-transform duration-150 ease-out',
+            'inline-block w-2 text-xs transition-transform duration-150 ease-out',
             'motion-reduce:transition-none',
             collapsed ? 'rotate-0' : 'rotate-90',
           ].join(' ')}

@@ -97,7 +97,7 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
           {/* One marker for the whole board (#963), in the header — not per row. */}
           {program && <ProgramIdentitySquare program={program} size="md" />}
           <div className="min-w-0">
-            <div className="text-[11px] font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
+            <div className="text-xs font-medium uppercase tracking-[0.06em] text-neutral-text-secondary">
               {programName ?? ' '}
             </div>
             <h1 className="text-base font-bold text-neutral-text-primary">Backlog</h1>

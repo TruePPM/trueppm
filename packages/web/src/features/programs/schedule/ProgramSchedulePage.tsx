@@ -124,7 +124,7 @@ export function ProgramSchedulePage() {
             {/* Make the boundary legible: this view never edits tasks or sprints
                (VoC — the read-only constraint is what makes it safe for agile
                teams; you edit on each project's own schedule). */}
-            <span className="rounded-chip border border-neutral-border px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
+            <span className="rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
               Read-only
             </span>
           </div>

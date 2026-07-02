@@ -160,7 +160,7 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
             )}
             <span className="flex-1 truncate">{item.label}</span>
             {item.hint && (
-              <span className="tppm-mono text-[11px] text-neutral-text-secondary">{item.hint}</span>
+              <span className="tppm-mono text-xs text-neutral-text-secondary">{item.hint}</span>
             )}
           </button>
         </li>

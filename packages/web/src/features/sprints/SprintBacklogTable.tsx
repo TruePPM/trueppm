@@ -343,7 +343,7 @@ function BacklogGroup({
             </td>
             <td className="px-3 py-2 align-top w-32">
               <span
-                className={`inline-flex items-center text-[11px] font-medium uppercase tracking-wide bg-transparent border ${STATUS_CHIP_STYLE[t.status] ?? 'border-neutral-border text-neutral-text-secondary'} rounded px-1.5 py-0.5`}
+                className={`inline-flex items-center text-xs font-medium uppercase tracking-wide bg-transparent border ${STATUS_CHIP_STYLE[t.status] ?? 'border-neutral-border text-neutral-text-secondary'} rounded px-1.5 py-0.5`}
               >
                 {prettyStatus(t.status)}
               </span>

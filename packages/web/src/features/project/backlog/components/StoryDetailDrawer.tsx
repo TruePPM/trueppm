@@ -193,7 +193,7 @@ export function StoryDetailDrawer({
         <header className="flex h-14 shrink-0 items-center gap-2 border-b border-neutral-border px-4">
           <TypeBadge type={story.taskType} />
           {story.shortId && (
-            <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+            <span className="tppm-mono text-xs text-neutral-text-secondary">
               {story.shortId}
             </span>
           )}

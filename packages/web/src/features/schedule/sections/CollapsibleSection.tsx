@@ -52,7 +52,7 @@ export function CollapsibleSection({
           <span
             aria-hidden="true"
             className={[
-              'inline-block w-2 text-[11px] transition-transform duration-150 ease-out',
+              'inline-block w-2 text-xs transition-transform duration-150 ease-out',
               isOpen ? 'rotate-90' : 'rotate-0',
             ].join(' ')}
           >

@@ -216,7 +216,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 <div
                   key={row.id}
                   style={{ height: ROW_H, paddingLeft: 8 + (row.indentLevel - 1) * 12 }}
-                  className={`flex items-center gap-1.5 pr-2 text-[11px] ${
+                  className={`flex items-center gap-1.5 pr-2 text-xs ${
                     row.kind === 'phase' ? 'font-semibold' : ''
                   } text-neutral-text-primary`}
                 >
@@ -249,7 +249,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   <span
                     key={m.label + m.x}
                     style={{ left: m.x }}
-                    className="absolute bottom-1 pl-1 text-[10px] text-neutral-text-secondary"
+                    className="absolute bottom-1 pl-1 text-xs text-neutral-text-secondary"
                   >
                     {m.label}
                   </span>
@@ -406,7 +406,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
                   Critical path chain
                 </span>
-                <span className="text-[11px] text-neutral-text-secondary">
+                <span className="text-xs text-neutral-text-secondary">
                   {cpChain.length} {cpChain.length === 1 ? 'activity drives' : 'activities drive'} the
                   finish date
                 </span>
@@ -415,7 +415,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 {cpChain.map((t) => (
                   <li
                     key={t.id}
-                    className="flex items-baseline gap-1.5 text-[11px] text-neutral-text-primary"
+                    className="flex items-baseline gap-1.5 text-xs text-neutral-text-primary"
                   >
                     <span className="tppm-mono flex-shrink-0 text-neutral-text-secondary">
                       {t.seq}.

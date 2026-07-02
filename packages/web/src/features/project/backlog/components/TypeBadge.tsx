@@ -7,7 +7,7 @@
  *
  * Always neutral tokens: the *word* carries the meaning (rule 12), never colour —
  * a red "BUG" pill would collide with the at-risk/critical semantics (rules
- * 145/146). Matches the adjacent DorChip's `text-[11px]` weight (atoms.tsx).
+ * 145/146). Matches the adjacent DorChip's `text-xs` weight (atoms.tsx).
  */
 
 import type { TaskType } from '@/types';
@@ -25,7 +25,7 @@ export function TypeBadge({ type }: { type?: TaskType }) {
   // Legacy/non-agile rows have no type → treat as a plain task.
   const t: TaskType = type ?? 'task';
   return (
-    <span className="inline-block shrink-0 whitespace-nowrap rounded-chip border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+    <span className="inline-block shrink-0 whitespace-nowrap rounded-chip border border-neutral-border bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
       {LABEL[t]}
     </span>
   );

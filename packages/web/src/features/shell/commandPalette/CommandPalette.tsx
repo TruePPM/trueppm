@@ -148,7 +148,7 @@ export function CommandPalette() {
             }}
             className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
           />
-          <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-[11px] text-neutral-text-secondary">
+          <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary">
             Esc
           </kbd>
         </div>
@@ -156,7 +156,7 @@ export function CommandPalette() {
         {/* Off-project hint — teaches the current-project capability without nagging.
             Only shown cold (no query) when there is no project in context. */}
         {!currentProjectId && !query.trim() && (
-          <p className="border-b border-neutral-border px-4 py-1.5 text-[11px] text-neutral-text-secondary">
+          <p className="border-b border-neutral-border px-4 py-1.5 text-xs text-neutral-text-secondary">
             Open a project to search its tasks and sprint.
           </p>
         )}
@@ -179,7 +179,7 @@ export function CommandPalette() {
                   aria-label={GROUP_LABEL[group]}
                   data-testid={`cmdk-group-${group}`}
                 >
-                  <p className="tppm-mono px-3 py-1 text-[11px] uppercase tracking-wider text-neutral-text-disabled">
+                  <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-disabled">
                     {GROUP_LABEL[group]}
                   </p>
                   {groupItems.map((item) => {
@@ -200,19 +200,19 @@ export function CommandPalette() {
                         <span className="flex min-w-0 items-baseline gap-2">
                           <span className="min-w-0 truncate">{item.label}</span>
                           {item.detail && (
-                            <span className="tppm-mono hidden shrink-0 text-[11px] text-neutral-text-secondary sm:inline">
+                            <span className="tppm-mono hidden shrink-0 text-xs text-neutral-text-secondary sm:inline">
                               {item.detail}
                             </span>
                           )}
                         </span>
                         <span className="flex shrink-0 items-center gap-1.5">
                           {item.gated && (
-                            <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-[11px] text-semantic-at-risk">
+                            <span className="tppm-mono rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-xs text-semantic-at-risk">
                               EE
                             </span>
                           )}
                           <span
-                            className={`tppm-mono rounded-chip px-1.5 py-0.5 text-[11px] ${
+                            className={`tppm-mono rounded-chip px-1.5 py-0.5 text-xs ${
                               CHIP_CLASS[item.tag] ?? DEFAULT_CHIP_CLASS
                             }`}
                           >
@@ -230,7 +230,7 @@ export function CommandPalette() {
 
         {/* Footer hint — the action verb adapts so a task open is announced as
             "open in drawer" (it does not navigate away) before the user commits. */}
-        <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-[11px] text-neutral-text-secondary">
+        <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs text-neutral-text-secondary">
           <span><kbd className="tppm-mono">↑↓</kbd> navigate</span>
           <span>
             <kbd className="tppm-mono">↵</kbd>{' '}

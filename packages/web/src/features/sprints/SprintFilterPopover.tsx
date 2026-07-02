@@ -195,7 +195,7 @@ export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, o
                     'border rounded px-2 py-0.5 text-xs',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                     active
-                      ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'
+                      ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary'
                       : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-raised',
                   ].join(' ')}
                 >
@@ -220,7 +220,7 @@ export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, o
             onClick={onClose}
             aria-label="Close filter popover"
             className="h-7 px-3 rounded text-xs font-medium border border-brand-primary/40
-              text-brand-primary-dark dark:text-brand-primary hover:bg-brand-primary/10
+              text-brand-primary hover:bg-brand-primary/10
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Apply

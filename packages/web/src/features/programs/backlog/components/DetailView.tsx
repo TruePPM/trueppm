@@ -243,7 +243,7 @@ export function DetailView({
               {item.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] text-neutral-text-secondary"
+                  className="rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary"
                 >
                   {tag}
                 </span>

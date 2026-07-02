@@ -266,7 +266,7 @@ function WorkGroupHeader({ group, taskCount }: { group: MyWorkGroup; taskCount: 
       aria-label={`${label}, ${taskCount} task${taskCount === 1 ? '' : 's'}`}
     >
       <span className="truncate border-l-2 border-brand-primary/60 pl-2 -ml-2">{label}</span>
-      <span className="tppm-mono shrink-0 text-[11px]">
+      <span className="tppm-mono shrink-0 text-xs">
         {taskCount} task{taskCount === 1 ? '' : 's'}
       </span>
     </h2>

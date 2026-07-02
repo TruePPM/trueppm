@@ -42,7 +42,7 @@ export function ExternalTaskHoverCard({ task, x, y }: ExternalTaskHoverCardProps
           On critical path
         </p>
       )}
-      <p className="mt-2 border-t border-neutral-border pt-2 text-[11px] text-neutral-text-disabled">
+      <p className="mt-2 border-t border-neutral-border pt-2 text-xs text-neutral-text-disabled">
         Limited view — you don&apos;t have access to this project.
       </p>
     </div>

@@ -73,7 +73,7 @@ export function PredecessorsEditor({
               key={row.predecessorId}
               className="flex items-center gap-2 px-2 py-1.5 rounded-control border border-neutral-border bg-neutral-surface"
             >
-              <span className="tppm-mono text-[11px] text-neutral-text-disabled w-12 shrink-0 truncate">
+              <span className="tppm-mono text-xs text-neutral-text-disabled w-12 shrink-0 truncate">
                 {row.predecessorWbs || '—'}
               </span>
               <span className="text-[13px] text-neutral-text-primary flex-1 min-w-0 truncate">
@@ -144,7 +144,7 @@ export function PredecessorsEditor({
                     }}
                     className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
                   >
-                    <span className="tppm-mono text-[11px] text-neutral-text-disabled w-12 shrink-0">
+                    <span className="tppm-mono text-xs text-neutral-text-disabled w-12 shrink-0">
                       {t.wbs || '—'}
                     </span>
                     <span className="text-neutral-text-primary truncate">{t.name}</span>

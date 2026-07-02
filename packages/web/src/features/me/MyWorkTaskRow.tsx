@@ -110,7 +110,7 @@ export function MyWorkTaskRow({ task }: Props) {
           <span
             onAnimationEnd={() => setJustCompleted(false)}
             className={[
-              'grid h-[18px] w-[18px] place-items-center rounded-[5px] border-[1.5px] text-[11px] leading-none',
+              'grid h-[18px] w-[18px] place-items-center rounded-[5px] border-[1.5px] text-xs leading-none',
               isComplete
                 ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
                 : 'border-neutral-border text-transparent',

@@ -53,7 +53,7 @@ export function WorkshopBanner({ session, onEnd, isEnding = false }: WorkshopBan
       />
 
       {/* Session label */}
-      <span className="font-semibold text-brand-primary-dark dark:text-brand-primary">
+      <span className="font-semibold text-brand-primary">
         Workshop mode
       </span>
 
@@ -103,7 +103,7 @@ export function WorkshopBanner({ session, onEnd, isEnding = false }: WorkshopBan
           onClick={onEnd}
           disabled={isEnding}
           className="border border-brand-primary/40 rounded-control px-3 py-1
-            text-brand-primary-dark dark:text-brand-primary font-medium
+            text-brand-primary font-medium
             hover:bg-brand-primary/10 disabled:opacity-50
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
           aria-label="End workshop session"

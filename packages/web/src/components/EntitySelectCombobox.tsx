@@ -44,7 +44,7 @@ function Avatar({ initials }: { initials: string }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold text-white"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-primary text-xs font-bold text-white"
     >
       {initials}
     </span>
@@ -228,7 +228,7 @@ export function EntitySelectCombobox({
               }}
               onKeyDown={onKeyDown}
               placeholder={`Find a ${label}…`}
-              className="w-full bg-transparent text-[11px] text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none"
+              className="w-full bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none"
             />
           </div>
 
@@ -239,11 +239,11 @@ export function EntitySelectCombobox({
             className="max-h-56 overflow-y-auto py-0.5"
           >
             {isLoading ? (
-              <div role="status" className="px-2 py-1.5 text-[11px] text-neutral-text-secondary">
+              <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
                 Loading…
               </div>
             ) : rows.length === 0 ? (
-              <div role="status" className="px-2 py-1.5 text-[11px] text-neutral-text-secondary">
+              <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
                 {query ? `No ${label}s match` : `No ${label}s available`}
               </div>
             ) : (
@@ -264,7 +264,7 @@ export function EntitySelectCombobox({
                       onMouseEnter={() => setActiveIndex(index)}
                       onClick={() => commit(index)}
                       className={[
-                        'flex h-7 w-full items-center gap-1.5 px-2 text-left text-[11px]',
+                        'flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs',
                         isUnassign ? 'border-b border-neutral-border/60' : '',
                         isActive ? 'bg-neutral-surface-sunken' : '',
                       ].join(' ')}
@@ -321,7 +321,7 @@ export function EntitySelectCombobox({
                 {query.trim() !== '' && rows.every((r) => r.id === null) && (
                   <div
                     role="status"
-                    className="px-2 py-1.5 text-[11px] text-neutral-text-secondary"
+                    className="px-2 py-1.5 text-xs text-neutral-text-secondary"
                   >
                     No {label}s match
                   </div>

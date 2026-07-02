@@ -35,7 +35,7 @@ function PrintCard({ card }: { card: BoardPrintCard }) {
             className="mt-0.5 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-semantic-critical"
           />
         )}
-        <span className="text-[11px] leading-snug text-neutral-text-primary">{card.name}</span>
+        <span className="text-xs leading-snug text-neutral-text-primary">{card.name}</span>
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-neutral-text-secondary">
         {card.shortId && <span className="tppm-mono">{card.shortId}</span>}

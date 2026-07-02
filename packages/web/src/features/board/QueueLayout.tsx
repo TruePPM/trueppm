@@ -186,7 +186,7 @@ function PriorityBars({ rank }: { rank: number | undefined }) {
 function PhaseTag({ name, color }: { name: string; color: string }) {
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary max-w-[120px]"
+      className="inline-flex items-center gap-1 rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary max-w-[120px]"
       title={name}
     >
       <span
@@ -208,7 +208,7 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
   const styles: Record<TaskReadiness, string> = {
     idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
     estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-    ready: 'text-brand-primary-dark dark:text-brand-primary',
+    ready: 'text-brand-primary',
     baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
   };
   // brand-primary-light is now a channel-triple CSS var (ADR-0103); wrap in rgb().
@@ -249,7 +249,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 
 function StatusBadge({ status, progress }: { status: TaskStatus; progress: number }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-neutral-text-secondary">
+    <span className="inline-flex items-center gap-1.5 text-xs text-neutral-text-secondary">
       <span
         aria-hidden="true"
         className={`inline-block rounded-full ${STATUS_DOT_COLOR[status]}`}
@@ -384,7 +384,7 @@ export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onCl
       )}
 
       {/* Duration + owner */}
-      <span className="flex items-center gap-2 justify-end text-[11px] text-neutral-text-secondary">
+      <span className="flex items-center gap-2 justify-end text-xs text-neutral-text-secondary">
         {task.duration > 0 && <span className="tppm-mono">{task.duration}d</span>}
         <Avatar initials={initials} />
       </span>

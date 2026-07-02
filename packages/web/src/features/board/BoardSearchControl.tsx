@@ -74,7 +74,7 @@ export function BoardSearchControl({
           <span
             role="status"
             aria-live="polite"
-            className="rounded-full bg-neutral-surface-raised px-1.5 py-0.5 text-[11px] tabular-nums text-neutral-text-secondary"
+            className="rounded-full bg-neutral-surface-raised px-1.5 py-0.5 text-xs tabular-nums text-neutral-text-secondary"
           >
             {isSearching ? '…' : `${matchCount} ${matchCount === 1 ? 'match' : 'matches'}`}
           </span>

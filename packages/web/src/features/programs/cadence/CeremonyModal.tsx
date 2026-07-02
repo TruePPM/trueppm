@@ -428,7 +428,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
                 <option key={r} value={r} />
               ))}
             </datalist>
-            <p className="text-[11px] text-neutral-text-secondary mt-1">
+            <p className="text-xs text-neutral-text-secondary mt-1">
               Who chairs this ceremony. Free text — type your own if your team uses a different
               title.
             </p>

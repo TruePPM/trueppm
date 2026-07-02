@@ -144,7 +144,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
                         {entry.keys.map((k, i) => (
                           <span key={`${k}-${i}`}>
                             {i > 0 && <span className="opacity-50"> + </span>}
-                            <kbd className="inline-flex h-4 px-1 items-center rounded-chip border border-neutral-border text-[11px]">
+                            <kbd className="inline-flex h-4 px-1 items-center rounded-chip border border-neutral-border text-xs">
                               {k}
                             </kbd>
                           </span>

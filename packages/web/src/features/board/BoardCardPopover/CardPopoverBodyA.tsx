@@ -98,7 +98,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           )}
           {sprintName && (
             <span
-              className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-brand-primary/40 bg-transparent text-brand-primary text-[11px] font-medium"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-chip border border-brand-primary/40 bg-transparent text-brand-primary text-xs font-medium"
               title={`${itl.singular}: ${sprintName}`}
             >
               <span className="truncate max-w-[14ch]">{itl.singular}: {sprintName}</span>
@@ -106,7 +106,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           )}
           <span className="flex-1" />
           {task.wbs && (
-            <span className="tppm-mono text-[11px] text-neutral-text-disabled">WBS {task.wbs}</span>
+            <span className="tppm-mono text-xs text-neutral-text-disabled">WBS {task.wbs}</span>
           )}
         </div>
         <h3

@@ -13,7 +13,7 @@
  * Design rules applied (CLAUDE.md):
  *   - No drop shadows (rule 1) — border-neutral-border separation
  *   - Today cell: brand-primary/5 bg tint, brand-primary day number
- *   - text-xs floor (rule 50) — no text-[10px]
+ *   - text-xs floor (rule 50) — no text-xs
  *   - Focus rings (rule 4) on all chip buttons
  *   - tppm-mono for date numbers (rule 8c)
  */

@@ -24,7 +24,7 @@ function chipTitle(a: TaskAssignee): string {
 const SIZE_CLASSES: Record<AssigneeChipsSize, string> = {
   sm: 'h-4 w-4 text-xs',
   // 24 px circle, 11 px initials, white halo border to separate overlapping chips.
-  md: 'h-6 w-6 text-[11px] border-2 border-neutral-surface',
+  md: 'h-6 w-6 text-xs border-2 border-neutral-surface',
 };
 
 export function AssigneeChips({

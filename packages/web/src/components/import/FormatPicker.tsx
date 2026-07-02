@@ -32,7 +32,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             className="cursor-not-allowed rounded-card border border-neutral-border bg-neutral-surface-raised p-3 opacity-60"
           >
             <p className="text-sm font-medium text-neutral-text-primary">TruePPM</p>
-            <span className="mt-1 inline-block rounded-chip bg-neutral-surface px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
+            <span className="mt-1 inline-block rounded-chip bg-neutral-surface px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
               Coming soon
             </span>
           </div>
@@ -83,7 +83,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
                 <span className="font-medium">{ext}</span>{' '}
                 <span className="text-neutral-text-secondary">{label}</span>
               </span>
-              <span className="rounded-chip bg-neutral-surface-raised px-1.5 py-0.5 text-[11px] font-medium text-neutral-text-secondary">
+              <span className="rounded-chip bg-neutral-surface-raised px-1.5 py-0.5 text-xs font-medium text-neutral-text-secondary">
                 Not yet supported
               </span>
             </div>

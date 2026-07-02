@@ -111,7 +111,7 @@ export function RetroStickyCard({
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-text-secondary tppm-mono">
+        <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary tppm-mono">
           {author}
           {converted ? ' · converted' : ''}
         </span>

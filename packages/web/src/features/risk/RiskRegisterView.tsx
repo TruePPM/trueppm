@@ -636,7 +636,7 @@ export function RiskRegisterView() {
                             focus-visible:ring-offset-1 rounded-control"
                           >
                             Severity
-                            <span aria-hidden="true" className="text-[10px] leading-none">
+                            <span aria-hidden="true" className="text-xs leading-none">
                               {severitySort === 'desc' ? '▼' : severitySort === 'asc' ? '▲' : '⇅'}
                             </span>
                           </button>

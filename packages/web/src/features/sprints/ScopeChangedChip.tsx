@@ -53,7 +53,7 @@ export function ScopeChangedChip({
         className={`inline-flex items-center gap-1 rounded-full border border-semantic-at-risk/40 bg-semantic-at-risk-bg
           text-semantic-at-risk font-medium whitespace-nowrap
           hover:border-semantic-at-risk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-          ${iconOnly ? 'px-1 py-0 text-[11px]' : compact ? 'px-1.5 py-0 text-[11px]' : 'px-2 py-0.5 text-xs'}`}
+          ${iconOnly ? 'px-1 py-0 text-xs' : compact ? 'px-1.5 py-0 text-xs' : 'px-2 py-0.5 text-xs'}`}
       >
         <span aria-hidden="true">⚠</span>
         {!iconOnly && label}

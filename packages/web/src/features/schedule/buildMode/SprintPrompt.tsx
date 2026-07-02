@@ -182,7 +182,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
               Done
             </Button>
           </div>
-          <p className="text-[11px] text-neutral-text-disabled px-1 pt-0.5">
+          <p className="text-xs text-neutral-text-disabled px-1 pt-0.5">
             Enter to confirm · Esc to go back
           </p>
         </>

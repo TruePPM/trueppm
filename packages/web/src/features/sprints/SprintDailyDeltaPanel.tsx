@@ -177,7 +177,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
             Nothing changed in this window.
           </p>
           {lastUpdated && (
-            <p className="text-[11px] tppm-mono text-neutral-text-secondary">
+            <p className="text-xs tppm-mono text-neutral-text-secondary">
               Last updated {lastUpdated}
             </p>
           )}
@@ -193,7 +193,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
           {d.task_changes.length > 0 && <MovedRow changes={d.task_changes} />}
           {d.scope_added.length > 0 && <ScopeRow items={d.scope_added} sprintId={sprintId} />}
           {lastUpdated && (
-            <p className="px-3 py-1.5 text-[11px] tppm-mono text-neutral-text-secondary">
+            <p className="px-3 py-1.5 text-xs tppm-mono text-neutral-text-secondary">
               Last updated {lastUpdated}
             </p>
           )}
@@ -214,7 +214,7 @@ function PanelHeader({ control, subtitle }: { control: ReactNode; subtitle: stri
           Daily delta
         </h3>
         {subtitle && (
-          <span className="text-[11px] tppm-mono text-neutral-text-secondary">{subtitle}</span>
+          <span className="text-xs tppm-mono text-neutral-text-secondary">{subtitle}</span>
         )}
       </div>
       {control}
@@ -234,7 +234,7 @@ function WindowControl({
     <div
       role="group"
       aria-label="Delta window"
-      className="inline-flex rounded-chip border border-neutral-border overflow-hidden text-[11px]"
+      className="inline-flex rounded-chip border border-neutral-border overflow-hidden text-xs"
     >
       {WINDOW_OPTIONS.map((opt) => {
         const active = opt.mode === mode;
@@ -352,7 +352,7 @@ function PerActorRow({
       <h4 id="dd-actors" className="text-xs text-neutral-text-secondary font-normal">
         Activity since yesterday
       </h4>
-      <p className="text-[11px] text-neutral-text-secondary italic">
+      <p className="text-xs text-neutral-text-secondary italic">
         Status transitions since yesterday — to focus today&apos;s standup, not to compare
         contributors.
       </p>
@@ -374,7 +374,7 @@ function PerActorRow({
                 <span className="text-xs font-medium text-neutral-text-primary">
                   {a.actor_username ?? 'Someone'}
                 </span>
-                <span className="text-[11px] text-neutral-text-secondary">{parts.join(' · ')}</span>
+                <span className="text-xs text-neutral-text-secondary">{parts.join(' · ')}</span>
               </li>
             );
           })}
@@ -495,7 +495,7 @@ function ScopeRow({
           type="button"
           onClick={() => setAuditOpen(true)}
           aria-haspopup="dialog"
-          className="text-[11px] font-medium text-brand-primary hover:underline
+          className="text-xs font-medium text-brand-primary hover:underline
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
         >
           View scope audit
@@ -509,7 +509,7 @@ function ScopeRow({
           >
             <TaskRef taskId={s.task_id} shortId={s.task_short_id} title={s.task_title} />
             {s.epic && (
-              <span className="rounded-full bg-brand-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-brand-primary shrink-0">
+              <span className="rounded-full bg-brand-primary/10 px-1.5 py-0.5 text-xs font-medium text-brand-primary shrink-0">
                 {s.epic.name}
               </span>
             )}
