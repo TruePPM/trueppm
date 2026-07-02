@@ -30,7 +30,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import BaseThrottle
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
@@ -97,6 +97,11 @@ class IntegrationCredentialViewSet(
     permission_classes: list[type[BasePermission]] = [IsAuthenticated]
     lookup_field = "provider"
     lookup_url_kwarg = "provider"
+    # Rate-limit the whole viewset under one per-user scope (#1551). connect/rotate
+    # mint a fresh ciphertext and revoke/read/list all touch the credential store;
+    # a shared 10/min bucket bounds credential-store abuse without a per-action idiom.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "credential_rotate"
 
     def get_queryset(self) -> QuerySet[IntegrationCredential]:
         """Restrict to the authenticated user's rows only.
@@ -599,6 +604,10 @@ class GitAutomationConfigView(IdempotencyMixin, APIView):
     # replay converges to the same state (naturally idempotent — no replayable resource).
     idempotency_exempt = True
     permission_classes = [IsAuthenticated, IsProjectAdmin]
+    # Reveals whether a webhook secret is set / lets an admin flip the toggle; scope it
+    # under the shared credential bucket (#1551) so config-probing is rate-bounded.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "credential_rotate"
 
     def _config_payload(self, request: Request, automation: BoardAutomation) -> dict[str, Any]:
         return {
@@ -648,6 +657,10 @@ class GitAutomationRotateSecretView(IdempotencyMixin, APIView):
     # retry-prone client mutation.
     idempotency_exempt = True
     permission_classes = [IsAuthenticated, IsProjectAdmin]
+    # Mints and returns a fresh plaintext webhook secret; scope it under the shared
+    # credential bucket (#1551) so secret rotation cannot be hammered.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "credential_rotate"
 
     def post(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)

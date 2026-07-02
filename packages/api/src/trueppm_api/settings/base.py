@@ -682,6 +682,14 @@ REST_FRAMEWORK = {
         # oidc_login already caps legitimate use, but an explicit cap blunts a flood
         # of forged callbacks (each fails fast at the browser-state-cookie check).
         "oidc_callback": "30/min",
+        # Integration-credential and Git webhook-secret endpoints (#1551). Covers the
+        # per-user credential store (connect/rotate/revoke/read) and the project-admin
+        # Git-automation config + secret-rotation views. Each of these mints, returns,
+        # or reveals the presence of a plaintext credential/secret, so they need the
+        # same brute-force/abuse bound the other credential-adjacent endpoints already
+        # carry. 10/min is snug for a human wiring up integrations yet far below any
+        # automated rotation-scraping rate.
+        "credential_rotate": "10/min",
     },
 }
 
