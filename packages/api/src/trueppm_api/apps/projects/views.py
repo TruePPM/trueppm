@@ -5727,7 +5727,12 @@ class ProjectPresenceView(APIView):
 
     def get(self, request: Request, pk: str) -> Response:
         """Return JSON list of online users for the given project."""
-        get_object_or_404(Project, pk=pk)
+        # This route binds on a bare ``pk`` (not ``project_pk``), so
+        # IsProjectMember.has_permission short-circuits to True; object-level
+        # membership must be enforced explicitly, matching ProjectOverviewView
+        # and ProjectAttentionView (#1547).
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
 
         try:
             import json as _json
