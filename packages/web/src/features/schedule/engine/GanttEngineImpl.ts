@@ -191,6 +191,14 @@ export class GanttEngineImpl implements GanttEngine {
   // not the cursor position.
   private _dragOffsetX = 0;
 
+  // Last snapped x already emitted via drag-task-move for the active drag.
+  // A slow drag fires dozens of pointermove events per day column, but the CPM
+  // preview only changes when the *snapped start date* changes. Coalescing on
+  // this value keeps the worker idle for sub-day cursor jitter (issue 1524).
+  // Reset to null at each drag start/end so a new drag never inherits a stale
+  // guard value.
+  private _lastEmittedDragX: number | null = null;
+
   // Color mode
   private _isDark = false;
 
@@ -541,6 +549,7 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     fsm.reset();
+    this._lastEmittedDragX = null;
     this._clearIxCanvas();
     // The gesture ended synchronously here — nothing left for the tick to
     // clear on a follow-up frame (issue 1569).
@@ -1085,6 +1094,8 @@ export class GanttEngineImpl implements GanttEngine {
 
     // Emit drag-task or resize-task start
     if (dragType === 'move') {
+      // Fresh drag: clear the coalescing guard so the first move always emits.
+      this._lastEmittedDragX = null;
       this._emit('drag-task', { id: zone.taskId });
     } else {
       this._emit('resize-task', { id: zone.taskId });
@@ -1144,7 +1155,14 @@ export class GanttEngineImpl implements GanttEngine {
 
     if (isDragType === 'move') {
       const snappedX = snapToDayBoundary(x - this._dragOffsetX, this._scales);
-      this._emit('drag-task-move', { id: taskId, left: snappedX });
+      // Only emit when the snapped start date actually changes. The visual drag
+      // shadow is repainted from the FSM's raw currentX above (via
+      // _requestRepaint), so suppressing a same-day emit never stutters the bar —
+      // it only spares useDragCpm/the worker a redundant CPM recompute (#1524).
+      if (snappedX !== this._lastEmittedDragX) {
+        this._lastEmittedDragX = snappedX;
+        this._emit('drag-task-move', { id: taskId, left: snappedX });
+      }
       this._updateCursor({ type: 'bar' } as HitZone);
     } else {
       this._emit('resize-task-move', { id: taskId, right: x });
@@ -1191,6 +1209,7 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     this._dragFSM.reset();
+    this._lastEmittedDragX = null;
     this._ixCanvas.releasePointerCapture(e.pointerId);
     this._clearIxCanvas();
     // The gesture ended synchronously here — nothing left for the tick to

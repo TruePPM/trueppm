@@ -20,7 +20,12 @@ import { useEffect, useRef, type RefObject } from 'react';
 import type { GanttEngine } from '@/features/schedule/engine';
 import { leftToDate } from '@/features/schedule/engine';
 import type { Task, TaskLink } from '@/types';
-import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
+import type {
+  DragEndMessage,
+  DragMoveMessage,
+  DragStartMessage,
+  ResultMessage,
+} from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
 import { createCpmWorker } from '@/workers/createCpmWorker';
@@ -97,13 +102,32 @@ export function useDragCpm({
   useEffect(() => {
     if (!engine) return;
 
-    // drag-start: record dragged task, initialise state
+    // drag-start: record dragged task, initialise state, and send the subgraph
+    // to the worker ONCE (issue #1524). The dragged task's downstream subgraph
+    // is topologically invariant for the whole drag — a drag moves a bar's date,
+    // not the dependency network — so building it here (O(N+E) BFS) once, rather
+    // than on every drag-task-move, keeps the per-frame cost to a tiny message.
     const offDragTask = engine.on('drag-task', (ev) => {
       startDrag(ev.id);
       seqRef.current = 0;
+
+      const worker = workerRef.current;
+      if (!worker) return;
+
+      const subgraph = buildSubgraph(ev.id, tasksRef.current, linksRef.current);
+      const startMsg: DragStartMessage = {
+        type: 'DRAG_START',
+        draggedTaskId: ev.id,
+        subgraph,
+      };
+      worker.postMessage(startMsg);
     });
 
-    // drag-move: send RECALC to worker (rule 56/57: use engine.scales + leftToDate)
+    // drag-move: send only the changed start (rule 56/57: use engine.scales +
+    // leftToDate). The worker already holds the resident subgraph from DRAG_START,
+    // so the per-frame payload is just {seq, newStartIso} — no subgraph rebuild
+    // or re-clone across the worker boundary (issue #1524). Emits are already
+    // deduped to snapped-date changes by the engine.
     const offDragMove = engine.on('drag-task-move', (ev) => {
       const worker = workerRef.current;
       if (!worker) return;
@@ -115,21 +139,23 @@ export function useDragCpm({
       const newStartDate = leftToDate(ev.left, scaleData);
       const newStartIso = newStartDate.toISOString().slice(0, 10);
 
-      const subgraph = buildSubgraph(ev.id, tasksRef.current, linksRef.current);
       const seq = ++seqRef.current;
-
-      const msg: RecalcMessage = {
-        type: 'RECALC',
+      const msg: DragMoveMessage = {
+        type: 'DRAG_MOVE',
         seq,
-        draggedTaskId: ev.id,
         newStartIso,
-        subgraph,
       };
       worker.postMessage(msg);
     });
 
-    // drag-end: commit or cancel
+    // drag-end: commit or cancel, and release the worker's resident subgraph.
     const offDragEnd = engine.on('drag-task-end', (ev) => {
+      const worker = workerRef.current;
+      if (worker) {
+        const endMsg: DragEndMessage = { type: 'DRAG_END' };
+        worker.postMessage(endMsg);
+      }
+
       if (ev.cancelled) {
         cancelDrag();
         if (ariaLiveRef.current) ariaLiveRef.current.textContent = 'Drag cancelled';

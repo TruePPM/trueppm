@@ -176,17 +176,38 @@ describe('useDragCpm', () => {
       expect(useDragStore.getState().phase).toBe('dragging');
       expect(useDragStore.getState().draggedTaskId).toBe('t1');
     });
-  });
 
-  describe('drag-task-move event', () => {
-    it('posts a RECALC message with seq = 1 on the first move', () => {
+    it('posts a DRAG_START carrying the subgraph once at drag start (issue 1524)', () => {
       const engine = new ControllableEngine();
       renderCpm(engine);
       void act(() => engine.emit('drag-task', { id: 't1' }));
-      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
+      // The subgraph is built and shipped exactly once, on drag start — not per
+      // move — so subsequent frames can send only the changed start date.
       expect(workerMock.postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'RECALC', draggedTaskId: 't1', seq: 1 }),
+        expect.objectContaining({
+          type: 'DRAG_START',
+          draggedTaskId: 't1',
+          subgraph: { tasks: [], edges: [] },
+        }),
       );
+    });
+  });
+
+  describe('drag-task-move event', () => {
+    it('posts a DRAG_MOVE with seq = 1 and no subgraph on the first move', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      workerMock.postMessage.mockClear(); // drop the DRAG_START call
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
+      // Per-frame payload is just {seq, newStartIso} — the worker already holds
+      // the resident subgraph, so no subgraph is re-sent (issue 1524).
+      const call = workerMock.postMessage.mock.calls[0]?.[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(call).toMatchObject({ type: 'DRAG_MOVE', seq: 1 });
+      expect(call).toHaveProperty('newStartIso');
+      expect(call).not.toHaveProperty('subgraph');
     });
 
     it('increments seq on each move event', () => {
@@ -196,7 +217,7 @@ describe('useDragCpm', () => {
       void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       void act(() => engine.emit('drag-task-move', { id: 't1', left: 100 }));
       expect(workerMock.postMessage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ seq: 2 }),
+        expect.objectContaining({ type: 'DRAG_MOVE', seq: 2 }),
       );
     });
   });
@@ -296,6 +317,15 @@ describe('useDragCpm', () => {
   });
 
   describe('drag-task-end event', () => {
+    it('posts a DRAG_END to release the resident subgraph (issue 1524)', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      workerMock.postMessage.mockClear(); // drop the DRAG_START call
+      void act(() => engine.emit('drag-task-end', { id: 't1', left: 0 }));
+      expect(workerMock.postMessage).toHaveBeenCalledWith({ type: 'DRAG_END' });
+    });
+
     it('calls cancelDrag when ev.cancelled is true', () => {
       const engine = new ControllableEngine();
       renderCpm(engine);

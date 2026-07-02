@@ -43,13 +43,54 @@ export interface CpmEdge {
   lag: number;
 }
 
-/** Message sent from main thread to worker on each drag frame. */
+/**
+ * Sent once at drag start (issue #1524). The dragged task's downstream subgraph
+ * is topologically invariant for the whole drag — a drag moves a bar's date, not
+ * the dependency network — so the worker keeps it resident and every subsequent
+ * DRAG_MOVE reuses it. This avoids rebuilding the O(N+E) subgraph and re-cloning
+ * it across the worker boundary on every animation frame (the pre-#1524 cost).
+ */
+export interface DragStartMessage {
+  type: 'DRAG_START';
+  draggedTaskId: string;
+  /** Only tasks reachable downstream from draggedTaskId (inclusive). */
+  subgraph: {
+    tasks: CpmTask[];
+    edges: CpmEdge[];
+  };
+}
+
+/**
+ * Sent on each drag frame after DRAG_START. Carries only the changed start —
+ * the worker recomputes the forward pass over the resident subgraph. If no
+ * DRAG_START preceded it (e.g. a race on remount) the worker drops it silently.
+ */
+export interface DragMoveMessage {
+  type: 'DRAG_MOVE';
+  /** Monotonically increasing sequence number — stale results are discarded. */
+  seq: number;
+  /** The new start date the user is dragging to, ISO string. */
+  newStartIso: string;
+}
+
+/** Sent at drag end (commit or cancel) so the worker releases the subgraph. */
+export interface DragEndMessage {
+  type: 'DRAG_END';
+}
+
+/**
+ * Stateless one-shot recompute — carries its own subgraph and computes without
+ * touching any resident drag state. Used by the keyboard reschedule path
+ * (issue #34), which fires once per keypress (human-paced, not a 60fps drag), so
+ * rebuilding and shipping the subgraph per nudge is cheap and keeps that flow
+ * independent of the resident-subgraph drag protocol.
+ */
 export interface RecalcMessage {
   type: 'RECALC';
   /** Monotonically increasing sequence number — stale results are discarded. */
   seq: number;
   draggedTaskId: string;
-  /** The new start date the user is dragging to, ISO string. */
+  /** The new start date, ISO string. */
   newStartIso: string;
   /** Only tasks reachable downstream from draggedTaskId (inclusive). */
   subgraph: {
@@ -57,6 +98,13 @@ export interface RecalcMessage {
     edges: CpmEdge[];
   };
 }
+
+/** Discriminated union of every message the worker accepts. */
+export type WorkerRequest =
+  | DragStartMessage
+  | DragMoveMessage
+  | DragEndMessage
+  | RecalcMessage;
 
 /** Per-task result posted back from the worker. */
 export interface PreviewTaskResult {
