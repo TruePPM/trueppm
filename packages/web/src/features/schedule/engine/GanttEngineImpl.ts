@@ -4,6 +4,10 @@
  * Architecture:
  * - Three stacked canvas elements (bg, bars, interaction) — one responsibility each (rule 59).
  * - rAF loop with dirty-rect invalidation — never full-repaint during drag (rule 60).
+ * - The rAF loop parks itself (cancels its own reschedule) once idle — no
+ *   pending repaint flag and no active drag/pan gesture — instead of looping
+ *   at 60fps forever. Every mutator that sets a repaint flag re-arms it via
+ *   `_requestRepaint()` (issue 1569).
  * - Row virtualisation — only paints visible rows + 5-row overscan (rule 61).
  * - devicePixelRatio scaling applied once at init and on ResizeObserver (rule 62).
  * - prefers-reduced-motion evaluated at init and on media query change (rule 70).
@@ -160,6 +164,11 @@ export class GanttEngineImpl implements GanttEngine {
   private _rafId = 0;
   private _isDestroyed = false;
   private _hasEmittedReady = false;
+  // True once the interaction canvas has content drawn to it that a later,
+  // gesture-idle tick still needs to clear (issue 1569). Lets the tick skip
+  // `_paintInteraction`/`_clearIxCanvas` entirely while genuinely idle instead
+  // of clearRect-ing an already-blank canvas at 60fps.
+  private _ixDirty = false;
 
   // DPR
   private _dpr = 1;
@@ -291,12 +300,14 @@ export class GanttEngineImpl implements GanttEngine {
     this._rebuildScales();
     this._rebuildHitIndex();
     this._fullRepaintPending = true;
+    this._requestRepaint();
   }
 
   setLinks(links: TaskLink[]): void {
     this._links = links;
     this._depLayout = null; // links changed → arrow layout is stale (#1000)
     this._fullRepaintPending = true;
+    this._requestRepaint();
   }
 
   updateTask(taskId: string, patch: Partial<Task>): void {
@@ -325,6 +336,7 @@ export class GanttEngineImpl implements GanttEngine {
     // and correct, unlike a full canvas repaint that would also redraw the bg.
     this._depLayout = null;
     this._barsRepaintPending = true;
+    this._requestRepaint();
   }
 
   // ---------------------------------------------------------------------------
@@ -394,6 +406,7 @@ export class GanttEngineImpl implements GanttEngine {
       this._emit('scales-change', { scales: this._scales });
     }
     this._fullRepaintPending = true;
+    this._requestRepaint();
   }
 
   fitToProject(): void {
@@ -460,6 +473,7 @@ export class GanttEngineImpl implements GanttEngine {
     // today line, header). Invalidating only the bars layer avoids the
     // visible flash on the bg canvas as the cursor sweeps across rows.
     this._barsRepaintPending = true;
+    this._requestRepaint();
   }
 
   // ---------------------------------------------------------------------------
@@ -490,7 +504,9 @@ export class GanttEngineImpl implements GanttEngine {
     this._isDark = dark;
     setRendererColorMode(dark);
     this._fullRepaintPending = true;
-    // The rAF loop is always running; _fullRepaintPending causes a full repaint on the next tick.
+    // The rAF loop may be parked (issue 1569) — re-arm it so the next tick actually
+    // runs and picks up the pending full repaint.
+    this._requestRepaint();
   }
 
   // ---------------------------------------------------------------------------
@@ -502,6 +518,7 @@ export class GanttEngineImpl implements GanttEngine {
     // Only the header tiers change, but a full repaint is the cheapest correct
     // path (header is redrawn on every full paint) and the call is rare.
     this._fullRepaintPending = true;
+    this._requestRepaint();
   }
 
   // ---------------------------------------------------------------------------
@@ -525,6 +542,9 @@ export class GanttEngineImpl implements GanttEngine {
 
     fsm.reset();
     this._clearIxCanvas();
+    // The gesture ended synchronously here — nothing left for the tick to
+    // clear on a follow-up frame (issue 1569).
+    this._ixDirty = false;
     this._updateCursor(null);
   }
 
@@ -617,6 +637,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._selectedTaskIds = next;
     this._emit('selection-change', { taskIds: Array.from(next) });
     this._fullRepaintPending = true;
+    this._requestRepaint();
   }
 
   private _emit<K extends keyof GanttEngineEventMap>(
@@ -689,6 +710,7 @@ export class GanttEngineImpl implements GanttEngine {
         this._rebuildScales();
         this._emit('scales-change', { scales: this._scales! });
         this._fullRepaintPending = true;
+        this._requestRepaint();
       }
     }
   };
@@ -702,17 +724,46 @@ export class GanttEngineImpl implements GanttEngine {
     this._scrollTop = this._container.scrollTop;
     this._emit('scroll', { scrollLeft: this._scrollLeft });
     this._fullRepaintPending = true;
+    this._requestRepaint();
   };
 
   // ---------------------------------------------------------------------------
   // Private — rAF loop
   // ---------------------------------------------------------------------------
 
+  /**
+   * Re-arms the rAF loop if it is currently parked.
+   *
+   * The loop cancels its own reschedule once idle (issue 1569) — an open, static
+   * Gantt must not pin the compositor at 60fps with an unconditional
+   * `clearRect`. Every mutator that flips a repaint flag (or starts a
+   * drag/pan gesture) calls this so the next paint isn't stranded waiting for
+   * some unrelated event to happen to wake the loop back up.
+   */
+  private _requestRepaint(): void {
+    if (this._isDestroyed || this._rafId !== 0) return;
+    this._rafId = requestAnimationFrame(this._tick);
+  }
+
   private readonly _tick = (): void => {
     if (this._isDestroyed) return;
-    this._rafId = requestAnimationFrame(this._tick);
+    // Consume this frame's id up front; re-armed at the bottom only if work
+    // remains. Parking here (rather than always rescheduling) is what lets an
+    // idle Gantt stop running entirely instead of spinning at 60fps (issue 1569).
+    this._rafId = 0;
 
-    if (!this._scales) return;
+    if (!this._scales) {
+      // Nothing paintable yet. setTasks()/setPxPerDay() call _requestRepaint()
+      // once _rebuildScales() gives us scale data, so no self-reschedule here.
+      return;
+    }
+
+    const fsmState = this._dragFSM.state;
+    // Only DRAGGING/DRAG_STARTED/RESIZING draw to the interaction canvas
+    // (_paintInteraction below) — panning never touches it (drag shadow /
+    // resize indicator are drag-FSM-only), so it's excluded here.
+    const gestureActive =
+      fsmState === 'DRAGGING' || fsmState === 'DRAG_STARTED' || fsmState === 'RESIZING';
 
     if (this._fullRepaintPending) {
       this._paintBg();
@@ -737,7 +788,30 @@ export class GanttEngineImpl implements GanttEngine {
       this._dirtyRows.clear();
     }
 
-    this._paintInteraction();
+    // Interaction layer: paint (and mark dirty) only while a drag/resize
+    // gesture is actually live. Once idle, clear once more if the last frame
+    // left something drawn, then stop touching this canvas — an idle Gantt
+    // must not clearRect the full viewport every frame (issue 1569). Note that
+    // pointerup/pointercancel/cancelDrag already clear synchronously and reset
+    // `_ixDirty`, so this branch is normally a no-op safety net, not the
+    // primary cleanup path.
+    if (gestureActive) {
+      this._paintInteraction();
+      this._ixDirty = true;
+    } else if (this._ixDirty) {
+      this._clearIxCanvas();
+      this._ixDirty = false;
+    }
+
+    if (
+      this._fullRepaintPending ||
+      this._barsRepaintPending ||
+      this._dirtyRows.size > 0 ||
+      gestureActive ||
+      this._ixDirty
+    ) {
+      this._rafId = requestAnimationFrame(this._tick);
+    }
   };
 
   // ---------------------------------------------------------------------------
@@ -1036,6 +1110,12 @@ export class GanttEngineImpl implements GanttEngine {
 
     const { x, y } = this._pointerToCanvas(e);
     const result = this._dragFSM.onPointerMove(x, y);
+    if (result !== 'none') {
+      // The FSM just entered (or is continuing) DRAG_STARTED/DRAGGING/RESIZING
+      // — the tick may be parked (issue 1569), and nothing else marks a repaint
+      // flag for the interaction-canvas drag shadow, so wake it explicitly.
+      this._requestRepaint();
+    }
 
     if (result === 'none' || result === 'started') {
       // Update hover cursor when not dragging
@@ -1113,6 +1193,9 @@ export class GanttEngineImpl implements GanttEngine {
     this._dragFSM.reset();
     this._ixCanvas.releasePointerCapture(e.pointerId);
     this._clearIxCanvas();
+    // The gesture ended synchronously here — nothing left for the tick to
+    // clear on a follow-up frame (issue 1569).
+    this._ixDirty = false;
     this._updateCursor(null);
   };
 
