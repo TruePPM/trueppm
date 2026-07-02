@@ -65,7 +65,7 @@ export function ProgramMembersTab() {
               <div
                 key={i}
                 aria-hidden="true"
-                className="h-14 animate-pulse rounded-card bg-neutral-surface-raised"
+                className="h-14 motion-safe:animate-pulse rounded-card bg-neutral-surface-raised"
               />
             ))}
           </div>

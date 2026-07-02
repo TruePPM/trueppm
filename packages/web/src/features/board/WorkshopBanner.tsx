@@ -46,10 +46,11 @@ export function WorkshopBanner({ session, onEnd, isEnding = false }: WorkshopBan
       className="flex-shrink-0 flex items-center gap-3 px-4 py-2
         bg-brand-primary/10 border-b border-brand-primary/30 text-xs"
     >
-      {/* Indicator dot */}
+      {/* Indicator dot — pulses under `motion-safe`; the permanent brand-colored ring
+          keeps the active state perceivable when reduced-motion is enabled (WCAG 2.3.3). */}
       <span
         aria-hidden="true"
-        className="w-2 h-2 rounded-full bg-brand-primary animate-pulse flex-shrink-0"
+        className="w-2 h-2 rounded-full bg-brand-primary motion-safe:animate-pulse ring-2 ring-brand-primary/40 flex-shrink-0"
       />
 
       {/* Session label */}

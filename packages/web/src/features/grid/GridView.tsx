@@ -217,7 +217,7 @@ export function GridView() {
         {Array.from({ length: 10 }).map((_, i) => (
           <div
             key={i}
-            className="h-11 rounded animate-pulse bg-neutral-surface-sunken"
+            className="h-11 rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
             style={{ marginLeft: mode === 'outline' ? `${(i % 3) * 16}px` : 0 }}
           />
         ))}

@@ -58,7 +58,7 @@ export function SprintPlanningRail({
 
       {capacity.isLoading ? (
         <div
-          className="h-32 animate-pulse rounded-card border border-neutral-border bg-neutral-surface"
+          className="h-32 motion-safe:animate-pulse rounded-card border border-neutral-border bg-neutral-surface"
           aria-hidden
         />
       ) : capacity.data ? (

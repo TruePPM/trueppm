@@ -64,7 +64,7 @@ export function WorkspaceAttachmentsPage() {
     return (
       <div className="px-6 py-8 space-y-3">
         {[1, 2].map((i) => (
-          <div key={i} className="h-16 rounded-card bg-neutral-surface-raised animate-pulse" />
+          <div key={i} className="h-16 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
         ))}
       </div>
     );

@@ -47,7 +47,7 @@ export function ProgramListPage() {
               <li
                 key={i}
                 aria-hidden="true"
-                className="h-32 animate-pulse rounded-card bg-neutral-surface-raised"
+                className="h-32 motion-safe:animate-pulse rounded-card bg-neutral-surface-raised"
               />
             ))}
           </ul>

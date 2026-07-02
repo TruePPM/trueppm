@@ -52,11 +52,11 @@ export function ConnectedAccountsPage() {
         aria-label="Loading connected accounts"
         className="p-6 max-w-3xl mx-auto"
       >
-        <div className="h-8 w-64 rounded-card bg-neutral-surface-raised animate-pulse mb-4" />
+        <div className="h-8 w-64 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse mb-4" />
         <div className="space-y-3">
-          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
-          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
-          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
+          <div className="h-24 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
         </div>
       </main>
     );

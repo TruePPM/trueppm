@@ -159,4 +159,20 @@ describe('WorkshopBanner', () => {
     expect(button).toBeDisabled();
     expect(button).toHaveTextContent('Ending…');
   });
+
+  it('gates the active-dot pulse behind motion-safe and keeps a non-animated ring fallback', () => {
+    // WCAG 2.3.3 (issue 1027): the pulse only runs under `motion-safe`, so a
+    // permanent brand-colored ring must convey the "workshop active" state when
+    // reduced-motion is enabled.
+    const session = makeSession();
+    const { container } = render(<WorkshopBanner session={session} onEnd={vi.fn()} />);
+
+    const dot = container.querySelector('[class*="motion-safe:animate-pulse"]');
+    expect(dot).not.toBeNull();
+    expect(dot?.className).toContain('motion-safe:animate-pulse');
+    expect(dot?.className).not.toMatch(/(?<!:)animate-pulse/);
+    // Non-animated indicator visible regardless of motion preference.
+    expect(dot?.className).toContain('ring-2');
+    expect(dot?.className).toContain('ring-brand-primary/40');
+  });
 });

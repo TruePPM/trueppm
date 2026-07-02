@@ -117,7 +117,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
         className="rounded-card border border-neutral-border bg-neutral-surface flex flex-col"
       >
         <PanelHeader control={control} subtitle={null} />
-        <div className="h-24 m-2 rounded-card border border-neutral-border bg-neutral-surface-raised animate-pulse" />
+        <div className="h-24 m-2 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
       </section>
     );
   }

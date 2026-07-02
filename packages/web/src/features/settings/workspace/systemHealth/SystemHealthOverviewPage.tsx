@@ -342,16 +342,16 @@ function OverviewSkeleton() {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className="h-[90px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border"
+            className="h-[90px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border"
           />
         ))}
       </div>
       {/* Beat panel */}
-      <div className="h-[180px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+      <div className="h-[180px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
       {/* Dead-letter + retention */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-[120px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[120px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[120px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+        <div className="h-[120px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
       </div>
     </div>
   );

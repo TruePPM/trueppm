@@ -23,7 +23,7 @@ export function ProgressBar({ pct, label, className = '' }: Props) {
     <div className={`w-full ${className}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined} aria-label={label ?? 'Progress'}>
       <div className="h-1.5 rounded-full bg-neutral-border overflow-hidden">
         {isIndeterminate ? (
-          <div className="h-full w-1/3 rounded-full bg-brand-primary animate-pulse" />
+          <div className="h-full w-1/3 rounded-full bg-brand-primary motion-safe:animate-pulse" />
         ) : (
           <div
             className="h-full rounded-full bg-brand-primary transition-[width] duration-300 ease-out"

@@ -46,7 +46,7 @@ export function ResourcesKpiRowSkeleton() {
       {[1, 2, 3, 4].map((i) => (
         <div
           key={i}
-          className="h-[88px] rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
+          className="h-[88px] rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
         />
       ))}
     </div>

@@ -101,7 +101,7 @@ export function WorkspaceProgramsPage() {
               <div
                 key={i}
                 aria-hidden="true"
-                className="h-12 animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
+                className="h-12 motion-safe:animate-pulse rounded-card border border-neutral-border bg-neutral-surface-raised"
               />
             ))}
           </div>

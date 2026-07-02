@@ -100,7 +100,7 @@ export function SchedulePulse({ projectId }: { projectId: string }) {
             <div
               key={i}
               aria-hidden="true"
-              className="h-9 w-24 animate-pulse rounded bg-neutral-surface-sunken"
+              className="h-9 w-24 motion-safe:animate-pulse rounded bg-neutral-surface-sunken"
             />
           ))}
         </div>

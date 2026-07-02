@@ -81,7 +81,7 @@ export function BacklogListRow({
         border-neutral-border/60 px-3.5 text-[13px] ${FOCUS_RING}
         ${selected ? 'border-l-brand-primary bg-brand-primary-light' : 'border-l-transparent hover:bg-chrome-row-hover'}
         ${dim ? 'opacity-45' : ''}
-        ${pending ? 'animate-pulse outline-dashed outline-1 outline-brand-primary' : ''}
+        ${pending ? 'motion-safe:animate-pulse outline-dashed outline-1 outline-brand-primary' : ''}
         ${isDropTarget ? 'border-t-2 border-t-brand-primary' : ''}`}
     >
       {/* Rank / drag grip */}

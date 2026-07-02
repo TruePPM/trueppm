@@ -105,7 +105,7 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
       <div>
         <div className={LABEL_CLASS}>{itl.singular}</div>
         {isLoading ? (
-          <div className="h-9 rounded-control bg-neutral-surface-raised animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
+          <div className="h-9 rounded-control bg-neutral-surface-raised motion-safe:animate-pulse w-full" aria-label={`Loading ${itl.lowerPlural}`} />
         ) : !editable ? (
           // Read-only: show the assigned iteration name as static text (the
           // state badge / dates / remove control render separately below).

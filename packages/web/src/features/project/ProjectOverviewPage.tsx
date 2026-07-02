@@ -283,7 +283,7 @@ function KpiSkeleton() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-28 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-28 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>
@@ -291,7 +291,7 @@ function KpiSkeleton() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-20 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            className="h-20 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised"
           />
         ))}
       </div>
@@ -605,7 +605,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       </h2>
 
       {isLoading ? (
-        <div className="h-20 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+        <div className="h-20 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
       ) : mc ? (
         <div className="flex flex-col gap-3 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised">
           <div className="flex items-end gap-4 flex-wrap">
@@ -922,7 +922,7 @@ export function ProjectOverviewPage() {
             Needs attention
           </h2>
           {attentionLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <AttentionPanel items={attention ?? []} />
           )}
@@ -934,7 +934,7 @@ export function ProjectOverviewPage() {
             My tasks this week
           </h2>
           {myTasksLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <MyTasksPanel tasks={myTasks ?? []} />
           )}
@@ -948,7 +948,7 @@ export function ProjectOverviewPage() {
             Critical path
           </h2>
           {cpTasksLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />
           )}

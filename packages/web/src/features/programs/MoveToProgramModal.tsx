@@ -98,7 +98,7 @@ export function MoveToProgramModal({ projectId, projectName, onClose }: Props) {
                 <div
                   key={i}
                   aria-hidden="true"
-                  className="h-9 animate-pulse rounded-control bg-neutral-surface-raised"
+                  className="h-9 motion-safe:animate-pulse rounded-control bg-neutral-surface-raised"
                 />
               ))}
             </div>

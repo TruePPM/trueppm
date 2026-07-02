@@ -218,10 +218,16 @@ const RUN_STATE_BADGE: Record<PurgeRunState, { label: string; cls: string; dot: 
   ok: { label: 'OK', cls: 'text-semantic-on-track', dot: 'bg-semantic-on-track' },
   partial: { label: 'Partial', cls: 'text-semantic-at-risk', dot: 'bg-semantic-at-risk' },
   failed: { label: 'Failed', cls: 'text-semantic-critical', dot: 'bg-semantic-critical' },
-  running: { label: 'Running', cls: 'text-brand-primary', dot: 'bg-brand-primary animate-pulse' },
+  // The running dot pulses under `motion-safe`; a permanent brand-colored ring keeps
+  // the running state perceivable when the user has reduced-motion enabled (WCAG 2.3.3).
+  running: {
+    label: 'Running',
+    cls: 'text-brand-primary',
+    dot: 'bg-brand-primary motion-safe:animate-pulse ring-2 ring-brand-primary/40',
+  },
 };
 
-function RunStateBadge({ run }: { run: PurgeRun }) {
+export function RunStateBadge({ run }: { run: PurgeRun }) {
   if (run.trigger === 'dry_run' && run.state !== 'running') {
     return (
       <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-neutral-text-secondary">
@@ -421,9 +427,9 @@ export function RetentionPurgePage() {
   if (isLoading) {
     return (
       <div className="px-6 py-5 space-y-5" aria-busy="true" aria-label="Loading retention settings">
-        <div className="h-[260px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[150px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
-        <div className="h-[180px] rounded-card bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+        <div className="h-[260px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+        <div className="h-[150px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
+        <div className="h-[180px] rounded-card bg-neutral-surface-raised motion-safe:animate-pulse border border-neutral-border" />
       </div>
     );
   }

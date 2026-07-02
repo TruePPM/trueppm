@@ -130,10 +130,10 @@ export function ProjectMethodologyPage() {
   if (projectLoading || !project || ws === undefined) {
     return (
       <div className="px-6 py-8 space-y-3">
-        <div className="h-16 rounded-card bg-neutral-surface-raised animate-pulse" />
+        <div className="h-16 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
         <div className="grid grid-cols-3 gap-3.5">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-40 rounded-card bg-neutral-surface-raised animate-pulse" />
+            <div key={i} className="h-40 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse" />
           ))}
         </div>
       </div>

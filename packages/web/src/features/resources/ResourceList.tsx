@@ -96,10 +96,10 @@ export function ResourceListSkeleton() {
     <ul aria-label="Loading resources" className="divide-y divide-neutral-border">
       {Array.from({ length: 8 }).map((_, i) => (
         <li key={i} className="px-3 py-2.5 flex items-start gap-3">
-          <div className="w-7 h-7 rounded-full bg-neutral-border animate-pulse shrink-0" aria-hidden="true" />
+          <div className="w-7 h-7 rounded-full bg-neutral-border motion-safe:animate-pulse shrink-0" aria-hidden="true" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-3.5 w-32 rounded bg-neutral-border animate-pulse" aria-hidden="true" />
-            <div className="h-3 w-48 rounded bg-neutral-border animate-pulse" aria-hidden="true" />
+            <div className="h-3.5 w-32 rounded bg-neutral-border motion-safe:animate-pulse" aria-hidden="true" />
+            <div className="h-3 w-48 rounded bg-neutral-border motion-safe:animate-pulse" aria-hidden="true" />
           </div>
         </li>
       ))}

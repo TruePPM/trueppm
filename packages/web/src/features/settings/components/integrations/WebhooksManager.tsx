@@ -75,8 +75,8 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
       <div className="px-4 py-3">
         {isLoading ? (
           <div className="space-y-2" aria-busy="true" aria-label="Loading webhooks">
-            <div className="h-4 w-3/4 bg-neutral-surface-sunken rounded animate-pulse" />
-            <div className="h-4 w-1/2 bg-neutral-surface-sunken rounded animate-pulse" />
+            <div className="h-4 w-3/4 bg-neutral-surface-sunken rounded motion-safe:animate-pulse" />
+            <div className="h-4 w-1/2 bg-neutral-surface-sunken rounded motion-safe:animate-pulse" />
           </div>
         ) : isError ? (
           <div className="flex items-center gap-3">

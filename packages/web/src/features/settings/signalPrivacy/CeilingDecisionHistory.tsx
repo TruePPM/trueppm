@@ -53,7 +53,7 @@ export function CeilingDecisionHistory({ projectId }: CeilingDecisionHistoryProp
       {open && (
         <div className="border-t border-neutral-border px-3 py-2">
           {isLoading && (
-            <div className="h-5 animate-pulse rounded bg-neutral-surface-raised" aria-hidden="true" />
+            <div className="h-5 motion-safe:animate-pulse rounded bg-neutral-surface-raised" aria-hidden="true" />
           )}
           {!isLoading && resolved.length === 0 && (
             <p className="text-[12px] text-neutral-text-secondary">No ceiling decisions yet.</p>

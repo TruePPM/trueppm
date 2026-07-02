@@ -51,7 +51,7 @@ export function RosterPage() {
           {/* Skeleton rows */}
           <div className="flex flex-col gap-2 w-full max-w-sm px-4">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-14 rounded bg-neutral-surface-raised animate-pulse" />
+              <div key={i} className="h-14 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
             ))}
           </div>
         </div>

@@ -43,10 +43,10 @@ export function ScheduleSummaryChip({ visibleTasks }: ScheduleSummaryChipProps) 
     >
       {status === 'loading' ? (
         <>
-          <span className="tppm-mono animate-pulse opacity-50">··</span>
+          <span className="tppm-mono motion-safe:animate-pulse opacity-50">··</span>
           <span>tasks</span>
           <span aria-hidden="true">·</span>
-          <span className="tppm-mono animate-pulse opacity-50">··</span>
+          <span className="tppm-mono motion-safe:animate-pulse opacity-50">··</span>
           <span>critical</span>
           <span aria-hidden="true">·</span>
           <span className="italic">CPM …</span>

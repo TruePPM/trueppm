@@ -427,7 +427,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
         <div className="mt-3 flex flex-col gap-3">
           {/* Comment list */}
           {isLoading && (
-            <div className="h-8 rounded-card animate-pulse bg-neutral-border/30" aria-hidden="true" />
+            <div className="h-8 rounded-card motion-safe:animate-pulse bg-neutral-border/30" aria-hidden="true" />
           )}
           {!isLoading && comments.length === 0 && (
             <p className="text-xs text-neutral-text-disabled">No notes yet.</p>
