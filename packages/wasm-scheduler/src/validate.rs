@@ -34,6 +34,7 @@ pub const MAX_DEPENDENCIES: usize = 100_000;
 ///
 /// Returns `Err(message)` for: an empty working-day mask, a negative or
 /// out-of-range task duration / PERT estimate, an out-of-range dependency lag,
+/// an out-of-range `planned_start`/`actual_start`/`actual_finish`/`status_date`,
 /// or a calendar with no working day reachable from the project start.
 pub fn validate_project(project: &Project) -> Result<(), String> {
     let cal = &project.calendar;
@@ -109,6 +110,23 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         }
     }
 
+    // status_date (the data date, ADR-0132) shifts the "as of" point used by the
+    // progress-aware forward pass, so an unbounded value drives the same
+    // day-by-day walk into a multi-million-entry scan as an unbounded
+    // planned_start. Unlike the actuals check below, this is not abs()'d — a
+    // status_date *before* the project start is not a runaway-span risk, only
+    // one after it is. Mirrors Python _validate_project's `status_offset` check.
+    let mut status_offset: i64 = 0;
+    if let Some(status_date) = project.status_date {
+        status_offset = (status_date - project.start_date).num_days();
+        if status_offset > MAX_PROJECT_SPAN_DAYS {
+            return Err(format!(
+                "status_date is more than {MAX_PROJECT_SPAN_DAYS} days after the project \
+                 start; the schedule cannot be computed within a representable date range."
+            ));
+        }
+    }
+
     // Bound the raw edge count (#1203) before the loop below — and every later
     // O(E) pass — iterates it. A `.len()` check, so it rejects a multi-million-edge
     // payload before any per-edge work or the list's memory footprint is the cost.
@@ -137,6 +155,11 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
     // range no matter how many tasks are chained.
     let mut total_span: i64 = 0;
     let mut max_snet_days: i64 = 0;
+    // Furthest recorded actual (actual_start or actual_finish) from the project
+    // start, in either direction — abs()'d because a far-*past* actual anchors
+    // the calendar walk just as badly as a far-future one (#951 precedent, mirrors
+    // Python's max_actual_days).
+    let mut max_actual_days: i64 = 0;
     for t in &project.tasks {
         // Worst case across the deterministic duration AND every PERT estimate:
         // Monte Carlo falls back to most_likely when the range is degenerate, so
@@ -155,14 +178,32 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         if let Some(snet) = t.planned_start {
             max_snet_days = max_snet_days.max((snet - project.start_date).num_days());
         }
+        for actual in [t.actual_start, t.actual_finish].into_iter().flatten() {
+            max_actual_days = max_actual_days.max((actual - project.start_date).num_days().abs());
+        }
+    }
+    // Recorded actuals (ADR-0132/0136) anchor a completed task's full-duration
+    // span and feed the same calendar walk as a planned_start pin, so an actual
+    // far from the project start must be bounded the same way — otherwise a
+    // year-9999 actual_finish (or an equally distant actual_start) is accepted
+    // here and drives the day-by-day walk past the representable date range.
+    // Mirrors Python's max_actual_days check.
+    if max_actual_days > MAX_PROJECT_SPAN_DAYS {
+        return Err(format!(
+            "A task actual_start/actual_finish is more than {MAX_PROJECT_SPAN_DAYS} days \
+             from the project start; the schedule cannot be computed within a representable \
+             date range."
+        ));
     }
     for dep in &project.dependencies {
         total_span += dep.lag_days().abs();
     }
-    // A planned_start pin shifts the whole downstream chain, so the furthest pin
-    // adds to the span bound exactly once (pins don't accumulate the way durations
-    // on a chain do). Mirrors the Python _validate_project (#1086 / #1068).
-    total_span += max_snet_days;
+    // A planned_start pin, the data-date floor, and a recorded actual each shift
+    // work along the timeline, so the furthest of the three adds to the span
+    // bound exactly once (they don't accumulate the way durations on a chain
+    // do). Mirrors the Python _validate_project (#1086 / #1068, and #1564 for
+    // the status_date / actuals terms).
+    total_span += max_snet_days.max(status_offset.max(0)).max(max_actual_days);
     if total_span > MAX_PROJECT_SPAN_DAYS {
         return Err(format!(
             "Total project span ({total_span} days across all task durations and lags) \
@@ -414,6 +455,77 @@ mod tests {
                 + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
         );
         let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_actual_finish_over_span() {
+        // #1564: a far-future actual_finish was accepted by Rust but rejected by
+        // Python — the WASM engine never inspected actual_start/actual_finish at
+        // all, so a completed task pinned in year 5000 slipped through and drove
+        // the day-by-day walk into a soft-hang.
+        let mut t = task("A", 1);
+        t.actual_finish = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+        );
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_actual_start_over_span_in_the_past() {
+        // max_actual_days is abs()'d: a far-*past* actual_start anchors the
+        // calendar walk just as badly as a far-future one, mirroring Python.
+        let mut t = task("A", 1);
+        t.actual_start = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                - chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+        );
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_actual_within_span() {
+        let mut t = task("A", 5);
+        t.actual_start = Some(NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
+        t.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap());
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_status_date_over_span() {
+        // #1564: status_date (the data date, ADR-0132) was never bounded by the
+        // WASM engine, unlike Python's status_offset check.
+        let mut p = project(vec![task("A", 1)], vec![], Calendar::default());
+        p.status_date = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS + 1),
+        );
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_status_date_before_project_start() {
+        // status_offset is not abs()'d in Python — a status_date before the
+        // project start is not a runaway-span risk, so it must not be rejected.
+        let mut p = project(vec![task("A", 1)], vec![], Calendar::default());
+        p.status_date = Some(NaiveDate::from_ymd_opt(1900, 1, 1).unwrap());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_span_via_status_date_offset() {
+        // The status_date offset folds into the cumulative total_span guard the
+        // same way max_snet_days and max_actual_days do: a small per-task
+        // duration can still exceed the cap once the status_date offset is added.
+        let mut p = project(vec![task("A", MAX_DURATION_DAYS)], vec![], Calendar::default());
+        p.status_date = Some(
+            NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+                + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
+        );
         assert!(validate_project(&p).is_err());
     }
 }
