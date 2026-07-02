@@ -34340,9 +34340,45 @@
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
             },
+            "SyncUploadChangesRequest": {
+                "type": "object",
+                "description": "The ``changes`` map of an upload envelope, keyed by collection name.\n\nv1 exposes only the writable ``tasks`` collection (ADR-0082 §B); every other\ncollection is pull-only. Unsupported collection keys are **not** rejected\nhere — ``apply_task_changes`` is the single authority for the writable-\ncollection whitelist and rejects them with an explicit 400 (rather than\nsilently dropping them). This serializer therefore documents the writable\nshape in the OpenAPI schema without masking that guard; the view feeds the\nraw ``changes`` map to ``apply_task_changes`` so behavior stays identical.",
+                "properties": {
+                    "tasks": {
+                        "$ref": "#/components/schemas/SyncUploadCollectionRequest"
+                    }
+                }
+            },
+            "SyncUploadCollectionRequest": {
+                "type": "object",
+                "description": "WatermelonDB per-collection change buckets — created / updated / deleted.\n\nMirrors the shape WatermelonDB's ``synchronize()`` pushes for one collection:\n``created`` and ``updated`` are lists of full row objects, ``deleted`` is a\nlist of record ids (UUID strings). Row objects are deliberately free-form\n(``DictField``) rather than a typed row serializer: per-field task validation\nis delegated to ``TaskSerializer`` inside ``sync.upload`` so mobile writes\ninherit identical field rules and business logic (ADR-0082 §E). All three\nbuckets are optional; an absent bucket means \"no changes of that kind\".",
+                "properties": {
+                    "created": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "deleted": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    }
+                }
+            },
             "SyncUploadRequestRequest": {
                 "type": "object",
-                "description": "Validate the envelope of a mobile upload batch (ADR-0082 §A).\n\nPer-collection row validation happens in ``sync.upload`` so an unsupported\ncollection can be rejected with an explicit 400 rather than silently\ndropped. ``last_pulled_at`` is accepted but advisory only — conflict\nresolution is plain last-writer-wins here; #322 owns richer merge.",
+                "description": "Validate the envelope of a mobile upload batch (ADR-0082 §A).\n\n``changes`` is a typed nested map (per-collection created/updated/deleted\nlists) so the WatermelonDB upload shape is explicit in the OpenAPI schema and\nthe generated web types, instead of the opaque object it was before (#786).\nPer-collection row validation still happens in ``sync.upload`` so an\nunsupported collection can be rejected with an explicit 400 rather than\nsilently dropped. ``last_pulled_at`` is accepted but advisory only — conflict\nresolution is plain last-writer-wins here; #322 owns richer merge.",
                 "properties": {
                     "client_batch_id": {
                         "type": "string",
@@ -34353,8 +34389,7 @@
                         "minimum": 0
                     },
                     "changes": {
-                        "type": "object",
-                        "additionalProperties": {}
+                        "$ref": "#/components/schemas/SyncUploadChangesRequest"
                     }
                 },
                 "required": [

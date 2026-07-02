@@ -290,7 +290,13 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         envelope = SyncUploadRequestSerializer(data=request.data)
         envelope.is_valid(raise_exception=True)
         client_batch_id = envelope.validated_data["client_batch_id"]
-        changes = envelope.validated_data["changes"]
+        # Feed the RAW changes map (not envelope.validated_data["changes"]) to
+        # apply_task_changes so it stays the single authority for the writable-
+        # collection whitelist (ADR-0082 §B). The typed nested serializer (#786)
+        # documents the shape but ignores unknown collection keys; passing the raw
+        # map keeps the explicit "unsupported collection → 400" guard byte-identical
+        # for existing clients rather than silently dropping the foreign collection.
+        changes = request.data["changes"]
 
         try:
             project = Project.objects.get(pk=pk, is_deleted=False)

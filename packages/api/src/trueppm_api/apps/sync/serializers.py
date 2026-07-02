@@ -329,15 +329,50 @@ class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
 # ---------------------------------------------------------------------------
 
 
+class SyncUploadCollectionSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """WatermelonDB per-collection change buckets — created / updated / deleted.
+
+    Mirrors the shape WatermelonDB's ``synchronize()`` pushes for one collection:
+    ``created`` and ``updated`` are lists of full row objects, ``deleted`` is a
+    list of record ids (UUID strings). Row objects are deliberately free-form
+    (``DictField``) rather than a typed row serializer: per-field task validation
+    is delegated to ``TaskSerializer`` inside ``sync.upload`` so mobile writes
+    inherit identical field rules and business logic (ADR-0082 §E). All three
+    buckets are optional; an absent bucket means "no changes of that kind".
+    """
+
+    created = serializers.ListField(child=serializers.DictField(), required=False)
+    updated = serializers.ListField(child=serializers.DictField(), required=False)
+    deleted = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+class SyncUploadChangesSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """The ``changes`` map of an upload envelope, keyed by collection name.
+
+    v1 exposes only the writable ``tasks`` collection (ADR-0082 §B); every other
+    collection is pull-only. Unsupported collection keys are **not** rejected
+    here — ``apply_task_changes`` is the single authority for the writable-
+    collection whitelist and rejects them with an explicit 400 (rather than
+    silently dropping them). This serializer therefore documents the writable
+    shape in the OpenAPI schema without masking that guard; the view feeds the
+    raw ``changes`` map to ``apply_task_changes`` so behavior stays identical.
+    """
+
+    tasks = SyncUploadCollectionSerializer(required=False)
+
+
 class SyncUploadRequestSerializer(serializers.Serializer):  # type: ignore[type-arg]
     """Validate the envelope of a mobile upload batch (ADR-0082 §A).
 
-    Per-collection row validation happens in ``sync.upload`` so an unsupported
-    collection can be rejected with an explicit 400 rather than silently
-    dropped. ``last_pulled_at`` is accepted but advisory only — conflict
+    ``changes`` is a typed nested map (per-collection created/updated/deleted
+    lists) so the WatermelonDB upload shape is explicit in the OpenAPI schema and
+    the generated web types, instead of the opaque object it was before (#786).
+    Per-collection row validation still happens in ``sync.upload`` so an
+    unsupported collection can be rejected with an explicit 400 rather than
+    silently dropped. ``last_pulled_at`` is accepted but advisory only — conflict
     resolution is plain last-writer-wins here; #322 owns richer merge.
     """
 
     client_batch_id = serializers.UUIDField()
     last_pulled_at = serializers.IntegerField(required=False, min_value=0)
-    changes = serializers.DictField()
+    changes = SyncUploadChangesSerializer()
