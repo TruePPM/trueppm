@@ -93,6 +93,25 @@ env:
   # No trailing slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3
   # (#1355); the legacy bare FRONTEND_BASE_URL still works as a fallback.
   TRUEPPM_FRONTEND_BASE_URL: ""
+  # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
+  # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
+  # so the Beat-driven notification drain has the same transport everywhere.
+  # Leave EMAIL_HOST empty (the default) to run without outbound mail — the
+  # read-only Workspace → Settings → Email & SMTP page then reports "Not
+  # configured" and in-app notifications still work. Uncomment and set to enable:
+  #   EMAIL_HOST: "smtp.example.com"
+  #   EMAIL_PORT: "587"
+  #   EMAIL_USE_TLS: "true"          # STARTTLS; mutually exclusive with EMAIL_USE_SSL
+  #   EMAIL_USE_SSL: "false"
+  #   EMAIL_HOST_USER: "notifications@example.com"
+  #   DEFAULT_FROM_EMAIL: "notifications@example.com"
+  # EMAIL_HOST_PASSWORD MUST come from a Kubernetes Secret — NEVER a plaintext
+  # value here. Create the Secret, then reference it via secretKeyRef (the same
+  # map form the chart uses for DATABASE_URL). Uncomment to wire it:
+  #   EMAIL_HOST_PASSWORD:
+  #     secretKeyRef:
+  #       name: trueppm-smtp
+  #       key: password
   # DATABASE_URL and REDIS_URL are NOT set here. The chart builds them
   # server-side from the generated credentials and injects them via
   # secretKeyRef against the chart-owned connection Secret, so no password is

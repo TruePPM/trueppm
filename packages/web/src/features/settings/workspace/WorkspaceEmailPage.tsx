@@ -2,9 +2,9 @@
  * Workspace → Settings → Email & SMTP — read-only status (#639, ADR-0084 §5).
  *
  * How TruePPM sends outbound mail. This page confirms the From identity and
- * whether a host is configured. Binding the EMAIL_* transport settings to env
- * vars / Helm values is not yet wired (#764); a writable in-app SMTP
- * configuration surface is a separate follow-up (#712).
+ * whether a host is configured. The EMAIL_* transport settings bind from env
+ * vars / Helm values (#764); a writable in-app SMTP configuration surface is a
+ * separate follow-up (#712).
  */
 
 import type { ReactNode } from 'react';
@@ -87,18 +87,10 @@ export function WorkspaceEmailPage() {
             <SettingsCard className="bg-neutral-surface-sunken">
               <div className="px-4 py-3.5">
                 <p className="text-[13px] text-neutral-text-secondary">
-                  Email transport is read-only here. Binding the{' '}
-                  <span className="tppm-mono">EMAIL_*</span> settings to environment
-                  variables / Helm values is not yet wired (tracked in{' '}
-                  <a
-                    href="https://gitlab.com/trueppm/trueppm/-/issues/764"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-primary underline-offset-2 hover:underline"
-                  >
-                    #764
-                  </a>
-                  ; a writable in-app SMTP surface is{' '}
+                  Email transport is read-only here. Configure the{' '}
+                  <span className="tppm-mono">EMAIL_*</span> settings via
+                  environment variables / Helm values and redeploy to change
+                  transport; a writable in-app SMTP surface is{' '}
                   <a
                     href="https://gitlab.com/trueppm/trueppm/-/issues/712"
                     target="_blank"
@@ -107,7 +99,7 @@ export function WorkspaceEmailPage() {
                   >
                     #712
                   </a>
-                  ) — see the{' '}
+                  . See the{' '}
                   <a
                     href={docsUrl('administration/email')}
                     className="text-brand-primary underline-offset-2 hover:underline"
