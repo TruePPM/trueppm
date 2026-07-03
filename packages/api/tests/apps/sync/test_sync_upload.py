@@ -885,3 +885,60 @@ def test_sync_link_to_active_sprint_enters_pending_acceptance(
     assert SprintScopeChange.objects.filter(
         sprint=sprint, task=task, status=ScopeChangeStatus.PENDING
     ).exists()
+
+
+# ---------------------------------------------------------------------------
+# Assignee membership (#684) — the sync upload reuses TaskSerializer, so its
+# validate_assignee gate applies here identically to the REST path.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sync_create_with_non_member_assignee_rejected(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A sync-created task cannot be assigned to a user with no project membership —
+    the serializer rejects it (400) and the whole batch rolls back."""
+    outsider = User.objects.create_user(username="sync_outsider", password="pw")
+    task_id = str(uuid.uuid4())
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": task_id, "name": "Foreign owner", "assignee": outsider.pk}]),
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert not Task.objects.filter(pk=task_id).exists()
+
+
+@pytest.mark.django_db
+def test_sync_update_assignee_to_non_member_rejected(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A sync update cannot re-point an existing task at a non-member assignee."""
+    outsider = User.objects.create_user(username="sync_outsider2", password="pw")
+    task = Task.objects.create(project=project, name="Orig", duration=1)
+    resp = admin_client.post(
+        _url(project),
+        _payload(updated=[{"id": str(task.pk), "assignee": outsider.pk}]),
+        format="json",
+    )
+    assert resp.status_code == 400
+    task.refresh_from_db()
+    assert task.assignee_id is None
+
+
+@pytest.mark.django_db
+def test_sync_create_with_member_assignee_succeeds(
+    admin_client: APIClient, project: Project
+) -> None:
+    """A sync-created task assigned to a live project member is accepted."""
+    member = User.objects.create_user(username="sync_member", password="pw")
+    _make_membership(project, member, Role.MEMBER)
+    task_id = str(uuid.uuid4())
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": task_id, "name": "Owned via sync", "assignee": member.pk}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert Task.objects.get(pk=task_id).assignee_id == member.pk

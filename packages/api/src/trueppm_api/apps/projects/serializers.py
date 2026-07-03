@@ -2125,6 +2125,32 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"blocking_task": "The blocking task must belong to the same project."}
                 )
 
+        # #684 (security): the assignee must be a live member of the task's project.
+        # ``assignee`` is a nullable FK — DRF resolves it to a User (or None) — and
+        # leaving a task unassigned is always valid, so only validate when an assignee
+        # is actually being set. This closes the gap where any writer could point a
+        # task at ANY existing user id, including one with no ProjectMembership on the
+        # project: the REST PATCH/POST path and the mobile sync upload (which reuses
+        # this serializer via ``apply_task_changes``) both route through here. The
+        # project is resolved the same way the sprint/blocking_task checks above do —
+        # from the instance on update, from validated_data on create — and
+        # soft-deleted memberships are excluded (``is_deleted=False``), matching
+        # ``validate_lead``. The error names only "this project", never another
+        # project's membership, so it leaks nothing about foreign projects.
+        assignee = attrs.get("assignee")
+        if "assignee" in attrs and assignee is not None:
+            project = self.instance.project if self.instance is not None else attrs.get("project")
+            if project is not None:
+                is_member = ProjectMembership.objects.filter(
+                    project=project,
+                    user=assignee,
+                    is_deleted=False,
+                ).exists()
+                if not is_member:
+                    raise serializers.ValidationError(
+                        {"assignee": "The assignee must be a member of this project."}
+                    )
+
         # ADR-0102 §3: a task pending sprint-acceptance is team-owned. Its sprint
         # link may only change by ACCEPTING (keeps the sprint, clears pending) or
         # REJECTING (removes it) via the dedicated scope-change endpoints — never
