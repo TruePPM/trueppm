@@ -2314,6 +2314,7 @@
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
                 "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range. The user's\nproject membership is implicit — if they are assigned to a task they\nare at minimum a Member.",
+                "summary": "Multi-team active-sprints lens for the current user",
                 "tags": [
                     "v1"
                 ],
@@ -2327,7 +2328,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Array of per-project summary cards, one for each project where the caller owns a non-complete task in that project's ACTIVE sprint. Each entry carries `{project_id, project_name, sprint, capacity_ratio, capacity_label, velocity}`, where `sprint` holds the burndown snapshot (day N of M, points remaining, trend) and `velocity` the rolling forecast range. Sorted most-behind first. Empty array when the user has no active sprint work."
                     }
                 }
             }
@@ -7472,6 +7481,7 @@
             "post": {
                 "operationId": "v1_projects_acceptance_results_create",
                 "description": "``POST /api/v1/projects/{project_id}/acceptance-results/`` — CI test ingest (ADR-0148).\n\nCloses the XP acceptance-test-driven loop: a CI job that runs a story's\nacceptance tests reports the verdicts here and the matching\n``AcceptanceCriterion.met`` flags flip, stamping the review trail to the human\nwho minted the token (``met_by``/``met_at``). Flipping the last unmet criterion\n*satisfies* the Definition-of-Ready gate but does NOT auto-transition the task to\nREADY — the team keeps the deliberate Mark-ready step (the ``dor_ready`` flag in\nthe response tells CI the gate is now clear).\n\nOSS boundary (ADR-0097 carve-out, rule 9): this reuses the EXISTING ADR-0068\n``ProjectApiTokenAuthentication`` — a single narrow authenticated endpoint, no\nprovider registry, no HMAC/OAuth, no conflict resolution, no reconciliation loop.\nThe general multi-provider bidirectional ingest hub remains Enterprise.\n\nIDOR defense: ``IsTokenForProject`` verifies the token authorizes the URL project\n(401 on mismatch). Criteria that belong to a *different* project than the URL are\nnever flipped — they are returned in ``unknown`` rather than touched, so a token\ncannot reach across the project boundary by naming foreign criterion ids.",
+                "summary": "Ingest CI acceptance-test verdicts for a project's criteria",
                 "parameters": [
                     {
                         "in": "path",
@@ -7492,7 +7502,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Result object: `{updated, unchanged, unknown, tasks}`. `updated`/`unchanged` are the criterion ids whose `met` flag was flipped or already matched; `unknown` are ids that belong to another project (never touched — IDOR boundary). `tasks` is a per-task report `{task, dor_ready, criteria_met, criteria_total}`, where `dor_ready` reports whether that task's Definition-of-Ready gate is now clear. Authenticates with a project-scoped API token (`projectApiTokenAuth`), not a user session."
                     }
                 }
             }
@@ -7687,6 +7705,7 @@
             "get": {
                 "operationId": "v1_projects_board_config_retrieve",
                 "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 5-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
+                "summary": "Get the board column configuration",
                 "parameters": [
                     {
                         "in": "path",
@@ -7713,13 +7732,21 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardColumnConfigResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             },
             "put": {
                 "operationId": "v1_projects_board_config_update",
                 "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 5-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
+                "summary": "Replace the board column configuration",
                 "parameters": [
                     {
                         "in": "path",
@@ -7733,6 +7760,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardColumnConfigRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardColumnConfigRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardColumnConfigRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "projectApiTokenAuth": []
@@ -7746,15 +7793,23 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardColumnConfigResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
         },
         "/api/v1/projects/{id}/board-views/": {
             "get": {
-                "operationId": "v1_projects_board_views_retrieve",
+                "operationId": "v1_projects_board_views_list",
                 "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nRead is open to any project member (Viewer+); creating a project-shared view\nrequires Member+ (role >= Role.MEMBER) — a Viewer may use shared views but not\nadd to the shared set (#820). IsProjectMemberWrite enforces this: it falls back\nto IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).",
+                "summary": "List the project's board saved views",
                 "parameters": [
                     {
                         "in": "path",
@@ -7778,13 +7833,24 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/BoardSavedView"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             },
             "post": {
                 "operationId": "v1_projects_board_views_create",
                 "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nRead is open to any project member (Viewer+); creating a project-shared view\nrequires Member+ (role >= Role.MEMBER) — a Viewer may use shared views but not\nadd to the shared set (#820). IsProjectMemberWrite enforces this: it falls back\nto IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).",
+                "summary": "Create a named board saved view",
                 "parameters": [
                     {
                         "in": "path",
@@ -7798,6 +7864,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardSavedViewRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardSavedViewRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BoardSavedViewRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -7807,8 +7893,15 @@
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "No response body"
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardSavedView"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -7817,6 +7910,7 @@
             "patch": {
                 "operationId": "v1_projects_board_views_partial_update",
                 "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. Only the creator or a Scheduler-role\nmember (role ≥ 2) may modify a view.\nDELETE removes the view with the same role constraints.",
+                "summary": "Update a board saved view",
                 "parameters": [
                     {
                         "in": "path",
@@ -7838,6 +7932,25 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBoardSavedViewRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBoardSavedViewRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBoardSavedViewRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -7848,7 +7961,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BoardSavedView"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             },
@@ -8821,6 +8941,7 @@
             "patch": {
                 "operationId": "v1_projects_phases_reorder_partial_update",
                 "description": "Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.\n\nPATCH /api/v1/projects/{pk}/phases/reorder/\n\nBody:\n    {\n        \"phases\": [\n            {\"id\": \"<uuid>\", \"server_version\": 12},\n            {\"id\": \"<uuid>\", \"server_version\": 7}\n        ]\n    }\n\nRequires ADMIN (role ≥ 3).  Verifies server_version for every supplied task\nbefore writing — returns 409 if any version is stale (another participant\nmodified a phase concurrently).  Atomically sets priority_rank = position * 10,\nbumps server_version via F() increment, broadcasts phases_reordered, and\nenqueues a CPM recalculation.\n\nAll IDs must be non-deleted, root-level tasks (wbs_path matches ^\\d+$)\nbelonging to this project — any violation returns 400.",
+                "summary": "Reorder phase columns (root-level WBS tasks)",
                 "parameters": [
                     {
                         "in": "path",
@@ -8834,6 +8955,25 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseReorderRequestRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -8844,15 +8984,23 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PhaseReorderResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
         },
         "/api/v1/projects/{id}/presence/": {
             "get": {
-                "operationId": "v1_projects_presence_retrieve",
+                "operationId": "v1_projects_presence_list",
                 "description": "Return JSON list of online users for the given project.",
+                "summary": "List users currently connected to a project's WebSocket",
                 "parameters": [
                     {
                         "in": "path",
@@ -8876,7 +9024,17 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectPresenceEntry"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9721,6 +9879,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_indent_create",
                 "description": "Indent a task — make it the last child of its previous sibling.\n\nPOST /api/v1/projects/{pk}/tasks/{task_id}/indent/\n\nNo request body.  The task moves under the immediately preceding sibling\nat the same WBS level.\n\nReturns:\n    200 { \"updated\": [...], \"warning\": null | \"has_assignments\" }\n    400 when the task is first at its level (no previous sibling).",
+                "summary": "Indent a task under its previous sibling",
                 "parameters": [
                     {
                         "in": "path",
@@ -9752,7 +9911,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRestructureResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9761,6 +9927,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_outdent_create",
                 "description": "Outdent a task — promote to parent's level (MS Project convention).\n\nPOST /api/v1/projects/{pk}/tasks/{task_id}/outdent/\n\nNo request body.  Following siblings at the old level become children\nof the outdented task (MS Project convention).\n\nReturns:\n    200 { \"updated\": [...], \"warning\": null | \"has_assignments\" }\n    400 when the task is at root level.",
+                "summary": "Outdent a task to its parent's level",
                 "parameters": [
                     {
                         "in": "path",
@@ -9792,7 +9959,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRestructureResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9801,6 +9975,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_reparent_create",
                 "description": "Reparent a task — move it under an arbitrary summary (or to root).\n\nPOST /api/v1/projects/{pk}/tasks/{task_id}/reparent/\n\nBody:\n    { \"new_parent_id\": \"<uuid>\" | null }  (null = root level)\n\nInserts the task as the last child of the target parent, rewrites\ndescendants, renumbers old siblings, and triggers CPM recalc.\nUnlike indent/, the target is explicit rather than previous-sibling.\n\nReturns:\n    200 { \"updated\": [...], \"warning\": null | \"has_assignments\" }\n    400 on cycle (target is self or descendant) or missing WBS path.\n    404 when new_parent_id does not exist in the project.",
+                "summary": "Reparent a task under an arbitrary summary (or to root)",
                 "parameters": [
                     {
                         "in": "path",
@@ -9822,6 +9997,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReparentRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReparentRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReparentRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -9832,7 +10027,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRestructureResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9841,6 +10043,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_bulk_create",
                 "description": "Atomically create, update, and delete tasks in a single request.\n\nPOST /api/v1/projects/{pk}/tasks/bulk/\n\nBody:\n    {\n        \"operations\": [\n            { \"op\": \"create\", \"data\": { \"name\": \"Sprint 1\", \"duration\": 5, ... } },\n            { \"op\": \"update\", \"id\": \"<uuid>\", \"data\": { \"percent_complete\": 0.5 } },\n            { \"op\": \"delete\", \"id\": \"<uuid>\" }\n        ]\n    }\n\nAll operations execute inside a single transaction.atomic() block.\nThe scheduling engine is triggered once after commit regardless of how\nmany tasks were mutated.\n\nReturns:\n    200 {\n        \"created\": [{ \"id\": \"<uuid>\", ...task fields... }, ...],\n        \"updated\": [{ \"id\": \"<uuid>\", ...task fields... }, ...],\n        \"deleted\": [\"<uuid>\", ...]\n    }",
+                "summary": "Atomically create, update, and delete tasks in one request",
                 "parameters": [
                     {
                         "in": "path",
@@ -9854,6 +10057,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskBulkRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskBulkRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskBulkRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -9864,7 +10087,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskBulkResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9873,6 +10103,7 @@
             "post": {
                 "operationId": "v1_projects_tasks_reorder_create",
                 "description": "Reorder sibling tasks within a WBS level.\n\nPOST /api/v1/projects/{pk}/tasks/reorder/\n\nBody:\n    {\n        \"parent_path\": \"1.2\",          # empty string for root level\n        \"ordered_ids\": [\"<uuid>\", ...]  # all live siblings in desired order\n    }\n\nThe server recomputes wbs_path for every sibling (e.g. \"1.2.1\", \"1.2.2\",\n...) and saves them atomically.  All supplied IDs must be live, non-deleted\ntasks belonging to this project under the given parent — otherwise 400.\n\nReturns:\n    200 { \"updated\": [{ \"id\": \"<uuid>\", \"wbs_path\": \"1.2.1\" }, ...] }",
+                "summary": "Reorder sibling tasks within a WBS level",
                 "parameters": [
                     {
                         "in": "path",
@@ -9886,6 +10117,26 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReorderRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReorderRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskReorderRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -9896,7 +10147,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskReorderResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -10115,6 +10373,7 @@
             "get": {
                 "operationId": "v1_projects_velocity_retrieve",
                 "description": "``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats.",
+                "summary": "Velocity summary — last 8 closed sprints plus rolling stats",
                 "parameters": [
                     {
                         "in": "path",
@@ -10138,7 +10397,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Velocity summary object: the per-sprint completed-points series plus `rolling_avg_points` and the `forecast_range_low`/`forecast_range_high` band. Under the ADR-0104 velocity privacy gate the detail (series + rolling points) is stripped for requesters below the velocity audience."
                     }
                 }
             }
@@ -10742,6 +11009,7 @@
             "post": {
                 "operationId": "v1_projects_baselines_activate_create",
                 "description": "Activate a specific baseline, deactivating all others for the project.\n\nPOST /api/v1/projects/{project_pk}/baselines/{baseline_pk}/activate/\n\nRequires Project Manager+ (IsProjectAdmin, role ≥ 3).\nReturns 200 with the updated baseline object.",
+                "summary": "Activate a baseline",
                 "parameters": [
                     {
                         "in": "path",
@@ -10773,7 +11041,14 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Baseline"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -14035,6 +14310,7 @@
             "get": {
                 "operationId": "v1_projects_tasks_baseline_retrieve",
                 "description": "Active-baseline comparison for a single task.\n\nReturns the task's current schedule dates alongside the baseline snapshot,\nplus signed delta values (positive = slipping behind plan).\n\nResponse flags:\n  has_baseline=False — the project has no active baseline yet\n  in_baseline=False  — the task was added after the baseline was taken",
+                "summary": "Active-baseline comparison for a single task",
                 "parameters": [
                     {
                         "in": "path",
@@ -14066,7 +14342,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Baseline comparison object. `{has_baseline: false}` when the project has no active baseline; `{has_baseline: true, in_baseline: false, ...}` when the task post-dates the baseline; otherwise the full snapshot with planned vs current dates/durations and signed `*_delta*` values (positive = slipping behind plan)."
                     }
                 }
             }
@@ -14683,6 +14967,7 @@
             "get": {
                 "operationId": "v1_projects_tasks_history_retrieve",
                 "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version (allow-by-exclusion;\nADR-0096 Part 1). The creation record (history_type ``+``) has an empty diff\n— no previous version to compare. Change records (``~``) whose every changed\nfield is display-excluded are dropped, so the endpoint never emits a bare\n\"Updated\" pill with no diff rows.\n\nAccessible to all project members (Viewer+). history_user is the username of\nthe user who made the change; null for programmatic writes. FK values\n(assignee, sprint, …) are resolved to human-readable labels via a single\nbatched query per related model (no N+1 over the history).",
+                "summary": "Paginated field-level diff history for a task",
                 "parameters": [
                     {
                         "in": "path",
@@ -14714,7 +14999,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Each `results` entry is `{id, history_date, history_type, history_user, diff}`, where `diff` is a list of `{field, old, new}` changes. `count_truncated` is true when the task's history exceeded the row cap and only the most recent changes are returned."
                     }
                 }
             }
@@ -24591,6 +24884,98 @@
                     "status"
                 ]
             },
+            "BoardColumnConfigRequest": {
+                "type": "object",
+                "description": "Read/write serializer for BoardColumnConfig.\n\nValidates each column entry: status must be one of the five canonical\nstatuses, label ≤ 32 chars, visible is a bool. All five canonical statuses\nmust appear exactly once (no duplicates, no missing values).\n\nOptional per-column metadata (ADR-0039, ADR-0164):\n    color:              \"#RRGGBB\" hex string or null\n    wip_limit:          positive integer or null\n    age_threshold_days: positive integer or null (null = use the client's\n                        per-status default; #410 board-aging tuning)\n\nUnknown keys are dropped silently — the validated payload only contains\nthe recognized keys, preventing forward-compat key smuggling.",
+                "properties": {
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    }
+                },
+                "required": [
+                    "columns"
+                ]
+            },
+            "BoardColumnConfigResponse": {
+                "type": "object",
+                "description": "Response for the board column-config endpoints: the ordered column list.",
+                "properties": {
+                    "columns": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    }
+                },
+                "required": [
+                    "columns"
+                ]
+            },
+            "BoardSavedView": {
+                "type": "object",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "config": {},
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "config",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "name",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "BoardSavedViewRequest": {
+                "type": "object",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "config": {}
+                },
+                "required": [
+                    "config",
+                    "name"
+                ]
+            },
             "BulkFieldsRequestRequest": {
                 "type": "object",
                 "description": "Request envelope: which rows to change, and which fields to set on them.\n\n``ids`` are the entities the user checked; ``fields`` is the partial field map to apply.\nOnly the named fields on the named rows change — every other row and every other field\nkeeps inheriting (#1233). The *values* in ``fields`` are validated per-scope by the\nper-entity serializer the caller passes to :func:`apply_bulk_fields`; this envelope only\nenforces the request shape (non-empty, well-typed ids, bounded count).",
@@ -27076,6 +27461,15 @@
                 "type": "string",
                 "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error"
             },
+            "OpEnum": {
+                "enum": [
+                    "create",
+                    "update",
+                    "delete"
+                ],
+                "type": "string",
+                "description": "* `create` - create\n* `update` - update\n* `delete` - delete"
+            },
             "OpenPokerRequest": {
                 "type": "object",
                 "description": "POST body — open a round for one task.",
@@ -28614,6 +29008,18 @@
                     }
                 }
             },
+            "PatchedBoardSavedViewRequest": {
+                "type": "object",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "config": {}
+                }
+            },
             "PatchedCalendarExceptionRequest": {
                 "type": "object",
                 "description": "Read/write serializer for a calendar exception (holiday or non-working span).\n\nThe parent calendar is bound from the URL by the viewset, never from the\nrequest body, so a client cannot reassign an exception to another calendar.\nExceptions ride their calendar as an aggregate root for sync (ADR-0194).",
@@ -28778,6 +29184,17 @@
                     },
                     "invite_template": {
                         "type": "string"
+                    }
+                }
+            },
+            "PatchedPhaseReorderRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "phases": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PhaseReorderEntryRequest"
+                        }
                     }
                 }
             },
@@ -30103,6 +30520,34 @@
                     "program",
                     "server_version",
                     "updated_at"
+                ]
+            },
+            "PhaseReorderEntryRequest": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "server_version": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "id",
+                    "server_version"
+                ]
+            },
+            "PhaseReorderResponse": {
+                "type": "object",
+                "description": "Response for the phase-reorder endpoint — count of rows re-ranked.",
+                "properties": {
+                    "updated": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "updated"
                 ]
             },
             "PhaseRequest": {
@@ -32091,6 +32536,22 @@
                 "required": [
                     "role",
                     "user"
+                ]
+            },
+            "ProjectPresenceEntry": {
+                "type": "object",
+                "description": "A single user currently connected to a project's WebSocket.",
+                "properties": {
+                    "user_id": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "user_id"
                 ]
             },
             "ProjectRequest": {
@@ -35124,6 +35585,73 @@
                     }
                 }
             },
+            "TaskBulkItemRequest": {
+                "type": "object",
+                "description": "A single operation within a bulk task request.\n\nop: \"create\" | \"update\" | \"delete\"\nid: required for update/delete; omitted (or null) for create.\ndata: task fields — all optional for update, required fields apply for create.",
+                "properties": {
+                    "op": {
+                        "$ref": "#/components/schemas/OpEnum"
+                    },
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "data": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "required": [
+                    "op"
+                ]
+            },
+            "TaskBulkRequest": {
+                "type": "object",
+                "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/bulk/.\n\nAccepts a list of create/update/delete operations and executes them in a\nsingle atomic transaction.  Returns separate lists of affected task IDs so\nthe client can invalidate the correct cache keys.",
+                "properties": {
+                    "operations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskBulkItemRequest"
+                        },
+                        "minItems": 1
+                    }
+                },
+                "required": [
+                    "operations"
+                ]
+            },
+            "TaskBulkResponse": {
+                "type": "object",
+                "description": "Response for the atomic task bulk-mutation endpoint.",
+                "properties": {
+                    "created": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    },
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Task"
+                        }
+                    },
+                    "deleted": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                },
+                "required": [
+                    "created",
+                    "deleted",
+                    "updated"
+                ]
+            },
             "TaskComment": {
                 "type": "object",
                 "description": "Append-only task comment with single-level reply nesting.\n\n`body` is required + length-capped. `parent` must be a top-level comment\non the same task. Edits are limited to a 15-min window after creation.",
@@ -35640,6 +36168,56 @@
                     "task"
                 ]
             },
+            "TaskReorderRequest": {
+                "type": "object",
+                "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/reorder/.\n\nAccepts the sibling list for a single WBS parent level and returns the new\nwbs_path for every repositioned task so the frontend can update its cache\nwithout a full refetch.\n\nparent_path: ltree string of the parent task (e.g. \"1.2\") or empty string\n    for the root level.  The server validates that all ordered_ids are\n    live siblings under this parent.\nordered_ids: UUIDs of the siblings in the desired order.  Every live sibling\n    under parent_path must appear — partial lists are rejected to prevent\n    ambiguous gaps in the WBS sequence.",
+                "properties": {
+                    "parent_path": {
+                        "type": "string",
+                        "default": ""
+                    },
+                    "ordered_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "minItems": 1
+                    }
+                },
+                "required": [
+                    "ordered_ids"
+                ]
+            },
+            "TaskReorderResponse": {
+                "type": "object",
+                "description": "Response for the sibling-reorder endpoint.",
+                "properties": {
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WbsPathEntry"
+                        }
+                    }
+                },
+                "required": [
+                    "updated"
+                ]
+            },
+            "TaskReparentRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "new_parent_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Target parent task id, or null to move the task to root level."
+                    }
+                },
+                "required": [
+                    "new_parent_id"
+                ]
+            },
             "TaskRequest": {
                 "type": "object",
                 "properties": {
@@ -35926,6 +36504,27 @@
                 "required": [
                     "resource",
                     "task"
+                ]
+            },
+            "TaskRestructureResponse": {
+                "type": "object",
+                "description": "Response for indent / outdent / reparent — moved rows plus an optional warning.",
+                "properties": {
+                    "updated": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WbsPathEntry"
+                        }
+                    },
+                    "warning": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "'has_assignments' when the move turned a task into a summary that still carries resource assignments; otherwise null."
+                    }
+                },
+                "required": [
+                    "updated",
+                    "warning"
                 ]
             },
             "TaskRun": {
@@ -36598,6 +37197,23 @@
                 ],
                 "type": "string",
                 "description": "* `WORKSPACE` - Workspace\n* `PRIVATE` - Private"
+            },
+            "WbsPathEntry": {
+                "type": "object",
+                "description": "A single task's new WBS path after a structural move.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "wbs_path": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "wbs_path"
+                ]
             },
             "Webhook": {
                 "type": "object",
