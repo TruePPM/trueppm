@@ -67,7 +67,7 @@ export function MCResultPanel({ result, onClose }: Props) {
           className="inline-flex items-center justify-center w-11 h-11 rounded-control
             border border-neutral-border text-sm text-neutral-text-secondary
             hover:bg-neutral-surface-raised
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
         >
           ✕
         </button>

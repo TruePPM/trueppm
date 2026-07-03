@@ -258,7 +258,7 @@ export function ViewsMenu() {
         aria-expanded={isOpen}
         aria-label="Customize views"
         onClick={() => setIsOpen((p) => !p)}
-        className="inline-flex shrink-0 items-center gap-1 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+        className="inline-flex shrink-0 items-center gap-1 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
         <EyeIcon className="text-current" aria-hidden="true" />
         <span className="hidden lg:inline">Views</span>
@@ -303,7 +303,7 @@ export function ViewsMenu() {
                     role="menuitemcheckbox"
                     aria-checked={visible}
                     onClick={() => toggle(view)}
-                    className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+                    className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
                   >
                     <Icon
                       className={
@@ -334,7 +334,7 @@ export function ViewsMenu() {
             onClick={reset}
             disabled={!canReset}
             title={canReset ? undefined : 'No views hidden'}
-            className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left text-neutral-text-primary hover:bg-chrome-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left text-neutral-text-primary hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:hover:bg-transparent"
           >
             <ResetIcon className="text-current" aria-hidden="true" />
             Reset to {methodLabel} default

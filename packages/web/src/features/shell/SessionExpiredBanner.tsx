@@ -67,7 +67,7 @@ export function SessionExpiredBanner() {
           <button
             type="button"
             onClick={handleSignIn}
-            className="h-9 px-4 rounded-control bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-9 px-4 rounded-control bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-brand-primary focus:outline-none"
           >
             Sign in
           </button>

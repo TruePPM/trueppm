@@ -114,7 +114,7 @@ export function TopBar({ onHamburgerClick }: Props) {
         aria-label="Open sidebar"
         aria-expanded={!sidebarCollapsed}
         className="md:hidden flex shrink-0 items-center justify-center w-11 h-11 rounded-control text-neutral-text-secondary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
           <rect y="3" width="20" height="2" rx="1" />
@@ -132,7 +132,7 @@ export function TopBar({ onHamburgerClick }: Props) {
         aria-controls="primary-nav-rail"
         aria-expanded={!sidebarCollapsed}
         title={`${sidebarCollapsed ? 'Show' : 'Hide'} navigation (${modifierKeyLabel()}B)`}
-        className="hidden md:inline-flex shrink-0 w-8 h-8 items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+        className="hidden md:inline-flex shrink-0 w-8 h-8 items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
         <svg
           width="16"

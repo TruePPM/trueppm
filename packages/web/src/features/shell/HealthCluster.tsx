@@ -120,7 +120,7 @@ function SegmentPopover({
           'flex items-center gap-1.5 px-2.5 h-full text-xs font-medium',
           count > 0 ? colorClass : 'text-neutral-text-secondary',
           'hover:bg-neutral-surface-raised',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
         ].join(' ')}
     >
         <span aria-hidden="true">{icon}</span>
@@ -146,7 +146,7 @@ function SegmentPopover({
                 'w-full text-left px-2 py-1.5 rounded-control text-xs',
                 colorClass,
                 'hover:bg-neutral-surface-raised',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
+                'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
               ].join(' ')}
             >
               <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
@@ -172,7 +172,7 @@ function SegmentPopover({
 const CELL = 'flex items-center gap-1.5 px-2.5 h-full text-xs whitespace-nowrap';
 const CELL_BTN =
   CELL +
-  ' hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset';
+  ' hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
 
 function Divider() {
   return <span aria-hidden="true" className="self-center h-4 w-px bg-neutral-border" />;
@@ -426,7 +426,7 @@ function CollapsedHealth({
         aria-label="Project health summary"
         className="flex items-center gap-1 h-6 px-2 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-secondary
           hover:bg-neutral-surface-raised
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         Health <span aria-hidden="true">{open ? '▴' : '▾'}</span>
       </button>
@@ -463,7 +463,7 @@ function CollapsedHealth({
                     }}
                     className={`w-full text-left px-2 py-1.5 rounded-control text-xs ${color}
                       hover:bg-neutral-surface-raised
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset`}
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset`}
                   >
                     <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
                     {item.name}

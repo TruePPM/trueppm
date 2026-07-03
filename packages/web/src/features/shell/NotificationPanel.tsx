@@ -97,7 +97,7 @@ export function NotificationPanel({ onClose }: Props) {
             disabled={markAllRead.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded-control px-2 h-7
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
               disabled:opacity-50"
           >
             Mark all read
@@ -108,7 +108,7 @@ export function NotificationPanel({ onClose }: Props) {
             aria-label="Close notifications"
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded-control px-2 h-7
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
           >
             ✕
           </button>
@@ -138,7 +138,7 @@ export function NotificationPanel({ onClose }: Props) {
               onKeyDown={handleFilterKeyDown}
               onClick={() => setFilter(f.value)}
               className={`text-xs px-2 h-7 rounded-control border
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 ${
                   active
                     ? 'border-brand-primary text-brand-primary bg-brand-primary/5'
@@ -164,7 +164,7 @@ export function NotificationPanel({ onClose }: Props) {
         id="notif-panel"
         aria-labelledby={`notif-tab-${filter}`}
         tabIndex={0}
-        className="flex-1 overflow-y-auto p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+        className="flex-1 overflow-y-auto p-3 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
       >
         {isLoading && (
           <div aria-busy="true" aria-label="Loading notifications" className="flex flex-col gap-2">
@@ -208,7 +208,7 @@ export function NotificationPanel({ onClose }: Props) {
                 disabled={isFetchingNextPage}
                 className="self-center mt-1 rounded-control border border-neutral-border px-3 h-8 text-xs font-medium
                   text-neutral-text-secondary hover:bg-neutral-surface-raised
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                  focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                   disabled:opacity-50"
               >
                 {isFetchingNextPage ? 'Loading…' : 'Load more'}
@@ -224,7 +224,7 @@ export function NotificationPanel({ onClose }: Props) {
           to="/me/settings/notifications"
           onClick={onClose}
           className="text-xs text-brand-primary underline-offset-2 hover:underline
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
         >
           Notification preferences →
         </Link>

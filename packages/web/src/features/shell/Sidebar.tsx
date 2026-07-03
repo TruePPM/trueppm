@@ -61,7 +61,7 @@ const GROUP_LABEL = `px-3 pt-3 pb-1 ${GROUP_LABEL_TEXT} text-chrome-text-seconda
 function rowClass(active: boolean): string {
   return [
     'group flex items-center gap-2 w-full pl-2.5 pr-2 py-2 rounded-control text-sm transition-colors',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+    'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
     active
       ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
       : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
@@ -186,7 +186,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={toggleSidebar}
               aria-label="Collapse sidebar"
               title={`Hide sidebar (${modifierKeyLabel()}B)`}
-              className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
             >
               <span aria-hidden="true" className="text-base leading-none">«</span>
             </button>
@@ -201,7 +201,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={() => openPalette(true)}
               aria-label="Search or jump to (command palette)"
               aria-keyshortcuts="Meta+K Control+K"
-              className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
             >
               <SearchIcon className="h-4 w-4 shrink-0" />
               <span className="text-[13px]">Search or jump to…</span>
@@ -333,7 +333,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   className={({ isActive }) =>
                     [
                       'group/programs flex min-h-11 items-center gap-1 rounded-control px-3 pt-3 pb-1',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                      'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
                       isActive
                         ? 'text-chrome-text-primary'
                         : 'text-chrome-text-secondary hover:text-chrome-text-primary',
@@ -348,7 +348,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 type="button"
                 onClick={() => setShowNewProgram(true)}
                 aria-label="New program"
-                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
               >
                 <PlusIcon className="h-3 w-3" />
               </button>
@@ -366,7 +366,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                       onClick={() => toggleProgram(prog.id)}
                       aria-label={isExpanded ? `Collapse ${prog.name}` : `Expand ${prog.name}`}
                       aria-expanded={isExpanded}
-                      className="shrink-0 -ml-0.5 flex h-5 w-5 items-center justify-center rounded-control text-chrome-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+                      className="shrink-0 -ml-0.5 flex h-5 w-5 items-center justify-center rounded-control text-chrome-text-secondary focus:outline-none focus:ring-2 focus:ring-brand-primary"
                     >
                       <ChevronRightIcon
                         className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -381,7 +381,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                     <button
                       type="button"
                       onClick={() => go(`/programs/${prog.id}/overview`)}
-                      className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
+                      className="min-w-0 flex-1 truncate text-left focus:outline-none"
                     >
                       {prog.name}
                     </button>
@@ -436,7 +436,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <button
                 type="button"
                 onClick={() => setShowNewProject(true)}
-                className="flex-1 rounded-control border border-chrome-border/15 px-2 py-1.5 text-xs text-chrome-text-secondary hover:text-chrome-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                className="flex-1 rounded-control border border-chrome-border/15 px-2 py-1.5 text-xs text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
               >
                 + New project
               </button>
@@ -445,7 +445,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 onClick={() => setShowImport(true)}
                 aria-label="Import a project from a file"
                 title="Import a project from a file"
-                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+                className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                   <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -477,7 +477,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               className={({ isActive }) =>
                 [
                   'w-9 h-9 flex items-center justify-center rounded-control transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface',
                   isActive
                     ? 'bg-brand-primary/10 text-chrome-text-primary'
                     : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
@@ -551,7 +551,7 @@ function ProjectRow({
             ? `${name}, ${HEALTH_LABEL[health]}, ${openTaskCount} open ${openTaskCount === 1 ? 'task' : 'tasks'}`
             : `${name}, ${HEALTH_LABEL[health]}`
         }
-        className="min-w-0 flex-1 truncate text-left focus-visible:outline-none"
+        className="min-w-0 flex-1 truncate text-left focus:outline-none"
       >
         {name}
       </button>
@@ -576,7 +576,7 @@ function ProjectRow({
         aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
         aria-pressed={pinned}
         title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
-        className="shrink-0 rounded-control p-0.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 aria-pressed:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        className="shrink-0 rounded-control p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
       >
         <svg
           width="13"
