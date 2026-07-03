@@ -21,6 +21,12 @@ two stacked rows). Left to right it carries:
 - **Adaptive identity** — a breadcrumb of your current program / project. It
   shows in the bar only when the left rail is collapsed or you're on a phone, so
   wayfinding is never duplicated.
+- **Project switcher** — a compact, searchable dropdown at the left edge of the
+  view tabs that lets you jump between the projects you're a member of without
+  leaving the project view. Selecting a project keeps you on the same view you
+  were looking at (Schedule stays on Schedule), and it's fully keyboard- and
+  screen-reader accessible. It appears only when you belong to more than one
+  project.
 - **View tabs** — the grouped, methodology-adaptive navigation (below). The strip
   scrolls horizontally on narrow screens rather than dropping or clipping labels.
 - **The health cluster** — one bordered context read-out (below).

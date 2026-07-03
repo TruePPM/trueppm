@@ -13,6 +13,7 @@ import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { Logo } from './Logo';
 import { ViewTabs, MethodWorkspaceLabel } from './ViewTabs';
+import { ProjectSwitcher } from './ProjectSwitcher';
 import { ViewsMenu } from './ViewsMenu';
 import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
@@ -164,6 +165,12 @@ export function TopBar({ onHamburgerClick }: Props) {
           sidebarCollapsed ? 'block' : 'block md:hidden',
         ].join(' ')}
       />
+
+      {/* In-chrome project switcher (issue 1478) — pinned at the left edge of the view-tab
+          bar (outside the scroller so its popover is never clipped). Self-gates to
+          project routes and renders nothing off-project / on settings / with <2 member
+          projects, so it never collides with the program chrome. */}
+      <ProjectSwitcher />
 
       {/* View / program nav — scrolls horizontally only when it overflows; the right
           cluster stays pinned. ViewTabs / ProgramTabs are mutually exclusive (ADR-0095)
