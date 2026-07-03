@@ -29,7 +29,7 @@ import {
 // they work in both light and dark mode. Tailwind classes cannot reach inside
 // Recharts SVG, so we use inline `style` props (rule 10).
 // ---------------------------------------------------------------------------
-const C = {
+export const CHART_COLORS = {
   actual: 'var(--color-brand-primary)',
   ideal: 'var(--color-neutral-text-disabled)',
   scope: 'var(--color-teal-400, #1D9E75)',
@@ -37,7 +37,11 @@ const C = {
   scopeAdd: 'var(--color-semantic-at-risk)',
   scopeRem: 'var(--color-semantic-critical)',
   today: 'var(--color-semantic-critical)',
-  grid: 'rgba(0,0,0,0.06)',
+  // Mode-aware so the gridlines adapt to the .dark token swap. A hardcoded
+  // rgba(0,0,0,…) wash renders as invisible black-on-navy in dark mode (WCAG
+  // 1.4.11); the neutral-border token is the same grid stroke FlowAnalyticsPanel
+  // uses (issue 1638).
+  grid: 'var(--color-neutral-border)',
   axisTick: 'var(--color-neutral-text-secondary)',
 } as const;
 
@@ -173,10 +177,8 @@ export function deriveSprintSeries(
     const snap = byDate.get(iso);
 
     if (snap) {
-      carriedRemaining =
-        metric === 'points' ? snap.remaining_points : snap.remaining_task_count;
-      carriedCompleted =
-        metric === 'points' ? snap.completed_points : snap.completed_task_count;
+      carriedRemaining = metric === 'points' ? snap.remaining_points : snap.remaining_task_count;
+      carriedCompleted = metric === 'points' ? snap.completed_points : snap.completed_task_count;
     }
 
     // Anchor day 0 at the committed value even with no snapshot (sprint start =
@@ -351,7 +353,7 @@ function TodayLabel({ viewBox }: { viewBox?: { x: number; y: number } }) {
       x={viewBox.x}
       y={viewBox.y - 4}
       textAnchor="middle"
-      fill={C.today}
+      fill={CHART_COLORS.today}
       fontSize={10}
       fontWeight={500}
       aria-hidden="true"
@@ -513,7 +515,11 @@ export function BurnChart({
   };
 
   // Chart shared config
-  const axisStyle = { fontSize: 11, fill: C.axisTick, fontFamily: 'JetBrains Mono, monospace' };
+  const axisStyle = {
+    fontSize: 11,
+    fill: CHART_COLORS.axisTick,
+    fontFamily: 'JetBrains Mono, monospace',
+  };
   const chartMargin = { top: 8, right: 16, left: 0, bottom: 0 };
 
   const sharedTooltip = (
@@ -524,7 +530,9 @@ export function BurnChart({
     />
   );
 
-  const sharedGrid = <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={C.grid} />;
+  const sharedGrid = (
+    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke={CHART_COLORS.grid} />
+  );
   const sharedXAxis = (
     <XAxis
       dataKey="date"
@@ -540,7 +548,7 @@ export function BurnChart({
   const todayLine = (
     <ReferenceLine
       x={today}
-      stroke={C.today}
+      stroke={CHART_COLORS.today}
       strokeDasharray="3 3"
       strokeWidth={1}
       label={<TodayLabel />}
@@ -553,7 +561,7 @@ export function BurnChart({
       x={c.date}
       y={variant === 'burndown' || variant === 'combined' ? 0 : 0}
       r={5}
-      fill={c.delta > 0 ? C.scopeAdd : C.scopeRem}
+      fill={c.delta > 0 ? CHART_COLORS.scopeAdd : CHART_COLORS.scopeRem}
       stroke="var(--color-neutral-surface)"
       strokeWidth={2}
       aria-label={`Scope change ${c.date}: ${c.delta > 0 ? '+' : ''}${c.delta} ${effectiveMetric}`}
@@ -579,10 +587,7 @@ export function BurnChart({
     // read the final row blindly — walk back to the last non-null remaining,
     // falling back to the committed value (PLANNED / not started).
     const lastRemaining =
-      points?.reduce<number>(
-        (last, p) => (p.remaining ?? last),
-        committedVal,
-      ) ?? committedVal;
+      points?.reduce<number>((last, p) => p.remaining ?? last, committedVal) ?? committedVal;
 
     // Caption is split into prose + a single contiguous numeric chunk so the
     // `.tppm-mono` count never swaps font mid-token (rule 8c). The mono chunk
@@ -623,8 +628,8 @@ export function BurnChart({
                 <Area
                   type="monotone"
                   dataKey="remaining"
-                  stroke={C.actual}
-                  fill={C.actual}
+                  stroke={CHART_COLORS.actual}
+                  fill={CHART_COLORS.actual}
                   fillOpacity={0.1}
                   strokeWidth={2}
                   dot={false}
@@ -634,7 +639,7 @@ export function BurnChart({
                 <Line
                   type="linear"
                   dataKey="ideal"
-                  stroke={C.ideal}
+                  stroke={CHART_COLORS.ideal}
                   strokeDasharray="4 3"
                   strokeWidth={1}
                   dot={false}
@@ -827,8 +832,8 @@ export function BurnChart({
                 <Area
                   type="monotone"
                   dataKey="remaining"
-                  stroke={C.actual}
-                  fill={C.actual}
+                  stroke={CHART_COLORS.actual}
+                  fill={CHART_COLORS.actual}
                   fillOpacity={0.1}
                   strokeWidth={2}
                   dot={false}
@@ -838,7 +843,7 @@ export function BurnChart({
                 <Line
                   type="linear"
                   dataKey="ideal"
-                  stroke={C.ideal}
+                  stroke={CHART_COLORS.ideal}
                   strokeDasharray="5 4"
                   strokeWidth={1.5}
                   dot={false}
@@ -856,8 +861,8 @@ export function BurnChart({
                 <Area
                   type="monotone"
                   dataKey="completed"
-                  stroke={C.completed}
-                  fill={C.completed}
+                  stroke={CHART_COLORS.completed}
+                  fill={CHART_COLORS.completed}
                   fillOpacity={0.1}
                   strokeWidth={2}
                   dot={false}
@@ -867,7 +872,7 @@ export function BurnChart({
                 <Line
                   type="monotone"
                   dataKey="scope"
-                  stroke={C.scope}
+                  stroke={CHART_COLORS.scope}
                   strokeDasharray="5 4"
                   strokeWidth={1.5}
                   dot={false}
@@ -886,8 +891,8 @@ export function BurnChart({
                 <Area
                   type="monotone"
                   dataKey="completed"
-                  stroke={C.completed}
-                  fill={C.completed}
+                  stroke={CHART_COLORS.completed}
+                  fill={CHART_COLORS.completed}
                   fillOpacity={0.08}
                   strokeWidth={1.5}
                   dot={false}
@@ -896,7 +901,7 @@ export function BurnChart({
                 <Line
                   type="monotone"
                   dataKey="remaining"
-                  stroke={C.actual}
+                  stroke={CHART_COLORS.actual}
                   strokeWidth={2}
                   dot={false}
                   name="Remaining"
@@ -904,7 +909,7 @@ export function BurnChart({
                 <Line
                   type="linear"
                   dataKey="scope"
-                  stroke={C.scope}
+                  stroke={CHART_COLORS.scope}
                   strokeDasharray="5 4"
                   strokeWidth={1}
                   dot={false}
@@ -913,7 +918,7 @@ export function BurnChart({
                 <Line
                   type="linear"
                   dataKey="ideal"
-                  stroke={C.ideal}
+                  stroke={CHART_COLORS.ideal}
                   strokeDasharray="4 4"
                   strokeWidth={1}
                   dot={false}
@@ -954,19 +959,19 @@ export function BurnChart({
       {/* Legend */}
       {!isLoading && !isError && !isEmpty && (
         <div className="flex flex-wrap items-center gap-4 px-4 pb-4 pt-2 text-xs text-neutral-text-secondary">
-          <LegendItem color={C.actual} dashed={false} label="Actual" />
+          <LegendItem color={CHART_COLORS.actual} dashed={false} label="Actual" />
           {(variant === 'burnup' || variant === 'combined') && (
-            <LegendItem color={C.completed} dashed={false} label="Completed" />
+            <LegendItem color={CHART_COLORS.completed} dashed={false} label="Completed" />
           )}
           {(variant === 'burndown' || variant === 'combined') && (
-            <LegendItem color={C.ideal} dashed label="Ideal" />
+            <LegendItem color={CHART_COLORS.ideal} dashed label="Ideal" />
           )}
           {(variant === 'burnup' || variant === 'combined') && (
-            <LegendItem color={C.scope} dashed label="Total scope" />
+            <LegendItem color={CHART_COLORS.scope} dashed label="Total scope" />
           )}
           {scopeChanges.some((c) => c.delta > 0) && (
             <span className="flex items-center gap-1">
-              <span style={{ color: C.scopeAdd }} aria-hidden="true">
+              <span style={{ color: CHART_COLORS.scopeAdd }} aria-hidden="true">
                 ◉
               </span>{' '}
               Scope added
@@ -974,7 +979,7 @@ export function BurnChart({
           )}
           {scopeChanges.some((c) => c.delta < 0) && (
             <span className="flex items-center gap-1">
-              <span style={{ color: C.scopeRem }} aria-hidden="true">
+              <span style={{ color: CHART_COLORS.scopeRem }} aria-hidden="true">
                 ◎
               </span>{' '}
               Scope removed
