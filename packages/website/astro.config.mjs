@@ -109,6 +109,7 @@ export default defineConfig({
             { slug: "administration/sharing-and-access" },
             { slug: "administration/attachment-policy" },
             { slug: "administration/git-event-automation" },
+            { slug: "administration/mcp-server" },
           ],
         },
         // --- Feature reference (sub-grouped) ---
