@@ -39,9 +39,9 @@ describe('ProgramIntegrationsPage', () => {
     useParams.mockReturnValue({ programId: 'prog-1' });
     render(<ProgramIntegrationsPage />);
     expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '#500' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '#570' })).toHaveAttribute(
       'href',
-      'https://gitlab.com/trueppm/trueppm/-/issues/500',
+      'https://gitlab.com/trueppm/trueppm/-/issues/570',
     );
   });
 
