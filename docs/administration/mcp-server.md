@@ -33,9 +33,16 @@ nothing you could not already read in the web client with the same token.
 ## Authentication
 
 The server authenticates with a **project API token** — the same `tppm_<64-hex>`
-token used for inbound integrations (see [Sharing and access](./sharing-and-access.md)).
-Mint one from a project's settings; the raw token is shown once, so copy it
-immediately.
+token used for inbound integrations (see [Sharing and access](./sharing-and-access.md)),
+scoped read-only for this purpose.
+
+The easiest way to get one: **Project or Program → Settings → Integrations →
+API Tokens → Create token**, then choose the **"Read-only for AI assistants"**
+scope (`mcp:read`). The reveal dialog shows the raw token once and a
+ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
+straight into your client's config and skip the manual assembly below. Pick
+**"Full access"** instead only if the token needs to write (inbound sync); it
+is never appropriate for an MCP client.
 
 The token is read from the environment and is never written to logs or echoed
 in an error message. Treat it like a password: anyone holding it can read
@@ -61,8 +68,10 @@ pip install trueppm-mcp
 ### stdio (primary)
 
 stdio is the primary transport: the AI client launches the server as a
-subprocess and speaks MCP over the pipe. Configure it in your client. For Claude
-Desktop, add an entry to `claude_desktop_config.json`:
+subprocess and speaks MCP over the pipe. If you minted an `mcp:read` token
+from the Integrations settings page, paste the snippet it gave you and skip
+ahead. Otherwise, for Claude Desktop, add an entry to `claude_desktop_config.json`
+by hand:
 
 ```json
 {
@@ -142,9 +151,9 @@ straight through from the API.
 - **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only).
 - **Identity** — `whoami` (connection check).
 
-The dedicated `mcp:read` token scope that marks a token read-only at the API
-layer lands alongside. For the full tool reference and example prompts, see the
-[MCP server feature page](../features/mcp-server.md).
+The dedicated `mcp:read` token scope marks a token read-only at the API layer
+regardless of which client uses it. For the full tool reference and example
+prompts, see the [MCP server feature page](../features/mcp-server.md).
 
 ## Security notes
 
@@ -154,7 +163,7 @@ layer lands alongside. For the full tool reference and example prompts, see the
 - **No secret in logs.** The token is never logged, never echoed in an error,
   and never included in a stack trace.
 - **Read-only.** The server defines only read tools and issues only `GET`
-  requests; the forthcoming `mcp:read` token scope additionally rejects any
-  write even if the token is replayed directly against a write endpoint.
+  requests; the `mcp:read` token scope additionally rejects any write even if
+  the token is replayed directly against a write endpoint.
 - **Self-hosted.** All traffic stays between your AI client, the server, and
   your own API — no third-party service is involved.
