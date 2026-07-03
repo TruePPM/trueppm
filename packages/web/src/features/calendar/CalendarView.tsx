@@ -12,37 +12,102 @@
  *   - Mobile (< 768px): vertical date-grouped list instead of grid
  *   - Today button + prev/next chevrons for navigation
  *
- * Uses stub hook (useCalendarTasks) returning fixture data until
- * the real TanStack Query hook is wired — tracked in issue 1613.
+ * Clicking a chip or milestone selects the task and opens an inline detail
+ * banner (name, dates, status, assignees) with a link to the full task detail
+ * route. The task object is already loaded for chip rendering, so the banner
+ * reuses it — no extra fetch.
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router';
+import type { Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
 import { CalendarGrid } from './CalendarGrid';
-import { parseUTCDate, formatMonthLabel } from './calendarUtils';
+import { parseUTCDate, formatMonthLabel, formatDayLabel } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
+import { useProjectId } from '@/hooks/useProjectId';
 
 // ---------------------------------------------------------------------------
-// Task detail popover — inline, avoids full modal (keeps list in view on mobile)
+// Task detail banner — inline, avoids a full modal (keeps the calendar in view)
 // ---------------------------------------------------------------------------
+
+/** Human-readable board-status labels (mirrors the board card popover). */
+const STATUS_LABEL: Record<TaskStatus, string> = {
+  BACKLOG: 'Backlog',
+  NOT_STARTED: 'To Do',
+  IN_PROGRESS: 'In progress',
+  REVIEW: 'Review',
+  ON_HOLD: 'On hold',
+  COMPLETE: 'Complete',
+};
+
+function statusDotClass(status: TaskStatus): string {
+  switch (status) {
+    case 'COMPLETE':
+      return 'bg-semantic-on-track';
+    case 'IN_PROGRESS':
+      return 'bg-brand-primary';
+    case 'REVIEW':
+      return 'bg-semantic-at-risk';
+    default:
+      return 'bg-neutral-text-disabled';
+  }
+}
+
+/**
+ * Format a task's date window for the banner. Milestones (or zero-span tasks)
+ * collapse to a single date; everything else shows "start – finish".
+ */
+function formatTaskDates(task: Task): string {
+  if (!task.start) return 'No dates';
+  const start = formatDayLabel(parseUTCDate(task.start));
+  if (task.isMilestone || !task.finish || task.finish === task.start) return start;
+  return `${start} – ${formatDayLabel(parseUTCDate(task.finish))}`;
+}
 
 interface TaskDetailBannerProps {
-  taskId: string;
+  task: Task;
+  projectId: string | undefined;
   onClose: () => void;
 }
 
-function TaskDetailBanner({ taskId, onClose }: TaskDetailBannerProps) {
+export function TaskDetailBanner({ task, projectId, onClose }: TaskDetailBannerProps) {
+  const assigneeNames = task.assignees.map((a) => a.name).join(', ');
+
   return (
     <div
       role="region"
-      aria-label="Task detail"
-      className="border-b border-neutral-border bg-neutral-surface-raised px-4 py-2 flex items-center gap-3"
+      aria-label={`Task detail: ${task.name}`}
+      className="border-b border-neutral-border bg-neutral-surface-raised px-4 py-2 flex items-center gap-3 flex-wrap"
     >
-      <span className="text-sm text-neutral-text-primary font-medium">{taskId}</span>
-      <span className="text-xs text-neutral-text-secondary">
-        Full task details are coming — tracked in issue 1613.
+      <span className="text-sm text-neutral-text-primary font-medium">{task.name}</span>
+
+      <span className="inline-flex items-center gap-1.5 text-xs text-neutral-text-secondary">
+        <span
+          aria-hidden="true"
+          className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(task.status)}`}
+        />
+        {STATUS_LABEL[task.status]}
       </span>
+
+      <span className="text-xs text-neutral-text-secondary tppm-mono">{formatTaskDates(task)}</span>
+
+      <span className="text-xs text-neutral-text-secondary">
+        {assigneeNames ? assigneeNames : 'Unassigned'}
+      </span>
+
       <div className="flex-1" />
+
+      {projectId && (
+        <Link
+          to={`/projects/${projectId}/tasks/${task.id}`}
+          className="text-xs font-medium text-brand-primary hover:underline
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+        >
+          Open full detail
+        </Link>
+      )}
+
       <button
         type="button"
         onClick={onClose}
@@ -63,11 +128,16 @@ function TaskDetailBanner({ taskId, onClose }: TaskDetailBannerProps) {
 export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
   const { tasks } = useCalendarTasks();
+  const projectId = useProjectId();
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const anchor = parseUTCDate(anchorIso);
   const label = formatMonthLabel(anchor);
+
+  // The clicked task is already loaded for chip rendering — resolve it by id
+  // rather than re-fetching. Falls back to null if it scrolled out of the window.
+  const selectedTask = selectedTaskId ? (tasks.find((t) => t.id === selectedTaskId) ?? null) : null;
 
   function handleTaskClick(taskId: string) {
     setSelectedTaskId((prev) => (prev === taskId ? null : taskId));
@@ -145,8 +215,12 @@ export function CalendarView() {
       </div>
 
       {/* Selected task detail banner */}
-      {selectedTaskId && (
-        <TaskDetailBanner taskId={selectedTaskId} onClose={() => setSelectedTaskId(null)} />
+      {selectedTask && (
+        <TaskDetailBanner
+          task={selectedTask}
+          projectId={projectId}
+          onClose={() => setSelectedTaskId(null)}
+        />
       )}
 
       {/* Calendar grid — fills remaining height */}
