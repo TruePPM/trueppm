@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -41,6 +43,32 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="unread_only",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When `true` (or `1`), return only unread, non-archived "
+                    "notifications. Mutually exclusive with `archived`."
+                ),
+            ),
+            OpenApiParameter(
+                name="archived",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When `true` (or `1`), return only archived notifications. "
+                    "The default list (neither param set) excludes archived rows."
+                ),
+            ),
+        ],
+    ),
+)
 class NotificationViewSet(
     IdempotencyMixin,
     mixins.ListModelMixin,
