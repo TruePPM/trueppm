@@ -127,7 +127,9 @@ test.describe('Project Integrations — CRUD UI', () => {
     await expect(page.getByText('CI Pipeline')).toBeVisible();
     await expect(page.getByRole('button', { name: 'New webhook' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create token' })).toBeVisible();
-    // Roadmap callout (#588) — the "this is coming" discoverability signal.
+    // Connector catalog (#588, corrected in #1622): shipped connectors under
+    // "Available now", genuinely-future ones under "Coming soon".
+    await expect(page.getByRole('heading', { name: 'Available now' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Coming soon' })).toBeVisible();
   });
 

@@ -55,9 +55,9 @@ describe('ProjectIntegrationsPage', () => {
   it('renders the connector roadmap callout (#588)', () => {
     render(<ProjectIntegrationsPage />);
     expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '#500' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '#570' })).toHaveAttribute(
       'href',
-      'https://gitlab.com/trueppm/trueppm/-/issues/500',
+      'https://gitlab.com/trueppm/trueppm/-/issues/570',
     );
   });
 
