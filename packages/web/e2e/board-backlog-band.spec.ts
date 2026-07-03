@@ -214,6 +214,51 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(page.getByRole('heading', { name: /^Done,/ })).toBeVisible();
   });
 
+  test('filters the rail to matching cards as the user types, then clears (issue 1609)', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, BACKLOG_TASK_B]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByText('Audit existing UX flows')).toBeVisible();
+
+    const search = rail.getByRole('textbox', { name: /Filter backlog ideas/i });
+    await search.fill('tone');
+
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible();
+    await expect(rail.getByText('Audit existing UX flows')).toHaveCount(0);
+
+    // Clearing restores the full list.
+    await rail.getByRole('button', { name: /Clear backlog search/i }).click();
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible();
+    await expect(rail.getByText('Audit existing UX flows')).toBeVisible();
+  });
+
+  test('shows a distinct no-match empty state when the query matches nothing (issue 1609)', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+
+    await rail.getByRole('textbox', { name: /Filter backlog ideas/i }).fill('zzz-no-such-idea');
+
+    await expect(rail.getByText(/No ideas match/i)).toBeVisible();
+    // The base "No backlog yet" state must not appear while ideas exist.
+    await expect(rail.getByText(/No backlog yet/i)).toHaveCount(0);
+  });
+
+  test('⌘K handoff opens the global command palette (issue 1609)', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+
+    await rail.getByRole('button', { name: /Open command palette/i }).click();
+    await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+  });
+
   test('collapses to a 44px vertical strip and re-expands via the toggle', async ({ page }) => {
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
     await page.goto(`${BASE_URL}/board`);

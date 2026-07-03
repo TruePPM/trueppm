@@ -1,6 +1,5 @@
 /**
- * BacklogBand unit tests — left-side rail variant (epic #361 child A,
- * Claude Design rail layout).
+ * BacklogBand unit tests — left-side rail variant (ADR-0057 rail layout).
  *
  * Cover the structural pieces the BoardView integration tests don't reach:
  *  - Header eyebrow + count copy (singular / plural)
@@ -13,7 +12,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import { BacklogBand, type BacklogBandProps } from './BacklogBand';
+import { BacklogBand, filterBacklogTasks, type BacklogBandProps } from './BacklogBand';
 import type { Task } from '@/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -151,10 +150,70 @@ describe('BacklogBand (rail)', () => {
     expect(cards[1]).toHaveTextContent('Old idea');
   });
 
-  it('exposes the search row as a search landmark with the placeholder copy', () => {
+  it('exposes the search row as a search landmark with a real filter input', () => {
     renderBand({ tasks: [makeTask()] });
     const search = screen.getByRole('search', { name: /Search backlog/i });
-    expect(search).toHaveTextContent(/Search or capture an idea/i);
+    expect(search).toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: /Filter backlog ideas/i });
+    expect(input).toHaveAttribute('placeholder', expect.stringMatching(/Search or capture an idea/i));
+  });
+
+  it('filters the rail to matching cards as the user types (name match)', () => {
+    renderBand({
+      tasks: [
+        makeTask({ id: 'a', name: 'Login rework' }),
+        makeTask({ id: 'b', name: 'Export CSV' }),
+      ],
+    });
+    expect(screen.getByText('Login rework')).toBeInTheDocument();
+    expect(screen.getByText('Export CSV')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
+      target: { value: 'login' },
+    });
+
+    expect(screen.getByText('Login rework')).toBeInTheDocument();
+    expect(screen.queryByText('Export CSV')).not.toBeInTheDocument();
+  });
+
+  it('matches on assignee name as well as card name', () => {
+    renderBand({
+      tasks: [
+        makeTask({
+          id: 'a',
+          name: 'Untitled idea',
+          assignees: [{ resourceId: 'r1', name: 'Sarah Lee', units: 1 }],
+        }),
+        makeTask({ id: 'b', name: 'Other idea', assignees: [] }),
+      ],
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
+      target: { value: 'sarah' },
+    });
+    expect(screen.getByText('Untitled idea')).toBeInTheDocument();
+    expect(screen.queryByText('Other idea')).not.toBeInTheDocument();
+  });
+
+  it('shows a distinct no-match empty state and clears the query on "Clear search"', () => {
+    renderBand({ tasks: [makeTask({ name: 'Login rework' })] });
+    fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
+      target: { value: 'zzz-no-match' },
+    });
+    expect(screen.getByText(/No ideas match/i)).toBeInTheDocument();
+    // The base "No backlog yet" empty state must not be shown when tasks exist.
+    expect(screen.queryByText(/No backlog yet/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Clear search/i }));
+    expect(screen.getByText('Login rework')).toBeInTheDocument();
+    expect(screen.queryByText(/No ideas match/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a ⌘K handoff button that opens the command palette', () => {
+    const onOpenCommandPalette = vi.fn();
+    renderBand({ tasks: [makeTask()], onOpenCommandPalette });
+    const cmdk = screen.getByRole('button', { name: /command palette/i });
+    fireEvent.click(cmdk);
+    expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
   });
 
   it('calls onCaptureIdea when "+ Capture idea" is clicked', () => {
@@ -335,5 +394,35 @@ describe('BacklogBand (rail)', () => {
     });
     fireEvent.focus(screen.getByRole('button', { name: /backlog idea/i }));
     expect(onCardFocus).toHaveBeenCalledWith('free-idea', 'BACKLOG', 'root');
+  });
+});
+
+describe('filterBacklogTasks (issue 1609)', () => {
+  it('returns the list unchanged for an empty or whitespace query', () => {
+    const tasks = [makeTask({ id: 'a' }), makeTask({ id: 'b' })];
+    expect(filterBacklogTasks(tasks, '')).toBe(tasks);
+    expect(filterBacklogTasks(tasks, '   ')).toBe(tasks);
+  });
+
+  it('matches task names case-insensitively as a substring', () => {
+    const tasks = [
+      makeTask({ id: 'a', name: 'Login Rework' }),
+      makeTask({ id: 'b', name: 'Export CSV' }),
+    ];
+    expect(filterBacklogTasks(tasks, 'LOG').map((t) => t.id)).toEqual(['a']);
+    expect(filterBacklogTasks(tasks, 'csv').map((t) => t.id)).toEqual(['b']);
+  });
+
+  it('matches on assignee name', () => {
+    const tasks = [
+      makeTask({ id: 'a', name: 'Untitled', assignees: [{ resourceId: 'r1', name: 'Marcus Chen', units: 1 }] }),
+      makeTask({ id: 'b', name: 'Untitled', assignees: [] }),
+    ];
+    expect(filterBacklogTasks(tasks, 'marcus').map((t) => t.id)).toEqual(['a']);
+  });
+
+  it('returns an empty array when nothing matches', () => {
+    const tasks = [makeTask({ id: 'a', name: 'Login' })];
+    expect(filterBacklogTasks(tasks, 'nonexistent')).toEqual([]);
   });
 });

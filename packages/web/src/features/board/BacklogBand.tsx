@@ -1,6 +1,6 @@
 /**
  * BacklogBand — left-side rail that holds every BACKLOG card across the
- * project, phase-agnostic (epic #361 / ADR-0057, Claude Design rail layout).
+ * project, phase-agnostic (ADR-0057, rail layout).
  *
  * Why a rail, not an inline column or a horizontal strip: BACKLOG is intake —
  * undated, unrefined, not-yet-committed work. A column inside every phase
@@ -397,6 +397,11 @@ export interface BacklogBandProps {
   onCaptureIdea?: () => void;
   /** True while the create mutation is in flight — disables the button. */
   isCaptureIdeaPending?: boolean;
+  /** ⌘K handoff (issue 1609) — opens the global command palette. Wired in
+   *  BoardView to `useCommandPaletteStore`; kept as a prop so the rail stays
+   *  decoupled from the shell store and remains unit-testable in isolation.
+   *  When omitted, the ⌘K affordance is not rendered. */
+  onOpenCommandPalette?: () => void;
 }
 
 export function ageInDays(iso: string | undefined): number | null {
@@ -404,6 +409,23 @@ export function ageInDays(iso: string | undefined): number | null {
   const ms = Date.now() - Date.parse(iso);
   if (!Number.isFinite(ms) || ms < 0) return null;
   return Math.floor(ms / 86_400_000);
+}
+
+/**
+ * Client-side backlog filter (issue 1609). The rail's tasks are already fully
+ * loaded in memory (BoardView partitions the project's task set), so search is a
+ * case-insensitive substring match — no server round-trip. Matches the card's
+ * name and any assignee name so "find Sarah's ideas" works as well as "find
+ * login". An empty or whitespace-only query returns the list unchanged so the
+ * happy path never pays for filtering.
+ */
+export function filterBacklogTasks(tasks: Task[], query: string): Task[] {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return tasks;
+  return tasks.filter((task) => {
+    if (task.name.toLowerCase().includes(needle)) return true;
+    return task.assignees.some((a) => a.name.toLowerCase().includes(needle));
+  });
 }
 
 export function BacklogBand({
@@ -418,8 +440,10 @@ export function BacklogBand({
   onSchedule,
   onCaptureIdea,
   isCaptureIdeaPending = false,
+  onOpenCommandPalette,
 }: BacklogBandProps) {
   const [collapsed, setCollapsed] = useBacklogRailCollapsed();
+  const [query, setQuery] = useState('');
   const { setNodeRef } = useDroppable({ id: BACKLOG_BAND_DROPPABLE_ID });
 
   // Drag mid-flight auto-expands the rail so the user can drop into it without
@@ -441,6 +465,12 @@ export function BacklogBand({
     if (at === bt) return 0;
     return at < bt ? 1 : -1;
   });
+
+  // Live client-side filter (issue 1609). The rail owns the query string; the
+  // header count stays the total inbox size so filtering never hides how much
+  // backlog exists, while the list shows only matches.
+  const isFiltering = query.trim() !== '';
+  const visibleTasks = filterBacklogTasks(sortedTasks, query);
 
   // Collapsed: 44px vertical strip with rotated count.
   if (!isExpanded) {
@@ -519,20 +549,55 @@ export function BacklogBand({
         </button>
       </div>
 
-      {/* Search row — visual placeholder. Capture/search wiring is tracked
-          in issue 1609. */}
+      {/* Search row (issue 1609) — live client-side filter over the loaded
+          backlog; the ⌘K badge hands off to the global command palette. */}
       <div className="px-4 pb-2.5">
-        <div
-          className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs text-neutral-text-disabled"
-          style={{ height: 30 }}
+        <form
           role="search"
-          aria-label="Search backlog (placeholder)"
-          title="Backlog search is coming — tracked in issue 1609"
+          aria-label="Search backlog"
+          onSubmit={(e) => e.preventDefault()}
+          className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs
+            focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary"
+          style={{ height: 30 }}
         >
-          <span aria-hidden="true">⌕</span>
-          <span className="flex-1">Search or capture an idea…</span>
-          <span className="tppm-mono text-xs">⌘K</span>
-        </div>
+          <span aria-hidden="true" className="text-neutral-text-disabled">
+            ⌕
+          </span>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search or capture an idea…"
+            aria-label="Filter backlog ideas"
+            className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
+              focus:outline-none"
+          />
+          {isFiltering && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear backlog search"
+              title="Clear search"
+              className="inline-flex items-center justify-center rounded-control text-neutral-text-disabled
+                hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              style={{ width: 16, height: 16, lineHeight: 0 }}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
+          {onOpenCommandPalette && (
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              aria-label="Open command palette to capture an idea"
+              title="Open command palette (⌘K)"
+              className="tppm-mono text-xs text-neutral-text-disabled hover:text-neutral-text-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-0.5"
+            >
+              ⌘K
+            </button>
+          )}
+        </form>
       </div>
 
       {/* Hint — orientation copy for first-time users. */}
@@ -556,8 +621,23 @@ export function BacklogBand({
           >
             No backlog yet — drag a card here to defer it.
           </div>
+        ) : visibleTasks.length === 0 ? (
+          <div
+            className="flex-1 flex flex-col items-center justify-center gap-2 rounded-card border border-dashed border-neutral-border px-3 text-center text-xs italic text-neutral-text-secondary"
+            role="status"
+            style={{ minHeight: 88 }}
+          >
+            <span>No ideas match “{query.trim()}”.</span>
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="not-italic font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-1"
+            >
+              Clear search
+            </button>
+          </div>
         ) : (
-          sortedTasks.map((task) => {
+          visibleTasks.map((task) => {
             const phaseColor = phaseColorFor(task.parentId);
             return (
               <div key={task.id} role="listitem">
