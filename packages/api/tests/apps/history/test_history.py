@@ -556,3 +556,229 @@ class TestHistoryCap:
             r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
         assert r.status_code == 200
         assert r.data.get("count_truncated") is True
+
+
+# ---------------------------------------------------------------------------
+# Task activity feed — opt-in ?include= sources (issue #413)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def member(db: object) -> object:
+    return User.objects.create_user(username="member", password="pw", first_name="Mia")
+
+
+@pytest.fixture
+def member_membership(member: object, project: Project) -> ProjectMembership:
+    return ProjectMembership.objects.create(project=project, user=member, role=Role.MEMBER)
+
+
+@pytest.mark.django_db
+class TestTaskActivityInclude:
+    """The ?include= param merges comments / time / attachments into the feed.
+
+    Backward compatibility is the load-bearing invariant: without ?include the
+    response is byte-identical to the legacy field-diff feed.
+    """
+
+    def test_include_absent_is_backward_compatible(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """No include => legacy shape only, no unified fields leak in."""
+        from trueppm_api.apps.projects.models import TaskComment
+
+        TaskComment.objects.create(task=task, author=None, body="hi")
+        task.name = "Updated"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert r.status_code == 200
+        results = r.data["results"]
+        # Comments must NOT appear, and no unified keys are present.
+        for rec in results:
+            assert "event_type" not in rec
+            assert set(rec.keys()) == {
+                "id",
+                "history_date",
+                "history_type",
+                "history_user",
+                "diff",
+            }
+
+    def test_invalid_include_returns_400(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=bogus"
+        )
+        assert r.status_code == 400
+        assert "bogus" in r.data["detail"]
+
+    def test_diff_events_retain_legacy_keys_with_include(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A field-diff entry keeps its legacy keys AND gains the unified shape."""
+        task._history_user = owner  # type: ignore[attr-defined]
+        task.duration = 42
+        task.save()
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=comments"
+        )
+        assert r.status_code == 200
+        diff_events = [e for e in r.data["results"] if e.get("event_type") == "fields_changed"]
+        assert diff_events, "expected a fields_changed diff entry"
+        e = diff_events[0]
+        # Legacy keys unchanged.
+        assert e["history_type"] == "~"
+        assert any(d["field"] == "duration" for d in e["diff"])
+        # Unified shape present.
+        assert e["actor"]["display_name"] == "Owen"
+        assert e["detail"]["diff"] == e["diff"]
+        assert e["timestamp"] == e["history_date"]
+
+    def test_comment_added_edited_deleted_events(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskComment
+
+        added = TaskComment.objects.create(task=task, author=owner, body="first comment")
+        edited = TaskComment.objects.create(task=task, author=owner, body="edited comment")
+        edited.edited_at = timezone.now()
+        edited.save(update_fields=["edited_at"])
+        deleted = TaskComment.objects.create(task=task, author=owner, body="secret body")
+        deleted.soft_delete(actor=owner)
+
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=comments"
+        )
+        assert r.status_code == 200
+        by_type: dict[str, list] = {}
+        for e in r.data["results"]:
+            by_type.setdefault(e.get("event_type", ""), []).append(e)
+
+        assert any(e["detail"]["comment_id"] == str(added.id) for e in by_type["comment_added"])
+        assert any(e["detail"]["comment_id"] == str(edited.id) for e in by_type["comment_edited"])
+        assert any(e["detail"]["comment_id"] == str(deleted.id) for e in by_type["comment_deleted"])
+        # Actor is resolved.
+        assert by_type["comment_added"][0]["actor"]["display_name"] == "Owen"
+        # A deleted comment must not resurface its body as a preview.
+        del_event = next(
+            e for e in by_type["comment_deleted"] if e["detail"]["comment_id"] == str(deleted.id)
+        )
+        assert "preview" not in del_event["detail"]
+
+    def test_time_logged_scoped_to_requesting_user(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        member: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+        member_membership: ProjectMembership,
+    ) -> None:
+        """Time entries are private to their logger — the feed never leaks another
+        member's hours (security: TaskTimeEntryView filters user=request.user)."""
+        from trueppm_api.apps.timetracking.models import TimeEntry
+
+        mine = TimeEntry.objects.create(task=task, user=owner, minutes=30, note="mine")
+        theirs = TimeEntry.objects.create(task=task, user=member, minutes=90, note="theirs")
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=time")
+        assert r.status_code == 200
+        time_events = [e for e in r.data["results"] if e.get("event_type") == "time_logged"]
+        ids = {e["detail"]["time_entry_id"] for e in time_events}
+        assert str(mine.id) in ids
+        assert str(theirs.id) not in ids
+        assert time_events[0]["detail"]["minutes"] == 30
+
+    def test_attachment_uploaded_and_null_actor(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskAttachment
+
+        with_actor = TaskAttachment.objects.create(
+            task=task,
+            external_url="https://example.com/doc",
+            external_title="Spec",
+            uploaded_by=owner,
+        )
+        # uploaded_by NULL exercises the authorless/system actor=null contract.
+        authorless = TaskAttachment.objects.create(
+            task=task,
+            external_url="https://example.com/auto",
+            external_title="Auto",
+            uploaded_by=None,
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=attachments"
+        )
+        assert r.status_code == 200
+        events = {
+            e["detail"]["attachment_id"]: e
+            for e in r.data["results"]
+            if e.get("event_type") == "attachment_uploaded"
+        }
+        assert events[str(with_actor.id)]["actor"]["display_name"] == "Owen"
+        assert events[str(with_actor.id)]["detail"]["label"] == "Spec"
+        assert events[str(authorless.id)]["actor"] is None
+
+    def test_merged_feed_sorted_newest_first(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskComment
+
+        task.name = "Renamed early"
+        task.save()
+        # Comment happens after the task edit, so it must sort first.
+        TaskComment.objects.create(task=task, author=owner, body="latest event")
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=all")
+        assert r.status_code == 200
+        results = r.data["results"]
+        timestamps = [e["timestamp"] for e in results]
+        assert timestamps == sorted(timestamps, reverse=True)
+        assert results[0]["event_type"] == "comment_added"
+
+    def test_include_all_empty_sources_returns_only_diffs(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """No comments/time/attachments => feed is just the diff events, still unified."""
+        task.name = "Only a diff"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=all")
+        assert r.status_code == 200
+        results = r.data["results"]
+        assert all(e["event_type"] in {"task_created", "fields_changed"} for e in results)
+        assert all("event_type" in e and "actor" in e for e in results)
