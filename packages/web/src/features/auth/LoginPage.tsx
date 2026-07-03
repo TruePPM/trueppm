@@ -115,7 +115,6 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSsoTooltip, setShowSsoTooltip] = useState(false);
   const [showForgotTooltip, setShowForgotTooltip] = useState(false);
-  const [showRequestAccessTooltip, setShowRequestAccessTooltip] = useState(false);
 
   const emailId = useId();
   const passwordId = useId();
@@ -366,31 +365,11 @@ export function LoginPage() {
           </div>
         </form>
 
-        {/* Footer link */}
-        <p className="text-xs text-neutral-text-disabled relative inline-block w-fit">
-          New to TruePPM?{' '}
-          <button
-            type="button"
-            onClick={() => setShowRequestAccessTooltip((v) => !v)}
-            onBlur={() => setShowRequestAccessTooltip(false)}
-            aria-expanded={showRequestAccessTooltip}
-            className="font-medium text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-          >
-            Request access
-          </button>
-          {showRequestAccessTooltip && (
-            <div
-              role="tooltip"
-              className="
-                absolute bottom-full left-0 mb-2 z-10 w-64
-                bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
-                whitespace-normal shadow-none border border-neutral-border
-              "
-            >
-              Accounts are invite-based — ask your workspace admin for an invite. A
-              request-access flow is tracked in issue 1615.
-            </div>
-          )}
+        {/* Footer: TruePPM is self-hosted and invite-based, so there is no
+            self-service signup. Direct the user to their admin rather than to a
+            nonexistent /signup route. Team invites are tracked in issue 1410. */}
+        <p className="text-xs text-neutral-text-disabled w-fit">
+          Need access? Ask your workspace admin to invite you.
         </p>
       </div>
 
