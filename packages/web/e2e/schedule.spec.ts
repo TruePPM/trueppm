@@ -394,3 +394,142 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
       .toBeGreaterThan(0);
   });
 });
+
+/**
+ * Task-edit error path (#1518). The plain Schedule view carries no server
+ * mutation of its own — its Today/Fit/pan interactions are client-side scroll
+ * state — but the task-edit write it fronts (the inline task-name PATCH surfaced
+ * through the detail drawer) is a high-traffic mutation. useUpdateTask applies an
+ * optimistic cache patch in onMutate and rolls it back in onError, so a 500 on
+ * the PATCH must revert the grid row to its original name and leave the app
+ * standing — not tear it down through the root error boundary.
+ *
+ * This describe uses its own richer setup because opening the drawer pulls the
+ * caller's project role (members/?self) plus the drawer's section endpoints; the
+ * catch-all is registered FIRST so the specific routes below win, and it returns
+ * a benign empty-list shape (drawer sections read list-shaped endpoints).
+ */
+test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
+  async function setupForEdit(page: import('@playwright/test').Page) {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm-auth',
+        JSON.stringify({
+          state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+          version: 0,
+        }),
+      );
+    });
+
+    const json = (body: unknown) => ({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    });
+    const emptyList = { count: 0, next: null, previous: null, results: [] };
+
+    // 401-guard safety net — registered FIRST so every specific route wins.
+    await page.route('**/api/v1/**', (route) => route.fulfill(json(emptyList)));
+    await page.route('**/api/v1/auth/me/', (route) =>
+      route.fulfill(json({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' })),
+    );
+    await page.route('**/api/v1/edition/', (route) => route.fulfill(json({ edition: 'community' })));
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill(
+        json({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+      route.fulfill(
+        json({
+          id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01',
+          calendar: 'default', estimation_mode: 'OPEN', agile_features: false, methodology: 'HYBRID', code: '',
+          health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE', lead: null,
+          lead_detail: null, iteration_label: 'Sprint', is_archived: false, archived_at: null, archived_by: null,
+          recalculated_at: null, is_sample: false, program_detail: null, server_version: 1,
+        }),
+      ),
+    );
+    await page.route('**/api/v1/projects/*/presence/', (route) => route.fulfill(json([])));
+    await page.route('**/api/v1/projects/*/status-summary/', (route) =>
+      route.fulfill(
+        json({
+          task_count: 0, critical_path_count: 0, monte_carlo_p80: null, at_risk_count: 0,
+          critical_count: 0, at_risk_tasks: [], critical_tasks: [], last_saved: null, recalculated_at: null,
+        }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
+      route.fulfill(
+        json({
+          schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0,
+          total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null,
+          owner_name: null, start_date: '2026-01-01',
+        }),
+      ),
+    );
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
+      route.fulfill(json({ items: [] })),
+    );
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
+      route.fulfill(json({ tasks: [] })),
+    );
+    // The drawer gates its editable title off the caller's project role
+    // (members/?self). Role 300 (Admin) makes the title editable so the rename
+    // fires; without this the input renders read-only and never PATCHes.
+    await page.route('**/api/v1/projects/*/members/**', (route) =>
+      route.fulfill(json([{ id: 'mem-self', role: 300 }])),
+    );
+    await page.route('**/api/v1/dependencies/**', (route) => route.fulfill(json(emptyList)));
+    await page.route('**/api/v1/task-resources/**', (route) => route.fulfill(json(emptyList)));
+    await page.route('**/api/v1/resources/**', (route) => route.fulfill(json(emptyList)));
+
+    // Task list — the GET the grid reads. Registered before the PATCH override.
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill(
+        json({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }),
+      ),
+    );
+
+    await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
+  }
+
+  test('a failed task rename reverts the grid row and does not crash the view', async ({ page }) => {
+    await setupForEdit(page);
+    // The task-update PATCH 500s; the GET list falls through to the handler above,
+    // so the grid keeps rendering.
+    let patchAttempts = 0;
+    await page.route('**/api/v1/tasks/*/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchAttempts += 1;
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+      }
+      return route.fallback();
+    });
+
+    const grid = page.getByRole('grid', { name: 'Task list' });
+    await expect(grid).toBeVisible({ timeout: 10_000 });
+
+    // Open the detail drawer for the task and rename it via the editable title.
+    await grid.getByText('Discovery & Design', { exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: /Discovery & Design/ });
+    await expect(drawer).toBeVisible({ timeout: 5_000 });
+
+    const title = drawer.getByRole('textbox', { name: 'Task name' });
+    await expect(title).toHaveValue('Discovery & Design');
+    await title.fill('Renamed — will fail to save');
+    await title.press('Enter'); // blur → flush → PATCH
+
+    // The PATCH fired and failed. useUpdateTask rolled the optimistic cache patch
+    // back, so the grid row is once again the original name (the phantom rename
+    // never sticks), and the drawer + grid are intact — no error boundary.
+    await expect.poll(() => patchAttempts).toBeGreaterThan(0);
+    await expect(grid.getByText('Discovery & Design', { exact: true })).toBeVisible();
+    await expect(grid.getByText('Renamed — will fail to save')).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+  });
+});
