@@ -16,7 +16,9 @@ Any project member (Viewer+) may call this endpoint.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `since` | integer | `0` | Return rows with `server_version > since`. Use `0` for a full sync. |
+| `since` | integer | `0` | Return rows with `server_version > since`. Use `0` for a full sync. Keep constant for the whole paging session. |
+| `cursor` | string | — | Opaque continuation token for the next page. Omit on the first request; pass the previous response's `next_cursor` on each subsequent one. |
+| `page_size` | integer | `TRUEPPM_SYNC_PULL_PAGE_SIZE` (1000) | Maximum rows returned across all collections in one page. Clamped to `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE` (5000). |
 
 ## Response
 
@@ -34,16 +36,32 @@ Any project member (Viewer+) may call this endpoint.
     "retro_action_items":     { "created": [], "updated": [...], "deleted": [...] },
     "task_suggested_assignees": { "created": [], "updated": [...], "deleted": [...] },
     "task_links":             { "created": [], "updated": [...], "deleted": [...] },
-    "task_recurrence_rules":  { "created": [], "updated": [...], "deleted": [...] }
+    "task_recurrence_rules":  { "created": [], "updated": [...], "deleted": [...] },
+    "time_entries":           { "created": [], "updated": [...], "deleted": [...] }
   },
-  "timestamp": 42
+  "timestamp": 42,
+  "next_cursor": "eyJpIjoxLCJ2IjoxLCJpZCI6Ii4uLiJ9",
+  "has_more": true
 }
 ```
 
 - `created` is always empty — WatermelonDB uses upsert semantics
 - `updated` — full row objects for live (non-deleted) rows
 - `deleted` — string IDs of soft-deleted rows (tombstones)
-- `timestamp` — high-water mark to pass as `since` on the next pull
+- `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained
+- `next_cursor` — opaque continuation token, or `null` when the delta is exhausted
+- `has_more` — `true` while more pages remain for this `since` session
+
+## Pagination
+
+The pull is **cursor-paginated** so a cold start (`since=0`) on a large project never materializes the whole project into one unbounded response. Each page carries at most `page_size` rows across all collections; the client loops until the delta is drained:
+
+1. Request the first page with `since` (no `cursor`).
+2. Apply the page's `changes`.
+3. If `has_more` is `true`, request again with the same `since` and the returned `next_cursor`.
+4. When `has_more` is `false` (`next_cursor` is `null`), the session is complete — adopt `timestamp` as the `since` for the next sync.
+
+The cursor is a **compound keyset** on `(collection, server_version, id)`, not a scalar `server_version` ceiling. This is required because `server_version` is a per-row edit counter, not a global sequence: on a cold start every freshly created row shares `server_version = 1`. A scalar version cursor could not split a page between two rows of the same version without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a version. Because `server_version` only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
 
 Retro rows are visibility-filtered (ADR-0071): a Viewer pulling a project whose retros are **team-only** does not receive the retro's raw notes or action-item text — those rows are excluded at the queryset level, and tombstones are delivered for visibility-removed rows so the local database drops them.
 
@@ -101,12 +119,26 @@ import { synchronize } from '@nozbe/watermelondb/sync';
 await synchronize({
   database,
   pullChanges: async ({ lastPulledAt }) => {
-    const res = await fetch(
-      `/api/v1/projects/${projectId}/sync/?since=${lastPulledAt ?? 0}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const { changes, timestamp } = await res.json();
-    return { changes, timestamp };
+    // Loop the cursor until the delta is drained, merging each page's buckets.
+    const since = lastPulledAt ?? 0;
+    const merged: Record<string, { created: unknown[]; updated: unknown[]; deleted: string[] }> = {};
+    let cursor: string | null = null;
+    let timestamp = since;
+    do {
+      const url = new URL(`/api/v1/projects/${projectId}/sync/`, location.origin);
+      url.searchParams.set('since', String(since));
+      if (cursor) url.searchParams.set('cursor', cursor);
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const page = await res.json();
+      for (const [collection, bucket] of Object.entries(page.changes)) {
+        const dst = (merged[collection] ??= { created: [], updated: [], deleted: [] });
+        dst.updated.push(...bucket.updated);
+        dst.deleted.push(...bucket.deleted);
+      }
+      timestamp = page.timestamp;
+      cursor = page.has_more ? page.next_cursor : null;
+    } while (cursor);
+    return { changes: merged, timestamp };
   },
   pushChanges: async ({ changes, lastPulledAt }) => {
     // Only the `tasks` collection is uploadable in v1; other mutations go via REST.
@@ -144,3 +176,4 @@ await synchronize({
 | `TaskSuggestedAssignee` | `task_suggested_assignees` | — |
 | `TaskLink` | `task_links` | — |
 | `TaskRecurrenceRule` | `task_recurrence_rules` | — |
+| `TimeEntry` | `time_entries` | — |
