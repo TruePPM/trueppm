@@ -137,3 +137,18 @@ if _test_db_template:
     DATABASES["default"].setdefault("TEST", {})
     DATABASES["default"]["TEST"]["TEMPLATE"] = _test_db_template
     DATABASES["default"]["TEST"]["MIGRATE"] = False
+
+# ---------------------------------------------------------------------------
+# Per-worktree test DB (scripts/wt)
+# ---------------------------------------------------------------------------
+# `scripts/wt new` writes TRUEPPM_TEST_DB=test_trueppm_wt_<slug> into each
+# worktree's .envrc so N parallel worktrees each create and drop their OWN test
+# database instead of racing on one shared `test_trueppm`. This removes the need
+# for the out-of-band flock mutex that serialized parallel pytest runs (and that
+# flock(1) can't provide on macOS). Test-only: like TEST["TEMPLATE"] above, the
+# TEST["NAME"] key is read solely by Django's test-database creation, never by a
+# running server.
+_test_db_name = os.environ.get("TRUEPPM_TEST_DB")
+if _test_db_name:
+    DATABASES["default"].setdefault("TEST", {})
+    DATABASES["default"]["TEST"]["NAME"] = _test_db_name

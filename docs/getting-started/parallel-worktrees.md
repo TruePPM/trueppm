@@ -6,6 +6,32 @@ agent sessions step on each other's branches. The `scripts/wt` helper sets up
 a per-issue git worktree so each ticket lives in its own directory with shared
 dev dependencies.
 
+## Safe by construction
+
+Parallel agents can self-serve `wt new` / `wt remove` without a human
+coordinating who owns which checkout. Three **structural** guards — not process
+discipline — stop one session from stomping another's worktree:
+
+1. **Fresh branches don't track `origin/main`.** `wt new` creates the branch
+   with `--no-track`, so a just-created, uncommitted, unpushed worktree is never
+   mistaken for a merged-and-deleted branch. (That confusion was the original
+   bug: both look like a 0-commit ancestor of `origin/main` with no
+   `origin/<branch>`, so `wt prune` reaped the fresh one out from under a running
+   agent.) The branch gets its real upstream on its first `git push -u`.
+2. **A freshness grace window.** Each worktree is stamped with a `.wt-owner`
+   marker at creation. `wt prune` refuses to reap any worktree younger than
+   `TRUEPPM_WT_GRACE_MIN` minutes (default **30**) unless you pass `--force`, so
+   an agent mid-startup is protected even before it commits anything.
+3. **Per-worktree test database.** `.envrc` exports a unique
+   `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>`, so N worktrees each create and drop
+   their **own** Postgres test DB. Parallel `pytest` runs no longer collide on a
+   shared `test_trueppm`, which removes the need for an external run lock (and
+   `flock(1)` isn't available on macOS anyway).
+
+The GitLab `status::wip` label (below) is now an **advisory visibility** signal
+layered on top — correctness rests on these local guards, not on a label that a
+`glab` outage could silently drop.
+
 ## Quick start
 
 ```bash
@@ -55,9 +81,11 @@ wt: another agent/worktree is likely on it. Re-run with --force to take it over.
   worktree is torn down. To release a `claim` you never turned into a worktree
   (or clear a lock by hand), run `scripts/wt release 600`.
 
-The lock is **best-effort**: if `glab` isn't installed or a call fails, `wt`
-warns and still creates the worktree — it never blocks worktree management on a
-network blip. The label name is overridable with `TRUEPPM_WT_LOCK_LABEL`.
+The lock is **best-effort visibility**: if `glab` isn't installed or a call
+fails, `wt` warns and still creates the worktree — it never blocks worktree
+management on a network blip, because the [structural guards](#safe-by-construction)
+(no-track branches + the prune grace window) are what actually prevent a
+collision. The label name is overridable with `TRUEPPM_WT_LOCK_LABEL`.
 
 Only issue-numbered branches are locked. A branch with no leading issue number
 (`chore/some-slug`, `docs/0.4-release-notes`) is created without a check-out.
@@ -74,7 +102,13 @@ For each `wt new`:
   `npm ci` or venv creation.
 - **`.envrc`** — exports `COMPOSE_PROJECT_NAME=trueppm` so the worktree reuses
   the Docker stack you brought up in the main checkout (`make pre-push`
-  inside a worktree needs to find the running `trueppm-api-1` container).
+  inside a worktree needs to find the running `trueppm-api-1` container), and
+  `TRUEPPM_TEST_DB=test_trueppm_wt_<slug>` so this worktree's `pytest` uses an
+  isolated test database (see [Safe by construction](#safe-by-construction)).
+- **`.wt-owner`** — a marker recording who created the worktree and when. It
+  powers the `wt prune` grace window and the `AGE` column in `wt list`. Like
+  `.envrc` and the symlinks, it's excluded from the `wt remove`/`wt prune`
+  dirty-checks, so it never counts as "uncommitted work."
 
 If you use [direnv](https://direnv.net/), `cd` into the worktree and run
 `direnv allow` once. Without direnv, run `source .envrc` after each `cd`.
@@ -190,11 +224,14 @@ sweeps every worktree whose branch has been merged to `main` and deleted
 on `origin`. Detection works like this:
 
 1. `git fetch --prune` drops local tracking refs for branches deleted upstream
-2. For each worktree, check that its branch (a) had an upstream, (b) no
+2. **Skip anything inside the freshness grace window** — a worktree younger than
+   `TRUEPPM_WT_GRACE_MIN` minutes (default 30) is never reaped, so an agent
+   mid-startup is safe (override with `--force`)
+3. For each remaining worktree, check that its branch (a) had an upstream, (b) no
    longer has one on `origin`, and (c) is fully an ancestor of `origin/main`
-3. Apply the same safety guards as `wt remove` — refuse to drop worktrees
+4. Apply the same safety guards as `wt remove` — refuse to drop worktrees
    with uncommitted local work (override with `--force` if you really mean it)
-4. Report what got pruned, what was skipped, and what was kept
+5. Report what got pruned, what was skipped, and what was kept
 
 Run `make wt-prune` periodically — after a merge train, end of day, or
 whenever your `wt list` looks bloated. It's idempotent (running twice is

@@ -21,11 +21,25 @@
 #   scripts/wt doctor                     Verify symlinks and docker-stack reuse.
 #   scripts/wt help                       Show this help.
 #
+# Safe by construction: parallel agents can self-serve `wt new`/`wt remove`
+# without a human coordinating checkouts. Three structural guards, not process
+# discipline, keep one agent from stomping another's worktree:
+#   1. New branches are created with --no-track (no upstream to origin/main), so a
+#      fresh, uncommitted, unpushed worktree is never confused with a merged-and-
+#      deleted branch — the bug that made `wt prune` reap fresh worktrees.
+#   2. Each worktree carries a `.wt-owner` marker; `wt prune` honors a freshness
+#      grace window (TRUEPPM_WT_GRACE_MIN, default 30) and refuses to reap a
+#      worktree younger than it unless --force.
+#   3. Each worktree gets its OWN Postgres test DB (TRUEPPM_TEST_DB in .envrc), so
+#      parallel `pytest` runs never collide — no external mutex required.
+#
 # Issue check-out lock: because all agents share one GitLab identity, an assignee
 # or a claim-comment does not stop a parallel agent from grabbing the same issue.
 # `wt new`/`wt claim` apply a `status::wip` scoped label plus a check-out comment
-# as the shared signal, and refuse an issue that already carries it. The lock is
-# best-effort: if glab is unavailable the worktree is still created (with a warning).
+# as an advisory signal, and refuse an issue that already carries it. The lock is
+# best-effort visibility only — if glab is unavailable the worktree is still
+# created (with a warning); correctness rests on the local guards above, not the
+# label.
 #
 # Worktrees live at $TRUEPPM_WT_BASE (default: ../trueppm-wt relative to the
 # main checkout). Each worktree symlinks packages/api/.venv and packages/web/node_modules
@@ -57,6 +71,14 @@ COMPOSE_PROJECT_NAME_DEFAULT="trueppm"
 # Scoped label used as the issue check-out lock. Scoped (key `status::`) so it is
 # mutually exclusive with any other `status::*` label GitLab already carries.
 WT_LOCK_LABEL="${TRUEPPM_WT_LOCK_LABEL:-status::wip}"
+# Freshness grace window (minutes): `prune` refuses to reap a worktree younger
+# than this unless --force. This is the structural guard that stops a parallel
+# agent's just-created worktree — nothing committed or pushed yet — from being
+# false-pruned out from under it. Set TRUEPPM_WT_GRACE_MIN=0 to disable.
+WT_GRACE_MIN="${TRUEPPM_WT_GRACE_MIN:-30}"
+WT_GRACE_SEC=$(( WT_GRACE_MIN * 60 ))
+# Per-worktree owner/liveness marker, stamped at creation (see write_owner_marker).
+WT_OWNER_FILE=".wt-owner"
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -148,6 +170,75 @@ find_worktree() {
 }
 
 # ---------------------------------------------------------------------------
+# Owner / freshness marker
+# ---------------------------------------------------------------------------
+#
+# Each worktree carries a `.wt-owner` file stamped at creation with who made it
+# and when. `prune` reads its `created` epoch to enforce the grace window so a
+# just-created worktree (agent still starting up, nothing committed yet) is
+# never reaped out from under a parallel session. `wt list` reads it for the AGE
+# column. It's a plain key=value file, untracked by git — the dirty-checks in
+# remove/prune ignore it alongside .envrc.
+
+write_owner_marker() {
+  local path="$1" branch="$2" issue="$3"
+  {
+    printf 'created=%s\n' "$(date +%s)"
+    printf 'created_iso=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'host=%s\n' "$(hostname 2>/dev/null || echo unknown)"
+    printf 'user=%s\n' "$(id -un 2>/dev/null || echo unknown)"
+    printf 'branch=%s\n' "$branch"
+    printf 'issue=%s\n' "${issue:--}"
+    printf 'session=%s\n' "${CLAUDE_SESSION_ID:-${TERM_SESSION_ID:-unknown}}"
+  } > "$path/$WT_OWNER_FILE" 2>/dev/null || true
+}
+
+# Read one key ($2) from a worktree's ($1) owner marker; empty if absent.
+owner_field() {
+  local path="$1" key="$2"
+  [[ -f "$path/$WT_OWNER_FILE" ]] || return 0
+  sed -n -E "s/^${key}=(.*)$/\1/p" "$path/$WT_OWNER_FILE" 2>/dev/null | head -n1
+}
+
+# Age of a worktree in seconds — from the owner marker's `created` epoch if
+# present, else the directory mtime (GNU stat then BSD stat). Empty if unknown.
+worktree_age_seconds() {
+  local path="$1" created
+  created="$(owner_field "$path" created)"
+  if [[ -z "$created" ]]; then
+    created="$(stat -c %Y "$path" 2>/dev/null || stat -f %m "$path" 2>/dev/null || true)"
+  fi
+  [[ "$created" =~ ^[0-9]+$ ]] || return 0
+  printf '%s' "$(( $(date +%s) - created ))"
+}
+
+# True (0) if the worktree at $1 was created within the grace window.
+within_grace() {
+  local age
+  (( WT_GRACE_SEC > 0 )) || return 1
+  age="$(worktree_age_seconds "$1")"
+  [[ "$age" =~ ^[0-9]+$ ]] || return 1
+  (( age < WT_GRACE_SEC ))
+}
+
+# Human-friendly age: "3m", "2h", "5d" from a seconds count.
+humanize_age() {
+  local s="$1"
+  [[ "$s" =~ ^[0-9]+$ ]] || { printf '?'; return; }
+  if   (( s < 3600 ));  then printf '%dm' $(( s / 60 ))
+  elif (( s < 86400 )); then printf '%dh' $(( s / 3600 ))
+  else                       printf '%dd' $(( s / 86400 )); fi
+}
+
+# True (0) if branch $1 has its OWN upstream recorded (i.e. it was pushed with
+# `git push -u`). Distinct from tracking origin/main: with the --no-track create
+# below, this config key is absent until the first push, so it's an honest
+# "pushed?" signal for `wt list`.
+branch_pushed() {
+  git -C "$REPO_ROOT" config --get "branch.${1}.remote" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------
 # Issue check-out lock
 # ---------------------------------------------------------------------------
 #
@@ -224,7 +315,7 @@ clear_lock() {
 # $2 is the force flag (non-empty = force). No-op when glab is unavailable.
 assert_claimable() {
   local issue="$1" force="$2" note
-  lock_available || { warn "glab not available — skipping issue check-out lock for #$issue"; return 0; }
+  lock_available || { warn "glab unavailable — the #$issue advisory label won't be set, but the local worktree dir + prune grace window still prevent a parallel agent from stomping this work"; return 0; }
   if [[ "$(issue_is_locked "$issue")" == "locked" && -z "$force" ]]; then
     err "issue #$issue is already checked out (label '$WT_LOCK_LABEL')."
     note="$(last_checkout_note "$issue")"
@@ -278,7 +369,19 @@ cmd_new() {
   if git -C "$REPO_ROOT" rev-parse --verify "$branch" >/dev/null 2>&1; then
     git -C "$REPO_ROOT" worktree add "$target_path" "$branch"
   else
-    git -C "$REPO_ROOT" worktree add "$target_path" -b "$branch" origin/main
+    # --no-track: the new branch must NOT adopt origin/main as its upstream.
+    # If it did, `wt prune` could not tell a fresh 0-commit worktree from a
+    # merged-and-deleted branch — both look like an ancestor of origin/main with
+    # no origin/<branch> — and would false-prune the fresh one out from under a
+    # running agent. The branch's real upstream is set on its first `git push -u`.
+    git -C "$REPO_ROOT" worktree add --no-track "$target_path" -b "$branch" origin/main
+  fi
+
+  # Belt-and-suspenders: on the existing-branch path (or any git that ignores
+  # --no-track), strip an origin/main upstream if one slipped through, for the
+  # same false-prune reason above.
+  if [[ "$(git -C "$REPO_ROOT" config --get "branch.${branch}.merge" 2>/dev/null || true)" == "refs/heads/main" ]]; then
+    git -C "$REPO_ROOT" branch --unset-upstream "$branch" 2>/dev/null || true
   fi
 
   # Symlink shared dev deps. Both are absent in a fresh worktree.
@@ -295,18 +398,34 @@ cmd_new() {
     warn "main checkout has no packages/web/node_modules; run 'cd packages/web && npm ci' in main first"
   fi
 
+  # Per-worktree Postgres test-DB name so parallel `pytest` runs don't collide
+  # on one shared `test_trueppm` (which previously forced an out-of-band flock
+  # mutex — and flock(1) is absent on macOS). Sanitized to a valid identifier and
+  # length-capped; honored by packages/api/src/trueppm_api/settings/dev.py.
+  local db_slug
+  db_slug="$(printf '%s' "$short_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_' | cut -c1-32)"
+  local test_db="test_trueppm_wt_${db_slug}"
+
   # .envrc for direnv users. No-op if direnv isn't installed.
   cat > "$target_path/.envrc" <<EOF
 # Auto-generated by scripts/wt. Reuses the running Docker stack from the main
 # checkout via the shared compose project name. Without this, make pre-push
 # can't find the running api container.
 export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}
+# Isolated test database for this worktree so pytest can run in parallel with
+# other worktrees without colliding on a shared test DB. Honored by
+# packages/api/src/trueppm_api/settings/dev.py.
+export TRUEPPM_TEST_DB=${test_db}
 EOF
 
   # Note: we deliberately do NOT write to .git/worktrees/<name>/info/exclude —
   # git treats info/exclude as shared across all worktrees (it reads from the
   # common gitdir, not the per-worktree subdir). The dirty check in `wt remove`
   # filters out our auto-created files instead.
+
+  # Owner/freshness marker — powers the prune grace window and the `wt list` AGE
+  # column so a parallel agent's fresh worktree is visibly, structurally protected.
+  write_owner_marker "$target_path" "$branch" "$issue"
 
   # Check out the issue now that the worktree exists (best-effort GitLab lock).
   if [[ -n "$issue" ]] && lock_available; then
@@ -332,17 +451,22 @@ cmd_list() {
   local count
   count="$(wt_count)"
   printf "Active worktrees (%s/%s):\n\n" "$count" "$WT_CAP"
-  git -C "$REPO_ROOT" worktree list --porcelain \
-    | awk -v main="$REPO_ROOT" '
-        /^worktree /{path=$2}
-        /^branch /{
-          br=$2
-          sub("refs/heads/","",br)
-          if (path != main) {
-            printf "  %-50s  %s\n", br, path
-          }
-        }
-      '
+  if (( count > 0 )); then
+    printf "  %-50s  %-6s  %-4s  %-6s  %s\n" "BRANCH" "ISSUE" "AGE" "PUSHED" "PATH"
+  fi
+  # A bash loop (not awk) so each row can carry the owner-marker age, the issue
+  # number, and an honest pushed? flag — the transparency that lets an operator
+  # or agent see at a glance whose worktree is whose and which are safe to reap.
+  local path branch issue pushed
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+    branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    issue="$(issue_from_branch "$branch")"
+    [[ -n "$issue" ]] && issue="#$issue" || issue="—"
+    branch_pushed "$branch" && pushed="yes" || pushed="no"
+    printf "  %-50s  %-6s  %-4s  %-6s  %s\n" \
+      "$branch" "$issue" "$(humanize_age "$(worktree_age_seconds "$path")")" "$pushed" "$path"
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
   say ""
   if (( count == 0 )); then
     dim "  (none — use 'wt new <issue>' to create one)"
@@ -379,7 +503,7 @@ cmd_remove() {
     # script. Trailing `|| true` keeps the count at 0 in the clean case.
     unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
       | awk '/^\?\? / {print $2}' \
-      | grep -Ev '^(\.envrc|packages/api/\.venv|packages/web/node_modules)$' \
+      | grep -Ev '^(\.envrc|\.wt-owner|packages/api/\.venv|packages/web/node_modules)$' \
       || true ) | wc -l | tr -d ' ')"
     if (( unexpected_untracked > 0 )) && [[ "$force" != "--force" ]]; then
       die "$path has $unexpected_untracked untracked file(s) beyond the auto-created set. Stash/commit them, or re-run with --force."
@@ -425,6 +549,15 @@ cmd_prune() {
       continue
     fi
 
+    # Grace window: never reap a very fresh worktree. A parallel agent may be
+    # mid-startup with nothing committed or pushed yet — the classic false-prune
+    # that stomps another session's work. --force overrides.
+    if [[ "$force" != "--force" ]] && within_grace "$path"; then
+      dim "  $branch: created $(humanize_age "$(worktree_age_seconds "$path")") ago (< ${WT_GRACE_MIN}m grace) — skipped (fresh, may be in use)"
+      kept=$((kept + 1))
+      continue
+    fi
+
     # Did this branch ever have an upstream? If not, it's local-only WIP.
     if ! git -C "$REPO_ROOT" config --get "branch.${branch}.remote" >/dev/null 2>&1; then
       dim "  $branch: never pushed — skipped"
@@ -453,7 +586,7 @@ cmd_prune() {
     tracked_dirty="$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
     unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
       | awk '/^\?\? / {print $2}' \
-      | grep -Ev '^(\.envrc|packages/api/\.venv|packages/web/node_modules)$' \
+      | grep -Ev '^(\.envrc|\.wt-owner|packages/api/\.venv|packages/web/node_modules)$' \
       || true ) | wc -l | tr -d ' ')"
 
     if [[ "$force" != "--force" ]] && (( tracked_dirty > 0 || unexpected_untracked > 0 )); then
