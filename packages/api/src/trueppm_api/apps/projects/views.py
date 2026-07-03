@@ -46,6 +46,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -10742,6 +10743,28 @@ SIGNED_URL_DEFAULT_TTL_SECONDS = 15 * 60  # constraint #6
 SIGNED_URL_MAX_TTL_SECONDS = 60 * 60  # constraint #7 (OSS hard-cap)
 
 
+class AttachmentSigningNotSupported(APIException):
+    """The configured storage backend cannot produce a real signed URL (#573, MED-2).
+
+    ``501 Not Implemented``: this is a deployment-configuration gap, not a
+    malformed request or a permissions problem. ``FileSystemStorage`` (and any
+    backend ``storage_backend_supports_signed_urls`` doesn't recognize) returns
+    the same indefinite-lifetime path forever, so honoring the request would hand
+    back an ``expires_at`` that lies. Refusing outright — rather than silently
+    returning the unsigned path — is the fix; see
+    ``docs/administration/`` for configuring a signing-capable backend.
+    """
+
+    status_code = status.HTTP_501_NOT_IMPLEMENTED
+    default_detail = (
+        "This server's attachment storage backend does not support signed "
+        "download URLs. Configure a signing-capable backend (e.g. S3/MinIO or "
+        "GCS via django-storages) for production use. See the self-hosting "
+        "storage documentation for setup instructions."
+    )
+    default_code = "signed_url_backend_unsupported"
+
+
 class TaskAttachmentViewSet(
     ProjectScopedViewSet,
     mixins.ListModelMixin,
@@ -10904,14 +10927,29 @@ class TaskAttachmentViewSet(
         """Issue a short-lived download URL for the attachment's underlying file.
 
         TTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-
-        URL attachments reject this action (they're already a URL).
+        URL attachments reject this action (they're already a URL). Refuses with
+        501 when the configured storage backend can't actually produce a signed,
+        time-limited URL (#573, MED-2) — see ``AttachmentSigningNotSupported``.
         """
+        from django.conf import settings
+
+        from trueppm_api.core.security_checks import storage_backend_supports_signed_urls
+
         attachment = self.get_object()
         if attachment.external_url:
             raise serializers.ValidationError(
                 {"detail": "This attachment is an external link; no signed URL is needed."},
                 code="signed_url_external",
             )
+
+        # Checked before TTL parsing: a backend that can't sign at all makes the
+        # TTL moot, and failing fast avoids implying the TTL was the problem.
+        backend = (getattr(settings, "STORAGES", {}) or {}).get("default", {}).get("BACKEND")
+        if not storage_backend_supports_signed_urls(
+            backend,
+            force_signing_capable=bool(getattr(settings, "ATTACHMENT_STORAGE_SIGNS_URLS", False)),
+        ):
+            raise AttachmentSigningNotSupported()
 
         try:
             ttl = int(request.query_params.get("ttl") or SIGNED_URL_DEFAULT_TTL_SECONDS)
@@ -10926,11 +10964,9 @@ class TaskAttachmentViewSet(
                 code="signed_url_ttl_out_of_range",
             )
 
-        # Backend-agnostic URL: storage backend handles signing transparently
-        # in production (S3/MinIO). For local/dev FileSystemStorage we return
-        # the unsigned media URL — the cost of a perfect signed-URL emulation
-        # for dev is more than the security benefit, and ops gate the real
-        # storage backend in Helm.
+        # The backend check above already confirmed this is a signing-capable
+        # backend (S3/MinIO, GCS, Azure Blob via django-storages), so .url()
+        # transparently returns a real query-string-signed, time-limited URL.
         url = attachment.file.url if attachment.file else ""
         expires_at = timezone.now() + datetime.timedelta(seconds=ttl)
         data = SignedDownloadUrlSerializer({"url": url, "expires_at": expires_at}).data

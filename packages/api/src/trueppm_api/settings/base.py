@@ -152,6 +152,14 @@ STORAGES = {
 # backed by a persistent volume). Consumed by validate_attachment_storage.
 ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE", default=False)
 
+# Operator opt-in confirming the configured STORAGES['default']['BACKEND'] signs
+# its .url() output with a real time-limited URL, for a backend not on
+# security_checks.storage_backend_supports_signed_urls's allow-list (#573,
+# MED-2). Default False: the TaskAttachmentViewSet.signed_url action refuses
+# with 501 rather than hand out a stable indefinite-lifetime URL labeled as
+# time-limited for any backend it can't positively identify as signing-capable.
+ATTACHMENT_STORAGE_SIGNS_URLS = env.bool("TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS", default=False)
+
 # Operator opt-in to run prod against a DATABASE_URL without sslmode=require (e.g.
 # when TLS to the database is enforced at the network layer). Consumed by the
 # unencrypted-DB boot guard in settings/prod.py.

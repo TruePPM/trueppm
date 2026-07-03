@@ -13,7 +13,8 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
-from rest_framework import serializers
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException
 from trueppm_scheduler import InvalidScheduleInput, find_cycle
 
 if TYPE_CHECKING:
@@ -5902,12 +5903,37 @@ def _sanitize_attachment_filename(raw: str) -> str:
     return name or "upload"
 
 
-# Magic-byte signatures for the attachment allow-list (#1003). The client-declared
-# multipart Content-Type is attacker-controlled, so the allow-list check on
-# ``file.content_type`` is advisory — a payload (HTML/SVG/polyglot) can pose as
-# ``image/png`` and pass it. We sniff the real leading bytes and reject when they
-# contradict the declared type. A pure-Python signature table is used rather than
-# python-magic/libmagic to avoid adding a system dependency for a 7-entry allow-list.
+class UnsupportedAttachmentMediaType(APIException):
+    """A declared or sniffed attachment MIME is not on the allow-list (ADR-0075 #5).
+
+    Raised instead of ``serializers.ValidationError`` so the response maps to
+    ``415 Unsupported Media Type`` rather than the serializer default of
+    ``400 Bad Request`` — the ADR's locked constraint is explicit ("unknown MIME
+    = 415"). Not caught by ``Serializer.run_validation`` (which only intercepts
+    ``ValidationError``/``DjangoValidationError``), so it propagates to DRF's
+    global exception handler, which honors ``status_code`` on any
+    ``APIException`` subclass.
+    """
+
+    status_code = status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+    default_detail = "Unsupported attachment media type."
+    default_code = "attachment_unsupported_mime"
+
+
+# Magic-byte signatures for the attachment allow-list (#1003, revisited #573). The
+# client-declared multipart Content-Type is attacker-controlled, so the allow-list
+# check on ``file.content_type`` is advisory — a payload (HTML/SVG/polyglot) can
+# pose as ``image/png`` and pass it. We sniff the real leading bytes and reject
+# when they contradict the declared type. A pure-Python signature table is used
+# rather than python-magic/libmagic: #573 (MED-1 follow-up to !306) proposed
+# swapping in python-magic, but the security gap it targeted — trusting the
+# client-declared Content-Type — was already closed here by #1003, and this
+# table already sniffs the real bytes for the exact 7-entry ADR-0075 allow-list.
+# Adding a libmagic binding on top would duplicate that coverage while handing
+# attacker-controlled bytes to a C parser (libmagic's magic-number matcher has
+# its own CVE history) for no net security gain on a closed, small allow-list.
+# #573's remaining real gap — sniff mismatches returning 400 instead of the
+# ADR's mandated 415 — is fixed below via ``UnsupportedAttachmentMediaType``.
 # OOXML formats (XLSX/DOCX) are ZIP containers and share the ``PK`` signature; we
 # verify the ZIP magic but do not distinguish the two (both are allow-listed).
 _ATTACHMENT_MAGIC: dict[str, tuple[bytes, ...]] = {
@@ -6044,7 +6070,7 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
 
                 if not is_attachment_mime_allowed(project, mime):
                     allowed = resolve_effective_attachment_types(project)
-                    raise serializers.ValidationError(
+                    raise UnsupportedAttachmentMediaType(
                         f"File type {mime!r} is not allowed for this project."
                         + (
                             f" Allowed types: {', '.join(allowed)}."
@@ -6054,16 +6080,19 @@ class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
                         code="attachment_unsupported_mime",
                     )
             elif mime not in ALLOWED_ATTACHMENT_MIMES or mime in SYSTEM_ATTACHMENT_DENYLIST:
-                raise serializers.ValidationError(
+                raise UnsupportedAttachmentMediaType(
                     f"File type {mime!r} is not allowed. Allowed types: "
                     "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",
                     code="attachment_unsupported_mime",
                 )
             # The declared MIME passed the allow-list, but the client controls it.
-            # Sniff the real bytes so a payload cannot pose as an allowed type (#1003).
+            # Sniff the real bytes so a payload cannot pose as an allowed type
+            # (#1003). A mismatch here means the declared MIME lied about the
+            # actual content — that is a media-type problem (415), not a
+            # malformed-request problem (400) — ADR-0075 constraint #5 (#573).
             sniff_error = _sniff_attachment_content(file, mime)
             if sniff_error:
-                raise serializers.ValidationError(
+                raise UnsupportedAttachmentMediaType(
                     sniff_error,
                     code="attachment_content_mismatch",
                 )
