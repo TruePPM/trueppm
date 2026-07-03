@@ -98,9 +98,9 @@ subprocess and speaks MCP over the pipe. For Claude Desktop, add an entry to
 }
 ```
 
-Restart the client; it will spawn `trueppm-mcp` on demand. A dedicated
-administration guide covering the HTTP/SSE transports, Docker, and the full
-security notes is planned (tracked in issue 1616).
+Restart the client; it will spawn `trueppm-mcp` on demand. For the HTTP/SSE
+transports, Docker deployment, token scopes, and the full security posture, see
+the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
