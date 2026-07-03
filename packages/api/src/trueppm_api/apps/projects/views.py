@@ -6941,20 +6941,202 @@ def _history_fk_label(obj: Any) -> str:
 # page-1 requests. Mirrors the history app's ProjectHistorySummaryView cap.
 _MAX_HISTORY_ROWS = 2000
 
+# Opt-in activity sources for the ``?include=`` query param on TaskHistoryView
+# (issue 413). Absent/empty ``include`` keeps the response byte-identical to the
+# legacy field-diff feed, so existing consumers are untouched (backward compat).
+# Each token maps to a per-task event stream merged into the unified feed. The
+# set is intentionally small — event types whose OSS source model does not yet
+# exist (cpm_recalculated, baseline_drift_detected, risk_linked/unlinked,
+# time_log_edited) are deliberately absent rather than faked, and can be added
+# here additively when their source lands.
+_ACTIVITY_SOURCES = frozenset({"comments", "time", "attachments"})
+
+# Max characters of a comment body surfaced as a timeline preview. The full body
+# is already readable by any project member via the comments thread endpoint, so
+# a truncated preview is not a new disclosure — but keep it short so the activity
+# payload stays light and never doubles as a bulk comment export.
+_ACTIVITY_COMMENT_PREVIEW_CHARS = 140
+
+
+def _activity_actor(user: Any | None) -> dict[str, Any] | None:
+    """Serialize the actor of an activity event, or ``None`` for system events.
+
+    Returns ``{"id", "display_name"}`` so every event type carries a consistent
+    actor shape. ``None`` is the contract for system-generated events (issue 413
+    acceptance criterion: actor is null when there is no human author) and for
+    rows whose author FK was ``SET_NULL`` after an account deletion.
+    """
+    if user is None:
+        return None
+    full = (user.get_full_name() or "").strip()
+    return {"id": str(user.pk), "display_name": full or user.get_username()}
+
+
+def _build_activity_events(
+    task: Any, include: frozenset[str], request: Request, cap: int
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Build the opt-in activity streams merged into the task history feed.
+
+    Returns ``(events, truncated)`` where each event is ``(timestamp_dt, payload)``
+    and ``payload`` is the unified ``{event_type, actor, timestamp, detail}`` shape.
+    ``truncated`` is true when any source hit ``cap`` (so the caller can OR it into
+    ``count_truncated``). Each source is independently bounded and uses
+    ``select_related`` on its actor FK to avoid an N+1 over the stream.
+    """
+    from trueppm_api.apps.timetracking.models import TimeEntry
+
+    events: list[tuple[Any, dict[str, Any]]] = []
+    truncated = False
+
+    if "comments" in include:
+        # Fetch cap+1 to detect truncation. Newest-first so a truncated batch keeps
+        # the most recent comments. deleted_by joined for the comment_deleted actor.
+        comments = list(
+            task.comments.select_related("author", "deleted_by").order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(comments) > cap
+        for c in comments[:cap]:
+            # Deleted comments contribute only the add + delete events with no
+            # preview — the body is gone from the thread, so don't resurface it.
+            preview = "" if c.is_deleted else c.body[:_ACTIVITY_COMMENT_PREVIEW_CHARS]
+            events.append(
+                (
+                    c.created_at,
+                    {
+                        "event_type": "comment_added",
+                        "actor": _activity_actor(c.author),
+                        "timestamp": c.created_at.isoformat(),
+                        "detail": {
+                            "comment_id": str(c.id),
+                            "parent_id": str(c.parent_id) if c.parent_id else None,
+                            "preview": preview,
+                        },
+                    },
+                )
+            )
+            if c.edited_at is not None and not c.is_deleted:
+                events.append(
+                    (
+                        c.edited_at,
+                        {
+                            "event_type": "comment_edited",
+                            "actor": _activity_actor(c.author),
+                            "timestamp": c.edited_at.isoformat(),
+                            "detail": {"comment_id": str(c.id), "preview": preview},
+                        },
+                    )
+                )
+            if c.is_deleted and c.deleted_at is not None:
+                events.append(
+                    (
+                        c.deleted_at,
+                        {
+                            "event_type": "comment_deleted",
+                            "actor": _activity_actor(c.deleted_by),
+                            "timestamp": c.deleted_at.isoformat(),
+                            "detail": {"comment_id": str(c.id)},
+                        },
+                    )
+                )
+
+    if "time" in include:
+        # Time entries are private to the logging user: TaskTimeEntryView filters
+        # ``user=request.user`` and never exposes another member's hours/notes. The
+        # shared activity feed MUST NOT widen that boundary, so scope to the
+        # caller's own entries (security-review: no cross-user time disclosure).
+        entries = list(
+            TimeEntry.objects.filter(
+                task=task,
+                user=request.user,  # type: ignore[misc]
+                is_deleted=False,
+            ).order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(entries) > cap
+        actor = _activity_actor(request.user)
+        for e in entries[:cap]:
+            events.append(
+                (
+                    e.created_at,
+                    {
+                        "event_type": "time_logged",
+                        "actor": actor,
+                        "timestamp": e.created_at.isoformat(),
+                        "detail": {
+                            "time_entry_id": str(e.id),
+                            "minutes": e.minutes,
+                            "entry_date": e.entry_date.isoformat(),
+                            "note": e.note,
+                            "source": e.source,
+                        },
+                    },
+                )
+            )
+
+    if "attachments" in include:
+        attachments = list(
+            task.attachments.select_related("uploaded_by")
+            .filter(is_deleted=False)
+            .order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(attachments) > cap
+        for a in attachments[:cap]:
+            is_url = bool(a.external_url)
+            events.append(
+                (
+                    a.created_at,
+                    {
+                        "event_type": "attachment_uploaded",
+                        "actor": _activity_actor(a.uploaded_by),
+                        "timestamp": a.created_at.isoformat(),
+                        "detail": {
+                            "attachment_id": str(a.id),
+                            "kind": "url" if is_url else "file",
+                            "label": a.external_title if is_url else a.file_name,
+                        },
+                    },
+                )
+            )
+
+    return events, truncated
+
 
 @extend_schema_view(
     get=extend_schema(
         summary="Paginated field-level diff history for a task",
+        parameters=[
+            OpenApiParameter(
+                name="include",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated opt-in activity sources to merge into the feed "
+                    "(issue 413). Valid tokens: `comments`, `time`, `attachments`, or "
+                    "`all`. When omitted the response is the legacy field-diff feed, "
+                    "byte-identical to prior releases (backward compatible). When "
+                    "present, `results` becomes a timestamp-desc merged feed where "
+                    "every entry carries the unified `{event_type, actor, timestamp, "
+                    "detail}` shape (field-diff entries also retain their legacy "
+                    "`{id, history_date, history_type, history_user, diff}` keys). "
+                    "`time` is scoped to the requesting user's own entries."
+                ),
+            )
+        ],
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
                 description=(
                     "Page-number-paginated envelope `{count, next, previous, "
-                    "results, count_truncated}`. Each `results` entry is "
-                    "`{id, history_date, history_type, history_user, diff}`, where "
-                    "`diff` is a list of `{field, old, new}` changes. "
-                    "`count_truncated` is true when the task's history exceeded the "
-                    "row cap and only the most recent changes are returned."
+                    "results, count_truncated}`. Without `include`, each `results` "
+                    "entry is `{id, history_date, history_type, history_user, diff}`, "
+                    "where `diff` is a list of `{field, old, new}` changes. With "
+                    "`include`, each entry additionally carries `{event_type, actor, "
+                    "timestamp, detail}`; non-diff events (`comment_added`, "
+                    "`comment_edited`, `comment_deleted`, `time_logged`, "
+                    "`attachment_uploaded`) carry only that unified shape, with "
+                    "`actor` null for system/authorless events. `count_truncated` is "
+                    "true when any source exceeded the row cap and only the most "
+                    "recent events are returned."
                 ),
             )
         },
@@ -6984,6 +7166,28 @@ class TaskHistoryView(APIView):
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+
+        # Opt-in activity sources (issue 413). Absent => legacy field-diff feed,
+        # byte-identical to prior releases. ``all`` expands to every known source.
+        include_raw = request.query_params.get("include", "").strip()
+        if include_raw:
+            requested = {tok.strip() for tok in include_raw.split(",") if tok.strip()}
+            if "all" in requested:
+                requested = set(_ACTIVITY_SOURCES)
+            invalid = requested - _ACTIVITY_SOURCES
+            if invalid:
+                return Response(
+                    {
+                        "detail": (
+                            f"Invalid include value(s): {', '.join(sorted(invalid))}. "
+                            f"Choose from: {', '.join(sorted(_ACTIVITY_SOURCES))}, all."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            include = frozenset(requested)
+        else:
+            include = frozenset()
 
         # The paginator slices from this list; count_truncated in the response signals
         # to the client that older records are not included. Fetch one past the cap so
@@ -7031,7 +7235,13 @@ class TaskHistoryView(APIView):
         # Pass 2: render the response, dropping change records whose entire diff
         # was display-excluded (the bare-"Updated"-pill case). Creation (+) and
         # deletion (-) records are always kept.
+        #
+        # ``result`` is the legacy field-diff list (byte-identical when ``include``
+        # is empty). ``merged`` accumulates (timestamp_dt, payload) tuples only when
+        # ``include`` is set, so the legacy path pays nothing for the new feature.
+        _HISTORY_EVENT_TYPE = {"+": "task_created", "~": "fields_changed", "-": "task_deleted"}
         result = []
+        merged: list[tuple[Any, dict[str, Any]]] = []
         for record, changes in zip(records, raw_changes, strict=True):
             diff = []
             for field, old_val, new_val in changes:
@@ -7047,21 +7257,40 @@ class TaskHistoryView(APIView):
             if record.history_type == "~" and not diff:
                 continue
 
-            result.append(
-                {
-                    "id": record.history_id,
-                    "history_date": record.history_date.isoformat(),
-                    "history_type": record.history_type,
-                    "history_user": (record.history_user.username if record.history_user else None),
-                    "diff": diff,
-                }
-            )
+            item = {
+                "id": record.history_id,
+                "history_date": record.history_date.isoformat(),
+                "history_type": record.history_type,
+                "history_user": (record.history_user.username if record.history_user else None),
+                "diff": diff,
+            }
+            result.append(item)
+            if include:
+                # Additive unified fields on the field-diff entry — legacy keys above
+                # are retained unchanged so a client reading the old shape still works.
+                item["event_type"] = _HISTORY_EVENT_TYPE.get(record.history_type, "fields_changed")
+                item["actor"] = _activity_actor(record.history_user)
+                item["timestamp"] = record.history_date.isoformat()
+                item["detail"] = {"diff": diff}
+                merged.append((record.history_date, item))
 
         from rest_framework.pagination import PageNumberPagination
 
+        if include:
+            extra_events, extra_truncated = _build_activity_events(
+                task, include, request, _MAX_HISTORY_ROWS
+            )
+            merged.extend(extra_events)
+            count_truncated = count_truncated or extra_truncated
+            # Stable newest-first order across all sources; ties keep insertion order.
+            merged.sort(key=lambda pair: pair[0], reverse=True)
+            feed: list[Any] = [payload for _, payload in merged]
+        else:
+            feed = result
+
         paginator = PageNumberPagination()
         paginator.page_size = 20
-        page: list[Any] | None = paginator.paginate_queryset(result, request)  # type: ignore[arg-type]
+        page: list[Any] | None = paginator.paginate_queryset(feed, request)  # type: ignore[arg-type]
         response = paginator.get_paginated_response(page)
         # Expose count_truncated so the client can surface "showing recent 2,000
         # changes" when the task has a very long edit history (P18).

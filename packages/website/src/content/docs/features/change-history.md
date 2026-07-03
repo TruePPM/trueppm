@@ -52,6 +52,24 @@ Any project Member or above can read history. The identity of the editing user
 (`history_user`) is included only for Admins. The summary endpoint is cached for five
 minutes; pass `?refresh=1` to recompute.
 
+### Activity feed (ships in 0.4)
+
+The per-task history endpoint will gain an opt-in `?include=` parameter in **0.4**
+that merges non-diff activity into the same feed:
+
+| `?include=` token | Adds events |
+|---|---|
+| `comments` | `comment_added`, `comment_edited`, `comment_deleted` |
+| `time` | `time_logged` (scoped to your own entries) |
+| `attachments` | `attachment_uploaded` |
+| `all` | all of the above |
+
+Without `?include`, the response is unchanged. With it, every entry — including
+field-diff changes — carries a consistent `{event_type, actor, timestamp, detail}`
+shape, and `actor` is `null` for authorless or system-generated events. Time-log
+events are deliberately limited to the requesting user's own entries, matching the
+privacy boundary of the time-tracking endpoints.
+
 ## Retention
 
 History rows are bounded by a nightly purge governed by `HISTORY_RETENTION_DAYS`

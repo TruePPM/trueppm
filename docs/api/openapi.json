@@ -14986,6 +14986,14 @@
                 "summary": "Paginated field-level diff history for a task",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "include",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated opt-in activity sources to merge into the feed (issue 413). Valid tokens: `comments`, `time`, `attachments`, or `all`. When omitted the response is the legacy field-diff feed, byte-identical to prior releases (backward compatible). When present, `results` becomes a timestamp-desc merged feed where every entry carries the unified `{event_type, actor, timestamp, detail}` shape (field-diff entries also retain their legacy `{id, history_date, history_type, history_user, diff}` keys). `time` is scoped to the requesting user's own entries."
+                    },
+                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -15023,7 +15031,7 @@
                                 }
                             }
                         },
-                        "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Each `results` entry is `{id, history_date, history_type, history_user, diff}`, where `diff` is a list of `{field, old, new}` changes. `count_truncated` is true when the task's history exceeded the row cap and only the most recent changes are returned."
+                        "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Without `include`, each `results` entry is `{id, history_date, history_type, history_user, diff}`, where `diff` is a list of `{field, old, new}` changes. With `include`, each entry additionally carries `{event_type, actor, timestamp, detail}`; non-diff events (`comment_added`, `comment_edited`, `comment_deleted`, `time_logged`, `attachment_uploaded`) carry only that unified shape, with `actor` null for system/authorless events. `count_truncated` is true when any source exceeded the row cap and only the most recent events are returned."
                     }
                 }
             }
