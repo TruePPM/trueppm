@@ -8,7 +8,8 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
 import { CanvasScheduleTimeline } from '@/features/schedule/CanvasScheduleTimeline';
 import { ZoomControl } from '@/features/schedule/ZoomControl';
-import type { GanttEngine } from '@/features/schedule/engine';
+import { HEADER_HEIGHT, ROW_HEIGHT } from '@/features/schedule/scheduleConstants';
+import type { GanttEngine, GanttScaleData } from '@/features/schedule/engine';
 import { useProgramId } from '@/hooks/useProgramId';
 import { useProgram } from '@/hooks/useProgram';
 import {
@@ -71,6 +72,17 @@ export function ProgramSchedulePage() {
   );
 
   const handleEngineReady = useCallback((next: GanttEngine) => setEngine(next), []);
+
+  // Reactive scales — keep totalCanvasWidth current as setTasks rebuilds the
+  // scale (fit-to-project, live refetch). Drives the scroll spacer's width so
+  // the canvas is horizontally scrollable when zoomed in (mirrors ScheduleView).
+  const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
+  useEffect(() => {
+    if (!engine) return;
+    setScheduleScales(engine.scales);
+    return engine.on('scales-change', ({ scales }) => setScheduleScales(scales));
+  }, [engine]);
+  const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
 
   // Show the minimal card when an external bar is hovered; clear otherwise.
   useEffect(() => {
@@ -203,7 +215,8 @@ export function ProgramSchedulePage() {
     body = (
       <div
         ref={containerRef}
-        className="relative min-h-0 flex-1"
+        data-testid="program-schedule-canvas-scroll"
+        className="relative min-h-0 flex-1 overflow-auto"
         onMouseMove={(e) => {
           const { clientX, clientY } = e;
           mouseRef.current = { x: clientX, y: clientY };
@@ -215,13 +228,44 @@ export function ProgramSchedulePage() {
         }}
         onMouseLeave={() => setHovered(null)}
       >
-        <CanvasScheduleTimeline
-          tasks={tasks}
-          links={links}
-          zoomLevel={zoomLevel}
-          containerRef={containerRef}
-          onEngineReady={handleEngineReady}
-        />
+        {/* Scroll spacer sized to the full canvas — this is what makes the
+            container scrollable so the virtualizing engine receives a scroll
+            offset (without it scrollHeight === clientHeight and rows past the
+            viewport are unreachable, #1624). Height covers every lane row;
+            minWidth:'100%' fills the viewport when the timeline is narrower.
+            Mirrors ScheduleView's scaffolding. */}
+        <div
+          style={{
+            width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
+            minWidth: '100%',
+            height: HEADER_HEIGHT + tasks.length * ROW_HEIGHT,
+            position: 'relative',
+          }}
+        >
+          {/* Sticky viewport-sized wrapper holds the canvas layers pinned to the
+              visible area while the spacer above provides the scroll range. Sized
+              via the engine's --gantt-vw/vh vars (100% would resolve to the wide
+              spacer and break the pinning). pointer-events:none; the interaction
+              canvas re-enables them. */}
+          <div
+            style={{
+              position: 'sticky',
+              top: 0,
+              left: 0,
+              width: 'var(--gantt-vw, 100%)',
+              height: 'var(--gantt-vh, 100%)',
+              pointerEvents: 'none',
+            }}
+          >
+            <CanvasScheduleTimeline
+              tasks={tasks}
+              links={links}
+              zoomLevel={zoomLevel}
+              containerRef={containerRef}
+              onEngineReady={handleEngineReady}
+            />
+          </div>
+        </div>
         {hovered && (
           <ExternalTaskHoverCard task={hovered.task} x={hovered.x} y={hovered.y} />
         )}
