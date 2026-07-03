@@ -106,7 +106,7 @@ export function AppShell() {
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 bg-neutral-overlay md:hidden"
             aria-hidden="true"
             onClick={closeDrawer}
           />

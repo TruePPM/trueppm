@@ -163,6 +163,21 @@
     --sem-warning-bg:  rgba(251, 146, 60, 0.15);
   }
 
+  /* ── Modal/slide-out scrim overlay (rule 8d) ─────────────────────────────
+     Semantic token for the full-screen backdrop behind a centered modal or
+     slide-out panel — replaces the raw `bg-black/40` literal that was
+     scattered across dialog components (issue 575). Both modes hold the
+     same value: the scrim doesn't get a dark-mode-specific treatment, it
+     dims the same regardless of theme, matching the look of the literal
+     it replaces exactly.                                                   */
+  :root {
+    --neutral-overlay: rgba(0, 0, 0, 0.4);
+  }
+
+  .dark {
+    --neutral-overlay: rgba(0, 0, 0, 0.4);
+  }
+
   /* ── Workshop participant avatar palette ─────────────────────────────────
      8 stable colors keyed by color_index assigned in WorkshopConsumer.
      Defined here rather than as inline hex in components (rule 8).

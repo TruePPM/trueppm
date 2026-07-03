@@ -3523,7 +3523,7 @@ export function BoardView() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="workshop-exit-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay"
           tabIndex={-1}
           onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
             if (e.key === 'Escape') {
