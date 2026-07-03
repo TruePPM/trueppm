@@ -212,6 +212,26 @@ describe('NotificationPanel', () => {
     expect(screen.getByRole('tab', { name: 'Archived' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  // Filter-tab style drift fix (issue 576, rule 38): ViewTabs-family active
+  // state is an underline, never a filled/bordered pill (reserved for the
+  // Gantt toolbar per rule 42).
+  it('renders filter tabs with underline active state, not pill', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+
+    const active = screen.getByRole('tab', { name: 'Unread' });
+    expect(active.className).toContain('border-b-2');
+    expect(active.className).toContain('border-brand-primary');
+    expect(active.className).toContain('text-brand-primary');
+    expect(active.className).not.toContain('bg-brand-primary/5');
+    expect(active.className).not.toContain('rounded-control');
+
+    const inactive = screen.getByRole('tab', { name: 'All' });
+    expect(inactive.className).toContain('border-transparent');
+    expect(inactive.className).not.toContain('border-neutral-border');
+  });
+
   // WAI-ARIA tab pattern (#1022): the list is the tabpanel for the active filter.
   it('exposes the list as a tabpanel labelled by the active filter tab', () => {
     useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });

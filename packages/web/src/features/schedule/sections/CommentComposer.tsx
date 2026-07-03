@@ -89,6 +89,14 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
       : charCount >= WARN_BODY_CHARS
         ? 'text-semantic-at-risk'
         : 'text-neutral-text-secondary';
+  // Non-color signal (WCAG 1.4.1): the counter color swap alone doesn't reach
+  // colorblind users, so a text suffix carries the same warning at each threshold.
+  const charCounterSuffix =
+    charCount >= MAX_BODY_CHARS
+      ? ' — limit reached'
+      : charCount >= WARN_BODY_CHARS
+        ? ' — getting long'
+        : '';
 
   const canSubmit =
     body.trim().length > 0 && charCount <= MAX_BODY_CHARS && !createComment.isPending;
@@ -225,6 +233,7 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
           className={`text-xs tppm-mono ${charCounterColor}`}
         >
           {charCount.toLocaleString()}/{MAX_BODY_CHARS.toLocaleString()}
+          {charCounterSuffix}
         </span>
         {createComment.isError && (
           <span className="text-xs text-semantic-critical" role="alert">
@@ -245,12 +254,7 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
               Cancel
             </button>
           )}
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
+          <Button variant="primary" size="sm" onClick={handleSubmit} disabled={!canSubmit}>
             {createComment.isPending ? 'Posting…' : parentId ? 'Reply' : 'Post'}
           </Button>
         </div>

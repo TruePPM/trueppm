@@ -229,11 +229,11 @@ from celery.schedules import crontab  # noqa: E402 — must follow REDIS_URL
 
 CELERY_BEAT_SCHEDULE = {
     # Retention purge coordinator (ADR-0173): one self-gating task that purges the
-    # five operational tables (event history, task runs, webhook deliveries, import
-    # requests, sync batches) as a single unified run, recorded in PurgeRun. Fires
-    # every 30 min and no-ops outside the operator-configured window (Settings →
-    # System health → Retention & purge). Replaces the five former per-table nightly
-    # purge entries (history/task-runs/webhook/import/sync) — the per-table tasks
+    # six operational tables (event history, task runs, webhook deliveries, import
+    # requests, sync batches, soft-deleted projects) as a single unified run,
+    # recorded in PurgeRun. Fires every 30 min and no-ops outside the
+    # operator-configured window (Settings → System health → Retention & purge).
+    # Replaces the former per-table nightly purge entries — the per-table tasks
     # remain dispatchable but are no longer independently scheduled.
     "retention-purge-coordinator": {
         "task": "retention.run_purge",
@@ -824,6 +824,16 @@ TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=
 # stored response; past it, the id is allowed to re-run and the nightly
 # sync.purge_sync_batches task reaps the stale row.
 TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_HOURS", default=24)
+
+# Retention window in days for soft-deleted (trashed) projects. Once a project has
+# been soft-deleted for longer than this, the consolidated retention purge
+# (retention.run_purge, ADR-0173) HARD-deletes it and all its child data (tasks,
+# dependencies, sprints, baselines, …) via DB CASCADE. Set to None to disable the
+# purge (trashed projects are retained unbounded). A project soft-deleted before
+# this column existed has a NULL deleted_at and is never auto-purged.
+TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS: int | None = env.int(
+    "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS", default=30
+)
 
 # How long a manual retention purge may be considered "in progress" before the
 # run endpoint stops treating a RUNNING PurgeRow as blocking (ADR-0173 §G). Bounds

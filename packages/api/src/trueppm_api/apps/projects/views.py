@@ -209,6 +209,69 @@ _VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 _NON_SCHEDULE_TASK_FIELDS = frozenset({"notes", "name"})
 
 
+# ---------------------------------------------------------------------------
+# OpenAPI response serializers (#781)
+#
+# Response-only serializers that describe the ad-hoc dict payloads these
+# endpoints return, so the generated schema documents a real shape instead of
+# "No response body". They are never used to parse input — only to advertise
+# the output contract to integrators reading docs/api/openapi.json.
+# ---------------------------------------------------------------------------
+
+
+class WbsPathEntrySerializer(serializers.Serializer[Any]):
+    """A single task's new WBS path after a structural move."""
+
+    id = serializers.UUIDField()
+    wbs_path = serializers.CharField()
+
+
+class TaskReorderResponseSerializer(serializers.Serializer[Any]):
+    """Response for the sibling-reorder endpoint."""
+
+    updated = WbsPathEntrySerializer(many=True)
+
+
+class TaskRestructureResponseSerializer(serializers.Serializer[Any]):
+    """Response for indent / outdent / reparent — moved rows plus an optional warning."""
+
+    updated = WbsPathEntrySerializer(many=True)
+    warning = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "'has_assignments' when the move turned a task into a summary that "
+            "still carries resource assignments; otherwise null."
+        ),
+    )
+
+
+class TaskBulkResponseSerializer(serializers.Serializer[Any]):
+    """Response for the atomic task bulk-mutation endpoint."""
+
+    created = TaskSerializer(many=True)
+    updated = TaskSerializer(many=True)
+    deleted = serializers.ListField(child=serializers.UUIDField())
+
+
+class PhaseReorderResponseSerializer(serializers.Serializer[Any]):
+    """Response for the phase-reorder endpoint — count of rows re-ranked."""
+
+    updated = serializers.IntegerField()
+
+
+class ProjectPresenceEntrySerializer(serializers.Serializer[Any]):
+    """A single user currently connected to a project's WebSocket."""
+
+    user_id = serializers.CharField()
+    display_name = serializers.CharField()
+
+
+class BoardColumnConfigResponseSerializer(serializers.Serializer[Any]):
+    """Response for the board column-config endpoints: the ordered column list."""
+
+    columns = serializers.ListField(child=serializers.DictField())
+
+
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """CRUD for project calendars.
 
@@ -4154,6 +4217,11 @@ class BaselineActivateView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
+    @extend_schema(
+        summary="Activate a baseline",
+        request=None,
+        responses={200: BaselineSerializer},
+    )
     def post(self, request: Request, project_pk: str, baseline_pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -4836,6 +4904,11 @@ class TaskReorderView(IdempotencyMixin, APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
+    @extend_schema(
+        summary="Reorder sibling tasks within a WBS level",
+        request=TaskReorderSerializer,
+        responses={200: TaskReorderResponseSerializer},
+    )
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -4963,6 +5036,13 @@ def _rewrite_descendants(
     return updated
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Indent a task under its previous sibling",
+        request=None,
+        responses={200: TaskRestructureResponseSerializer},
+    )
+)
 class TaskIndentView(IdempotencyMixin, APIView):
     """Indent a task — make it the last child of its previous sibling.
 
@@ -5047,6 +5127,13 @@ class TaskIndentView(IdempotencyMixin, APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Outdent a task to its parent's level",
+        request=None,
+        responses={200: TaskRestructureResponseSerializer},
+    )
+)
 class TaskOutdentView(IdempotencyMixin, APIView):
     """Outdent a task — promote to parent's level (MS Project convention).
 
@@ -5180,6 +5267,21 @@ class TaskOutdentView(IdempotencyMixin, APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Reparent a task under an arbitrary summary (or to root)",
+        request=inline_serializer(
+            name="TaskReparentRequest",
+            fields={
+                "new_parent_id": serializers.UUIDField(
+                    allow_null=True,
+                    help_text="Target parent task id, or null to move the task to root level.",
+                )
+            },
+        ),
+        responses={200: TaskRestructureResponseSerializer},
+    )
+)
 class TaskReparentView(IdempotencyMixin, APIView):
     """Reparent a task — move it under an arbitrary summary (or to root).
 
@@ -5298,6 +5400,13 @@ class TaskReparentView(IdempotencyMixin, APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Atomically create, update, and delete tasks in one request",
+        request=TaskBulkSerializer,
+        responses={200: TaskBulkResponseSerializer},
+    )
+)
 class TaskBulkView(IdempotencyMixin, APIView):
     """Atomically create, update, and delete tasks in a single request.
 
@@ -5811,6 +5920,12 @@ class RiskCommentViewSet(
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List users currently connected to a project's WebSocket",
+        responses={200: ProjectPresenceEntrySerializer(many=True)},
+    )
+)
 class ProjectPresenceView(APIView):
     """Return the list of users currently connected to a project's WebSocket.
 
@@ -6039,6 +6154,17 @@ def _broadcast_retro_updated(sprint: Sprint) -> None:
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Get the board column configuration",
+        responses={200: BoardColumnConfigResponseSerializer},
+    ),
+    put=extend_schema(
+        summary="Replace the board column configuration",
+        request=BoardColumnConfigSerializer,
+        responses={200: BoardColumnConfigResponseSerializer},
+    ),
+)
 class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
     """GET/PUT per-project board column configuration.
 
@@ -6097,6 +6223,17 @@ class BoardColumnConfigView(McpReadableViewMixin, IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List the project's board saved views",
+        responses={200: BoardSavedViewSerializer(many=True)},
+    ),
+    post=extend_schema(
+        summary="Create a named board saved view",
+        request=BoardSavedViewSerializer,
+        responses={201: BoardSavedViewSerializer},
+    ),
+)
 class BoardSavedViewListView(IdempotencyMixin, APIView):
     """GET/POST per-project board saved view list.
 
@@ -6148,6 +6285,13 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
         )
 
 
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Update a board saved view",
+        request=BoardSavedViewSerializer,
+        responses={200: BoardSavedViewSerializer},
+    ),
+)
 class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE a single board saved view.
 
@@ -6798,6 +6942,24 @@ def _history_fk_label(obj: Any) -> str:
 _MAX_HISTORY_ROWS = 2000
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Paginated field-level diff history for a task",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Page-number-paginated envelope `{count, next, previous, "
+                    "results, count_truncated}`. Each `results` entry is "
+                    "`{id, history_date, history_type, history_user, diff}`, where "
+                    "`diff` is a list of `{field, old, new}` changes. "
+                    "`count_truncated` is true when the task's history exceeded the "
+                    "row cap and only the most recent changes are returned."
+                ),
+            )
+        },
+    )
+)
 class TaskHistoryView(APIView):
     """Paginated field-level diff history for a single task.
 
@@ -6907,6 +7069,24 @@ class TaskHistoryView(APIView):
         return response
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Active-baseline comparison for a single task",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Baseline comparison object. `{has_baseline: false}` when the "
+                    "project has no active baseline; `{has_baseline: true, "
+                    "in_baseline: false, ...}` when the task post-dates the "
+                    "baseline; otherwise the full snapshot with planned vs current "
+                    "dates/durations and signed `*_delta*` values (positive = "
+                    "slipping behind plan)."
+                ),
+            )
+        },
+    )
+)
 class TaskBaselineDetailView(APIView):
     """Active-baseline comparison for a single task.
 
@@ -6980,6 +7160,26 @@ class TaskBaselineDetailView(APIView):
         )
 
 
+@extend_schema_view(
+    patch=extend_schema(
+        summary="Reorder phase columns (root-level WBS tasks)",
+        request=inline_serializer(
+            name="PhaseReorderRequest",
+            fields={
+                "phases": serializers.ListField(
+                    child=inline_serializer(
+                        name="PhaseReorderEntry",
+                        fields={
+                            "id": serializers.UUIDField(),
+                            "server_version": serializers.IntegerField(),
+                        },
+                    )
+                )
+            },
+        ),
+        responses={200: PhaseReorderResponseSerializer},
+    )
+)
 class PhaseReorderView(IdempotencyMixin, APIView):
     """Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.
 
@@ -9232,6 +9432,26 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         return self._act(request, pk, accept=False)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Multi-team active-sprints lens for the current user",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Array of per-project summary cards, one for each project where "
+                    "the caller owns a non-complete task in that project's ACTIVE "
+                    "sprint. Each entry carries `{project_id, project_name, sprint, "
+                    "capacity_ratio, capacity_label, velocity}`, where `sprint` "
+                    "holds the burndown snapshot (day N of M, points remaining, "
+                    "trend) and `velocity` the rolling forecast range. Sorted "
+                    "most-behind first. Empty array when the user has no active "
+                    "sprint work."
+                ),
+            )
+        },
+    )
+)
 class MeActiveSprintsView(APIView):
     """``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).
 
@@ -9729,6 +9949,23 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
     return rows
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="Velocity summary — last 8 closed sprints plus rolling stats",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Velocity summary object: the per-sprint completed-points series "
+                    "plus `rolling_avg_points` and the `forecast_range_low`/"
+                    "`forecast_range_high` band. Under the ADR-0104 velocity privacy "
+                    "gate the detail (series + rolling points) is stripped for "
+                    "requesters below the velocity audience."
+                ),
+            )
+        },
+    )
+)
 class ProjectVelocityView(APIView):
     """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
 
@@ -10308,6 +10545,27 @@ class TaskSyncView(IdempotencyMixin, APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        summary="Ingest CI acceptance-test verdicts for a project's criteria",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Result object: `{updated, unchanged, unknown, tasks}`. "
+                    "`updated`/`unchanged` are the criterion ids whose `met` flag "
+                    "was flipped or already matched; `unknown` are ids that belong "
+                    "to another project (never touched — IDOR boundary). `tasks` is "
+                    "a per-task report `{task, dor_ready, criteria_met, "
+                    "criteria_total}`, where `dor_ready` reports whether that task's "
+                    "Definition-of-Ready gate is now clear. Authenticates with a "
+                    "project-scoped API token (`projectApiTokenAuth`), not a user "
+                    "session."
+                ),
+            )
+        },
+    )
+)
 class AcceptanceResultIngestView(IdempotencyMixin, APIView):
     """``POST /api/v1/projects/{project_id}/acceptance-results/`` — CI test ingest (ADR-0148).
 
@@ -10766,6 +11024,15 @@ class TaskAttachmentViewSet(
     """
 
     serializer_class = TaskAttachmentSerializer
+
+    def get_throttles(self) -> list[Any]:
+        # Only the create action uploads; list/retrieve/destroy stay unthrottled
+        # (#574, security review !306 LOW-3).
+        from trueppm_api.apps.projects.throttles import TaskAttachmentUploadThrottle
+
+        if self.action == "create":
+            return [TaskAttachmentUploadThrottle()]
+        return []
 
     def get_queryset(self) -> QuerySet[TaskAttachment]:
         user = self.request.user

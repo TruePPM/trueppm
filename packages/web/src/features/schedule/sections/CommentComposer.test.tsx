@@ -46,9 +46,7 @@ describe('CommentComposer — basic render', () => {
 
   it('renders the reply variant with Reply + Cancel buttons', () => {
     const onCancel = vi.fn();
-    render(
-      <CommentComposer projectId="p1" taskId="t1" parentId="c1" onCancel={onCancel} />,
-    );
+    render(<CommentComposer projectId="p1" taskId="t1" parentId="c1" onCancel={onCancel} />);
     expect(screen.getByRole('button', { name: 'Reply' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onCancel).toHaveBeenCalled();
@@ -85,6 +83,33 @@ describe('CommentComposer — character counter', () => {
     fireEvent.change(getTextarea(), { target: { value: 'x'.repeat(10_000) } });
     const counter = screen.getByText(/10,000\/10,000/);
     expect(counter.className).toContain('text-semantic-critical');
+  });
+
+  // Non-color signal fix (issue 576, WCAG 1.4.1): color alone doesn't reach
+  // colorblind users, so each threshold also appends distinguishing text.
+  it('has no text suffix below the 9 000-char warn threshold', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    fireEvent.change(getTextarea(), { target: { value: 'short' } });
+    expect(screen.getByText('5/10,000').textContent).toBe('5/10,000');
+  });
+
+  it('appends "— getting long" at the 9 000-char warn threshold', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    fireEvent.change(getTextarea(), { target: { value: 'x'.repeat(9_500) } });
+    expect(screen.getByText(/9,500\/10,000/).textContent).toBe('9,500/10,000 — getting long');
+  });
+
+  it('appends "— limit reached" at the 10 000-char cap', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    fireEvent.change(getTextarea(), { target: { value: 'x'.repeat(10_000) } });
+    expect(screen.getByText(/10,000\/10,000/).textContent).toBe('10,000/10,000 — limit reached');
+  });
+
+  it('keeps aria-live="polite" on the counter at every threshold', () => {
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    fireEvent.change(getTextarea(), { target: { value: 'x'.repeat(10_000) } });
+    const counter = screen.getByText(/10,000\/10,000/);
+    expect(counter).toHaveAttribute('aria-live', 'polite');
   });
 });
 
@@ -157,9 +182,7 @@ describe('CommentComposer — submit', () => {
 
   it('forwards parentId for reply mode and calls onSubmitted on success', () => {
     const onSubmitted = vi.fn();
-    render(
-      <CommentComposer projectId="p1" taskId="t1" parentId="c1" onSubmitted={onSubmitted} />,
-    );
+    render(<CommentComposer projectId="p1" taskId="t1" parentId="c1" onSubmitted={onSubmitted} />);
     type Opts = { onSuccess?: () => void };
     mutateMock.mockImplementation((_vars: unknown, opts?: Opts) => {
       opts?.onSuccess?.();

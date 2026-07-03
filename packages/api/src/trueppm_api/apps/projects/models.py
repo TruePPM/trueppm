@@ -1072,13 +1072,36 @@ class Project(VersionedModel):
     # ProjectSyncView (kept as a fallback behind SYNC_WATERMARK_USE_COLUMN).
     last_sync_version = models.BigIntegerField(default=0, editable=False)
 
+    # Soft-delete timestamp, stamped in ``soft_delete()`` (mirrors Task/Dependency).
+    # An ordinary save() never touches it, so it stays null while the row is live.
+    # Drives the background hard-delete purge (#1114): a soft-deleted project is
+    # permanently removed once ``deleted_at`` is older than the retention window.
+    # NULL means "age unknown" — legacy projects soft-deleted before this column
+    # existed carry no timestamp and are therefore NEVER auto-purged (the safe
+    # default; an operator can still force-delete them via ?force=true).
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
     history = HistoricalRecords(
-        excluded_fields=[*_HISTORY_EXCLUDED_BASE, "recalculated_at", "last_sync_version"]
+        # ``deleted_at`` is tombstone-reap bookkeeping (grouped with
+        # ``deleted_version``), not a user-meaningful audit fact — the
+        # ``is_deleted`` transition it accompanies is already captured — so it is
+        # excluded from history exactly as it is on Task/Dependency.
+        excluded_fields=[
+            *_HISTORY_EXCLUDED_BASE,
+            "recalculated_at",
+            "last_sync_version",
+            "deleted_at",
+        ]
     )
 
     class Meta:
         db_table = "projects_project"
         ordering = ["start_date", "name"]
+        indexes = [
+            # Powers the background purge scan (#1114): soft-deleted projects past
+            # the retention cutoff — ``WHERE is_deleted AND deleted_at <= cutoff``.
+            models.Index(fields=["is_deleted", "deleted_at"], name="proj_isdel_deletedat_idx"),
+        ]
 
     def __str__(self) -> str:
         return self.name
@@ -1106,7 +1129,12 @@ class Project(VersionedModel):
 
         The hard-delete path (``?force=true``) is unaffected — Django's DB-level
         CASCADE removes children directly; this split only governs soft-delete.
+
+        ``deleted_at`` is stamped here (mirrors Task/Dependency ``soft_delete``) so
+        the background purge (#1114) can measure soft-delete age. It is set before
+        the ``super()`` save so it is written in the same UPDATE as ``is_deleted``.
         """
+        self.deleted_at = timezone.now()
         super().soft_delete()
 
 

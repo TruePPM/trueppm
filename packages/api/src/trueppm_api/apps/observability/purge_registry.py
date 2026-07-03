@@ -41,6 +41,7 @@ def get_purge_specs() -> list[PurgeSpec]:
     from trueppm_api.apps.msproject.models import ImportRequest
     from trueppm_api.apps.msproject.tasks import _do_import_purge
     from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.tasks import _do_project_purge
     from trueppm_api.apps.sync.models import SyncBatch
     from trueppm_api.apps.sync.tasks import _do_purge as _do_sync_purge
     from trueppm_api.apps.taskruns.models import TaskRun
@@ -67,6 +68,11 @@ def get_purge_specs() -> list[PurgeSpec]:
         ),
         PurgeSpec(
             "TRUEPPM_SYNC_BATCH_RETENTION_HOURS", _do_sync_purge, (SyncBatch._meta.db_table,)
+        ),
+        PurgeSpec(
+            "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
+            _do_project_purge,
+            (Project._meta.db_table,),
         ),
     ]
 

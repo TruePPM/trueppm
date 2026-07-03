@@ -108,6 +108,17 @@ def _mute_broadcasts() -> Iterator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def _mute_attachment_throttle() -> Iterator[None]:
+    """TaskAttachmentUploadThrottle (#574) would hit Redis on every attachment
+    create call in this file — bypass it so these tests stay deterministic."""
+    with patch(
+        "trueppm_api.apps.projects.throttles.TaskAttachmentUploadThrottle.allow_request",
+        return_value=True,
+    ):
+        yield
+
+
 # ===========================================================================
 # 1. Resolver — attachments_enabled tri-state inheritance
 # ===========================================================================

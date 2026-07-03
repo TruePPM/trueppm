@@ -15,9 +15,13 @@ from trueppm_api.apps.notifications.tasks import (
     ARCHIVE_AFTER_DAYS,
     EMAIL_MAX_RETRIES,
     EMAIL_ORPHAN_WINDOW_MINUTES,
+    SNIPPET_MAX_CHARS,
+    SNIPPET_WRAP_WIDTH,
     _do_archive,
     _do_drain_emails,
     _render_email,
+    _sanitize_snippet,
+    _unsubscribe_headers,
 )
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskComment
 
@@ -331,3 +335,127 @@ class TestRenderEmail:
         subject, body = _render_email(notif)
         assert subject == ""
         assert body == ""
+
+
+# ---------------------------------------------------------------------------
+# _sanitize_snippet (#574, security review !306 LOW-1)
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeSnippet:
+    """Bounding/escaping/wrapping of the comment snippet embedded in the email body."""
+
+    def test_empty_input_returns_empty_string(self) -> None:
+        assert _sanitize_snippet("") == ""
+
+    def test_short_plain_text_is_returned_unchanged(self) -> None:
+        text = "Hello world, this is a short comment."
+        assert _sanitize_snippet(text) == text
+
+    def test_long_input_is_truncated_with_ellipsis(self) -> None:
+        raw = "a" * (SNIPPET_MAX_CHARS + 50)
+        result = _sanitize_snippet(raw)
+        flattened = result.replace("\n", "")
+        # SNIPPET_MAX_CHARS of 'a' plus the "..." truncation marker, no more.
+        assert flattened == "a" * SNIPPET_MAX_CHARS + "..."
+        assert flattened.endswith("...")
+
+    def test_long_unbroken_string_is_hard_wrapped(self) -> None:
+        """A single unbroken (no-whitespace) run cannot render as one giant line."""
+        # Stay under SNIPPET_MAX_CHARS so this exercises wrapping only, not truncation.
+        raw = "x" * (SNIPPET_WRAP_WIDTH * 3)
+        result = _sanitize_snippet(raw)
+        lines = result.split("\n")
+        assert len(lines) > 1
+        assert all(len(line) <= SNIPPET_WRAP_WIDTH for line in lines)
+        # No characters lost in the wrap itself (input is under the truncation cap).
+        assert "".join(lines) == raw
+
+    def test_ampersand_and_angle_brackets_are_escaped(self) -> None:
+        raw = 'Check <script>alert(1)</script> & don\'t forget "quotes"'
+        result = _sanitize_snippet(raw).replace("\n", " ")
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in result
+        assert "&amp;" in result
+        assert "<script>" not in result
+        # quote=False: apostrophes/double-quotes are left as ordinary prose, not entities.
+        assert "don't" in result
+        assert '"quotes"' in result
+
+
+# ---------------------------------------------------------------------------
+# _unsubscribe_headers (#574, security review !306 LOW-1)
+# ---------------------------------------------------------------------------
+
+
+class TestUnsubscribeHeaders:
+    """RFC 8058 List-Unsubscribe / List-Unsubscribe-Post header construction."""
+
+    def test_returns_headers_when_frontend_base_url_configured(self, settings: object) -> None:
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com"
+        assert _unsubscribe_headers() == {
+            "List-Unsubscribe": "<https://ppm.example.com/me/settings/notifications>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        }
+
+    def test_strips_trailing_slash_on_base_url(self, settings: object) -> None:
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com/"
+        headers = _unsubscribe_headers()
+        assert headers["List-Unsubscribe"] == "<https://ppm.example.com/me/settings/notifications>"
+
+    def test_omits_headers_when_frontend_base_url_unset(self, settings: object) -> None:
+        settings.FRONTEND_BASE_URL = ""
+        assert _unsubscribe_headers() == {}
+
+
+# ---------------------------------------------------------------------------
+# Sent email carries the unsubscribe headers end-to-end
+# ---------------------------------------------------------------------------
+
+
+class TestSentEmailHeaders:
+    @pytest.mark.django_db
+    def test_drained_email_carries_unsubscribe_headers(
+        self,
+        settings: object,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        from django.core import mail
+
+        settings.FRONTEND_BASE_URL = "https://ppm.example.com"
+        _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+
+        _do_drain_emails()
+
+        assert len(mail.outbox) == 1
+        sent = mail.outbox[0]
+        assert (
+            sent.extra_headers["List-Unsubscribe"]
+            == "<https://ppm.example.com/me/settings/notifications>"
+        )
+        assert sent.extra_headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+
+    @pytest.mark.django_db
+    def test_drained_email_has_no_unsubscribe_headers_when_unconfigured(
+        self,
+        settings: object,
+        recipient: object,
+        project: Project,
+        comment: TaskComment,
+        author: object,
+    ) -> None:
+        from django.core import mail
+
+        settings.FRONTEND_BASE_URL = ""
+        _make_pending_notification(
+            recipient=recipient, project=project, comment=comment, author=author
+        )
+
+        _do_drain_emails()
+
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].extra_headers == {}

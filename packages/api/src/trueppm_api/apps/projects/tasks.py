@@ -419,6 +419,99 @@ def purge_sprint_close_requests(self: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Soft-deleted project retention purge (#1114, ADR-0173)
+# ---------------------------------------------------------------------------
+
+# Projects hard-deleted per transaction. Each project's DB-level CASCADE loads
+# its whole child subtree (tasks, edges, sprints, risks, baselines, …) into the
+# collector, so — unlike the flat single-table purges (webhook/taskrun/sync) — the
+# delete is bounded into batches to cap collector memory and lock-hold time. A
+# soft-deleted project is already invisible to every reader (#1112), so spreading
+# the hard-delete across several transactions has no user-visible effect.
+_PROJECT_PURGE_BATCH_SIZE = 50
+
+
+def _do_project_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
+    """Business logic for purge_soft_deleted_projects — extracted for testability.
+
+    Hard-deletes (row + DB CASCADE children) projects whose soft-delete age exceeds
+    the window resolved by ``resolve_retention`` (operator override → the
+    ``TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS`` default, ADR-0173); ``None``
+    disables the purge (unbounded retention). Returns the number of ``Project`` rows
+    deleted, or — when ``dry_run`` — the number eligible. ``override_value`` forces a
+    hypothetical window (used by the System Health impact estimate).
+
+    Eligibility is ``is_deleted=True AND deleted_at <= now - window``. A NULL
+    ``deleted_at`` is deliberately **excluded**: a project soft-deleted before the
+    ``deleted_at`` column existed has an unknown age and must never be silently
+    hard-deleted — the safe default is to retain it (an operator can still remove it
+    via ``?force=true``).
+
+    ``ProjectMembership.project`` is ``on_delete=PROTECT`` — the one FK to Project
+    that blocks a bare ``Project.delete()`` (every other reachable FK is CASCADE) —
+    so its rows are removed first, exactly as the ``?force=true`` hard-delete path
+    does. HistoricalProject rows are intentionally not touched here; they age out via
+    the separate history retention purge.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.observability.retention import resolve_retention
+    from trueppm_api.apps.projects.models import Project
+
+    retention_days = (
+        override_value
+        if override_value is not None
+        else resolve_retention("TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS")
+    )
+    if retention_days is None:
+        return 0
+
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    eligible = Project.objects.filter(
+        is_deleted=True,
+        deleted_at__isnull=False,
+        deleted_at__lte=cutoff,
+    )
+    if dry_run:
+        return eligible.count()
+
+    project_ids = list(eligible.values_list("pk", flat=True))
+    deleted_projects = 0
+    for start in range(0, len(project_ids), _PROJECT_PURGE_BATCH_SIZE):
+        batch = project_ids[start : start + _PROJECT_PURGE_BATCH_SIZE]
+        with transaction.atomic():
+            ProjectMembership.objects.filter(project_id__in=batch).delete()
+            _, by_model = Project.objects.filter(pk__in=batch).delete()
+        deleted_projects += by_model.get(Project._meta.label, 0)
+    if deleted_projects:
+        logger.info(
+            "purge_soft_deleted_projects: hard-deleted %d soft-deleted project(s)",
+            deleted_projects,
+        )
+    return deleted_projects
+
+
+@idempotent_task(
+    lock_key_template="purge_soft_deleted_projects",
+    lock_ttl=600,
+    on_contention="skip",
+    soft_time_limit=540,
+    time_limit=600,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_soft_deleted_projects",
+)
+def purge_soft_deleted_projects(self: object) -> None:
+    """Hard-delete soft-deleted projects past the retention window.
+
+    Dispatchable directly, but not on its own Beat schedule — the consolidated
+    retention coordinator (``retention.run_purge``) owns scheduled purging and picks
+    this up via the ``purge_registry`` binding (ADR-0173 §C), running it alongside
+    the other retention purges in one unified ``PurgeRun``.
+    """
+    _do_project_purge()
+
+
+# ---------------------------------------------------------------------------
 # Drain implementation — extracted for testability
 # ---------------------------------------------------------------------------
 
