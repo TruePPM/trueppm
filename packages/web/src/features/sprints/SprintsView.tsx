@@ -41,6 +41,7 @@ import {
   type SprintFilterValue,
 } from './SprintFilterPopover';
 import { CloseSprintDialog } from './CloseSprintDialog';
+import { RetroHandoffBanner } from './RetroHandoffBanner';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
@@ -186,6 +187,18 @@ export function SprintsView() {
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Close-sprint dialog (#299) replaces the old direct closeSprint.mutate call.
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  // Post-close retro handoff (issue 1471). On close success we capture the
+  // just-closed sprint so the CTA banner can deep-link its retro board — the
+  // retro was otherwise orphaned from the close ceremony that should launch it.
+  // Dismissible and never gates the close; cleared on Run, Dismiss, or reopen.
+  const [retroHandoff, setRetroHandoff] = useState<{
+    sprintId: string;
+    sprintName: string;
+  } | null>(null);
+  // Set when the user taps "Run the retro" so the effect below scrolls the retro
+  // surface into view after the selection re-render lands.
+  const [scrollToRetro, setScrollToRetro] = useState(false);
+  const retroSectionRef = useRef<HTMLDivElement>(null);
   // Scope-injection review slide-over (ADR-0102 §5) — alt entry to the board
   // banner's Review button. Gated by useCanManageScope (render-gate only).
   const [scopeReviewOpen, setScopeReviewOpen] = useState(false);
@@ -301,6 +314,10 @@ export function SprintsView() {
     pendingDisposition?: 'carry' | 'reject',
   ) {
     if (!activeSprint) return;
+    // Capture the sprint being closed before the mutation invalidates the list
+    // and it leaves the active bucket — the retro handoff must reference this
+    // exact sprint, not whatever becomes active after the refetch.
+    const closing = { sprintId: activeSprint.id, sprintName: activeSprint.name };
     closeSprint.mutate(
       {
         sprintId: activeSprint.id,
@@ -310,10 +327,35 @@ export function SprintsView() {
         },
       },
       {
-        onSuccess: () => setCloseDialogOpen(false),
+        onSuccess: () => {
+          setCloseDialogOpen(false);
+          setRetroHandoff(closing);
+        },
       },
     );
   }
+
+  function handleRunRetro() {
+    if (!retroHandoff) return;
+    // Deep-link: select the just-closed sprint so its RetroPanel is the one
+    // rendered, then scroll+focus it once the selection re-render commits.
+    setSelectedSprintId(retroHandoff.sprintId);
+    setRetroHandoff(null);
+    setScrollToRetro(true);
+  }
+
+  // Scroll the retro surface into view after "Run the retro" selects the closed
+  // sprint. Depends on selectedSprintId so it runs after the re-render mounts the
+  // correct sprint's panel; focus moves to the region for keyboard/SR users.
+  useEffect(() => {
+    if (!scrollToRetro) return;
+    const el = retroSectionRef.current;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.focus();
+    }
+    setScrollToRetro(false);
+  }, [scrollToRetro, selectedSprintId]);
 
   function handleFilter() {
     setFilterOpen((open) => !open);
@@ -471,6 +513,18 @@ export function SprintsView() {
             Dismiss
           </button>
         </div>
+      )}
+
+      {/* Post-close retro handoff (issue 1471) — appears on close success,
+          hands the team one tap into the just-closed sprint's retro. Sits above
+          the scroll region so it stays visible regardless of scroll position. */}
+      {retroHandoff && (
+        <RetroHandoffBanner
+          sprintName={retroHandoff.sprintName}
+          iterationLabel={itl.lower}
+          onRun={handleRunRetro}
+          onDismiss={() => setRetroHandoff(null)}
+        />
       )}
 
       <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
@@ -688,11 +742,20 @@ export function SprintsView() {
           !error &&
           selectedSprint &&
           (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'COMPLETED') && (
-            <RetroPanel
-              sprintId={selectedSprint.id}
-              isClosed={selectedSprint.state === 'COMPLETED'}
-              sprintState={selectedSprint.state}
-            />
+            // Focusable scroll target for the issue 1471 retro deep-link; tabIndex=-1
+            // so "Run the retro" can move focus here for keyboard/SR users.
+            <div
+              ref={retroSectionRef}
+              tabIndex={-1}
+              data-testid="retro-handoff-target"
+              className="focus:outline-none"
+            >
+              <RetroPanel
+                sprintId={selectedSprint.id}
+                isClosed={selectedSprint.state === 'COMPLETED'}
+                sprintState={selectedSprint.state}
+              />
+            </div>
           )}
       </main>
         </>
