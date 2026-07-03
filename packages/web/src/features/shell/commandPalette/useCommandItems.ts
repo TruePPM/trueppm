@@ -6,6 +6,7 @@ import { usePrograms } from '@/hooks/usePrograms';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useActiveSprint } from '@/hooks/useSprints';
+import { useCurrentSprintTargets } from '@/hooks/useCurrentSprintTargets';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -60,6 +61,9 @@ export function useCommandItems(enabled = true): CommandItem[] {
   const tier2Id = enabled ? currentProjectId : undefined;
   const { tasks } = useScheduleTasks(tier2Id);
   const { sprint: activeSprint } = useActiveSprint(tier2Id);
+  // First-class "jump to current sprint" targets (issue 1594) — the current project's
+  // active sprint plus every other team's, shared with the pinned shell control.
+  const sprintTargets = useCurrentSprintTargets(tier2Id);
   const canManageBacklog = useCanManageBacklog(tier2Id);
   const { user } = useCurrentUser();
   const iteration = useIterationLabel(tier2Id ?? null);
@@ -79,6 +83,21 @@ export function useCommandItems(enabled = true): CommandItem[] {
       act(() => {
         void navigate(path);
       });
+
+    // ---- Jump to current sprint (first-class, top-ranked) --------------------
+    // The issue 1594 headline action: one entry per team with a live ACTIVE sprint,
+    // each landing directly on that sprint's board (`?sprint=` scope). Works from
+    // anywhere (not just a project route) so a multi-team Scrum Master reaches any
+    // of their boards without hunting through the SPRINT view tabs.
+    const sprintJumps: CommandItem[] = sprintTargets.map((t) => ({
+      id: `sprint:${t.sprintId}`,
+      label: `Current sprint — ${t.sprintName}`,
+      group: 'sprint',
+      tag: 'Sprint',
+      detail: t.projectName,
+      keywords: `jump current active sprint board ${t.projectName}`,
+      run: go(t.path),
+    }));
 
     // ---- Tier 2: Tasks (current project) -------------------------------------
     // Built for every current-project task; the palette query filters them and
@@ -108,15 +127,9 @@ export function useCommandItems(enabled = true): CommandItem[] {
     const currentItems: CommandItem[] = [];
     if (tier2Id) {
       const projectName = currentProject?.name ?? 'this project';
+      // The in-context active sprint's *board* jump lives in the top-ranked
+      // `sprint` group (issue 1594); the retro jump stays here as an in-context target.
       if (activeSprint) {
-        currentItems.push({
-          id: `current:active-sprint:${tier2Id}`,
-          label: `Active Sprint — ${activeSprint.name}`,
-          group: 'current',
-          tag: 'Sprint',
-          keywords: 'board active sprint',
-          run: go(`/projects/${tier2Id}/board`),
-        });
         currentItems.push({
           id: `current:retro:${tier2Id}`,
           label: `Open ${activeSprint.name} retro`,
@@ -244,7 +257,15 @@ export function useCommandItems(enabled = true): CommandItem[] {
 
     // Order matches the palette's GROUP_ORDER so keyboard nav and the visual
     // sections agree.
-    return [...taskItems, ...currentItems, ...jumps, ...backlog, ...board, ...actions];
+    return [
+      ...sprintJumps,
+      ...taskItems,
+      ...currentItems,
+      ...jumps,
+      ...backlog,
+      ...board,
+      ...actions,
+    ];
   }, [
     navigate,
     programs,
@@ -258,6 +279,7 @@ export function useCommandItems(enabled = true): CommandItem[] {
     currentProject,
     tasks,
     activeSprint,
+    sprintTargets,
     canManageBacklog,
     user,
     iteration,

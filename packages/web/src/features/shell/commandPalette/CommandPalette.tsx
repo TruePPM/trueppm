@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { SearchIcon } from '@/components/Icons';
@@ -9,6 +15,7 @@ import { filterCommandItems, type CommandItem } from './commandItems';
 import { useCommandItems } from './useCommandItems';
 
 const GROUP_LABEL: Record<CommandItem['group'], string> = {
+  sprint: 'Current sprint',
   task: 'Tasks',
   current: 'Current project',
   jump: 'Jump to',
@@ -16,9 +23,18 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   board: 'Board',
   action: 'Actions',
 };
-// Render + keyboard-nav order. `task` leads (the #1 jump-to ask); `current` (the
-// in-context sprint/role targets) sits above the global navigation.
-const GROUP_ORDER: CommandItem['group'][] = ['task', 'current', 'jump', 'backlog', 'board', 'action'];
+// Render + keyboard-nav order. `sprint` (jump to today's active sprint board, the
+// first-class issue 1594 action) leads always; `task` follows (the query-gated jump-to
+// ask); `current` (the in-context role targets) sits above the global navigation.
+const GROUP_ORDER: CommandItem['group'][] = [
+  'sprint',
+  'task',
+  'current',
+  'jump',
+  'backlog',
+  'board',
+  'action',
+];
 
 /** Calm mono chip styling per tag. Only "Sprint" (live/now) gets a brand tint;
  *  every other type stays neutral so the result list reads as one quiet column. */
@@ -121,7 +137,11 @@ export function CommandPalette() {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
       {/* Backdrop — click to close (mirrors the shell drawer pattern). */}
-      <div className="absolute inset-0 bg-neutral-overlay" aria-hidden="true" onClick={() => setOpen(false)} />
+      <div
+        className="absolute inset-0 bg-neutral-overlay"
+        aria-hidden="true"
+        onClick={() => setOpen(false)}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -162,7 +182,13 @@ export function CommandPalette() {
         )}
 
         {/* Results */}
-        <div ref={listRef} id="cmdk-listbox" role="listbox" aria-label="Results" className="max-h-[50vh] overflow-y-auto py-1">
+        <div
+          ref={listRef}
+          id="cmdk-listbox"
+          role="listbox"
+          aria-label="Results"
+          className="max-h-[50vh] overflow-y-auto py-1"
+        >
           {items.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-neutral-text-secondary">
               No matches for “{query}”.
@@ -194,7 +220,9 @@ export function CommandPalette() {
                         onMouseMove={() => setActiveIndex(items.indexOf(item))}
                         onClick={() => item.run()}
                         className={`flex min-h-[44px] w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm ${
-                          isActive ? 'bg-brand-primary/10 text-brand-primary' : 'text-neutral-text-primary'
+                          isActive
+                            ? 'bg-brand-primary/10 text-brand-primary'
+                            : 'text-neutral-text-primary'
                         }`}
                       >
                         <span className="flex min-w-0 items-baseline gap-2">
@@ -231,7 +259,9 @@ export function CommandPalette() {
         {/* Footer hint — the action verb adapts so a task open is announced as
             "open in drawer" (it does not navigate away) before the user commits. */}
         <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs text-neutral-text-secondary">
-          <span><kbd className="tppm-mono">↑↓</kbd> navigate</span>
+          <span>
+            <kbd className="tppm-mono">↑↓</kbd> navigate
+          </span>
           <span>
             <kbd className="tppm-mono">↵</kbd>{' '}
             {activeItem?.group === 'task' ? 'open in drawer' : 'open'}

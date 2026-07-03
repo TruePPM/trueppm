@@ -41,6 +41,7 @@ vi.mock('@/hooks/useNotifications', () => ({
 // own specs; stub them so the structural TopBar tests don't fire their XHRs.
 vi.mock('./HealthCluster', () => ({ HealthCluster: () => <div data-testid="health-cluster" /> }));
 vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
+vi.mock('./CurrentSprintButton', () => ({ CurrentSprintButton: () => null }));
 vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
   ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));

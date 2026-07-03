@@ -17,6 +17,7 @@ import { ViewsMenu } from './ViewsMenu';
 import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
 import { HealthCluster } from './HealthCluster';
+import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
@@ -70,11 +71,7 @@ export function TopBar({ onHamburgerClick }: Props) {
   // leading mark when unset — the product <Logo/> on the left rail is unaffected.
   const { data: workspace } = useWorkspaceSettings();
   const workspaceLogo = workspace?.logoUrl ? (
-    <img
-      src={workspace.logoUrl}
-      alt=""
-      className="w-4 h-4 rounded-chip object-contain shrink-0"
-    />
+    <img src={workspace.logoUrl} alt="" className="w-4 h-4 rounded-chip object-contain shrink-0" />
   ) : undefined;
 
   const items: BreadcrumbItem[] = [{ label: 'Workspace', to: '/', leading: workspaceLogo }];
@@ -178,6 +175,10 @@ export function TopBar({ onHamburgerClick }: Props) {
         {/* Customize views (ADR-0139) — per-user show/hide of the view tabs; sits
             adjacent to the tab strip, self-suppresses off-project/settings. */}
         <ViewsMenu />
+
+        {/* Jump to current sprint (issue 1594) — pinned one-click to today's active
+            sprint board; self-suppresses when there is no active sprint anywhere. */}
+        <CurrentSprintButton />
 
         {/* Methodology tag — compact 2-letter badge from md, full "{METHOD}
             Workspace" text at xl and up (issue 1469). */}
