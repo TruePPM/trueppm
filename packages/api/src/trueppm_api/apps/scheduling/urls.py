@@ -10,6 +10,7 @@ from trueppm_api.apps.scheduling.views import (
     ForecastSnapshotListView,
     MonteCarloHistoryView,
     MonteCarloLatestView,
+    MonteCarloWhatIfView,
     VelocitySuggestionViewSet,
     run_monte_carlo,
     trigger_schedule,
@@ -35,6 +36,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         "projects/<str:pk>/monte-carlo/history/",
         MonteCarloHistoryView.as_view(),
         name="project-monte-carlo-history",
+    ),
+    path(
+        "projects/<str:pk>/monte-carlo/whatif/",
+        MonteCarloWhatIfView.as_view(),
+        name="project-monte-carlo-whatif",
     ),
     path(
         "projects/<str:pk>/forecast-snapshots/",

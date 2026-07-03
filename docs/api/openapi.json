@@ -8749,6 +8749,117 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/monte-carlo/whatif/": {
+            "get": {
+                "operationId": "v1_projects_monte_carlo_whatif_retrieve",
+                "description": "Run the perturbed forecast in memory and return the deltas (see class doc).",
+                "summary": "Non-mutating Monte Carlo what-if for a single task duration change",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "duration_delta",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Signed day offset applied to the task's current duration (e.g. 5 to slip it a working week later, -2 to pull it in). Supply exactly one of duration_delta or new_duration."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "n_simulations",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Monte Carlo iterations; defaults to MC_SIMULATION_CAP, capped there."
+                    },
+                    {
+                        "in": "query",
+                        "name": "new_duration",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Absolute day count to set the task's duration to (>= 0). Supply exactly one of duration_delta or new_duration."
+                    },
+                    {
+                        "in": "query",
+                        "name": "task_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "The committed task whose duration to perturb.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change)."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a cyclic dependency, or an out-of-range project span."
+                    },
+                    "402": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "OSS simulation cap exceeded (n_simulations or task count too high)."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/my-tasks/": {
             "get": {
                 "operationId": "v1_projects_my_tasks_retrieve",

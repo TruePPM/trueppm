@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import date as _date
 from datetime import datetime as _datetime
@@ -60,6 +61,7 @@ from trueppm_api.apps.scheduling.models import (
 from trueppm_api.apps.scheduling.serializers import (
     FailedTaskSerializer,
     MonteCarloRunSerializer,
+    MonteCarloWhatIfRequestSerializer,
     ProjectForecastSnapshotSerializer,
     VelocitySuggestionSerializer,
 )
@@ -584,6 +586,337 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 "sensitivity": dist.get("sensitivity", []),
                 "last_run_at": latest.taken_at.isoformat(),
                 "from_history": True,
+            }
+        )
+
+
+# Fixed RNG seed for the what-if endpoint (#993). Both the baseline and the
+# perturbed Monte Carlo runs sample with THIS seed, so they draw the *same*
+# per-run duration samples for every unperturbed task. The delta between the two
+# forecasts therefore isolates the effect of the perturbation rather than RNG
+# noise, and the endpoint is a pure function of its inputs — the same what-if
+# query always returns the same forecast, which a reproducible "slip this task"
+# demo (and a stable test assertion) both depend on.
+WHATIF_MC_SEED = 993_993
+
+
+def _shift_duration(td: timedelta | None, delta_days: int) -> timedelta | None:
+    """Shift a duration by ``delta_days``, flooring at zero; ``None`` passes through.
+
+    Used to perturb both the deterministic duration and each leg of a task's PERT
+    triple by the same signed offset, so the estimate's shape/order is preserved
+    while its center moves. A negative delta that would drive a duration below zero
+    is clamped to zero rather than producing a nonsensical negative duration.
+    """
+    if td is None:
+        return None
+    shifted = td + timedelta(days=delta_days)
+    return shifted if shifted > timedelta(0) else timedelta(0)
+
+
+class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
+    """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
+
+    Backs the MCP ``whatif`` read tool (#504/#603): accept a ``task_id`` plus a
+    duration perturbation, run CPM + Monte Carlo **in memory without persisting
+    anything**, and return the resulting P50/P80/P95, the deterministic CPM finish,
+    whether the critical path changed, and the signed deltas versus the current
+    (unperturbed) forecast.
+
+    Why GET, not POST: the endpoint has no side effects — it writes no rows, sets no
+    cache, and enqueues no recompute — so it is a pure read/compute, correctly
+    modeled as GET. That is also what makes it reachable by an ``mcp:read`` API
+    token: ``McpReadableViewMixin`` confines token callers to safe methods, so a
+    POST could never back a *read* MCP tool. Query params carry the perturbation
+    (``?task_id=&duration_delta=`` or ``&new_duration=``).
+
+    Non-persistence guarantee: this view never calls ``.save()``,
+    ``record_monte_carlo_run``, ``cache.set``, or ``enqueue_recalculate``. The
+    perturbation is applied to freshly-built in-memory scheduler dataclasses; the
+    Django rows are only read. ``schedule()`` and ``monte_carlo()`` both operate on
+    copies and do not mutate their input project.
+
+    Permission: Member (any role >= Viewer), the same project-read gate as the
+    ``run_monte_carlo`` / latest / history forecast endpoints.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "monte_carlo_whatif"
+
+    @extend_schema(
+        summary="Non-mutating Monte Carlo what-if for a single task duration change",
+        parameters=[
+            OpenApiParameter(
+                "task_id",
+                OpenApiTypes.UUID,
+                required=True,
+                description="The committed task whose duration to perturb.",
+            ),
+            OpenApiParameter(
+                "duration_delta",
+                OpenApiTypes.INT,
+                description=(
+                    "Signed day offset applied to the task's current duration "
+                    "(e.g. 5 to slip it a working week later, -2 to pull it in). "
+                    "Supply exactly one of duration_delta or new_duration."
+                ),
+            ),
+            OpenApiParameter(
+                "new_duration",
+                OpenApiTypes.INT,
+                description=(
+                    "Absolute day count to set the task's duration to (>= 0). "
+                    "Supply exactly one of duration_delta or new_duration."
+                ),
+            ),
+            OpenApiParameter(
+                "n_simulations",
+                OpenApiTypes.INT,
+                description="Monte Carlo iterations; defaults to MC_SIMULATION_CAP, capped there.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "What-if forecast. Keys: task_id; applied ({base_duration_days, "
+                    "duration_delta_days, new_duration_days}); current and whatif (each "
+                    "{p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); "
+                    "critical_path_changed (bool — did the set of critical tasks change); "
+                    "delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, "
+                    "positive = later/worse, null when a date is missing); runs (n_simulations); "
+                    "seed (fixed RNG seed shared by both runs so the delta isolates the change)."
+                ),
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Invalid input: malformed/absent params, both or neither of "
+                    "duration_delta/new_duration, task_id not a committed task in this "
+                    "project, a milestone (zero-duration) target, a cyclic dependency, or an "
+                    "out-of-range project span."
+                ),
+            ),
+            402: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="OSS simulation cap exceeded (n_simulations or task count too high).",
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Project does not exist.",
+            ),
+        },
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        """Run the perturbed forecast in memory and return the deltas (see class doc)."""
+        from trueppm_scheduler.engine import (
+            CyclicDependencyError,
+            SimulationCapExceeded,
+            monte_carlo,
+            schedule,
+        )
+        from trueppm_scheduler.models import Dependency as SchedDependency
+        from trueppm_scheduler.models import DependencyType
+        from trueppm_scheduler.models import Project as SchedProject
+
+        from trueppm_api.apps.projects.services import scheduler_velocity_inputs
+
+        req = MonteCarloWhatIfRequestSerializer(data=request.query_params)
+        req.is_valid(raise_exception=True)
+        params = req.validated_data
+        task_id = str(params["task_id"])
+
+        try:
+            project = (
+                Project.objects.select_related("calendar")
+                .prefetch_related("tasks", "calendar__exceptions")
+                .get(pk=pk, is_deleted=False)
+            )
+        except Project.DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Object-level membership + not-archived gate (same read level as the
+        # forecast endpoints). APIView.get has no get_object(), so enforce explicitly.
+        self.check_object_permissions(request, project)
+
+        cap: int | None = settings.MC_SIMULATION_CAP
+        n_simulations = int(params.get("n_simulations", cap or 1_000))
+
+        # Build the baseline scheduler input exactly as run_monte_carlo does, through
+        # the shared converters (ADR-0132/#1491) so the what-if forecast is computed on
+        # the identical graph the real forecast uses — same calendar exceptions, same
+        # planned_start floors, same velocity signal.
+        sched_calendar = build_sched_calendar(project.calendar)
+        db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
+        if not db_tasks:
+            return Response(
+                {"detail": "Project has no schedulable (committed) tasks to forecast."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The perturbation target must be one of THIS project's committed tasks. A
+        # BACKLOG card, a task in another project, or an unknown id is rejected as a
+        # clean 400 (not 404 — the project exists and the caller can read it; only the
+        # task reference is invalid) and never leaks whether the id exists elsewhere.
+        target_db = next((t for t in db_tasks if str(t.id) == task_id), None)
+        if target_db is None:
+            return Response(
+                {"detail": "task_id is not a committed task in this project."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if target_db.is_milestone:
+            return Response(
+                {"detail": "A milestone is a zero-duration gate and cannot be perturbed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_duration_days = int(target_db.duration)
+        if "duration_delta" in params:
+            delta_days = int(params["duration_delta"])
+        else:
+            # new_duration is absolute; convert to the equivalent signed shift so both
+            # inputs flow through one perturbation path.
+            delta_days = int(params["new_duration"]) - base_duration_days
+        new_duration_days = max(0, base_duration_days + delta_days)
+
+        suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
+        baseline_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
+
+        # Perturbed task list: a copy with only the target's duration (and, when it
+        # carries a three-point estimate, each PERT leg) shifted. Shifting the PERT
+        # triple too matters because Monte Carlo samples a PERT task from its triple,
+        # not its deterministic duration — perturbing only `duration` would leave the
+        # probabilistic bands unmoved for an estimated task, defeating the what-if.
+        perturbed_tasks = []
+        for st in baseline_tasks:
+            if st.id == task_id:
+                st = dataclasses.replace(
+                    st,
+                    duration=_shift_duration(st.duration, delta_days),
+                    optimistic_duration=_shift_duration(st.optimistic_duration, delta_days),
+                    most_likely_duration=_shift_duration(st.most_likely_duration, delta_days),
+                    pessimistic_duration=_shift_duration(st.pessimistic_duration, delta_days),
+                )
+            perturbed_tasks.append(st)
+
+        included_ids = {str(t.id) for t in db_tasks}
+        db_deps = list(
+            Dependency.objects.filter(predecessor__project_id=pk).select_related(
+                "predecessor", "successor"
+            )
+        )
+        sched_deps = [
+            SchedDependency(
+                predecessor_id=str(d.predecessor_id),
+                successor_id=str(d.successor_id),
+                dep_type=DependencyType(d.dep_type),
+                lag=timedelta(days=d.lag),
+            )
+            for d in db_deps
+            if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
+        ]
+
+        velocity_samples, sprint_length_days = scheduler_velocity_inputs(
+            project.pk, sched_calendar.working_days
+        )
+
+        # The deterministic CPM and Monte Carlo use different data dates by design
+        # (ADR-0132), so mirror each engine's canonical status_date here: schedule()
+        # takes the raw status_date (None => earliest-possible dates, matching the
+        # stored plan) and monte_carlo() floors it at today (never forecasts remaining
+        # work in the past). Using each engine's own convention keeps current.cpm_finish
+        # identical to the persisted deterministic finish and current P50/P80/P95
+        # identical to run_monte_carlo.
+        cpm_status_date = project.status_date
+        mc_status_date = project.status_date or timezone.localdate()
+
+        def _make_project(tasks: list[Any], status_date: _date | None) -> Any:
+            return SchedProject(
+                id=str(project.pk),
+                name=project.name,
+                start_date=project.start_date,
+                tasks=tasks,
+                dependencies=sched_deps,
+                calendar=sched_calendar,
+                status_date=status_date,
+                velocity_samples=velocity_samples or None,
+                sprint_length_days=sprint_length_days,
+            )
+
+        try:
+            baseline_cpm = schedule(_make_project(baseline_tasks, cpm_status_date))
+            perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
+            baseline_mc = monte_carlo(
+                _make_project(baseline_tasks, mc_status_date),
+                runs=n_simulations,
+                seed=WHATIF_MC_SEED,
+                max_runs=cap,
+                max_tasks=settings.MC_TASK_CAP,
+            )
+            perturbed_mc = monte_carlo(
+                _make_project(perturbed_tasks, mc_status_date),
+                runs=n_simulations,
+                seed=WHATIF_MC_SEED,
+                max_runs=cap,
+                max_tasks=settings.MC_TASK_CAP,
+            )
+        except SimulationCapExceeded as exc:
+            return Response(
+                {"error": "simulation_cap_exceeded", "tier": "team", "message": str(exc)},
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
+        except (CyclicDependencyError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except OverflowError:
+            return Response(
+                {"detail": "Project schedule exceeds the representable date range."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # A membership change in the critical set is the meaningful "the shape of the
+        # plan moved" signal — compared as sets so a pure reordering along an unchanged
+        # path does not read as a change.
+        critical_path_changed = set(baseline_cpm.critical_path) != set(perturbed_cpm.critical_path)
+
+        def _days(later: _date | None, earlier: _date | None) -> int | None:
+            if later is None or earlier is None:
+                return None
+            return (later - earlier).days
+
+        current = {
+            "p50": baseline_mc.p50.isoformat(),
+            "p80": baseline_mc.p80.isoformat(),
+            "p95": baseline_mc.p95.isoformat(),
+            "cpm_finish": baseline_cpm.project_finish.isoformat(),
+            "critical_path": list(baseline_cpm.critical_path),
+        }
+        whatif = {
+            "p50": perturbed_mc.p50.isoformat(),
+            "p80": perturbed_mc.p80.isoformat(),
+            "p95": perturbed_mc.p95.isoformat(),
+            "cpm_finish": perturbed_cpm.project_finish.isoformat(),
+            "critical_path": list(perturbed_cpm.critical_path),
+        }
+        return Response(
+            {
+                "task_id": task_id,
+                "applied": {
+                    "base_duration_days": base_duration_days,
+                    "duration_delta_days": delta_days,
+                    "new_duration_days": new_duration_days,
+                },
+                "current": current,
+                "whatif": whatif,
+                "critical_path_changed": critical_path_changed,
+                "delta_vs_current": {
+                    "p50": _days(perturbed_mc.p50, baseline_mc.p50),
+                    "p80": _days(perturbed_mc.p80, baseline_mc.p80),
+                    "p95": _days(perturbed_mc.p95, baseline_mc.p95),
+                    "cpm_finish": _days(perturbed_cpm.project_finish, baseline_cpm.project_finish),
+                },
+                "runs": n_simulations,
+                "seed": WHATIF_MC_SEED,
             }
         )
 
