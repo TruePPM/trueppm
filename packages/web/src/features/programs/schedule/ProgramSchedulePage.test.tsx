@@ -112,7 +112,7 @@ describe('ProgramSchedulePage', () => {
     expect(screen.getByText('Critical path')).toBeInTheDocument();
   });
 
-  it('wraps the canvas in a scrollable container with a content-height spacer (#1624)', () => {
+  it('wraps the canvas in a scrollable container with a content-height spacer (issue 1624)', () => {
     useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
     renderPage();
     // The container the engine scrolls must be overflow-auto, or the browser
