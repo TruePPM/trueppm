@@ -30,6 +30,11 @@ resource with the skills they have at one of three proficiency levels — **Begi
 **Intermediate**, or **Expert**. Skill names are de-duplicated case-insensitively, so
 "React" and "react" resolve to the same skill.
 
+Tag skills inline from a resource's detail panel: choose a proficiency, then search the
+catalog under **+ Add skill**. Each selection is added immediately and the search clears,
+so you can tag several skills in a row; skills already on the resource are hidden from the
+results.
+
 ## Rosters and assignments
 
 - **Project roster** — add resources to a project before (or without) assigning them to

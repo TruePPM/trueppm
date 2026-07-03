@@ -14,6 +14,9 @@ import {
 } from '@/hooks/useResourceSkills';
 import { SkillChip } from '@/features/roster/SkillChip';
 import { CapacityInput } from '@/features/roster/CapacityInput';
+import { SkillCombobox } from '@/features/roster/SkillCombobox';
+import { PROFICIENCY_LABEL } from '@/types';
+import type { Proficiency } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -196,7 +199,8 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           )}
           {!resource.isDeleted && (
             <AddSkillRow
-              resourceId={resource.id}
+              excludeSkillIds={skills.map((rs) => rs.skillId)}
+              isAdding={addSkill.isPending}
               onAdd={(skillId, proficiency) => addSkill.mutate({ skillId, proficiency })}
             />
           )}
@@ -429,22 +433,73 @@ function Field({ label, htmlFor, required, children }: FieldProps) {
   );
 }
 
-// Minimal inline add-skill row — uses the existing skill catalog search.
-// Full SkillEditor popover would be wired here in a follow-up; for now a
-// simple text + proficiency select matches the pre-alpha scope.
+// Inline add-skill row. A collapsed "+ Add skill" trigger expands to a
+// proficiency selector plus the shared SkillCombobox (issue 1612). Selecting a
+// skill calls onAdd(skillId, proficiency) and clears the combobox so several
+// skills can be added in a row; Escape or Cancel collapses the control.
+const PROFICIENCY_ORDER: readonly Proficiency[] = [1, 2, 3];
+
 interface AddSkillRowProps {
-  resourceId: string;
-  onAdd: (skillId: string, proficiency: 1 | 2 | 3) => void;
+  excludeSkillIds: readonly string[];
+  isAdding: boolean;
+  onAdd: (skillId: string, proficiency: Proficiency) => void;
 }
 
-function AddSkillRow(_props: AddSkillRowProps) {
-  // Skill addition uses the SkillEditor from RosterDetailPanel — wire up
-  // once the skill search combobox is extracted as a shared component
-  // (tracked in issue 1612). For now surface a placeholder CTA.
+function AddSkillRow({ excludeSkillIds, isAdding, onAdd }: AddSkillRowProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [proficiency, setProficiency] = useState<Proficiency>(2);
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="mt-2 h-7 px-2.5 rounded text-xs border border-neutral-border text-neutral-text-secondary
+          hover:border-brand-primary hover:text-neutral-text-primary
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
+        + Add skill
+      </button>
+    );
+  }
+
   return (
-    <p className="mt-2 text-xs text-neutral-text-secondary italic">
-      Use the project Team tab to manage skills in detail. Inline skill add is tracked in
-      issue 1612.
-    </p>
+    <div className="mt-2 space-y-2" aria-busy={isAdding}>
+      <div role="group" aria-label="Proficiency" className="flex gap-1">
+        {PROFICIENCY_ORDER.map((level) => (
+          <button
+            key={level}
+            type="button"
+            aria-pressed={proficiency === level}
+            onClick={() => setProficiency(level)}
+            className={[
+              'h-7 px-2 rounded text-xs border transition-colors',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+              proficiency === level
+                ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                : 'border-neutral-border text-neutral-text-secondary hover:border-brand-primary',
+            ].join(' ')}
+          >
+            {PROFICIENCY_LABEL[level]}
+          </button>
+        ))}
+      </div>
+
+      <SkillCombobox
+        label="Search skills to add…"
+        excludeSkillIds={excludeSkillIds}
+        onSelect={(skill) => onAdd(skill.id, proficiency)}
+        onDismiss={() => setExpanded(false)}
+      />
+
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        className="h-7 px-2.5 rounded text-xs text-neutral-text-secondary hover:text-neutral-text-primary
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+      >
+        Cancel
+      </button>
+    </div>
   );
 }

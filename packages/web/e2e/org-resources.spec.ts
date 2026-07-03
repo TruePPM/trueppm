@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Org-level resource management E2E (issue #155).
@@ -79,6 +80,13 @@ async function mockResourceRoutes(
     results,
   });
 
+  // Register the catch-all FIRST (last-registered wins) so unmocked shell
+  // endpoints (auth/me, me/work, programs, workspace, token refresh) resolve to
+  // a 404 instead of falling through and 401-ing — a 401 on refresh trips the
+  // session-expired teardown, which races the resource list and flakes the
+  // whole spec (surfaced while wiring inline skill add, issue 1612).
+  await setupCatchAll(page);
+
   // Stateful lists so mutations are reflected in subsequent GET re-fetches.
   const deletedIds = new Set<string>();
   const created: typeof resources = [];
@@ -118,9 +126,39 @@ async function mockResourceRoutes(
     }
     return route.continue();
   });
-  await page.route('**/api/v1/resource-skills/**', (route) =>
-    route.fulfill({ json: paginated([]) }),
-  );
+  // Stateful resource-skills so an inline add is reflected on the next GET.
+  const resourceSkills: object[] = [];
+  await page.route('**/api/v1/resource-skills/**', (route) => {
+    if (route.request().method() === 'POST') {
+      const body = JSON.parse(route.request().postData() ?? '{}') as {
+        resource: string;
+        skill: string;
+        proficiency: number;
+      };
+      const created = {
+        id: `rs-${resourceSkills.length + 1}`,
+        resource: body.resource,
+        skill: body.skill,
+        skill_name: body.skill === 'sk-react' ? 'React' : body.skill,
+        proficiency: body.proficiency,
+      };
+      resourceSkills.push(created);
+      return route.fulfill({ status: 201, json: created });
+    }
+    return route.fulfill({ json: paginated(resourceSkills) });
+  });
+
+  // Skill catalog autocomplete for the inline add-skill combobox.
+  await page.route('**/api/v1/skills/**', (route) => {
+    const search = new URL(route.request().url()).searchParams.get('search')?.toLowerCase() ?? '';
+    const catalog = [
+      { id: 'sk-react', name: 'React', normalized_name: 'react', category: 'Frontend' },
+      { id: 'sk-django', name: 'Django', normalized_name: 'django', category: 'Backend' },
+    ];
+    return route.fulfill({
+      json: paginated(catalog.filter((s) => s.name.toLowerCase().includes(search))),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +197,29 @@ test('create resource — fills form and submits', async ({ page }) => {
 
   // After creation, the new resource should be selected in the list
   await expect(page.getByRole('button', { name: /maria chen/i })).toBeVisible();
+});
+
+// ---------------------------------------------------------------------------
+// Inline add skill (issue 1612)
+// ---------------------------------------------------------------------------
+
+test('add a skill from the resource detail panel', async ({ page }) => {
+  await mockResourceRoutes(page);
+  await seedAuthAndNavigate(page);
+
+  // Select Alice to open the detail panel.
+  await page.getByRole('button', { name: /alice nguyen/i }).click();
+
+  // Expand the inline add-skill control.
+  await page.getByRole('button', { name: /\+ add skill/i }).click();
+
+  // Choose a proficiency, then search the catalog and select a skill.
+  await page.getByRole('button', { name: 'Expert' }).click();
+  await page.getByRole('combobox', { name: /search skills/i }).fill('React');
+  await page.getByRole('option', { name: /react/i }).click();
+
+  // The added skill appears as a chip in the Skills list.
+  await expect(page.getByText('React', { exact: true })).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
