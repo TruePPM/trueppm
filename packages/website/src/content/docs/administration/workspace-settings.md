@@ -143,8 +143,17 @@ to demote, deactivate, or remove the last Owner returns `HTTP 400`:
 ### Display-only fields (`sso`, `two_fa`)
 
 Member list responses include `sso: false` and `two_fa: false` in the community
-edition. SSO and two-factor authentication enforcement are Enterprise features;
-these fields are placeholders and carry no functional meaning in OSS.
+edition. These fields report *governed* SSO and two-factor **enforcement** —
+whether a member is provisioned and policy-controlled from a directory of record
+— which is an Enterprise feature; the fields are placeholders and carry no
+functional meaning in OSS.
+
+They do **not** describe basic login federation. Pointing TruePPM at your own
+identity provider so your team logs in via OIDC / OAuth2 ships in the OSS core at
+0.4 — that is login-only federation, not directory governance. For the full
+carve-out (log in via your own IdP → OSS; provision/deprovision/govern from a
+directory → Enterprise) and a dated comparison against the open-core competition,
+see [SSO Is Not an Enterprise Feature](/overview/sso-is-not-enterprise/).
 
 ### Export members as CSV
 
