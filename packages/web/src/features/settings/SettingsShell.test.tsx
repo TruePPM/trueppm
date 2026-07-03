@@ -101,6 +101,15 @@ describe('<SettingsShell>', () => {
     expect(scroll.className).toContain('[scrollbar-gutter:stable]');
   });
 
+  it('constrains the content panel with min-h-0 so it never over-scrolls past content (#1618)', () => {
+    // Without min-h-0 the flex-1 scroll child keeps its content-height min and
+    // overflows the height chain, letting <main> scroll into empty canvas.
+    renderShell();
+    const scroll = screen.getByTestId('settings-content-scroll');
+    expect(scroll.className).toContain('min-h-0');
+    expect(scroll.className).toContain('overflow-y-auto');
+  });
+
   it('renders inline sections as scroll-spy buttons, not links', () => {
     renderShell();
     // Inline sections are buttons (scroll-spy), not anchor links — no route swap.

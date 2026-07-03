@@ -43,8 +43,12 @@ function LifecycleCard({
     <div
       className={[
         'rounded-card border p-4',
+        // Warning tone uses the adaptive semantic-warning tokens (amber wash +
+        // AA border) rather than the static bg-brand-accent-light (#FFF3CD),
+        // which stays cream in dark mode while the neutral text tokens invert to
+        // light ink — washing the card out to unreadable (issue 1619, rule 86).
         tone === 'warning'
-          ? 'border-brand-accent bg-brand-accent-light'
+          ? 'border-semantic-warning/70 bg-semantic-warning-bg'
           : 'border-neutral-border bg-neutral-surface-raised',
       ].join(' ')}
     >

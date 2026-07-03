@@ -86,6 +86,18 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
     expect(screen.getByRole('button', { name: 'Close program…' })).toBeEnabled();
   });
 
+  it('renders the Transfer sponsorship (warning) card with adaptive dark-mode tokens (#1619)', () => {
+    renderPage();
+    // The warning card must use the adaptive semantic-warning fill, not the
+    // static bg-brand-accent-light (#FFF3CD) that washes out in dark mode.
+    const heading = screen.getByRole('heading', { name: 'Transfer sponsorship' });
+    const card = heading.closest('div.rounded-card');
+    expect(card).not.toBeNull();
+    expect(card!.className).toContain('bg-semantic-warning-bg');
+    expect(card!.className).toContain('border-semantic-warning/70');
+    expect(card!.className).not.toContain('bg-brand-accent-light');
+  });
+
   it('Transfer sponsorship opens the picker dialog and POSTs the chosen sponsor', async () => {
     const user = userEvent.setup();
     transferMutate.mockClear();
