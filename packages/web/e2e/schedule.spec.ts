@@ -434,6 +434,13 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
       route.fulfill(json({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' })),
     );
     await page.route('**/api/v1/edition/', (route) => route.fulfill(json({ edition: 'community' })));
+    // The always-mounted command palette (useCommandItems → useCurrentSprintTargets,
+    // issue 1594) fires this fetch on every route regardless of palette open state.
+    // useMyActiveSprints() returns res.data verbatim (a bare array, unlike the
+    // paginated shape below) — without this route it falls through to the 401-guard
+    // catch-all's `{count,...}` object, and `for (const entry of myActiveSprints ?? [])`
+    // throws "is not iterable", crashing the whole app through the root error boundary.
+    await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/projects/', (route) =>
       route.fulfill(
         json({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
