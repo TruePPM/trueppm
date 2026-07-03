@@ -6,6 +6,7 @@ import {
   useDeleteDependency,
 } from '@/hooks/useDependencyMutations';
 import { parseCyclicDependencyError, formatCycleMessage } from '@/hooks/useTaskMutations';
+import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 
 const DEP_TYPES: { value: LinkType; label: string }[] = [
   { value: 'FS', label: 'Finish → Start' },
@@ -19,9 +20,11 @@ interface DependenciesTabProps {
   tasks: Task[];
   links: TaskLink[];
   projectId: string;
+  /** Program this project belongs to, or null for a standalone project (ADR-0120). */
+  programId?: string | null;
 }
 
-export function DependenciesTab({ task, tasks, links, projectId }: DependenciesTabProps) {
+export function DependenciesTab({ task, tasks, links, projectId, programId }: DependenciesTabProps) {
   const createDep = useCreateDependency(projectId);
   const updateDep = useUpdateDependency(projectId);
   const deleteDep = useDeleteDependency(projectId);
@@ -31,6 +34,12 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
   const [addSuccId, setAddSuccId] = useState('');
   const [addSuccType, setAddSuccType] = useState<LinkType>('FS');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Which side opened the cross-project picker (ADR-0120) — the inline
+  // dropdowns below only ever list this project's tasks, so a task in a
+  // sibling project is reachable only through this modal.
+  const [crossPickerMode, setCrossPickerMode] = useState<'predecessor' | 'successor' | null>(
+    null,
+  );
 
   useEffect(() => {
     setAddPredId('');
@@ -38,6 +47,7 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
     setAddSuccId('');
     setAddSuccType('FS');
     setErrorMessage(null);
+    setCrossPickerMode(null);
   }, [task.id]);
 
   const predecessorLinks = links.filter((l) => l.targetId === task.id);
@@ -113,6 +123,9 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
           onAdd={handleAddPred}
           addLabel="Add predecessor"
         />
+        {programId && (
+          <CrossProjectSearchLink onClick={() => setCrossPickerMode('predecessor')} />
+        )}
       </section>
 
       <section aria-label="Successors">
@@ -145,7 +158,23 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
           onAdd={handleAddSucc}
           addLabel="Add successor"
         />
+        {programId && (
+          <CrossProjectSearchLink onClick={() => setCrossPickerMode('successor')} />
+        )}
       </section>
+
+      {crossPickerMode && (
+        <ScheduleDependencyPicker
+          task={task}
+          mode={crossPickerMode}
+          projectId={projectId}
+          programId={programId}
+          allTasks={tasks}
+          excludedIds={crossPickerMode === 'predecessor' ? linkedPredIds : linkedSuccIds}
+          initialScope="program"
+          onClose={() => setCrossPickerMode(null)}
+        />
+      )}
 
       {errorMessage && (
         <div
@@ -323,5 +352,29 @@ function AddDepRow({
         Add
       </button>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CrossProjectSearchLink
+// ---------------------------------------------------------------------------
+
+/**
+ * The inline dropdowns above only ever list this project's tasks (ADR-0050 —
+ * the section reads from the project-scoped schedule cache). This link opens
+ * the same cross-project picker the schedule canvas's right-click menu uses
+ * (ADR-0120), landed on Program scope, so a program task is reachable from
+ * the drawer too.
+ */
+function CrossProjectSearchLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-1.5 inline-flex min-h-[44px] items-center text-xs text-brand-primary hover:underline
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+    >
+      Search another project in this program…
+    </button>
   );
 }

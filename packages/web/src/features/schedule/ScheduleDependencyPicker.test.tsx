@@ -223,6 +223,40 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     expect(successSpy).not.toHaveBeenCalled();
   });
 
+  it('lands on Program scope when opened with initialScope="program" (drawer entry point)', () => {
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId="prog-1"
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        initialScope="program"
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('tab', { name: 'Program', selected: true })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search tasks in this program…')).toBeInTheDocument();
+  });
+
+  it('ignores initialScope="program" for a standalone project (no program to search)', () => {
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        initialScope="program"
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('tab', { name: 'Program' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Design review/ })).toBeInTheDocument();
+  });
+
   it('shows an empty-state message when the program search returns nothing', async () => {
     searchState.data = [];
     wrap(

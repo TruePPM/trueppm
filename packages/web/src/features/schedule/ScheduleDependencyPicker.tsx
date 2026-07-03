@@ -48,6 +48,13 @@ export interface ScheduleDependencyPickerProps {
   allTasks: Task[];
   /** Task ids already linked to source in this mode (excluded from results). */
   excludedIds: ReadonlySet<string>;
+  /**
+   * Scope tab to land on when opened. Defaults to `'project'` (unchanged
+   * behavior for the right-click entry point). The drawer's Dependencies
+   * section opens straight into `'program'` — a user reaching for this modal
+   * from the drawer has already exhausted the inline same-project dropdown.
+   */
+  initialScope?: Scope;
   onClose: () => void;
 }
 
@@ -84,16 +91,16 @@ export function ScheduleDependencyPicker({
   programId,
   allTasks,
   excludedIds,
+  initialScope = 'project',
   onClose,
 }: ScheduleDependencyPickerProps) {
   const addDep = useAddDependency(projectId);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [scope, setScope] = useState<Scope>('project');
+  const canCrossProject = Boolean(programId);
+  const [scope, setScope] = useState<Scope>(canCrossProject ? initialScope : 'project');
   const [search, setSearch] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
   const [cycleMessage, setCycleMessage] = useState<string | null>(null);
-
-  const canCrossProject = Boolean(programId);
 
   // Debounce the term feeding the program search so we don't fire a request per
   // keystroke; local (project-scope) filtering stays instant off `search`.

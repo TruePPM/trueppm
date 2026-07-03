@@ -133,6 +133,22 @@ async function openSuccessorPicker(page: import('@playwright/test').Page) {
   return page.getByRole('dialog', { name: /Add successor/ });
 }
 
+/** Opens the task detail drawer and expands its (collapsed-by-default) Dependencies section. */
+async function openDrawerDependencies(
+  page: import('@playwright/test').Page,
+  taskName: string,
+  url: string = BASE_URL,
+) {
+  await page.goto(url);
+  const grid = page.getByRole('grid', { name: 'Task list' });
+  await expect(grid).toBeVisible({ timeout: 10_000 });
+  await grid.getByText(taskName, { exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: new RegExp(taskName) }).first();
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  await drawer.getByRole('button', { name: 'Dependencies' }).click();
+  return drawer;
+}
+
 test.describe('Cross-project dependency picker (#1150)', () => {
   test('a programmed project offers the Program scope; picking a sibling task links it (accepted)', async ({
     page,
@@ -206,5 +222,63 @@ test.describe('Cross-project dependency picker (#1150)', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('tab', { name: 'Program' })).toHaveCount(0);
     await expect(dialog.getByRole('option').first()).toBeVisible();
+  });
+});
+
+test.describe('Drawer cross-project search link (gap closed — DependenciesTab lacked ADR-0120 parity)', () => {
+  test('the drawer\'s "Search another project" link opens the picker landed on Program scope', async ({
+    page,
+  }) => {
+    const capture: { payload: Record<string, unknown> | null } = { payload: null };
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: [PROGRAMMED_PROJECT],
+      projectId: PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+    });
+    await mockTaskSearch(page);
+    await mockDependencies(page, false, capture);
+
+    const drawer = await openDrawerDependencies(page, 'Foundation');
+    // First link belongs to the Predecessors section (rendered before Successors).
+    await drawer
+      .getByRole('button', { name: /Search another project in this program/ })
+      .first()
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: /Add predecessor/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('tab', { name: 'Program', selected: true })).toBeVisible();
+
+    await dialog.getByLabel('Search tasks').fill('sec');
+    const list = dialog.getByRole('listbox', { name: 'Program task results' });
+    await expect(list.getByText('Security', { exact: true })).toBeVisible();
+    await dialog.getByRole('button', { name: /Security sign-off/ }).click();
+
+    // predecessor mode: picked → source.
+    await expect(page.getByText(/Linked across projects/)).toBeVisible();
+    expect(capture.payload).toMatchObject({ predecessor: 'x1', successor: 'bm1' });
+  });
+
+  test('a standalone project\'s drawer shows no cross-project search link (regression)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: [STANDALONE_PROJECT],
+      projectId: STANDALONE_ID,
+      tasks: FIXTURE_TASKS,
+    });
+
+    const drawer = await openDrawerDependencies(
+      page,
+      'Foundation',
+      `/projects/${STANDALONE_ID}/schedule`,
+    );
+    await expect(
+      drawer.getByRole('button', { name: /Search another project in this program/ }),
+    ).toHaveCount(0);
   });
 });
