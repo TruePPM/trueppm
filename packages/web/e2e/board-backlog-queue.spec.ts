@@ -74,6 +74,29 @@ const NEXT_UP_TASK = {
   ...commonTaskShape(),
 };
 
+// Two ranked NOT_STARTED rows for the promote/demote overflow-menu specs (issue 1610).
+const NEXT_UP_A = {
+  id: 'next-a',
+  wbs_path: '1.1',
+  name: 'Draft charter',
+  parent_id: 'phase-1',
+  status: 'NOT_STARTED',
+  ...commonTaskShape(),
+  priority_rank: 10,
+  server_version: 3,
+};
+
+const NEXT_UP_B = {
+  id: 'next-b',
+  wbs_path: '1.2',
+  name: 'Book venue',
+  parent_id: 'phase-1',
+  status: 'NOT_STARTED',
+  ...commonTaskShape(),
+  priority_rank: 20,
+  server_version: 5,
+};
+
 const IN_FLIGHT_TASK = {
   id: 'inflight-1',
   wbs_path: '1.2',
@@ -190,5 +213,66 @@ test.describe('Board queue layout (epic #361 child D, issue #384)', () => {
     // we passed no rows in those buckets.
     await expect(page.getByTestId('queue-group-empty-inFlight')).toContainText(/No work in flight/i);
     await expect(page.getByTestId('queue-group-empty-recentlyDone')).toContainText(/No tasks completed/i);
+  });
+
+  test('the row overflow menu promotes a task, firing the reorder POST in new order (issue 1610)', async ({
+    page,
+  }) => {
+    await setup(page, [SUMMARY_TASK, NEXT_UP_A, NEXT_UP_B]);
+
+    // Capture the reorder payload; respond 200 so the mutation resolves.
+    let reorderBody: unknown = null;
+    await page.route('**/api/v1/projects/*/queue/reorder/', async (route) => {
+      reorderBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ updated: 2 }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/board`);
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Queue', exact: true })
+      .click();
+    await expect(page.getByTestId('queue-layout')).toBeVisible();
+
+    // Open the overflow menu on the second (lower-priority) row and promote it.
+    await page.getByTestId('queue-row-menu-next-b').click();
+    const menu = page.getByRole('menu', { name: 'Row actions' });
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: /Promote/ }).click();
+
+    // The group is sent in its new display order: promoted row first.
+    await expect.poll(() => reorderBody).not.toBeNull();
+    expect(reorderBody).toEqual({
+      tasks: [
+        { id: 'next-b', server_version: 5 },
+        { id: 'next-a', server_version: 3 },
+      ],
+    });
+  });
+
+  test('the overflow menu is keyboard-operable — Enter opens, Escape dismisses (issue 1610)', async ({
+    page,
+  }) => {
+    await setup(page, [SUMMARY_TASK, NEXT_UP_A, NEXT_UP_B]);
+    await page.goto(`${BASE_URL}/board`);
+    await page
+      .getByRole('toolbar', { name: 'Board toolbar' })
+      .getByRole('button', { name: 'Queue', exact: true })
+      .click();
+    await expect(page.getByTestId('queue-layout')).toBeVisible();
+
+    const trigger = page.getByTestId('queue-row-menu-next-a');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('menu', { name: 'Row actions' })).toBeVisible();
+    expect(await trigger.getAttribute('aria-expanded')).toBe('true');
+
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu', { name: 'Row actions' })).toHaveCount(0);
+    expect(await trigger.getAttribute('aria-expanded')).toBe('false');
   });
 });

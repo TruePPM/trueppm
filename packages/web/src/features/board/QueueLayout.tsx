@@ -4,10 +4,10 @@
  * child D / issue #384, Claude Design `QueueLayout` / `QueueRow`).
  *
  * Replaces the phase grid + backlog rail/drawer when
- * `toolbarPrefs.layout === 'queue'`. Pull-mode IC surface: read-and-sort
- * v1, no drag affordance from rows. Promotion/demotion will land via the
- * row overflow menu in a follow-up — for now the menu button renders as a
- * disabled placeholder so keyboard tab order is preserved.
+ * `toolbarPrefs.layout === 'queue'`. Pull-mode IC surface: read-and-sort,
+ * no drag affordance from rows. Each row's overflow menu promotes/demotes
+ * the task's priority within its group (Next up · In flight) for callers with
+ * the backlog-manage capability (issue 1610).
  *
  * Why a queue at all: phase-grid layouts force a contributor to scan four
  * status columns × N phases to find "what should I pick up next." The
@@ -15,8 +15,23 @@
  * (IC personas) have flagged this scan cost on every board VoC pass since
  * the rail design.
  */
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { BuildModeRowMenu, type RowMenuItem } from '@/features/schedule/buildMode';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
+
+/**
+ * Per-row promote/demote wiring passed down from the board. `null` when the row
+ * is not reorderable — either the caller lacks the backlog-manage capability or
+ * the row sits in a group the queue does not priority-sort (Backlog · Recently
+ * done). When present, `onPromote`/`onDemote` persist a one-slot move via the
+ * queue reorder endpoint (issue 1610).
+ */
+export interface QueueRowReorder {
+  canPromote: boolean;
+  canDemote: boolean;
+  onPromote: () => void;
+  onDemote: () => void;
+}
 
 const RECENTLY_DONE_WINDOW_DAYS = 14;
 
@@ -130,6 +145,31 @@ export function groupTasksForQueue(tasks: Task[], now: Date = new Date()): Queue
     tasks: { nextUp, inFlight, backlog, recentlyDone }[k],
     emptyCopy: EMPTY_COPY[k],
   }));
+}
+
+/**
+ * Move the task at `from` to slot `to` within a queue group and emit the group's
+ * new display order as reorder entries (issue 1610). A no-op when `to` is out of
+ * range (already at an edge). Pure — returns the reordered tasks so callers can
+ * unit-test the swap without a mutation.
+ */
+export function reorderGroupTasks(tasks: Task[], from: number, to: number): Task[] {
+  if (to < 0 || to >= tasks.length || from === to) return tasks;
+  const next = [...tasks];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
+function moveWithinGroup(
+  tasks: Task[],
+  from: number,
+  to: number,
+  onReorderGroup: (entries: { id: string; serverVersion: number }[]) => void,
+): void {
+  if (to < 0 || to >= tasks.length) return;
+  const next = reorderGroupTasks(tasks, from, to);
+  onReorderGroup(next.map((t) => ({ id: t.id, serverVersion: t.serverVersion ?? 0 })));
 }
 
 // ---------------------------------------------------------------------------
@@ -300,9 +340,114 @@ export interface QueueRowProps {
   isFocused: boolean;
   onFocus: () => void;
   onClick: (anchor: HTMLElement) => void;
+  /** Promote/demote wiring; `null` when the row is not reorderable. */
+  reorder?: QueueRowReorder | null;
 }
 
-export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onClick }: QueueRowProps) {
+/**
+ * Overflow menu affordance for a queue row.
+ *
+ * Replaces the former inert `aria-hidden` ⋯ span (issue 1610) with a real,
+ * keyboard-accessible menu button. The trigger is a sibling of the row's open
+ * button — not nested inside it — because a `<button>` may not contain another
+ * interactive element. Opening anchors {@link BuildModeRowMenu} to the trigger's
+ * bounding box; the menu handles arrow-key roving, Escape, and click-outside
+ * dismissal, and focus returns to the trigger on close.
+ */
+function QueueRowOverflow({
+  task,
+  reorder,
+  onOpenDetails,
+}: {
+  task: Task;
+  reorder: QueueRowReorder | null | undefined;
+  onOpenDetails: () => void;
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  const items: RowMenuItem[] = [];
+  if (reorder) {
+    items.push({
+      key: 'promote',
+      label: 'Promote',
+      icon: '↑',
+      disabled: !reorder.canPromote,
+      onSelect: reorder.onPromote,
+    });
+    items.push({
+      key: 'demote',
+      label: 'Demote',
+      icon: '↓',
+      disabled: !reorder.canDemote,
+      onSelect: reorder.onDemote,
+    });
+  }
+  items.push({
+    key: 'open',
+    label: 'Open details',
+    icon: '↗',
+    startsGroup: items.length > 0,
+    onSelect: onOpenDetails,
+  });
+
+  function open() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) setAnchor({ x: rect.right, y: rect.bottom });
+  }
+
+  function close() {
+    setAnchor(null);
+    // Return focus to the trigger so keyboard users are not dropped to page top.
+    triggerRef.current?.focus();
+  }
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={`Actions for ${task.name}`}
+        aria-haspopup="menu"
+        aria-expanded={anchor !== null}
+        data-testid={`queue-row-menu-${task.id}`}
+        onClick={(e) => {
+          // The trigger overlays the row's open button; stop the click reaching it.
+          e.stopPropagation();
+          if (anchor) close();
+          else open();
+        }}
+        // 44×44 hit target (rule 5 / WCAG 2.5.5) parked over the row's right-edge
+        // spacer column + padding so it never overlaps content; the visible chip stays
+        // 24×24 (rule 204 — extend the hit area, not the glyph).
+        className="group absolute right-0 top-1/2 -translate-y-1/2 inline-flex items-center justify-center
+          rounded-control
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+        style={{ width: 44, height: 44 }}
+      >
+        <span
+          aria-hidden="true"
+          className="inline-flex items-center justify-center rounded-control text-neutral-text-secondary
+            group-hover:bg-neutral-surface-sunken group-hover:text-neutral-text-primary"
+          style={{ width: 24, height: 24, fontSize: 14, lineHeight: 1 }}
+        >
+          ⋯
+        </span>
+      </button>
+      <BuildModeRowMenu anchor={anchor} items={items} onClose={close} />
+    </>
+  );
+}
+
+export function QueueRow({
+  task,
+  phaseName,
+  phaseColor,
+  isFocused,
+  onFocus,
+  onClick,
+  reorder,
+}: QueueRowProps) {
   const isIdeaTone = task.status === 'BACKLOG';
   const readiness: TaskReadiness = task.readiness ?? 'idea';
   const initials = ownerInitials(task);
@@ -315,9 +460,12 @@ export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onCl
   const riskCount = task.linkedRisksCount ?? 0;
   const isMilestone = task.isMilestone;
 
+  const rowRef = useRef<HTMLButtonElement>(null);
+
   return (
-    <div role="listitem">
+    <div role="listitem" className="relative">
     <button
+      ref={rowRef}
       type="button"
       aria-label={`${task.name}, ${STATUS_LABEL[task.status]}, in ${phaseName}`}
       onFocus={onFocus}
@@ -389,18 +537,17 @@ export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onCl
         <Avatar initials={initials} />
       </span>
 
-      {/* Overflow menu placeholder — promote / demote actions are tracked in
-          issue 1610; the disabled button keeps tab-order parity with the
-          rail's capture CTA. */}
-      <span
-        aria-hidden="true"
-        className="inline-flex items-center justify-center text-neutral-text-disabled"
-        style={{ width: 24, height: 24, fontSize: 14, lineHeight: 1 }}
-        title="Row actions are coming — tracked in issue 1610"
-      >
-        ⋯
-      </span>
+      {/* Column 6 (28px) is a spacer — the overflow trigger overlays it as an
+          absolutely-positioned sibling of this button (a button cannot nest an
+          interactive control). */}
     </button>
+      <QueueRowOverflow
+        task={task}
+        reorder={reorder}
+        onOpenDetails={() => {
+          if (rowRef.current) onClick(rowRef.current);
+        }}
+      />
     </div>
   );
 }
@@ -424,7 +571,18 @@ export interface QueueLayoutProps {
       list. Used to host the active-sprint summary so its charts scroll with
       the queue rather than permanently consuming vertical space. */
   header?: ReactNode;
+  /** Whether the caller may reorder priority (Admin+ or Product Owner facet).
+      When false, the overflow menu omits Promote/Demote and keeps only Open
+      details. */
+  canReorder?: boolean;
+  /** Persist a one-slot promote/demote: receives the affected group in its new
+      display order as {id, serverVersion} entries (issue 1610). */
+  onReorderGroup?: (entries: { id: string; serverVersion: number }[]) => void;
 }
+
+/** Groups the queue priority-sorts and therefore lets the user promote/demote
+    within. Backlog sorts by recency and Recently done is immutable order. */
+const REORDERABLE_GROUPS = new Set<QueueGroupKey>(['nextUp', 'inFlight']);
 
 export function QueueLayout({
   tasks,
@@ -435,6 +593,8 @@ export function QueueLayout({
   onCardClick,
   now,
   header,
+  canReorder = false,
+  onReorderGroup,
 }: QueueLayoutProps) {
   const groups = useMemo(() => groupTasksForQueue(tasks, now), [tasks, now]);
   const totalVisible = groups.reduce((sum, g) => sum + g.tasks.length, 0);
@@ -500,8 +660,18 @@ export function QueueLayout({
             </div>
           ) : (
             <div role="list" aria-label={group.label}>
-              {group.tasks.map((task) => {
+              {group.tasks.map((task, index) => {
                 const phaseId = task.parentId ?? 'root';
+                const canReorderGroup =
+                  canReorder && onReorderGroup !== undefined && REORDERABLE_GROUPS.has(group.key);
+                const reorder: QueueRowReorder | null = canReorderGroup
+                  ? {
+                      canPromote: index > 0,
+                      canDemote: index < group.tasks.length - 1,
+                      onPromote: () => moveWithinGroup(group.tasks, index, index - 1, onReorderGroup),
+                      onDemote: () => moveWithinGroup(group.tasks, index, index + 1, onReorderGroup),
+                    }
+                  : null;
                 return (
                   <QueueRow
                     key={task.id}
@@ -511,6 +681,7 @@ export function QueueLayout({
                     isFocused={focusedCardId === task.id}
                     onFocus={() => onCardFocus(task.id, task.status, phaseId)}
                     onClick={(anchor) => onCardClick(task, anchor)}
+                    reorder={reorder}
                   />
                 );
               })}

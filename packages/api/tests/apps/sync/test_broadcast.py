@@ -176,6 +176,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "project_transferred",
         "project_unarchived",
         "project_updated",
+        "queue_reordered",
         "review_note_set",
         "risk_created",
         "risk_deleted",
