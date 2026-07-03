@@ -49,6 +49,31 @@ Under the Helm chart, set them under `env:` in `values.yaml` (they flow to the
 Source `EMAIL_HOST_PASSWORD` from a secret manager that your settings override
 reads — never commit it in plain text.
 
+### SPF, DKIM, and DMARC alignment
+
+`DEFAULT_FROM_EMAIL` is the domain receiving mail servers check `SPF`, `DKIM`,
+and `DMARC` alignment against. TruePPM sends the mail; **your** DNS
+configuration is what makes it trusted:
+
+- Use a `DEFAULT_FROM_EMAIL` domain you control and have published `SPF` and
+  `DKIM` DNS records for. Most self-hosters send through a relay (Amazon SES,
+  SendGrid, Postmark, or their own mail server via `EMAIL_HOST`) — the relay's
+  setup docs walk through adding the required `SPF` (`TXT`) and `DKIM`
+  (`CNAME`/`TXT`) records at your registrar or DNS host.
+- `DMARC` alignment requires the `From` domain (`DEFAULT_FROM_EMAIL`) to match
+  either the `SPF`-authenticated domain or the `DKIM`-signing domain. If your
+  relay signs with a different domain than `DEFAULT_FROM_EMAIL`, alignment
+  fails even though the message was accepted and delivered by the relay.
+- A relay reporting "sent successfully" only confirms SMTP accepted the
+  message — it says nothing about `SPF`/`DKIM`/`DMARC` alignment at the
+  receiving end. Misaligned records are the most common reason self-hosted
+  notification email lands in spam even though delivery looked fine from the
+  sending side.
+
+TruePPM has no setting that can enforce or verify this for you — `SPF`,
+`DKIM`, and `DMARC` are DNS records you own and publish, not something a
+`.env` value or Helm value configures.
+
 ## Read-only status page
 
 **Workspace → Settings → Email & SMTP** (workspace Admins and Owners only) shows
@@ -71,6 +96,27 @@ today.
   [`FRONTEND_BASE_URL`](/administration/configuration/) is set (e.g. the
   `task.blocked` email links straight to the blocked task). Leave it empty and the
   email still renders — it just omits the link.
+- Comment/mention snippets embedded in the body are bounded and word-wrapped
+  before sending, so a very long unbroken string (a pasted URL, log line, or
+  base64 blob) can't render as one unbounded line in the recipient's mail
+  client.
+
+### List-Unsubscribe headers
+
+Notification email carries `List-Unsubscribe` and `List-Unsubscribe-Post:
+List-Unsubscribe=One-Click` headers (RFC 8058), pointed at the recipient's
+**User → Settings → Notifications** page. Gmail, Outlook, and other large
+mailbox providers weight the presence of these headers into their
+bulk-sender spam heuristics, so including them helps delivery even at
+TruePPM's low, opt-in notification volume.
+
+The headers link to the login-gated preferences page, not a no-auth one-click
+unsubscribe endpoint — TruePPM issues no per-notification unsubscribe token,
+so "one click" here means one click through to sign-in and preferences, not
+an anonymous unsubscribe. The headers are only added when
+[`FRONTEND_BASE_URL`](/administration/configuration/) is configured, since a
+bare relative path is not a valid header value; leave it unset and the email
+still sends, just without them.
 
 ## Disabling email
 

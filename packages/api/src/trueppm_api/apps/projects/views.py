@@ -11025,6 +11025,15 @@ class TaskAttachmentViewSet(
 
     serializer_class = TaskAttachmentSerializer
 
+    def get_throttles(self) -> list[Any]:
+        # Only the create action uploads; list/retrieve/destroy stay unthrottled
+        # (#574, security review !306 LOW-3).
+        from trueppm_api.apps.projects.throttles import TaskAttachmentUploadThrottle
+
+        if self.action == "create":
+            return [TaskAttachmentUploadThrottle()]
+        return []
+
     def get_queryset(self) -> QuerySet[TaskAttachment]:
         user = self.request.user
         if not user.is_authenticated:

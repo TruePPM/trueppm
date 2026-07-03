@@ -15,7 +15,9 @@ Two Beat-scheduled tasks:
 
 from __future__ import annotations
 
+import html
 import logging
+import textwrap
 from datetime import timedelta
 
 from trueppm_api.core.idempotent import idempotent_task
@@ -29,6 +31,13 @@ EMAIL_MAX_RETRIES = 3
 EMAIL_ORPHAN_WINDOW_MINUTES = 5  # ADR-0075 §F durable-execution checklist item 3
 EMAIL_BATCH_SIZE = 50  # cap per drain tick — prevents one tick from monopolizing the worker
 ARCHIVE_AFTER_DAYS = 90  # ADR-0075 §F item 6 — outbox cleanup
+
+# Snippet rendering (#574, security review !306 LOW-1). SNIPPET_MAX_CHARS bounds
+# the raw comment text before it's embedded in the email body; SNIPPET_WRAP_WIDTH
+# hard-wraps it so a long unbroken string (a pasted URL, log line, or base64 blob)
+# can't render as a single unbounded line in the recipient's mail client.
+SNIPPET_MAX_CHARS = 280
+SNIPPET_WRAP_WIDTH = 72  # classic plain-text convention; keeps quoted replies readable
 
 
 @idempotent_task(
@@ -208,6 +217,7 @@ def _send_email_for_notification(notif: object) -> bool:
         body=body,
         from_email=from_email,
         to=[recipient_email],
+        headers=_unsubscribe_headers() or None,
     )
     try:
         msg.send(fail_silently=False)
@@ -249,7 +259,7 @@ def _render_email(notif: object) -> tuple[str, str]:
 
     task = comment.task
     task_name = task.name if task else "a task"
-    snippet = (comment.body or "")[:280]
+    snippet = _sanitize_snippet(comment.body or "")
 
     if mention.mentioned_group_key:
         subject = f"{mentioner_name} mentioned @{mention.mentioned_group_key} on {task_name}"
@@ -268,3 +278,54 @@ def _render_email(notif: object) -> tuple[str, str]:
     ]
     body = "\n".join(body_lines)
     return subject, body
+
+
+def _sanitize_snippet(raw: str) -> str:
+    """Bound and format a comment snippet for embedding in the plain-text email body.
+
+    Truncates to ``SNIPPET_MAX_CHARS``, HTML-escapes as defense-in-depth (the
+    body is sent as ``text/plain`` today, so this isn't an XSS vector, but
+    escaping now means a future HTML template — e.g. the executive-digest work
+    in trueppm-enterprise#112 — can reuse this helper without introducing a new
+    escaping gap), and hard-wraps at ``SNIPPET_WRAP_WIDTH`` so a long unbroken
+    string (a pasted URL, log line, or base64 blob) can't render as a single
+    unbounded line in the recipient's mail client (#574, security review !306
+    LOW-1). ``quote=False`` on the escape leaves straight/curly quotes and
+    apostrophes untouched — those are common in ordinary prose and carry no
+    markup risk in body text, only ``&``/``<``/``>`` do.
+    """
+    text = (raw or "").strip()
+    if len(text) > SNIPPET_MAX_CHARS:
+        text = text[:SNIPPET_MAX_CHARS].rstrip() + "..."
+    escaped = html.escape(text, quote=False)
+    return textwrap.fill(
+        escaped,
+        width=SNIPPET_WRAP_WIDTH,
+        break_long_words=True,
+        break_on_hyphens=False,
+    )
+
+
+def _unsubscribe_headers() -> dict[str, str]:
+    """Build RFC 8058 ``List-Unsubscribe`` / ``List-Unsubscribe-Post`` headers.
+
+    Points at the user's notification-preferences page rather than a bare,
+    unauthenticated one-click endpoint — TruePPM has no per-notification
+    unsubscribe token today, so this is "one click to the login-gated
+    preferences page" rather than a true no-auth unsubscribe. Presence of both
+    headers (even pointed at an authenticated page) is still the signal
+    Gmail/Outlook bulk-sender heuristics check for at scale (#574, security
+    review !306 LOW-1). Returns an empty dict — omitting the headers entirely —
+    when the deployer hasn't configured ``FRONTEND_BASE_URL``, since a bare
+    relative path is not a valid header value.
+    """
+    from django.conf import settings
+
+    base = getattr(settings, "FRONTEND_BASE_URL", "").rstrip("/")
+    if not base:
+        return {}
+    prefs_url = f"{base}/me/settings/notifications"
+    return {
+        "List-Unsubscribe": f"<{prefs_url}>",
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    }
