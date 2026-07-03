@@ -392,6 +392,53 @@ describe('BurnChart — null story-points banner', () => {
   });
 });
 
+describe('BurnChart — export menu open/close (issue 1607)', () => {
+  it('trigger click toggles the menu open then closed via aria-expanded', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const trigger = screen.getByRole('button', { name: /export chart/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('Escape closes an open menu', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const trigger = screen.getByRole('button', { name: /export chart/i });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.keyboard('{Escape}');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('outside click closes an open menu', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const trigger = screen.getByRole('button', { name: /export chart/i });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    fireEvent.mouseDown(document.body);
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('selecting a menuitem closes the menu', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const trigger = screen.getByRole('button', { name: /export chart/i });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByRole('menuitem', { name: /download png/i }));
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
 describe('BurnChart — export', () => {
   it('calls toPng when Download PNG menuitem is clicked', async () => {
     projectWithData();
