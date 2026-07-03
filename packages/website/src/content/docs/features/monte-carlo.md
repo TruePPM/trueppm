@@ -146,6 +146,51 @@ will keep the **newest 100 runs per project** (`MC_HISTORY_CAP`); a nightly job
 trims older runs. Enterprise sets the cap to `None` (unlimited history). 100 runs
 is ample to read multi-month drift on an actively re-forecast project.
 
+## What-if analysis
+
+Forecast history answers "is my confidence eroding?" over time. The other planning
+question is forward-looking: "*if* this task slips a week, where does the whole
+forecast land?" — without actually changing the plan to find out.
+
+**Coming in 0.4** (#993), a non-mutating what-if endpoint will answer exactly that.
+Point it at one task, give it a duration change, and it will recompute CPM and Monte
+Carlo **in memory** and hand back the perturbed forecast — persisting nothing, so it
+is safe to call as many times as you like:
+
+```
+GET /api/v1/projects/<project_id>/monte-carlo/whatif/?task_id=<task_id>&duration_delta=5
+```
+
+Supply exactly one of:
+
+| Parameter | Meaning |
+|---|---|
+| `duration_delta` | Signed day offset applied to the task's current duration (`5` slips it a week later, `-2` pulls it in). |
+| `new_duration` | Absolute day count to set the task's duration to (`>= 0`). |
+
+An optional `n_simulations` controls the iteration count (default and cap are the
+same `MC_SIMULATION_CAP` as a normal run). The response will carry:
+
+| Field | Meaning |
+|---|---|
+| `current` | The unperturbed forecast — `p50`/`p80`/`p95`, `cpm_finish`, and the `critical_path` (task IDs). |
+| `whatif` | The same fields recomputed with your perturbation applied. |
+| `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
+| `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. |
+| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). |
+
+Both forecasts sample with the same fixed RNG seed, so the delta isolates the effect
+of your change rather than run-to-run noise, and the same query always returns the
+same answer.
+
+This is the endpoint behind the MCP `whatif` read tool: because it is a pure,
+side-effect-free `GET`, an AI client with a read-only token can ask "what happens to
+the Apollo forecast if design review slips two weeks?" and the CPM/Monte Carlo engine
+— not the model — computes the answer, server-side, on your own instance.
+
+What-if analysis is **Community (OSS)** edition and single-project scope. Cross-program
+what-if belongs to the Enterprise edition.
+
 ## Progress-aware forecasting
 
 :::note[Added in 0.3]

@@ -698,6 +698,14 @@ REST_FRAMEWORK = {
         # estimates and re-running the forecast a handful of times, while blunting a
         # scripted resource-exhaustion flood.
         "monte_carlo": "10/min",
+        # Non-mutating Monte Carlo what-if (#993). The what-if endpoint runs *two*
+        # CPM passes and *two* Monte Carlo simulations per call (baseline vs the
+        # perturbed schedule, so the delta isolates the perturbation) — roughly
+        # double the CPU of a single run_monte_carlo — so it carries a tighter cap
+        # than the plain "monte_carlo" scope. 6/min still leaves ample room for a
+        # human (or an MCP agent) exploring a handful of "what if I slip this task"
+        # scenarios while blunting a scripted resource-exhaustion flood.
+        "monte_carlo_whatif": "6/min",
     },
 }
 
