@@ -70,8 +70,11 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
             <p className="text-sm font-medium text-neutral-text-primary leading-tight">
               {detail.name}
             </p>
+            {/* The milestone is identified here by name + finish date only.
+                CPM structural vocabulary (WBS path) is deliberately kept off the
+                agile/Sprints surface (issue 734, web-rule 141) — it belongs on
+                the schedule, one click away via the deep-link below. */}
             <div className="flex items-center gap-3 text-xs text-neutral-text-secondary">
-              {detail.wbs_path && <span className="tppm-mono">WBS {detail.wbs_path}</span>}
               {detail.finish && <span className="tppm-mono">{formatShortDate(detail.finish)}</span>}
               {detail.finish && <DaysOutChip targetIso={detail.finish} />}
             </div>

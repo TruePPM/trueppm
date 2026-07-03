@@ -7,6 +7,7 @@ import {
   type PointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { GanttEngine, GanttScaleData } from './engine';
@@ -992,6 +993,58 @@ export function ScheduleView() {
     },
     [allTasks, scheduleScales, visibleTasks, buildModeActive, focus],
   );
+
+  // Deep-link scroll + pulse (issue 734). The sprint→schedule bridge link
+  // (AdvancingToMilestoneCard) navigates to `/projects/:id/schedule#task-{id}`.
+  // On arrival, scroll the target task into view — horizontally to its date,
+  // vertically to its row — and fire the milestone pulse so the one
+  // cross-surface jump lands on a visibly highlighted diamond rather than an
+  // arbitrary scroll position. Guarded by a ref so it fires once per hash and
+  // only after the task tree + scales are ready (it re-attempts on the render
+  // where they load, then latches).
+  const { hash } = useLocation();
+  const handledHashRef = useRef<string | null>(null);
+  useEffect(() => {
+    const match = /^#task-(.+)$/.exec(hash);
+    if (!match) {
+      handledHashRef.current = null;
+      return;
+    }
+    if (handledHashRef.current === hash) return;
+    if (!engine || !scheduleScales) return;
+    const taskId = match[1];
+    const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
+    if (rowIdx < 0) return; // task/tree not loaded yet — retry on next render
+    const target = allTasks.find((t) => t.id === taskId);
+    const dateIso = target?.plannedStart ?? target?.finish ?? null;
+    // Latch now so a later visibleTasks identity change can't re-fire the pulse.
+    handledHashRef.current = hash;
+
+    // Vertical: center the target row in the scroll viewport. Instant so the
+    // pulse coordinates below read the settled scrollTop (a smooth animation
+    // would leave the diamond ring anchored on a stale row position).
+    const canvas = canvasScrollRef.current;
+    let scrollTop = 0;
+    if (canvas) {
+      scrollTop = Math.max(0, rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - canvas.clientHeight / 2);
+      canvas.scrollTop = scrollTop;
+    }
+
+    // Horizontal + pulse: center the target date and ring the diamond. Instant
+    // horizontal scroll keeps scrollLeft settled before the pulse re-renders
+    // (the overlay subtracts scrollLeft at render time, rule §57).
+    if (dateIso) {
+      engine.scrollToDate(dateIso, 'instant');
+      try {
+        const x = dateToLeft(dateIso, scheduleScales);
+        const y = HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+        setPulsingMilestoneAt({ x, y });
+        setPulsingMilestoneId(taskId);
+      } catch {
+        // dateToLeft can throw on out-of-range dates — skip the pulse.
+      }
+    }
+  }, [hash, engine, scheduleScales, visibleTasks, allTasks]);
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};

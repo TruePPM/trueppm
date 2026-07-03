@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe('AdvancingToMilestoneCard', () => {
-  it('renders milestone name, WBS, and finish date when linked', () => {
+  it('renders milestone name and finish date when linked', () => {
     renderWithRouter(
       <AdvancingToMilestoneCard
         sprint={makeSprint({ target_milestone_detail: makeMilestone() })}
@@ -17,8 +17,19 @@ describe('AdvancingToMilestoneCard', () => {
       />,
     );
     expect(screen.getByText('FAT review')).toBeInTheDocument();
-    expect(screen.getByText(/WBS 1.4.2/)).toBeInTheDocument();
     expect(screen.getByText(/Apr 21/)).toBeInTheDocument();
+  });
+
+  // Issue 734 / web-rule 141: CPM structural vocabulary (WBS path) must not leak
+  // onto the agile/Sprints surface — the milestone reads by name + date here.
+  it('does not surface the WBS path on the Sprints surface', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({ target_milestone_detail: makeMilestone() })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByText(/WBS/i)).not.toBeInTheDocument();
   });
 
   it('links to schedule view with milestone hash', () => {
