@@ -14,6 +14,35 @@ from trueppm_api.apps.scheduling.models import (
 )
 
 
+class MonteCarloWhatIfRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the non-mutating Monte Carlo what-if query (#993).
+
+    The what-if endpoint perturbs exactly one task's duration and recomputes the
+    forecast in memory without persisting anything, so this is a *request* (query
+    param) validator only — there is no model behind it. The caller must supply a
+    ``task_id`` and exactly one of ``duration_delta`` (signed day offset applied to
+    the task's current duration) or ``new_duration`` (an absolute day count the
+    task's duration is set to). Requiring exactly one keeps the perturbation
+    unambiguous — a request carrying both, or neither, cannot express a single
+    well-defined schedule and is rejected up front rather than resolved by a silent
+    precedence rule.
+    """
+
+    task_id = serializers.UUIDField()
+    duration_delta = serializers.IntegerField(required=False)
+    new_duration = serializers.IntegerField(required=False, min_value=0)
+    n_simulations = serializers.IntegerField(required=False, min_value=1)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_delta = "duration_delta" in attrs
+        has_absolute = "new_duration" in attrs
+        if has_delta == has_absolute:
+            raise serializers.ValidationError(
+                "Supply exactly one of 'duration_delta' or 'new_duration'."
+            )
+        return attrs
+
+
 class ProjectForecastSnapshotSerializer(serializers.ModelSerializer[ProjectForecastSnapshot]):
     """Read-only serializer for a project-grain forecast snapshot (ADR-0154, #388).
 

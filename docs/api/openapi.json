@@ -8749,6 +8749,117 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/monte-carlo/whatif/": {
+            "get": {
+                "operationId": "v1_projects_monte_carlo_whatif_retrieve",
+                "description": "Run the perturbed forecast in memory and return the deltas (see class doc).",
+                "summary": "Non-mutating Monte Carlo what-if for a single task duration change",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "duration_delta",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Signed day offset applied to the task's current duration (e.g. 5 to slip it a working week later, -2 to pull it in). Supply exactly one of duration_delta or new_duration."
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "n_simulations",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Monte Carlo iterations; defaults to MC_SIMULATION_CAP, capped there."
+                    },
+                    {
+                        "in": "query",
+                        "name": "new_duration",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Absolute day count to set the task's duration to (>= 0). Supply exactly one of duration_delta or new_duration."
+                    },
+                    {
+                        "in": "query",
+                        "name": "task_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "The committed task whose duration to perturb.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "What-if forecast. Keys: task_id; applied ({base_duration_days, duration_delta_days, new_duration_days}); current and whatif (each {p50, p80, p95, cpm_finish (ISO-8601 or null), critical_path ([task_id])}); critical_path_changed (bool — did the set of critical tasks change); delta_vs_current ({p50, p80, p95, cpm_finish} signed calendar-day shifts, positive = later/worse, null when a date is missing); runs (n_simulations); seed (fixed RNG seed shared by both runs so the delta isolates the change)."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a cyclic dependency, or an out-of-range project span."
+                    },
+                    "402": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "OSS simulation cap exceeded (n_simulations or task count too high)."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/my-tasks/": {
             "get": {
                 "operationId": "v1_projects_my_tasks_retrieve",
@@ -14266,7 +14377,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/signed-url/": {
             "get": {
                 "operationId": "v1_projects_tasks_attachments_signed_url_retrieve",
-                "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL).",
+                "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL). Refuses with\n501 when the configured storage backend can't actually produce a signed,\ntime-limited URL (#573, MED-2) — see ``AttachmentSigningNotSupported``.",
                 "summary": "Issue a signed download URL for an attachment",
                 "parameters": [
                     {
@@ -14986,6 +15097,14 @@
                 "summary": "Paginated field-level diff history for a task",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "include",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated opt-in activity sources to merge into the feed (issue 413). Valid tokens: `comments`, `time`, `attachments`, or `all`. When omitted the response is the legacy field-diff feed, byte-identical to prior releases (backward compatible). When present, `results` becomes a timestamp-desc merged feed where every entry carries the unified `{event_type, actor, timestamp, detail}` shape (field-diff entries also retain their legacy `{id, history_date, history_type, history_user, diff}` keys). `time` is scoped to the requesting user's own entries."
+                    },
+                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -15023,7 +15142,7 @@
                                 }
                             }
                         },
-                        "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Each `results` entry is `{id, history_date, history_type, history_user, diff}`, where `diff` is a list of `{field, old, new}` changes. `count_truncated` is true when the task's history exceeded the row cap and only the most recent changes are returned."
+                        "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Without `include`, each `results` entry is `{id, history_date, history_type, history_user, diff}`, where `diff` is a list of `{field, old, new}` changes. With `include`, each entry additionally carries `{event_type, actor, timestamp, detail}`; non-diff events (`comment_added`, `comment_edited`, `comment_deleted`, `time_logged`, `attachment_uploaded`) carry only that unified shape, with `actor` null for system/authorless events. `count_truncated` is true when any source exceeded the row cap and only the most recent events are returned."
                     }
                 }
             }

@@ -47,6 +47,10 @@ THIRD_PARTY_APPS = [
     "allauth.account",
     "channels",
     "drf_spectacular",
+    # Serves the Swagger UI / ReDoc static bundles from Django static ('self')
+    # so the /api/docs/ and /api/schema/swagger-ui/ pages render under the strict
+    # CSP without a CDN. Must precede any app that would shadow its static files.
+    "drf_spectacular_sidecar",
     "simple_history",
 ]
 
@@ -151,6 +155,14 @@ STORAGES = {
 # Operator opt-in to run prod on local-disk attachment storage (e.g. when it is
 # backed by a persistent volume). Consumed by validate_attachment_storage.
 ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE", default=False)
+
+# Operator opt-in confirming the configured STORAGES['default']['BACKEND'] signs
+# its .url() output with a real time-limited URL, for a backend not on
+# security_checks.storage_backend_supports_signed_urls's allow-list (#573,
+# MED-2). Default False: the TaskAttachmentViewSet.signed_url action refuses
+# with 501 rather than hand out a stable indefinite-lifetime URL labeled as
+# time-limited for any backend it can't positively identify as signing-capable.
+ATTACHMENT_STORAGE_SIGNS_URLS = env.bool("TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS", default=False)
 
 # Operator opt-in to run prod against a DATABASE_URL without sslmode=require (e.g.
 # when TLS to the database is enforced at the network layer). Consumed by the
@@ -698,6 +710,14 @@ REST_FRAMEWORK = {
         # estimates and re-running the forecast a handful of times, while blunting a
         # scripted resource-exhaustion flood.
         "monte_carlo": "10/min",
+        # Non-mutating Monte Carlo what-if (#993). The what-if endpoint runs *two*
+        # CPM passes and *two* Monte Carlo simulations per call (baseline vs the
+        # perturbed schedule, so the delta isolates the perturbation) — roughly
+        # double the CPU of a single run_monte_carlo — so it carries a tighter cap
+        # than the plain "monte_carlo" scope. 6/min still leaves ample room for a
+        # human (or an MCP agent) exploring a handful of "what if I slip this task"
+        # scenarios while blunting a scripted resource-exhaustion flood.
+        "monte_carlo_whatif": "6/min",
     },
 }
 
@@ -933,6 +953,16 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Serve the Swagger UI / ReDoc assets from the bundled sidecar package (Django
+    # static, same origin) instead of the default jsdelivr CDN. Our strict CSP
+    # (script-src / style-src 'self', no CDN host) blocks the CDN-hosted bundles,
+    # leaving the docs pages blank. SIDECAR resolves every asset under 'self', so
+    # the pages work under CSP and offline/air-gapped. Paired with the split
+    # Swagger view in urls.py, which moves the bootstrap JS out of an inline
+    # <script> (also blocked by script-src 'self') to a same-origin request.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     # Self-hosted deployments serve the API from their own origin, so the schema
     # advertises a single templated server (scheme + host variables) whose
     # defaults are the local-dev address. Without a top-level `servers` array,

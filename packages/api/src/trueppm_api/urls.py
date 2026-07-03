@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.utils import extend_schema, inline_serializer
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerSplitView
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -64,12 +64,17 @@ urlpatterns = [
     path("api/v1/health/", health, name="health"),
     path("api/v1/edition/", edition, name="edition"),
     path("admin/", admin.site.urls),
-    # OpenAPI schema and interactive docs
+    # OpenAPI schema and interactive docs. The *split* Swagger view (not the
+    # default inline one) is required by our strict CSP: it delivers the UI
+    # bootstrap as a separate same-origin JS request instead of an inline
+    # <script>, which script-src 'self' would otherwise block (the page rendered
+    # blank — #1603). Asset bundles are served from drf-spectacular-sidecar
+    # ('self') via SWAGGER_UI_DIST=SIDECAR in settings.
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/docs/", SpectacularSwaggerSplitView.as_view(url_name="schema"), name="swagger-ui"),
     path(
         "api/schema/swagger-ui/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
+        SpectacularSwaggerSplitView.as_view(url_name="schema"),
         name="swagger-ui-compat",
     ),
     # JWT auth endpoints (#897). Login returns the access token in the body and
