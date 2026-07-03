@@ -231,7 +231,7 @@ export function ProgramSchedulePage() {
         {/* Scroll spacer sized to the full canvas — this is what makes the
             container scrollable so the virtualizing engine receives a scroll
             offset (without it scrollHeight === clientHeight and rows past the
-            viewport are unreachable, #1624). Height covers every lane row;
+            viewport are unreachable, issue 1624). Height covers every lane row;
             minWidth:'100%' fills the viewport when the timeline is narrower.
             Mirrors ScheduleView's scaffolding. */}
         <div
