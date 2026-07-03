@@ -75,8 +75,10 @@ Read `.claude/personas.md` (the canonical source). Pick the personas for whom th
 | Mobile / offline flow | Sarah first (job-site hard-NO), Priya second, Alex third |
 | Hybrid agile/waterfall bridge | Alex, Jordan, Morgan (Agile Coach), Sarah, Marcus — full bridge demands the full panel |
 | Notification / email / digest | Janet, Marcus, Sarah, Priya — anything the executive layer sees lands on Janet |
+| API / integration / webhook / token / OpenAPI surface | Nadia (integration/API developer) leads; add whichever human personas own the data the API exposes |
+| Deployment / Helm / migration / observability / backup surface | Omar (self-hosting operator) leads; add Marcus if it touches compliance/audit posture |
 
-A surface that doesn't clearly fit one row gets the full eight-persona panel. **Minimum three personas.** If you cannot justify three, the surface is too narrow for voc-audit (it's probably an internal refactor or a backend-only change — skip voc-audit and return that conclusion to the user).
+A surface that doesn't clearly fit one row gets the full eight-persona human panel. **Minimum three personas.** Add the specialist evaluators (Nadia for API/integration surfaces, Omar for deployment/ops surfaces) whenever the shipped surface touches their domain, and apply the AI-agent actor hard NOs as a cross-cutting constraint on any agent-reachable surface (both defined in `.claude/personas.md`). If you cannot justify three personas, the surface is too narrow for voc-audit (it's probably an internal refactor or a backend-only change — skip voc-audit and return that conclusion to the user).
 
 State the selected personas and the one-line reason for each at the top of the report so the user can challenge the selection before agents fire.
 

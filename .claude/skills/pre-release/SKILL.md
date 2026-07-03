@@ -134,7 +134,7 @@ When launching each agent (via the `Agent` tool with `subagent_type: <name>` and
 
 That distribution puts roughly a third of agents on Opus, concentrated on the audits where missing a finding is irreversible (security, contracts, algorithm correctness, license boundary). The other two-thirds run on Sonnet, where the audit is a clear-checklist pattern match and Sonnet is both cheaper and well-calibrated.
 
-**Pre-wave passes** (Steps 0.7 and 0.8) run on Sonnet — kaizen is a pattern audit over harness signals, and voc-audit is persona simulation where the value comes from breadth (8 personas × N surfaces in parallel) rather than depth in any single sub-agent.
+**Pre-wave passes** (Steps 0.7 and 0.8) run on Sonnet — kaizen is a pattern audit over harness signals, and voc-audit is persona simulation where the value comes from breadth (8 core personas — plus the specialist evaluators where a surface touches the API or deployment domain — × N surfaces in parallel) rather than depth in any single sub-agent.
 
 ### When to escalate
 

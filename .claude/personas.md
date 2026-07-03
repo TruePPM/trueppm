@@ -1,7 +1,19 @@
 # TruePPM — Core Personas
 
-Single source of truth for all eight TruePPM user personas. Skills and CLAUDE.md
-reference this file — do not duplicate persona content elsewhere.
+Single source of truth for all ten TruePPM user personas — eight P3M-layer human
+personas (1–8) plus two adoption-critical specialist evaluators (9–10) — and the
+AI-agent actor note. Skills and CLAUDE.md reference this file — do not duplicate
+persona content elsewhere.
+
+Personas 1–8 are the P3M-layer human roles who *use* TruePPM to run work; they form
+the standard `/voc` panel. Personas 9 (integration/API developer) and 10 (self-hosting
+operator) are **specialist evaluators**: they do not sit on a P3M layer, they gate
+*adoption* — no org runs more than one tool without Nadia's integration passing, and
+OSS adoption begins with Omar's `helm install`. They join the panel **conditionally**,
+only when a feature touches the API/integration surface (Persona 9) or the
+deployment/operations surface (Persona 10). The **AI-agent actor note** at the end is
+not a persona at all — it is a user *class* (an agent acting via the API) whose hard NOs
+`/voc` and `/ai-review` apply as a cross-cutting constraint.
 
 ## TruePPM Collaboration Philosophy
 
@@ -108,6 +120,38 @@ When `/voc` produces a 1–10 score for a persona, use this scale — do not inv
 - Average < 6: rethink scope before invoking architect — feature does not earn its build cost.
 
 A single 🔴 blocker outweighs a high panel average. Do not average away a hard NO.
+
+### Specialist panelists and the agent-actor constraint
+
+The standard panel is Personas 1–8. Two specialist evaluators and one actor class fold
+in **conditionally**, on the same 1–10 scale and severity tags:
+
+- **Persona 9 (Nadia — integration/API developer)** joins the panel when the feature adds
+  or changes an **API/integration surface**: a new endpoint or webhook, token scopes,
+  the OpenAPI schema, pagination/rate-limit/error contracts, or agent-as-actor behavior.
+  API-first is the platform's identity, so for these features her verdict is
+  load-bearing, not advisory — a 🔴 from Nadia (breaking schema, no webhook, god-token)
+  is an adoption blocker for any multi-tool org.
+- **Persona 10 (Omar — self-hosting operator)** joins the panel when the feature touches
+  the **deployment/operations surface**: Helm values, migrations (especially destructive
+  ones), health/readiness probes, metrics/logs/alerts, backup/restore, sizing, or
+  dead-letter/queue behavior. Self-host is the OSS adoption on-ramp, so his
+  first-30-minutes 🔴 (irreversible migration, no rollback, no dead-letter alert) is an
+  adoption blocker, not a polish item.
+- **AI-agent actor (not scored)** is applied as a **cross-cutting constraint**, not a
+  panel seat: for any feature an agent could reach via the API, check the agent hard NOs
+  (see the AI-agent actor note) — an agent must never exceed its provisioning human's
+  role, write by default, act un-audited, impersonate a human, or return an unstamped
+  computed answer. This keeps `/voc` and `/ai-review` (ADR-0112) aligned: a feature the
+  human panel loves but that strands domain logic where an agent can't reach it still
+  fails the agent constraint.
+
+When a feature is neither API- nor ops-facing (a pure UI or scheduling change), Personas
+9–10 are omitted with a one-line note, exactly as Jordan/Morgan are omitted from pure
+PMO/portfolio features. **Feature resonance:** both specialist personas are **OSS** —
+self-service integration building and single-org self-hosting are the adoption on-ramp;
+only org-wide connector hubs (ADR-0097), multi-tenancy, and HA deployment cross into
+Enterprise.
 
 ---
 
@@ -563,6 +607,167 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Frequency & time budget**: 30 min weekly review of team health signals + up to 2 hr biweekly per team for retrospectives. Quarterly 1-day practice maturity review. Does not use the tool as a daily work surface — observes and coaches those who do.
 
 **10/10 anchor**: Three months after rollout, a skeptical senior developer on Alex's team opens TruePPM voluntarily — because the tool respects the sprint boundary, the retro action they flagged last sprint appeared in this sprint's backlog automatically, and the PMO dashboard shows milestone confidence without anyone filing a status report.
+
+---
+
+## Persona 9 — Integration / API Developer
+
+**Name**: Nadia Rahman
+**Title**: Senior Integration Engineer / Platform Developer, Systems Integration team at a mid-size enterprise (also representative of partner ISVs building connectors on TruePPM)
+**Age**: 36 | **Tech comfort**: Very high (lives in Postman and the OpenAPI spec, writes webhook consumers, CI bots, and agent automations)
+
+> **Specialist evaluator, not a P3M-layer role.** Nadia does not run projects — she wires
+> TruePPM into everything else the org runs. She joins the `/voc` panel only when the
+> feature has an **API/integration surface** (see the VoC rubric's specialist-panelist
+> note). For those features her verdict is load-bearing: API-first is the platform's
+> identity (ADR-0112 makes agents first-class API actors), and no multi-tool org adopts
+> without her proof-of-integration passing.
+
+**Goals**:
+- Wire TruePPM into the existing toolchain (Jira, Slack, CI, the data warehouse) without screen-scraping
+- Build and operate agent/automation integrations against a stable, well-scoped API
+- Provision least-privilege tokens per integration, rotate them, and revoke one without breaking the others
+- Trust that a minor release won't silently break her consumers
+- Ship an integration in days, using the published docs alone
+
+**Pain points**:
+- "Every PM tool claims 'API-first' and then ships REST as an afterthought — no webhooks, no pagination contract, no changelog."
+- "I need a token scoped to *one* project with read-only task access. Most tools give me a god-token or nothing."
+- "The docs show the happy path and omit error shapes, rate limits, and the deprecation policy. I find out at 2am when a 429 takes down my pipeline."
+- "A minor version renamed a field and broke every consumer — no schema diff, no warning header, no sunset window."
+- "I want to point an agent at the API and have it act as a first-class actor with its own audit trail — not screen-scrape or impersonate a human's session."
+
+**What would make her advocate for the tool**:
+- First-class webhooks for the events she cares about (task/sprint/schedule changes), with signed payloads, retries, and a replay/dead-letter path
+- Capability-scoped personal and service tokens (per-project, per-capability), self-service to mint, rotate, and revoke
+- A published, versioned OpenAPI schema with a machine-readable changelog and a real deprecation/sunset policy
+- Agent-as-actor support (ADR-0112): an agent authenticates with its own scoped token, acts under a named actor with `on_behalf_of` delegation, and lands in a readable audit log
+- Docs that document error shapes, rate limits, idempotency, and pagination — not just 200s
+
+**Evaluation criteria** (in order):
+1. Are there real webhooks (signed, retried, dead-lettered) for the events I need — or must I poll?
+2. Can I mint a least-privilege, capability-scoped token per integration and revoke it independently?
+3. Is the OpenAPI schema stable, versioned, and diffable, with a written deprecation policy?
+4. Do the docs cover error shapes, rate limits, idempotency, and pagination — not only the happy path?
+5. Can an agent act as a first-class scoped actor (ADR-0112) rather than impersonating a human?
+
+**One-question filter**: *"Can I build against this without reverse-engineering it?"* — if the contract isn't published, stable, and scoped, she won't build on it.
+
+**Hard NOs (dealbreakers)**:
+- No webhooks — polling-only for state changes
+- All-or-nothing tokens only (no per-project / per-capability scoping)
+- Breaking schema changes shipped in a minor version with no changelog, warning header, or sunset window
+- API docs that omit error shapes, rate limits, and pagination contracts
+- Agents forced to impersonate a human session instead of authenticating as their own scoped actor
+
+**Decision authority**: Influencer / technical gatekeeper. Doesn't sign the contract, but a failed proof-of-integration kills the deal before Marcus ever sees a second demo. Her thumbs-up is a precondition for adoption in any org that runs more than one tool.
+
+**Frequency & time budget**: Intense during a 1–2 week integration build (hours/day against the docs and the API), then episodic — a few minutes when a webhook fails or a schema changes. Her tolerance for a broken contract is zero: one silent breaking change and she pins to an old version and stops upgrading.
+
+**10/10 anchor**: She mints a read-only, single-project token, subscribes to `task.updated` and `sprint.closed` webhooks with signed payloads and a dead-letter queue, points an agent at the API as its own scoped actor, and ships the integration in an afternoon using only the published OpenAPI schema and changelog — and six months of minor releases never once break her consumer.
+
+---
+
+## Persona 10 — Self-Hosting Operator
+
+**Name**: Omar Haddad
+**Title**: Platform / DevOps Engineer, mid-size company that self-hosts its own tooling — the person who runs `helm install trueppm` and owns it in production (also representative of the self-hosting sysadmin)
+**Age**: 40 | **Tech comfort**: Very high (Kubernetes, Helm, PostgreSQL, Prometheus/Grafana; runs the cluster and owns the pager)
+
+> **Specialist evaluator, not a P3M-layer role.** Omar does not manage a project — he keeps
+> the platform running. He joins the `/voc` panel only when the feature touches the
+> **deployment/operations surface** (see the VoC rubric's specialist-panelist note). His
+> verdict is load-bearing there: OSS adoption is the GitLab model — it begins with
+> `helm install`, and his first 30 minutes are the top of the adoption funnel. ADR-0084
+> (dead-letter alerting) ships *for* this persona.
+
+**Goals**:
+- Stand up TruePPM on his own cluster and have it healthy in the first 30 minutes
+- Upgrade safely: no surprise destructive migrations, a clear rollback path, downtime he can schedule
+- Back up and restore PostgreSQL + object storage with a documented, tested procedure
+- Observe it: meaningful health/readiness probes, metrics, logs, and alerts on what pages him (queue depth, dead-letter growth, failed migrations)
+- Right-size it: know the CPU/memory/storage a team of N needs before he provisions
+
+**Pain points**:
+- "The demo docker-compose is great. The production Helm chart is an afterthought — no values documentation, no sizing guide."
+- "An upgrade ran an irreversible migration with no warning and no rollback. I restored from backup at midnight."
+- "There's no `/healthz`/`/readyz` that means anything, so my liveness probe restarts a pod mid-migration."
+- "Background jobs fail silently. There's no dead-letter alert, so I find out when a user reports stale data a week later."
+- "Nobody documents backup/restore. I'm guessing which volumes and which PostgreSQL extensions I need."
+
+**What would make him trust the tool in production**:
+- A production-grade Helm chart with documented values, resource requests/limits, autoscaling, and a sizing guide (team-of-25 vs team-of-250)
+- Upgrade safety: reversible or clearly-flagged migrations, a documented rollback, and a per-release "what changed operationally" note
+- A tested backup/restore runbook (PostgreSQL including the `ltree`/`pg_trgm` extensions + object storage) and a restore drill he can rehearse
+- Real observability: meaningful health/readiness probes, Prometheus metrics, structured logs, and alerts on queue depth, dead-letter growth, and failed migrations (ADR-0084)
+- Secrets, TLS, and OIDC wiring documented as first-class, not blog-post folklore
+
+**Evaluation criteria** (in order):
+1. Can I get a healthy install in the first 30 minutes with the published Helm chart and values?
+2. Are upgrades safe — reversible/flagged migrations, a documented rollback, no surprise data loss?
+3. Is there a tested backup/restore runbook for PostgreSQL (with extensions) and object storage?
+4. Can I observe and alert — health probes, metrics, logs, dead-letter alerting?
+5. Is there a sizing guide so I can provision correctly before go-live?
+
+**One-question filter**: *"When this breaks at 2am, can I diagnose and recover it from the docs?"* — if operability isn't documented, he won't put it on his pager.
+
+**Hard NOs (dealbreakers)**:
+- No production Helm chart, or a chart with undocumented values and no sizing guidance
+- Destructive/irreversible migrations shipped without a warning, a flag, or a rollback path
+- No backup/restore procedure, or an untested one
+- No meaningful health/readiness probes and no metrics/log/alert story
+- Background-job failures with no dead-letter visibility or alerting
+
+**Decision authority**: Technical gatekeeper for the self-hosted path. Doesn't own the budget, but if he can't operate it safely he vetoes self-host outright — and self-host is the whole OSS adoption on-ramp. His first-30-minutes experience decides whether the funnel starts at all.
+
+**Frequency & time budget**: Intense during install/upgrade windows (a scheduled maintenance hour, plus the first-30-minutes bring-up). Otherwise hands-off — minutes a week reviewing dashboards and alerts, unless something pages him. His patience for an unrecoverable failure is zero: one un-rollback-able bad upgrade and he freezes the version indefinitely.
+
+**10/10 anchor**: He runs `helm install`, gets green health probes and a working dashboard in under 30 minutes, upgrades a minor version a month later with a one-command rollback he never needs because the release notes told him exactly what changed, and when a background worker wedges, a dead-letter alert pages him with enough context to drain it before any user notices.
+
+---
+
+## AI-Agent Actor — a user class, not a persona
+
+An AI agent operating via the API is **not a persona** — it has no goals, no pain
+points, and no checkbook, so it never sits on the `/voc` panel or receives a 1–10 score.
+But per **ADR-0112 (agent-as-actor)** it *is* a first-class **actor** with RBAC and audit
+implications, so `/voc` and `/ai-review` must treat it consistently. This note defines
+what an agent may **never** do, mirroring the persona hard-NO format, so the two skills
+stay aligned.
+
+Under ADR-0112 an agent authenticates as its own `Actor` (`kind=agent`) with a
+capability-scoped token, may act under `on_behalf_of` a delegating human, and every
+action lands in the team-readable audit log via the `agent_action_recorded` signal.
+
+**Hard NOs — what an agent may never do**:
+- **Exceed its provisioning human's role.** The agent token can only *narrow* the 5-role
+  RBAC of the human who provisioned it (`created_by`), never widen it.
+- **Write by default.** OSS ships agents with read + `schedule:simulate` (ephemeral
+  what-if) only. `schedule:write` and any durable write are grantable *only* through the
+  Enterprise approval gate (#147) — never a default capability.
+- **Act un-audited.** Every agent action dispatches `agent_action_recorded` inside the
+  underlying write's `transaction.on_commit()`. An agent action with no audit event is a
+  boundary violation, not an optimization.
+- **Impersonate a human session.** An agent authenticates as its own actor with its own
+  token — it never borrows a human's credentials. Delegation is recorded via
+  `on_behalf_of`, not impersonation.
+- **Return an unstamped computed answer.** Any computed API/MCP response an agent produces
+  routes through `stamp_answer` and carries the `_provenance` envelope (ADR-0112 §2) —
+  an unstamped computed answer must never be returned.
+- **Escape object-level scope.** The token's `project_scope` is a floor the agent can
+  never exceed, no matter what a prompt asks it to do.
+
+**One-question filter (for the actor class)**: *"Could the human who provisioned this
+agent, holding this exact token, take this action — and would it be audited?"* — if the
+answer to either half is no, the agent must not do it either.
+
+**How `/voc` and `/ai-review` apply it**: `/voc` treats the agent as a **cross-cutting
+constraint** over the human panel — does the feature let an agent reach every fact a
+human can (API-first), and does it keep agent writes safe-by-default? `/ai-review` is the
+design-time gate that enforces the ADR-0112 §3/§4 boundary invariants before code is
+written. A feature the human panel loves but that strands domain logic where an agent can
+never reach it still fails the agent constraint — that is the alignment this note exists
+to guarantee.
 
 ---
 
