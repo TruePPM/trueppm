@@ -265,10 +265,18 @@ project — see [Projects](#projects)):
 - If the resolved `attachments_enabled` is `false`, a **file** upload returns
   `403`. External-URL attachments are **not** affected by `attachments_enabled`.
 - The uploaded file's MIME type must be in the project's *resolved* allow-list
-  (not a fixed list). A disallowed type returns `400` with code
-  `attachment_unsupported_mime`. The declared MIME is also content-sniffed, so a
-  payload that masquerades as an allowed type is rejected.
+  (not a fixed list). A disallowed type returns `415` with code
+  `attachment_unsupported_mime`. The declared MIME is also content-sniffed
+  against the real bytes, so a payload that masquerades as an allowed type is
+  rejected with `415` and code `attachment_content_mismatch`.
 - External-URL attachments must use an `http(s)` scheme.
+
+**Signed URLs** require an object-storage backend that actually signs its URLs
+(S3/MinIO, GCS, or Azure Blob via `django-storages` — see
+[Configuration](/administration/configuration/#optional--advanced-settings)).
+On `FileSystemStorage` (the default) or an unrecognized backend, the
+`signed-url` action returns `501` rather than a link claiming an `expires_at`
+it can't honor.
 
 ### Time tracking
 

@@ -153,6 +153,13 @@ Click any file row's **⬇ Download** button. The signed URL is short-lived
 re-played indefinitely. External-URL attachments open in a new tab directly —
 no signed URL is involved.
 
+Issuing a real signed URL requires an object-storage backend that supports
+signing (S3/MinIO, GCS, or Azure Blob via `django-storages`) — see
+[Attachment storage](/administration/configuration/#optional--advanced-settings).
+On the default `FileSystemStorage` backend, Download returns an error instead
+of a link, because that backend has no way to produce a URL that actually
+expires.
+
 ### Deleting
 
 Click **Delete** to soft-delete an attachment. Only the uploader or a project

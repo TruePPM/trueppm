@@ -292,13 +292,14 @@ class TestTaskAttachmentFileUpload:
         task: Task,
         memberships: None,
     ) -> None:
+        """Declared type not on the allow-list at all: 415 (ADR-0075 #5, #573)."""
         upload = SimpleUploadedFile("bad.exe", b"MZ\x00", content_type="application/x-msdownload")
         r = member_client.post(
             _att_list_url(project, task),
             {"file": upload},
             format="multipart",
         )
-        assert r.status_code == 400
+        assert r.status_code == 415
 
     def test_oversize_file_rejected(
         self,
@@ -329,7 +330,8 @@ class TestTaskAttachmentFileUpload:
         """#1003: HTML bytes posing as image/png are caught by content sniffing.
 
         The client-declared content_type passes the allow-list, but the real
-        bytes are not a PNG, so the upload must 400 (not be stored as an image).
+        bytes are not a PNG. #573 (ADR-0075 #5): a sniff mismatch is a media-type
+        problem, so it must 415, not the serializer-default 400.
         """
         upload = SimpleUploadedFile(
             "payload.png",
@@ -341,8 +343,31 @@ class TestTaskAttachmentFileUpload:
             {"file": upload},
             format="multipart",
         )
-        assert r.status_code == 400
+        assert r.status_code == 415
         assert "image/png" in str(r.data)
+
+    def test_exe_bytes_declared_as_pdf_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """#573 MED-1: the literal issue scenario — a Windows PE binary declared
+        application/pdf must be caught by content sniffing and return 415, not
+        be trusted on the client-declared Content-Type alone."""
+        upload = SimpleUploadedFile(
+            "invoice.pdf",
+            b"MZ\x90\x00\x03\x00\x00\x00\x04\x00\x00\x00\xff\xff\x00\x00",
+            content_type="application/pdf",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 415
+        assert "application/pdf" in str(r.data)
 
     def test_genuine_png_accepted(
         self,
@@ -369,7 +394,10 @@ class TestTaskAttachmentFileUpload:
         task: Task,
         memberships: None,
     ) -> None:
-        """#1003: markup posing as text/csv is rejected (csv has no binary magic)."""
+        """#1003: markup posing as text/csv is rejected (csv has no binary magic).
+
+        #573 (ADR-0075 #5): sniff mismatch → 415, not 400.
+        """
         upload = SimpleUploadedFile(
             "data.csv",
             b"<svg onload=alert(1)>",
@@ -380,7 +408,7 @@ class TestTaskAttachmentFileUpload:
             {"file": upload},
             format="multipart",
         )
-        assert r.status_code == 400
+        assert r.status_code == 415
 
     def test_genuine_csv_accepted(
         self,
@@ -587,12 +615,19 @@ class TestTaskAttachmentDelete:
         task: Task,
         memberships: None,
     ) -> None:
+        """TTL validation runs after the backend-signing gate — stub a
+        signing-capable backend (#573) so this test exercises TTL clamping,
+        not the 501 backend-detection path covered separately below."""
         upload = SimpleUploadedFile("a.pdf", b"%PDF-1.4", content_type="application/pdf")
         create = member_client.post(
             _att_list_url(project, task), {"file": upload}, format="multipart"
         )
         att_id = create.data["id"]
-        r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/?ttl=999999")
+        with patch(
+            "trueppm_api.core.security_checks.storage_backend_supports_signed_urls",
+            return_value=True,
+        ):
+            r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/?ttl=999999")
         assert r.status_code == 400
 
     def test_signed_url_ttl_not_integer_rejected(
@@ -607,25 +642,75 @@ class TestTaskAttachmentDelete:
             _att_list_url(project, task), {"file": upload}, format="multipart"
         )
         att_id = create.data["id"]
-        r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/?ttl=abc")
+        with patch(
+            "trueppm_api.core.security_checks.storage_backend_supports_signed_urls",
+            return_value=True,
+        ):
+            r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/?ttl=abc")
         assert r.status_code == 400
 
-    def test_signed_url_happy_path(
+    def test_signed_url_returns_501_for_non_signing_backend(
         self,
         member_client: APIClient,
         project: Project,
         task: Task,
         memberships: None,
     ) -> None:
+        """#573 MED-2: test settings use FileSystemStorage (not signing-capable),
+        so the action must refuse rather than hand back a fake 'signed' URL that
+        never actually expires."""
         upload = SimpleUploadedFile("a.pdf", b"%PDF-1.4", content_type="application/pdf")
         create = member_client.post(
             _att_list_url(project, task), {"file": upload}, format="multipart"
         )
         att_id = create.data["id"]
         r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/")
+        assert r.status_code == 501
+        assert "signed" in str(r.data).lower()
+
+    def test_signed_url_happy_path_with_signing_capable_backend(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """#573 MED-2: with a backend recognized as signing-capable (stubbed —
+        no S3 backend is configured in test settings), the action behaves as
+        before: 200 with a url + expires_at."""
+        upload = SimpleUploadedFile("a.pdf", b"%PDF-1.4", content_type="application/pdf")
+        create = member_client.post(
+            _att_list_url(project, task), {"file": upload}, format="multipart"
+        )
+        att_id = create.data["id"]
+        with patch(
+            "trueppm_api.core.security_checks.storage_backend_supports_signed_urls",
+            return_value=True,
+        ):
+            r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/")
         assert r.status_code == 200
         assert "url" in r.data
         assert "expires_at" in r.data
+
+    def test_signed_url_force_signing_capable_setting_bypasses_501(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+        settings: pytest.FixtureRequest,
+    ) -> None:
+        """The TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS operator opt-in (#573) lets a
+        self-hoster on an unlisted-but-signing-capable backend use the action
+        without waiting for the allow-list to be updated."""
+        upload = SimpleUploadedFile("a.pdf", b"%PDF-1.4", content_type="application/pdf")
+        create = member_client.post(
+            _att_list_url(project, task), {"file": upload}, format="multipart"
+        )
+        att_id = create.data["id"]
+        settings.ATTACHMENT_STORAGE_SIGNS_URLS = True  # type: ignore[attr-defined]
+        r = member_client.get(_att_detail_url(project, task, att_id) + "signed-url/")
+        assert r.status_code == 200
 
 
 # ---------------------------------------------------------------------------

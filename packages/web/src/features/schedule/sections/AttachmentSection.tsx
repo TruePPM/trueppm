@@ -222,6 +222,15 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
             Delete failed
           </span>
         )}
+        {/* #573: the signed-url action 501s when the storage backend can't
+            actually sign a URL (e.g. FileSystemStorage in dev / a local-disk
+            self-hosted deploy) — surface that instead of a silently-inert
+            button, matching the delete-failed pattern above. */}
+        {signedUrl.isError && (
+          <span className="text-xs text-semantic-critical ml-1" role="alert">
+            Download failed
+          </span>
+        )}
       </div>
     </li>
   );

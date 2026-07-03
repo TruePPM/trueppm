@@ -211,6 +211,20 @@ describe('AttachmentSection — upload + delete actions', () => {
     openSpy.mockRestore();
   });
 
+  it('shows a "Download failed" message when the signed-url mutation errors (#573)', () => {
+    // e.g. the storage backend doesn't support signing (501) — the button
+    // must not fail silently.
+    const mutate = vi.fn();
+    useSignedUrlMock.mockReturnValue({ mutate, isPending: false, isError: true });
+    useListMock.mockReturnValue({
+      attachments: [attachment({ file_name: 'doc.pdf' })],
+      isLoading: false,
+      error: null,
+    });
+    render(<AttachmentSection taskId="t1" projectId="p1" userRole={ROLE_MEMBER} />);
+    expect(screen.getByText('Download failed')).toBeInTheDocument();
+  });
+
   it('does not open a javascript: external URL and renders without crashing (#898)', () => {
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     useListMock.mockReturnValue({

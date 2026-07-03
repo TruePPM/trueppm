@@ -745,7 +745,7 @@ def task_on(calendar: Calendar) -> tuple[Project, Task]:
 def test_upload_blocked_when_project_narrows_allowlist(
     calendar: Calendar, task_on: tuple[Project, Task]
 ) -> None:
-    """Project allow-list = PDF only → a PNG upload is rejected 400."""
+    """Project allow-list = PDF only → a PNG upload is rejected 415 (#573)."""
     Workspace.load()  # seed default (includes png)
     project, task = task_on
     project.allowed_attachment_types = ["application/pdf"]
@@ -756,7 +756,7 @@ def test_upload_blocked_when_project_narrows_allowlist(
         "real.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, content_type="image/png"
     )
     resp = client.post(_att_list_url(project, task), {"file": png}, format="multipart")
-    assert resp.status_code == 400
+    assert resp.status_code == 415
     assert "image/png" in str(resp.data)
 
 
@@ -812,7 +812,7 @@ def test_upload_denied_type_blocked_even_if_project_widened(
 
     html = SimpleUploadedFile("page.html", b"<html></html>", content_type="text/html")
     resp = client.post(_att_list_url(project, task), {"file": html}, format="multipart")
-    assert resp.status_code == 400
+    assert resp.status_code == 415  # media-type rejection, not a malformed request (#573)
 
 
 # ===========================================================================
