@@ -7,7 +7,6 @@ from django.urls import path
 from trueppm_api.apps.history.views import (
     ProjectHistoryListView,
     ProjectHistorySummaryView,
-    TaskHistoryListView,
 )
 
 urlpatterns = [
@@ -21,9 +20,10 @@ urlpatterns = [
         ProjectHistorySummaryView.as_view(),
         name="project-history-summary",
     ),
-    path(
-        "projects/<project_pk>/tasks/<task_pk>/history/",
-        TaskHistoryListView.as_view(),
-        name="task-history-list",
-    ),
+    # NOTE: ``projects/<project_pk>/tasks/<task_pk>/history/`` is intentionally
+    # NOT registered here. The projects app already serves that path via
+    # ``project-task-history`` (TaskHistoryView), and because ``projects.urls``
+    # is included before ``history.urls`` in the root URLConf, a registration
+    # here would be permanently shadowed (dead route). The duplicate was removed
+    # per issue #781 so the OpenAPI schema shows a single task-history operation.
 ]

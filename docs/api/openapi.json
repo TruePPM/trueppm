@@ -2724,6 +2724,14 @@
                 "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "archived",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When `true` (or `1`), return only archived notifications. The default list (neither param set) excludes archived rows."
+                    },
+                    {
                         "name": "ordering",
                         "required": false,
                         "in": "query",
@@ -2749,6 +2757,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "unread_only",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When `true` (or `1`), return only unread, non-archived notifications. Mutually exclusive with `archived`."
                     }
                 ],
                 "tags": [
@@ -9551,7 +9567,15 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "WatermelonDB pull envelope: `{timestamp, changes}`. `timestamp` is the new high-water mark to send as `since` on the next pull. `changes` maps each synced collection (`projects`, `tasks`, `dependencies`, `calendars`, `memberships`, `risks`, `sprints`, `sprint_retros`, `retro_action_items`, `task_suggested_assignees`, `task_links`, `task_recurrence_rules`, `time_entries`) to a `{created, updated, deleted}` bucket, where `created`/`updated` are arrays of row objects and `deleted` is an array of tombstoned row ids."
                     }
                 }
             },

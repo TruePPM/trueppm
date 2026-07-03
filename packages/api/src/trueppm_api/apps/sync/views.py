@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -126,6 +126,23 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 ),
             ),
         ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "WatermelonDB pull envelope: `{timestamp, changes}`. "
+                    "`timestamp` is the new high-water mark to send as `since` on "
+                    "the next pull. `changes` maps each synced collection "
+                    "(`projects`, `tasks`, `dependencies`, `calendars`, "
+                    "`memberships`, `risks`, `sprints`, `sprint_retros`, "
+                    "`retro_action_items`, `task_suggested_assignees`, "
+                    "`task_links`, `task_recurrence_rules`, `time_entries`) to a "
+                    "`{created, updated, deleted}` bucket, where `created`/"
+                    "`updated` are arrays of row objects and `deleted` is an "
+                    "array of tombstoned row ids."
+                ),
+            ),
+        },
     )
     def get(self, request: Request, pk: str) -> Response:
         # Validate `since` parameter.
