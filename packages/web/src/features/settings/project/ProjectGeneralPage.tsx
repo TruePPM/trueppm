@@ -22,6 +22,7 @@ import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
+import { HEALTH_OPTIONS, HEALTH_ACTIVE } from '@/features/project/projectHealth';
 
 const TIMEZONES = [
   'America/Los_Angeles',
@@ -39,20 +40,6 @@ const DEFAULT_VIEW_OPTIONS: Array<{ id: ProjectDefaultView; label: string }> = [
   { id: 'TABLE', label: 'Table' },
   { id: 'OVERVIEW', label: 'Overview' },
 ];
-
-const HEALTH_OPTIONS: Array<{ id: ProjectHealth; label: string }> = [
-  { id: 'ON_TRACK', label: 'On track' },
-  { id: 'AT_RISK', label: 'At risk' },
-  { id: 'CRITICAL', label: 'Critical' },
-  { id: 'AUTO', label: 'Auto' },
-];
-
-const HEALTH_ACTIVE: Record<ProjectHealth, string> = {
-  ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
-  AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
-  CRITICAL: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
-  AUTO: 'bg-brand-primary-light text-brand-primary border-brand-primary/40',
-};
 
 const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: string }> = [
   {
