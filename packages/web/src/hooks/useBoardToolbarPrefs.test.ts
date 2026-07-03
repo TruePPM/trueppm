@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, expect, it, beforeEach } from 'vitest';
-import { useBoardToolbarPrefs } from './useBoardToolbarPrefs';
+import { useBoardToolbarPrefs, resolveBoardLayout } from './useBoardToolbarPrefs';
 
 describe('useBoardToolbarPrefs', () => {
   beforeEach(() => {
@@ -157,5 +157,78 @@ describe('useBoardToolbarPrefs', () => {
     localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ groupBy: 'team' }));
     const { result } = renderHook(() => useBoardToolbarPrefs());
     expect(result.current.groupBy).toBe('phase');
+  });
+
+  // Explicit-vs-never-set layout (issue 605). The board auto-defaults an
+  // unset layout to Queue on mobile, so a never-set layout must be
+  // distinguishable from an explicit 'rail'.
+  describe('layoutExplicit (issue 605)', () => {
+    it('is false when no preference has ever been stored', () => {
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      expect(result.current.layout).toBe('rail');
+      expect(result.current.layoutExplicit).toBe(false);
+    });
+
+    it('is true once the user explicitly picks a layout', () => {
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      act(() => result.current.setLayout('rail'));
+      expect(result.current.layoutExplicit).toBe(true);
+    });
+
+    it('stays false when only a sibling axis (density/zoom/groupBy) is changed', () => {
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      act(() => result.current.setBacklogDensity('full'));
+      act(() => result.current.setZoom('large'));
+      act(() => result.current.setGroupBy('assignee'));
+      // The layout was never chosen — the persisted blob must not smuggle in a
+      // 'rail' that would look explicit on the next read.
+      expect(result.current.layoutExplicit).toBe(false);
+      const stored = JSON.parse(
+        localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}',
+      ) as { layout?: string };
+      expect(stored.layout).toBeUndefined();
+    });
+
+    it('reads an explicit layout stored by a prior session as explicit', () => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'drawer', backlogDensity: 'comfortable' }),
+      );
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      expect(result.current.layout).toBe('drawer');
+      expect(result.current.layoutExplicit).toBe(true);
+    });
+
+    it('treats an unknown stored layout as never-set', () => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'mosaic', backlogDensity: 'full' }),
+      );
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      expect(result.current.layout).toBe('rail');
+      expect(result.current.layoutExplicit).toBe(false);
+    });
+  });
+});
+
+describe('resolveBoardLayout (issue 605)', () => {
+  it('auto-defaults an unset layout to queue on mobile', () => {
+    expect(resolveBoardLayout('rail', false, true)).toBe('queue');
+  });
+
+  it('keeps the desktop fallback (rail) when unset on desktop', () => {
+    expect(resolveBoardLayout('rail', false, false)).toBe('rail');
+  });
+
+  it('preserves an explicit rail choice across the mobile breakpoint', () => {
+    expect(resolveBoardLayout('rail', true, true)).toBe('rail');
+  });
+
+  it('preserves an explicit drawer choice across the mobile breakpoint', () => {
+    expect(resolveBoardLayout('drawer', true, true)).toBe('drawer');
+  });
+
+  it('leaves an explicit queue choice unchanged on desktop', () => {
+    expect(resolveBoardLayout('queue', true, false)).toBe('queue');
   });
 });

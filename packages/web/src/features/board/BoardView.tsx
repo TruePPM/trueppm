@@ -96,6 +96,7 @@ import { BoardActivityPanel } from './activity/BoardActivityPanel';
 import { StandupMode } from './standup/StandupMode';
 import {
   useBoardToolbarPrefs,
+  resolveBoardLayout,
   type BoardZoom,
   type BoardGroupMode,
 } from '@/hooks/useBoardToolbarPrefs';
@@ -1248,6 +1249,8 @@ interface MobileBoardProps {
   readOnly: boolean;
   /** Per-status CFD daily-count series for the WIP-creep trend arrow (issue 1213). */
   wipTrendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
+  /** Reports the status column currently snapped into view (issue 605, FAB target). */
+  onActiveStatusChange?: (status: TaskStatus) => void;
 }
 
 /**
@@ -1285,10 +1288,19 @@ function MobileBoard({
   scopeActions,
   readOnly,
   wipTrendSeriesByStatus,
+  onActiveStatusChange,
 }: MobileBoardProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<(HTMLElement | null)[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
+
+  // Keep the parent's FAB target in sync with the column in view (issue 605).
+  // Reports on mount and on every swipe / tap-jump so a create always lands in
+  // the visible group. Effect (not inline) so the render stays a pure function.
+  useEffect(() => {
+    const status = columns[activeIndex]?.status;
+    if (status) onActiveStatusChange?.(status);
+  }, [activeIndex, columns, onActiveStatusChange]);
 
   const segments: MobileColumnStripSegment[] = columns.map((col) => ({
     status: col.status,
@@ -1557,7 +1569,15 @@ export function BoardView() {
     id: string;
     name: string;
     isSynthetic?: boolean;
+    // Explicit status override (issue 605) — the mobile FAB targets the group in
+    // view, so it opens the modal preset to that status. When absent the modal
+    // falls back to the isSynthetic-derived default (BACKLOG / NOT_STARTED).
+    status?: TaskStatus;
   } | null>(null);
+  // The status column currently snapped into view on the mobile board (issue 605)
+  // — drives the FAB's create-into-visible-group default. Seeded to the first
+  // column and kept in sync by MobileBoard's IntersectionObserver.
+  const [mobileActiveStatus, setMobileActiveStatus] = useState<TaskStatus>('NOT_STARTED');
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
   // Tech-debt filter (ADR-0178, #1076) — transient board toggle that narrows to
   // type=tech_debt so a team can see remediation work distinctly. Not part of a
@@ -1784,6 +1804,14 @@ export function BoardView() {
     useBoardCollapsedColumns(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
+  // On a phone the rail / drawer phase-grid layouts are unusable, so default a
+  // user who never explicitly picked a layout to the mobile-friendly Queue
+  // (issue 605). An explicit desktop choice is preserved across the breakpoint.
+  const effectiveLayout = resolveBoardLayout(
+    toolbarPrefs.layout,
+    toolbarPrefs.layoutExplicit,
+    isMobile,
+  );
   // Effective swimlane grouping (324). Workshop mode authors WBS phase
   // structure, so it always groups by phase regardless of the saved preference.
   const groupMode: BoardGroupMode = workshopMode ? 'phase' : toolbarPrefs.groupBy;
@@ -2471,6 +2499,18 @@ export function BoardView() {
     });
   }, []);
 
+  // Mobile FAB (issue 605): open the create modal targeting the group in view.
+  // Queue is a flat, backlog-first list so intake lands in BACKLOG; the snap
+  // board creates into whichever status column is currently swiped into view.
+  const handleMobileFabAdd = useCallback(() => {
+    if (effectiveLayout === 'queue') {
+      setAddTaskPhase({ id: 'root', name: 'backlog', isSynthetic: true, status: 'BACKLOG' });
+      return;
+    }
+    const label = COLUMNS.find((c) => c.status === mobileActiveStatus)?.label ?? 'board';
+    setAddTaskPhase({ id: 'root', name: label, status: mobileActiveStatus });
+  }, [effectiveLayout, mobileActiveStatus, COLUMNS]);
+
   const handlePhaseRename = useCallback(
     (phaseId: string, newName: string) => {
       if (!phaseId || phaseId === 'root') return;
@@ -2676,7 +2716,7 @@ export function BoardView() {
             onZoomChange={toolbarPrefs.setZoom}
             backlogDensity={toolbarPrefs.backlogDensity}
             onBacklogDensityChange={toolbarPrefs.setBacklogDensity}
-            layout={toolbarPrefs.layout}
+            layout={effectiveLayout}
             onLayoutChange={toolbarPrefs.setLayout}
             myTasksEnabled={myTasksFilter.enabled}
             myTasksLoading={myTasksFilter.isLoading}
@@ -2957,7 +2997,7 @@ export function BoardView() {
               grid. The rail sits left of the grid (flex-row); the drawer sits
               above it (flex-col, full width); the queue replaces both.
               Layout is persisted via `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
-          {toolbarPrefs.layout === 'queue' && (
+          {effectiveLayout === 'queue' && (
             <QueueLayout
               tasks={queueTasks}
               phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
@@ -2978,7 +3018,7 @@ export function BoardView() {
               }
             />
           )}
-          {toolbarPrefs.layout === 'drawer' && (
+          {effectiveLayout === 'drawer' && (
             <BacklogDrawer
               tasks={backlogTasks}
               isDragActive={activeId !== null}
@@ -2997,7 +3037,7 @@ export function BoardView() {
               is suppressed here — the FAB + card menus cover capture/move on a
               phone, and the strip owns the horizontal axis. Queue layout keeps
               its own (already mobile-friendly) flat list above. */}
-          {toolbarPrefs.layout !== 'queue' && isMobile && (
+          {effectiveLayout !== 'queue' && isMobile && (
             <MobileBoard
               columns={COLUMNS}
               tasksByStatus={mobileTasksByStatus}
@@ -3013,11 +3053,12 @@ export function BoardView() {
               scopeActions={scopeActions}
               readOnly={readOnly}
               wipTrendSeriesByStatus={wipTrendSeriesByStatus}
+              onActiveStatusChange={setMobileActiveStatus}
             />
           )}
-          {toolbarPrefs.layout !== 'queue' && !isMobile && (
+          {effectiveLayout !== 'queue' && !isMobile && (
             <div className="flex-1 flex flex-row min-h-0">
-              {toolbarPrefs.layout === 'rail' && (
+              {effectiveLayout === 'rail' && (
                 <BacklogBand
                   tasks={backlogTasks}
                   isDragActive={activeId !== null}
@@ -3372,23 +3413,25 @@ export function BoardView() {
         </DragOverlay>
       </DndContext>
 
-      {/* Mobile FAB — creates task in the first visible column (rule 104).
-          Wiring is tracked in issue 605; disabled until then. */}
-      <button
-        type="button"
-        disabled
-        aria-disabled="true"
-        title="Task creation from the board is coming — tracked in issue 605"
-        className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
-          border border-brand-primary-dark text-white flex items-center justify-center
-          text-2xl font-light md:hidden z-10
-          disabled:opacity-50 disabled:cursor-not-allowed
-          focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
-          focus-visible:ring-offset-brand-primary"
-        aria-label="Add task"
-      >
-        +
-      </button>
+      {/* Mobile FAB (issue 605) — opens the create modal targeting the group in
+          view: BACKLOG under the Queue layout, else the snapped-to status column.
+          `md:hidden` keeps it phone-only; the desktop lane "+" affordances cover
+          create above the breakpoint. */}
+      {projectId && (
+        <button
+          type="button"
+          onClick={handleMobileFabAdd}
+          title="Add task"
+          className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
+            border border-brand-primary-dark text-white flex items-center justify-center
+            text-2xl font-light md:hidden z-10
+            focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
+            focus-visible:ring-offset-brand-primary"
+          aria-label="Add task"
+        >
+          +
+        </button>
+      )}
 
       {/* Backlog demote confirm — opens when a NOT_STARTED card drops on the
           band (ADR-0057, Option C). Audit row is captured automatically by
@@ -3439,7 +3482,11 @@ export function BoardView() {
           task={null}
           phaseName={addTaskPhase.name}
           parentId={addTaskPhase.id === 'root' ? null : addTaskPhase.id}
-          defaultStatus={addTaskPhase.isSynthetic ? 'BACKLOG' : 'NOT_STARTED'}
+          defaultStatus={
+            // Explicit FAB target (issue 605) wins; else the synthetic backlog
+            // lane defaults to BACKLOG and a real phase to NOT_STARTED.
+            addTaskPhase.status ?? (addTaskPhase.isSynthetic ? 'BACKLOG' : 'NOT_STARTED')
+          }
           isMobile={isMobile}
           onClose={() => setAddTaskPhase(null)}
         />
