@@ -141,27 +141,16 @@ export function HeatmapPage() {
           {/* Window control */}
           <WeeksWindowControl value={weeks} onChange={setWeeks} />
 
-          {/* Level loads — Enterprise replaces this via the resources_heatmap.level_loads slot.
-              In OSS we render the disabled upsell button. */}
-          {(() => {
-            const overrides = registry.get('resources_heatmap.level_loads');
-            if (overrides.length > 0) {
-              return overrides.map(({ id, component: Component }) => (
-                <Component key={id} />
-              ));
-            }
-            return (
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                title="Available in TruePPM Enterprise — cross-project resource leveling and what-if simulation. OSS slot behavior is tracked in issue 1614."
-                className="h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-disabled cursor-not-allowed"
-              >
-                ⚡ Level loads
-              </button>
-            );
-          })()}
+          {/* Level loads — Enterprise injects its button via the
+              resources_heatmap.level_loads slot. In OSS the slot has no
+              override, so we render nothing: adoption-first forbids a disabled
+              Enterprise teaser in the OSS UI (issue 1614). The within-program
+              leveling engine is separately tracked in issue 1442. */}
+          {registry
+            .get('resources_heatmap.level_loads')
+            .map(({ id, component: Component }) => (
+              <Component key={id} />
+            ))}
         </div>
       </div>
 

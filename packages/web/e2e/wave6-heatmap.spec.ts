@@ -353,10 +353,14 @@ test.describe('Heatmap page', () => {
     await expect(grid.getByRole('columnheader')).toHaveCount(5, { timeout: 6_000 });
   });
 
-  test('Level loads button is disabled (OSS upsell)', async ({ page }) => {
+  test('Level loads slot renders nothing in OSS (no Enterprise teaser)', async ({
+    page,
+  }) => {
+    // Adoption-first: the resources_heatmap.level_loads Enterprise slot has no
+    // OSS override, so the page renders no "Level loads" control at all — not a
+    // disabled teaser button (issue 1614).
     const btn = page.getByRole('button', { name: /Level loads/i });
-    await expect(btn).toBeVisible();
-    await expect(btn).toBeDisabled();
+    await expect(btn).toHaveCount(0);
   });
 });
 

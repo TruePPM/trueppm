@@ -36,7 +36,7 @@ export type SlotId =
   | 'resources_page.detail_managed_by' // RESERVED (no OSS host yet — issue 1175): Enterprise "Managed by Active Directory" badge in detail pane
   | 'resources_page.create_form_extension' // RESERVED (no OSS host yet — issue 1175): Enterprise extra fields in the create/edit form
   // --- Resource heatmap slots (issue #217 / ADR-0042) ---
-  | 'resources_heatmap.level_loads' // LIVE (HeatmapPage): Enterprise replaces the static disabled "Level loads" upsell button
+  | 'resources_heatmap.level_loads' // LIVE (HeatmapPage): Enterprise injects a "Level loads" button; OSS renders nothing (no teaser — issue 1614)
   // --- Task detail drawer slots (issue #309 / ADR-0050) ---
   | 'task_detail.section' // LIVE (TaskDetailDrawer + TaskDetailPage): sections inside the drawer (OSS + Enterprise)
   | 'task_detail.external_links' // RESERVED (no OSS host yet — issue 1175): external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
