@@ -161,6 +161,43 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await expect(page.getByText('Not in the sprint', { exact: true })).toHaveCount(0);
   });
 
+  test('a failed status move keeps the card on the board (#1518)', async ({ page }) => {
+    await setup(page);
+    // The status PATCH 500s. useUpdateTaskStatus only invalidates on success, so
+    // a failed move must leave the card exactly where it was — a recoverable
+    // failure, not a crash that tears down the board.
+    let patchAttempts = 0;
+    await page.route('**/api/v1/tasks/*/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchAttempts += 1;
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`${BASE_URL}/board`);
+    // Smart-default lands on the single active sprint (Atlas 4).
+    await expect(page).toHaveURL(/[?&]sprint=sprint-atlas-4/);
+    const card = page.getByText('In the sprint', { exact: true });
+    await expect(card).toBeVisible();
+    await card.hover();
+
+    await page.getByRole('button', { name: 'Actions for In the sprint' }).click();
+    await page.getByRole('menuitem', { name: 'Move to…' }).click();
+    await page.getByRole('menuitem', { name: 'Done' }).click();
+
+    // The PATCH fired and failed; the card is still on the board and the switcher
+    // chrome is intact (no error boundary).
+    await expect.poll(() => patchAttempts).toBeGreaterThan(0);
+    await expect(page.getByText('In the sprint', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Sprint view: Atlas 4/i })).toBeVisible();
+  });
+
   test('shows the read-only banner on a closed sprint (#1141)', async ({ page }) => {
     await setup(page);
     await page.goto(`${BASE_URL}/board?sprint=${DONE_SPRINT_ID}`);

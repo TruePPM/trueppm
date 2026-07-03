@@ -82,6 +82,34 @@ async function setupScheduleWithPendingSuggestion(
     );
   });
 
+  // 401-guard safety net (#1518): registered FIRST so every specific route below
+  // wins (Playwright LIFO). Any endpoint the drawer/shell reads that isn't mocked
+  // (drawer sections, pollers, …) would otherwise fall through to the preview
+  // server, 401, and raise the full-screen session-expired modal — which then
+  // intercepts every click. A benign empty-list 200 keeps the session alive; the
+  // object-shaped endpoints (overview, status-summary) are mocked explicitly below.
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+
+  // Auth-refresh + notifications stubs (#1518): without a catch-all guard an
+  // unmocked read (e.g. the NotificationBell poll) can 401 during the click-retry
+  // window, and an unmocked token-refresh then trips the full-screen
+  // session-expired modal, which intercepts every subsequent click. Returning a
+  // fresh access token + empty notifications keeps the session alive.
+  await page.route('**/api/v1/auth/token/refresh/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access: 'e2e-access' }) }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route('**/api/v1/calendars/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
@@ -291,6 +319,37 @@ test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => 
 
     // The banner clears once the dismissed suggestion leaves the pending list.
     await expect(drawer.getByLabel(/Velocity calibration suggestion/i)).toHaveCount(0);
+  });
+
+  test('a failed Accept keeps the banner and re-enables the buttons (#1518)', async ({ page }) => {
+    await setupScheduleWithPendingSuggestion(page, { role: 300 });
+    // Override the accept POST with a 500 AFTER setup so it wins (Playwright LIFO).
+    // The GET list falls through to the stateful handler, so the pending row stays
+    // and the banner keeps rendering.
+    await page.route('**/api/v1/velocity-suggestions/**', async (route) => {
+      if (route.request().method() === 'POST' && route.request().url().includes('/accept/')) {
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+      }
+      return route.fallback();
+    });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    const drawer = await openEstimates(page);
+
+    const banner = drawer.getByLabel(/Velocity calibration suggestion/i);
+    await expect(banner).toBeVisible();
+
+    await banner.getByRole('button', { name: /Accept/ }).click();
+
+    // The suggestion never left the pending list, so the banner is still there and
+    // both actions re-enable for a retry — a failed accept is non-destructive, not
+    // a crash that tears down the drawer.
+    await expect(banner).toBeVisible();
+    await expect(banner.getByRole('button', { name: /Accept/ })).toBeEnabled();
+    await expect(banner.getByRole('button', { name: /Dismiss/ })).toBeEnabled();
   });
 
   test('non-admin (Team Member) does not see the banner', async ({ page }) => {

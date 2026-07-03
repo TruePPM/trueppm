@@ -273,6 +273,44 @@ test.describe('Sprint header buttons (#299)', () => {
     await expect.poll(() => closeBody?.carry_over_to).toBe('sp-planned');
   });
 
+  test('a failed close keeps the dialog open and re-enables the button (#1518)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ count: 2, next: null, previous: null, results: [ACTIVE_SPRINT, PLANNED_SPRINT] }),
+      }),
+    );
+    await page.route(/\/api\/v1\/tasks\//, (r) =>
+      r.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    // The close mutation fails — SprintsView only closes the dialog in the
+    // mutation's onSuccess, so on a 500 the dialog must stay open (no data lost)
+    // and the confirm button must re-enable for a retry.
+    await page.route(/\/api\/v1\/sprints\/sp-active\/close\//, (r) =>
+      r.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }),
+    );
+
+    await page.goto(ROUTE);
+    await expect(page.getByRole('heading', { name: /Sprint Alpha/ })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /Close active sprint/ }).click();
+    const dialog = page.getByRole('dialog', { name: /Close Sprint Alpha/ });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Close sprint' }).click();
+
+    // Dialog stays open and the confirm button re-enables — the failed close is
+    // recoverable, not a crash.
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Close sprint' })).toBeEnabled();
+  });
+
   test('Activate → on the last planned card activates it and the board reflects the ACTIVE transition', async ({ page }) => {
     let activateCalled = false;
     await setupCommon(page);

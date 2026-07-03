@@ -229,6 +229,57 @@ test.describe('Program Settings → Access', () => {
     await expect(page.getByText(/3 members/)).toBeVisible();
   });
 
+  test('a failed add-member surfaces an inline alert and keeps the selection (#1518)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+
+    const NEW_USER = {
+      id: 'user-mira',
+      username: 'mira.k',
+      display_name: 'Mira Kapoor',
+      initials: 'MK',
+    };
+    await page.route('**/api/v1/users/search/**', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([NEW_USER]) }),
+    );
+    // POST fails with a 500; GET falls through to setup's member-list handler so
+    // the roster keeps rendering. Registered AFTER setup so it wins the exact
+    // `.../members/` URL (Playwright LIFO).
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, async (route) => {
+      if (route.request().method() === 'POST') {
+        return route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+      }
+      return route.fallback();
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+    await page.getByRole('button', { name: /Add member/i }).click();
+    await expect(page.getByRole('heading', { name: /^Add a member$/i })).toBeVisible();
+
+    await page.getByRole('combobox', { name: /Search by username or email/i }).fill('mira');
+    await page.getByRole('option', { name: /Mira Kapoor/ }).click();
+    await page.getByRole('button', { name: /^Add$/ }).click();
+
+    // The failed create surfaces an inline alert, retains the picked user (the
+    // selection is cleared only on success), and re-enables the Add button so the
+    // user can retry — no crash, no lost selection. Scope the alert to the
+    // Add-a-member region: the settings page carries other advisory alerts.
+    const addRegion = page.getByRole('region', { name: 'Add a member' });
+    await expect(addRegion.getByRole('alert')).toContainText(/Failed to add member/i);
+    await expect(page.getByRole('combobox', { name: /Search by username or email/i })).toHaveValue(
+      'mira.k',
+    );
+    await expect(page.getByRole('button', { name: /^Add$/ })).toBeEnabled();
+    // The roster is unchanged — the phantom member never appears.
+    await expect(page.getByText(/mira\.k/)).toHaveCount(0);
+  });
+
   test('remove flow requires a confirm click before issuing DELETE', async ({ page }) => {
     const captures: Captures = {};
     await setup(page, captures);

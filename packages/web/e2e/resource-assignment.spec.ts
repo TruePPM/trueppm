@@ -609,4 +609,47 @@ test.describe('ResourceAssignmentSection — remove resource flow', () => {
     expect(deleted).toBe(true);
     expect(deletePath).toContain('/task-resources/tr-1/');
   });
+
+  test('a failed remove rolls back and keeps the assignment row (#1518)', async ({ page }) => {
+    let deleteAttempts = 0;
+    // The DELETE 500s and the GET keeps returning the row (server-side the
+    // assignment still exists). useRemoveAssignment applies an optimistic removal
+    // in onMutate and restores the snapshot in onError, so the row must reappear —
+    // the failed delete is non-destructive, not a silent data loss or a crash.
+    await page.route('**/api/v1/task-resources/**', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        deleteAttempts += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            { id: 'tr-1', task: 't2', resource: 'res-1', resource_name: 'Alice Nguyen', units: 0.75 },
+          ],
+        }),
+      });
+    });
+
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
+    const section = drawer.getByRole('region', { name: 'Assignees' });
+    await expect(section.getByText('Alice Nguyen')).toBeVisible();
+
+    await section.getByRole('button', { name: 'Remove Alice Nguyen from task' }).click();
+
+    // The DELETE fired but failed; the row is restored (rollback + refetch) and
+    // the section never collapses to the empty "None" state.
+    await expect.poll(() => deleteAttempts).toBeGreaterThan(0);
+    await expect(section.getByText('Alice Nguyen')).toBeVisible();
+    await expect(section.getByText('None')).toHaveCount(0);
+  });
 });
