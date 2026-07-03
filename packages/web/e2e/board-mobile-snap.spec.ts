@@ -92,6 +92,16 @@ test.describe('Board mobile snap-scroll', () => {
   test.beforeEach(async ({ page }) => {
     // Phone viewport — trips the board's `isMobile` matchMedia gate.
     await page.setViewportSize({ width: 375, height: 812 });
+    // Since issue 605 a phone with no explicit layout preference auto-defaults
+    // to the Queue layout; the snap board only renders under an explicit rail /
+    // drawer choice. Seed an explicit rail pref so this spec exercises the snap
+    // board (the auto-Queue path is covered by board-mobile-fab.spec.ts).
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'trueppm.board.toolbarPrefs.v1',
+        JSON.stringify({ layout: 'rail', backlogDensity: 'comfortable' }),
+      );
+    });
     await setup(page);
     await page.goto(`${BASE_URL}/board`);
   });
