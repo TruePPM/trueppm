@@ -85,6 +85,14 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serve collected static files from the ASGI app itself (#1603). We run under
+    # `uvicorn ...asgi:application` in dev and prod — not `manage.py runserver` —
+    # so Django's dev static handler never engages and there is no nginx/CDN in the
+    # request path. Without this, every /static/ request 404s: Django admin CSS and
+    # the Swagger UI / ReDoc bundles (served same-origin under our strict CSP) both
+    # fail. WhiteNoise must sit immediately after SecurityMiddleware (its documented
+    # position) so it can short-circuit static requests before the rest of the stack.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     # CSP header on every response (#897). Placed high so the header is attached
     # even for early short-circuit responses (redirects, errors).
     "trueppm_api.core.csp.ContentSecurityPolicyMiddleware",

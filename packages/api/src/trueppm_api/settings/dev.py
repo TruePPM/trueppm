@@ -87,6 +87,15 @@ REST_FRAMEWORK = {  # nosemgrep: missing-throttle-config
 # dropped by the browser on http://. Production keeps the base default (True).
 AUTH_REFRESH_COOKIE_SECURE = False
 
+# WhiteNoise (base.py MIDDLEWARE) serves static from STATIC_ROOT, which requires a
+# `collectstatic` run. In dev and under pytest we want /static/ to work without
+# that step, so serve straight from the staticfiles *finders* (each app's static/
+# dir, including drf-spectacular-sidecar's bundles) and re-scan on every request so
+# newly added files appear without a restart. Production keeps the base behavior:
+# collectstatic into STATIC_ROOT, which WhiteNoise serves with far-future caching.
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTOREFRESH = True
+
 # Local dev / pytest run in a single process, so per-process memory is a
 # sufficient (and dependency-free) cache for the OIDC login state and the DRF
 # throttles. Production uses the Redis-backed cache from base.py. Overriding here

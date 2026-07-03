@@ -58,6 +58,11 @@ dependencies = [
     "drf-spectacular[sidecar]>=0.27,<1.0",
     "jsonschema>=4.21,<5.0",
     "uvicorn[standard]>=0.29,<1.0",
+    # MIT, no required transitive deps. Serves collected static files directly from
+    # the ASGI app (#1603) — we run uvicorn, not `runserver`, and ship no nginx/CDN,
+    # so without WhiteNoise every /static/ request (admin CSS, Swagger UI / ReDoc
+    # bundles) 404s. Wired as the second middleware; see settings/base.py MIDDLEWARE.
+    "whitenoise>=6.0,<7.0",
     "cryptography>=48.0.1,<49",
     # OIDC ID-token signature verification (ADR-0187, basic SSO). Already present
     # transitively via djangorestframework-simplejwt; promoted to a direct dep with
