@@ -74,6 +74,9 @@ const SEED_PROJECT = {
   inherited_mc_history_enabled: true,
   inherited_mc_history_retention_cap: 100,
   inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
+  task_duration_change_percent_policy: null,
+  effective_task_duration_change_percent_policy: 'keep',
+  inherited_task_duration_change_percent_policy: 'keep',
   attachments_enabled: null,
   allowed_attachment_types: null,
   effective_attachments_enabled: true,
@@ -124,6 +127,15 @@ describe('ProjectGeneralPage', () => {
     const defaultView = screen.getByRole('combobox', { name: /default view/i });
     expect(defaultView).toHaveValue('BOARD');
     expect(defaultView).not.toBeDisabled();
+  });
+
+  it('renders the duration-change policy control inheriting the program/workspace default', () => {
+    renderPage();
+    const group = screen.getByRole('radiogroup', { name: 'Duration change percent policy' });
+    expect(group).toBeInTheDocument();
+    // Fixture override is null → inheriting; the inherited value ('keep') surfaces
+    // via the "Inherit (Keep entered %)" chip.
+    expect(within(group).getByText(/Keep entered %/)).toBeInTheDocument();
   });
 
   it('re-seeds the form when the project in the route changes (no remount)', () => {

@@ -7,6 +7,7 @@ import type {
   ProjectVisibility,
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
+import type { DurationChangePercentPolicy } from '@/api/types';
 
 /**
  * Resolved visibility of the four independently-toggleable leaf surfaces
@@ -144,6 +145,19 @@ export interface ApiProjectDetail {
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];
   /**
+   * Percent-complete-on-duration-change policy override (ADR-0151, issue 1254).
+   * null = inherit the program/workspace value. `keep` leaves % untouched,
+   * `prorate` scales it by the duration ratio, `confirm` defers to the desktop
+   * inline "Recalc %?" affordance (server keeps % unchanged either way).
+   */
+  task_duration_change_percent_policy: DurationChangePercentPolicy | null;
+  /** Read-only server-resolved policy (project ?? program ?? workspace). This is
+   *  the value the schedule client reads to decide whether to prompt on a
+   *  duration edit. */
+  effective_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /** Read-only value inherited if the override were cleared (program ?? workspace). */
+  inherited_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /**
    * Independent leaf-surface visibility OVERRIDES (ADR-0193, issue 956). null =
    * inherit the methodology default; true/false = explicit per-project override.
    * Display/edit only on the settings toggles — never read these raw values to
@@ -206,4 +220,18 @@ export function useProject(projectId: string | null | undefined): UseQueryResult
     },
     enabled: !!projectId,
   });
+}
+
+/**
+ * The server-resolved duration-change percent policy for a project (ADR-0151,
+ * issue 1254), defaulting to `keep` until the detail resolves. Read by the
+ * schedule row to decide whether a duration edit raises the inline "Recalc %?"
+ * prompt. Shares the cached `useProject` query, so the ~30 virtualized rows add
+ * no extra fetch and re-render only when the (rarely-changing) policy changes.
+ */
+export function useEffectiveDurationPolicy(
+  projectId: string | null | undefined,
+): DurationChangePercentPolicy {
+  const { data } = useProject(projectId);
+  return data?.effective_task_duration_change_percent_policy ?? 'keep';
 }

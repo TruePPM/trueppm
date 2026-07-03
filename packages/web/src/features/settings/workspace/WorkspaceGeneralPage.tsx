@@ -14,7 +14,9 @@ import {
   MC_ATTRIBUTION_HINT,
   MC_HISTORY_HINT,
 } from '../forecastHistory';
+import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
 } from '@/api/types';
@@ -91,6 +93,11 @@ export function WorkspaceGeneralPage() {
     useState<MCAttributionAudience>('ADMIN_OWNER');
   const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
     useState<MCHistoryOverridePolicy>('allow');
+  // Duration-change percent policy (ADR-0151, issue 1254) — workspace is the non-null root.
+  const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
+    useState<DurationChangePercentPolicy>('keep');
+  const [taskDurationChangePercentOverridePolicy, setTaskDurationChangePercentOverridePolicy] =
+    useState<'inherit' | 'suggest' | 'enforce'>('suggest');
 
   // Last-saved snapshot — bumped after a successful PATCH so useDirtyForm
   // can detect whether the current local state has diverged again.
@@ -109,6 +116,8 @@ export function WorkspaceGeneralPage() {
     mcHistoryRetentionCap: 100,
     mcHistoryAttributionAudience: 'ADMIN_OWNER' as MCAttributionAudience,
     mcHistoryOverridePolicy: 'allow' as MCHistoryOverridePolicy,
+    taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
+    taskDurationChangePercentOverridePolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
   });
 
   // Seed local state once the query resolves (or re-resolves after invalidation).
@@ -129,6 +138,8 @@ export function WorkspaceGeneralPage() {
       mcHistoryRetentionCap: ws.mcHistoryRetentionCap,
       mcHistoryAttributionAudience: ws.mcHistoryAttributionAudience,
       mcHistoryOverridePolicy: ws.mcHistoryOverridePolicy,
+      taskDurationChangePercentPolicy: ws.taskDurationChangePercentPolicy,
+      taskDurationChangePercentOverridePolicy: ws.taskDurationChangePercentOverridePolicy,
     };
     setName(snap.name);
     setTimezone(snap.timezone);
@@ -144,6 +155,8 @@ export function WorkspaceGeneralPage() {
     setMcHistoryRetentionCap(snap.mcHistoryRetentionCap);
     setMcHistoryAttributionAudience(snap.mcHistoryAttributionAudience);
     setMcHistoryOverridePolicy(snap.mcHistoryOverridePolicy);
+    setTaskDurationChangePercentPolicy(snap.taskDurationChangePercentPolicy);
+    setTaskDurationChangePercentOverridePolicy(snap.taskDurationChangePercentOverridePolicy);
     setInitial(snap);
   }, [ws]);
 
@@ -162,6 +175,8 @@ export function WorkspaceGeneralPage() {
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
+    taskDurationChangePercentPolicy,
+    taskDurationChangePercentOverridePolicy,
   };
 
   const onSave = useCallback(async () => {
@@ -180,6 +195,8 @@ export function WorkspaceGeneralPage() {
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
+      taskDurationChangePercentPolicy,
+      taskDurationChangePercentOverridePolicy,
     });
     // Bump the saved snapshot so dirty goes false immediately.
     setInitial({
@@ -197,6 +214,8 @@ export function WorkspaceGeneralPage() {
       mcHistoryRetentionCap: clampRetention(mcHistoryRetentionCap),
       mcHistoryAttributionAudience,
       mcHistoryOverridePolicy,
+      taskDurationChangePercentPolicy,
+      taskDurationChangePercentOverridePolicy,
     });
   }, [
     name,
@@ -213,6 +232,8 @@ export function WorkspaceGeneralPage() {
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
     mcHistoryOverridePolicy,
+    taskDurationChangePercentPolicy,
+    taskDurationChangePercentOverridePolicy,
     updateSettings,
   ]);
 
@@ -231,6 +252,8 @@ export function WorkspaceGeneralPage() {
     setMcHistoryRetentionCap(initial.mcHistoryRetentionCap);
     setMcHistoryAttributionAudience(initial.mcHistoryAttributionAudience);
     setMcHistoryOverridePolicy(initial.mcHistoryOverridePolicy);
+    setTaskDurationChangePercentPolicy(initial.taskDurationChangePercentPolicy);
+    setTaskDurationChangePercentOverridePolicy(initial.taskDurationChangePercentOverridePolicy);
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
@@ -514,6 +537,64 @@ export function WorkspaceGeneralPage() {
               </option>
             ))}
           </select>
+        </FieldRow>
+
+        <FieldRow label="Duration change &rarr; percent complete" hint={DURATION_CHANGE_POLICY_HINT}>
+          <label htmlFor={`${defaultViewId}-duration-change`} className="sr-only">
+            Duration change to percent complete
+          </label>
+          <select
+            id={`${defaultViewId}-duration-change`}
+            value={taskDurationChangePercentPolicy}
+            onChange={(e) =>
+              setTaskDurationChangePercentPolicy(e.target.value as DurationChangePercentPolicy)
+            }
+            className={`${SELECT_CLASS} w-[220px]`}
+            style={SELECT_STYLE}
+          >
+            {DURATION_CHANGE_POLICY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+
+        <FieldRow
+          label="Program &amp; project overrides"
+          hint="Whether programs and projects may choose their own duration-change policy."
+        >
+          <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
+            <legend className="sr-only">Duration-change override policy</legend>
+            <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
+              <input
+                type="radio"
+                name="duration-change-policy"
+                checked={taskDurationChangePercentOverridePolicy !== 'enforce'}
+                onChange={() => setTaskDurationChangePercentOverridePolicy('suggest')}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              />
+              Programs and projects can choose their own policy.
+            </label>
+            {/* ENFORCE pins the workspace policy so lower scopes cannot override — an
+                Enterprise capability (ADR-0151). Disabled on the OSS surface; the
+                EnterpriseBadge (community-only) is the reachable upsell link. OSS
+                stores the value but never enforces the lock downstream. */}
+            <span className="inline-flex items-center gap-1.5">
+              <label className="flex items-center gap-2 text-[13px] text-neutral-text-disabled cursor-not-allowed">
+                <input
+                  type="radio"
+                  name="duration-change-policy"
+                  checked={taskDurationChangePercentOverridePolicy === 'enforce'}
+                  disabled
+                  readOnly
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                />
+                Force this policy everywhere; overrides are ignored.
+              </label>
+              <EnterpriseBadge />
+            </span>
+          </fieldset>
         </FieldRow>
 
         <FieldRow

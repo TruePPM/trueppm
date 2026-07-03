@@ -10,6 +10,7 @@ import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   ProjectDefaultView,
   ProjectHealth,
@@ -21,6 +22,7 @@ import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
+import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { HEALTH_OPTIONS, HEALTH_ACTIVE } from '@/features/project/projectHealth';
 
@@ -92,6 +94,9 @@ export function ProjectGeneralPage() {
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
+  // null = inherit the program/workspace value (ADR-0151, issue 1254).
+  const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
+    useState<DurationChangePercentPolicy | null>(null);
 
   // Re-seed whenever the loaded project's identity changes. React Router reuses
   // this component across `:projectId` changes (no `key` → no remount), so a
@@ -120,6 +125,10 @@ export function ProjectGeneralPage() {
   );
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
+  const [
+    initialTaskDurationChangePercentPolicy,
+    setInitialTaskDurationChangePercentPolicy,
+  ] = useState<DurationChangePercentPolicy | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -139,6 +148,7 @@ export function ProjectGeneralPage() {
     setMcHistoryEnabled(project.mc_history_enabled ?? null);
     setMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
     setMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
+    setTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
     setInitialCode(project.code);
@@ -154,6 +164,7 @@ export function ProjectGeneralPage() {
     setInitialMcHistoryEnabled(project.mc_history_enabled ?? null);
     setInitialMcHistoryRetentionCap(project.mc_history_retention_cap ?? null);
     setInitialMcHistoryAttributionAudience(project.mc_history_attribution_audience ?? null);
+    setInitialTaskDurationChangePercentPolicy(project.task_duration_change_percent_policy ?? null);
   }, [project]);
 
   const values = useMemo(
@@ -173,6 +184,7 @@ export function ProjectGeneralPage() {
       mc_history_enabled: mcHistoryEnabled,
       mc_history_retention_cap: mcHistoryRetentionCap,
       mc_history_attribution_audience: mcHistoryAttributionAudience,
+      task_duration_change_percent_policy: taskDurationChangePercentPolicy,
     }),
     [
       name,
@@ -190,6 +202,7 @@ export function ProjectGeneralPage() {
       mcHistoryEnabled,
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
+      taskDurationChangePercentPolicy,
     ],
   );
   const initialValues = useMemo(
@@ -209,6 +222,7 @@ export function ProjectGeneralPage() {
       mc_history_enabled: initialMcHistoryEnabled,
       mc_history_retention_cap: initialMcHistoryRetentionCap,
       mc_history_attribution_audience: initialMcHistoryAttributionAudience,
+      task_duration_change_percent_policy: initialTaskDurationChangePercentPolicy,
     }),
     [
       initialName,
@@ -226,6 +240,7 @@ export function ProjectGeneralPage() {
       initialMcHistoryEnabled,
       initialMcHistoryRetentionCap,
       initialMcHistoryAttributionAudience,
+      initialTaskDurationChangePercentPolicy,
     ],
   );
 
@@ -251,6 +266,8 @@ export function ProjectGeneralPage() {
       mc_history_enabled: mcHistoryEnabled,
       mc_history_retention_cap: mcHistoryRetentionCap,
       mc_history_attribution_audience: mcHistoryAttributionAudience,
+      // null clears the duration-change override so the project inherits program/workspace (ADR-0151).
+      task_duration_change_percent_policy: taskDurationChangePercentPolicy,
     });
     const savedIterationLabel = iterationLabel === null ? null : iterationLabel.trim() || null;
     setIterationLabel(savedIterationLabel);
@@ -269,6 +286,7 @@ export function ProjectGeneralPage() {
     setInitialMcHistoryEnabled(mcHistoryEnabled);
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
+    setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
   }, [
     updateProject,
     name,
@@ -286,6 +304,7 @@ export function ProjectGeneralPage() {
     mcHistoryEnabled,
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
+    taskDurationChangePercentPolicy,
   ]);
 
   const handleReset = useCallback(() => {
@@ -304,6 +323,7 @@ export function ProjectGeneralPage() {
     setMcHistoryEnabled(initialMcHistoryEnabled);
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
+    setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
   }, [
     initialName,
     initialDescription,
@@ -320,6 +340,7 @@ export function ProjectGeneralPage() {
     initialMcHistoryEnabled,
     initialMcHistoryRetentionCap,
     initialMcHistoryAttributionAudience,
+    initialTaskDurationChangePercentPolicy,
   ]);
 
   useDirtyForm({
@@ -549,6 +570,22 @@ export function ProjectGeneralPage() {
               options={MC_ATTRIBUTION_OPTIONS}
               inheritFromLabel="the program or workspace default"
               ariaLabel="Run attribution visible to"
+              scopeNoun="project"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Duration change &rarr; percent complete"
+            hint={`${DURATION_CHANGE_POLICY_HINT} Inherits the program or workspace setting unless you override it here.`}
+          >
+            <InheritableSelectField
+              value={taskDurationChangePercentPolicy}
+              onChange={setTaskDurationChangePercentPolicy}
+              inherited={project?.inherited_task_duration_change_percent_policy ?? 'keep'}
+              options={DURATION_CHANGE_POLICY_OPTIONS}
+              inheritFromLabel="the program or workspace default"
+              ariaLabel="Duration change percent policy"
               scopeNoun="project"
               canEdit={canEdit}
             />

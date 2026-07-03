@@ -7955,6 +7955,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             "outcome",
             "daily_delta",
             "scope_changes",
+            # ADR-0151 (issue 1254): the per-sprint duration-change audit is a
+            # team-readable Viewer+ read, exactly mirroring scope_changes above.
+            "duration_events",
         ):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0106 §E1.1/§E1.4 (#928): the reforecast preview is a read-only dry
@@ -8676,6 +8679,26 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         )
         self.check_object_permissions(request, sprint)
         return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"], url_path="duration-events")
+    def duration_events(self, request: Request, pk: str | None = None) -> Response:
+        """Read the sprint's mid-sprint duration-change events (ADR-0151, issue 1254).
+
+        Read-only; any project member (Viewer+) — the team-readable audit that
+        surfaces on the sprint changes-log so a duration change made during the
+        sprint is visible alongside scope changes. The per-task read action
+        already exists; this per-sprint aggregate exists so the changes-log does
+        not fan out one request per sprint task. No mutation, no new table.
+        """
+        from trueppm_api.apps.projects.services import sprint_duration_change_payload
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(sprint_duration_change_payload(sprint), status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Get a sprint's burndown series",

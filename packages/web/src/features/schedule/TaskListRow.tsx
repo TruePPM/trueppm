@@ -1,6 +1,10 @@
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { useEffectiveDurationPolicy } from '@/hooks/useProject';
+import { RecalcPercentChip } from './RecalcPercentChip';
+import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
@@ -178,6 +182,13 @@ function TaskListRowInner({
   const updateTask = useUpdateTask();
   const toggleComplete = useToggleComplete();
   const duplicateTask = useDuplicateTask();
+  const isCoarsePointer = useIsCoarsePointer();
+  const effectiveDurationPolicy = useEffectiveDurationPolicy(projectId);
+
+  // Inline "Recalc %?" prompt state (ADR-0151, issue 1254). Surfaced locally by
+  // the editing row when a duration edit changes a task with progress under the
+  // effective `confirm` policy; never a modal, never on mobile, never on cascade.
+  const [recalcPrompt, setRecalcPrompt] = useState<RecalcPromptState | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -871,6 +882,15 @@ function TaskListRowInner({
                 <span>missing dates</span>
               </span>
             )}
+            {recalcPrompt?.taskId === task.id && (
+              <RecalcPercentChip
+                prompt={recalcPrompt}
+                onAccept={async (percent) => {
+                  await updateTask.mutateAsync({ id: task.id, projectId, percent_complete: percent });
+                }}
+                onDismiss={() => setRecalcPrompt(null)}
+              />
+            )}
             {/* At-a-glance external-link status (issue 767, ADR-0155): link glyph + count,
                 tinted by the worst link status, immediately left of the assignee chips.
                 Hidden for summary/milestone tasks and when the task has no live links. */}
@@ -983,7 +1003,22 @@ function TaskListRowInner({
             }}
             onCommit={(parsed) => {
               if (typeof parsed === 'number' && projectId) {
+                const oldDuration = task.duration;
+                const oldPercent = task.progress;
                 updateTask.mutate({ id: task.id, projectId, duration: parsed });
+                // Under the effective `confirm` policy this raises the inline
+                // opt-in; keep/prorate are handled server-side and raise nothing
+                // (ADR-0151, issue 1254).
+                setRecalcPrompt(
+                  buildRecalcPrompt({
+                    taskId: task.id,
+                    policy: effectiveDurationPolicy,
+                    oldPercent,
+                    oldDuration,
+                    newDuration: parsed,
+                    suppressed: isCoarsePointer,
+                  }),
+                );
               }
               buildMode.focus.commitToRow();
             }}

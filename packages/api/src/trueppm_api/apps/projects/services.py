@@ -2777,6 +2777,46 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
     }
 
 
+def sprint_duration_change_payload(sprint: Any) -> dict[str, Any]:
+    """Duration-change events captured against a sprint, newest first (ADR-0151, issue 1254).
+
+    Surfaces the ``TaskDurationChangeEvent`` rows whose ``sprint`` FK was captured
+    at change time (only set when the task was in an *active* sprint) so a
+    mid-sprint duration change is team-visible on the sprint changes-log alongside
+    the scope-change audit. Read-only; the per-task read action already exists
+    (``GET /tasks/{id}/duration-events/``) but the changes-log needs a per-sprint
+    aggregate to avoid an N-request-per-task client fan-out (ADR-0151 §6, the
+    deferred consumer slice).
+
+    ``percent_complete_after`` is non-null only when the policy actually mutated
+    ``%`` (prorate); the client renders the "% recalculated" line only then.
+    ``select_related`` keeps actor/task name rendering off the N+1 path.
+    """
+    from trueppm_api.apps.projects.models import TaskDurationChangeEvent
+
+    rows = (
+        TaskDurationChangeEvent.objects.filter(sprint_id=sprint.pk)
+        .select_related("task", "actor")
+        .order_by("-created_at")
+    )
+    events = [
+        {
+            "id": str(r.pk),
+            "task_id": str(r.task_id),
+            "task_name": r.task.name if r.task_id is not None else None,
+            "old_duration": r.old_duration,
+            "new_duration": r.new_duration,
+            "percent_complete_at_change": r.percent_complete_at_change,
+            "percent_complete_after": r.percent_complete_after,
+            "policy_applied": r.policy_applied,
+            "actor_name": (r.actor.get_full_name() or r.actor.get_username()) if r.actor else None,
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in rows
+    ]
+    return {"events": events}
+
+
 # ---------------------------------------------------------------------------
 # Sprint → milestone rollup (ADR-0074)
 # ---------------------------------------------------------------------------

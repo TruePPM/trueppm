@@ -123,6 +123,12 @@ const DEFAULT_PROJECT: ProjectFixture = {
     'text/csv',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
+  // Duration-change percent policy (ADR-0151, issue 1254) — the schedule reads the
+  // resolved value to decide whether to prompt on a duration edit. Default to the
+  // no-op 'keep' so existing schedule specs behave as before.
+  task_duration_change_percent_policy: null,
+  effective_task_duration_change_percent_policy: 'keep',
+  inherited_task_duration_change_percent_policy: 'keep',
 };
 
 const DEFAULT_USER: UserFixture = {

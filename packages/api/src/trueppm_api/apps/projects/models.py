@@ -4614,6 +4614,10 @@ class TaskDurationChangeEvent(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["task", "-created_at"], name="task_dur_evt_task_idx"),
+            # Serves the per-sprint changes-log read (issue 1254): filter by sprint,
+            # newest first. Rows persist for the project's lifetime (sprint FK is
+            # SET_NULL), so the filter must be an index range scan, not a table scan.
+            models.Index(fields=["sprint", "-created_at"], name="task_dur_evt_sprint_idx"),
         ]
 
     def __str__(self) -> str:

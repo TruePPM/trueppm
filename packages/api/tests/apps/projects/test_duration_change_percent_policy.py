@@ -525,6 +525,75 @@ def test_duration_events_action_404_for_outsider(project: Project, calendar: Cal
 
 
 # ---------------------------------------------------------------------------
+# Per-sprint read @action (issue 1254 — sprint changes-log feed)
+# ---------------------------------------------------------------------------
+
+
+def _active_sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.ACTIVE,
+    )
+
+
+@pytest.mark.django_db
+def test_sprint_duration_events_returns_captured_events(
+    admin_client: APIClient, project: Project
+) -> None:
+    """GET /sprints/{id}/duration-events/ returns the sprint's duration changes."""
+    _set_workspace_policy(DurationChangePercentPolicy.PRORATE)
+    sprint = _active_sprint(project)
+    task = Task.objects.create(
+        project=project, name="Design", duration=10, percent_complete=50.0, sprint=sprint
+    )
+
+    _patch(admin_client, task, {"duration": 20})
+
+    r = admin_client.get(f"/api/v1/sprints/{sprint.pk}/duration-events/")
+    assert r.status_code == 200
+    events = r.data["events"]
+    assert len(events) == 1
+    ev = events[0]
+    assert ev["task_id"] == str(task.pk)
+    assert ev["task_name"] == "Design"
+    assert ev["old_duration"] == 10
+    assert ev["new_duration"] == 20
+    assert ev["policy_applied"] == DurationChangePercentPolicy.PRORATE
+    assert ev["percent_complete_after"] == 25.0
+    assert ev["actor_name"] == "pm"
+
+
+@pytest.mark.django_db
+def test_sprint_duration_events_empty_when_none(admin_client: APIClient, project: Project) -> None:
+    """A sprint with no duration changes returns an empty feed, not an error."""
+    _set_workspace_policy(DurationChangePercentPolicy.KEEP)
+    sprint = _active_sprint(project)
+
+    r = admin_client.get(f"/api/v1/sprints/{sprint.pk}/duration-events/")
+    assert r.status_code == 200
+    assert r.data["events"] == []
+
+
+@pytest.mark.django_db
+def test_sprint_duration_events_forbidden_for_outsider(
+    project: Project, calendar: Calendar
+) -> None:
+    """A non-member is denied — object-permission check rejects (mirrors scope-changes)."""
+    _set_workspace_policy(DurationChangePercentPolicy.KEEP)
+    sprint = _active_sprint(project)
+
+    outsider = User.objects.create_user(username="nobody", password="pw")
+    client = APIClient()
+    client.force_authenticate(user=outsider)
+
+    r = client.get(f"/api/v1/sprints/{sprint.pk}/duration-events/")
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Serializer surface
 # ---------------------------------------------------------------------------
 

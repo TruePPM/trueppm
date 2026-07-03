@@ -136,6 +136,36 @@ export type MCHistoryOverridePolicy = 'allow' | 'lock';
 export const MC_HISTORY_RETENTION_MIN = 1;
 export const MC_HISTORY_RETENTION_MAX = 500;
 
+/**
+ * What happens to a task's percent-complete when its duration changes (ADR-0151,
+ * issue 1254). `keep` (default) leaves the entered % untouched; `prorate` scales
+ * it by the duration ratio server-side; `confirm` keeps the % server-side and the
+ * desktop client offers an inline opt-in "Recalc %?" prompt. Inheritable
+ * Workspace → Program → Project.
+ */
+export type DurationChangePercentPolicy = 'keep' | 'prorate' | 'confirm';
+
+/**
+ * One row of a task's duration-change audit trail (ADR-0151, issue 1254), read
+ * from `GET /api/v1/tasks/{id}/duration-events/`. Append-only;
+ * `percent_complete_after` is set only when the policy mutated the % (prorate).
+ * `actor_name` is null for automated (CPM-cascade) events.
+ */
+export interface TaskDurationChangeEvent {
+  id: string;
+  task: string;
+  actor: string | null;
+  actor_name: string | null;
+  old_duration: number;
+  new_duration: number;
+  percent_complete_at_change: number;
+  percent_complete_after: number | null;
+  policy_applied: DurationChangePercentPolicy;
+  source: 'user_edit' | 'cpm_cascade';
+  sprint: string | null;
+  created_at: string;
+}
+
 export interface Program {
   id: string;
   server_version: number;
@@ -188,6 +218,13 @@ export interface Program {
   /** Read-only values inherited if the override were cleared (the workspace value). */
   inherited_attachments_enabled: boolean;
   inherited_allowed_attachment_types: string[];
+  /** Duration-change percent policy override (ADR-0151, issue 1254). null = inherit
+   *  the workspace value. */
+  task_duration_change_percent_policy: DurationChangePercentPolicy | null;
+  /** Read-only server-resolved effective policy (program override ?? workspace). */
+  effective_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /** Read-only policy inherited if the override were cleared (the workspace value). */
+  inherited_task_duration_change_percent_policy: DurationChangePercentPolicy;
   /** Cross-project dependency slip behaviour (issue 529). Direct column (default
    *  `warn`), not inheritable, so it carries no effective/inherited pair.
    *  Bulk-editable from the Workspace → Programs matrix (issue 1283). */
@@ -394,6 +431,13 @@ export interface WorkspaceSettings {
   /** `suggest`/`inherit` (OSS) let lower scopes override freely; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
   attachmentsOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  /** Workspace-wide default for what happens to a task's % complete when its
+   *  duration changes (ADR-0151, issue 1254) — the non-null root of the
+   *  Workspace → Program → Project chain. */
+  taskDurationChangePercentPolicy: DurationChangePercentPolicy;
+  /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
+   *  Enterprise hard lock (stored, never enforced in OSS). */
+  taskDurationChangePercentOverridePolicy: 'inherit' | 'suggest' | 'enforce';
   /** Read-only public serve URL for the uploaded workspace logo (#969, ADR-0149),
    *  or null when no logo is set. Carries a `?v=` cache-buster keyed to updated_at. */
   logoUrl: string | null;

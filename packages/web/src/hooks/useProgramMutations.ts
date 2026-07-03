@@ -47,6 +47,7 @@ export interface UpdateProgramInput {
       | 'mc_history_enabled'
       | 'mc_history_retention_cap'
       | 'mc_history_attribution_audience'
+      | 'task_duration_change_percent_policy'
       | 'attachments_enabled'
       | 'allowed_attachment_types'
       | 'health'

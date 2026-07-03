@@ -4,7 +4,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScopeChangedChip } from './ScopeChangedChip';
 import { useSprintScopeChanges, type SprintScopeChanges } from '@/hooks/useSprints';
 
-vi.mock('@/hooks/useSprints', () => ({ useSprintScopeChanges: vi.fn() }));
+vi.mock('@/hooks/useSprints', () => ({
+  useSprintScopeChanges: vi.fn(),
+  useSprintDurationChanges: vi.fn(() => ({ data: { events: [] }, isLoading: false })),
+}));
 const mockHook = vi.mocked(useSprintScopeChanges);
 
 beforeEach(() => {

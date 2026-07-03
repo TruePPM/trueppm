@@ -13,10 +13,12 @@ import { InheritableToggleField } from '../components/InheritableToggleField';
 import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
+import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   ProgramHealth,
   ProgramMethodology,
@@ -88,6 +90,9 @@ export function ProgramGeneralPage() {
   const [mcHistoryRetentionCap, setMcHistoryRetentionCap] = useState<number | null>(null);
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
+  // null = inherit the program/workspace value (ADR-0151, issue 1254).
+  const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
+    useState<DurationChangePercentPolicy | null>(null);
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
@@ -118,6 +123,10 @@ export function ProgramGeneralPage() {
   );
   const [initialMcHistoryAttributionAudience, setInitialMcHistoryAttributionAudience] =
     useState<MCAttributionAudience | null>(null);
+  const [
+    initialTaskDurationChangePercentPolicy,
+    setInitialTaskDurationChangePercentPolicy,
+  ] = useState<DurationChangePercentPolicy | null>(null);
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
   const [initialColor, setInitialColor] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
@@ -137,6 +146,7 @@ export function ProgramGeneralPage() {
     setMcHistoryEnabled(program.mc_history_enabled ?? null);
     setMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
     setMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
+    setTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setVisibility(program.visibility);
     setColor(program.color ?? null);
     setLead(program.lead ?? null);
@@ -152,6 +162,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryEnabled(program.mc_history_enabled ?? null);
     setInitialMcHistoryRetentionCap(program.mc_history_retention_cap ?? null);
     setInitialMcHistoryAttributionAudience(program.mc_history_attribution_audience ?? null);
+    setInitialTaskDurationChangePercentPolicy(program.task_duration_change_percent_policy ?? null);
     setInitialVisibility(program.visibility);
     setInitialColor(program.color ?? null);
     setInitialLead(program.lead ?? null);
@@ -171,6 +182,7 @@ export function ProgramGeneralPage() {
       mcHistoryEnabled,
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
+      taskDurationChangePercentPolicy,
       visibility,
       color,
       lead,
@@ -188,6 +200,7 @@ export function ProgramGeneralPage() {
       mcHistoryEnabled,
       mcHistoryRetentionCap,
       mcHistoryAttributionAudience,
+      taskDurationChangePercentPolicy,
       visibility,
       color,
       lead,
@@ -207,6 +220,7 @@ export function ProgramGeneralPage() {
       mcHistoryEnabled: initialMcHistoryEnabled,
       mcHistoryRetentionCap: initialMcHistoryRetentionCap,
       mcHistoryAttributionAudience: initialMcHistoryAttributionAudience,
+      taskDurationChangePercentPolicy: initialTaskDurationChangePercentPolicy,
       visibility: initialVisibility,
       color: initialColor,
       lead: initialLead,
@@ -224,6 +238,7 @@ export function ProgramGeneralPage() {
       initialMcHistoryEnabled,
       initialMcHistoryRetentionCap,
       initialMcHistoryAttributionAudience,
+      initialTaskDurationChangePercentPolicy,
       initialVisibility,
       initialColor,
       initialLead,
@@ -251,6 +266,8 @@ export function ProgramGeneralPage() {
         mc_history_enabled: mcHistoryEnabled,
         mc_history_retention_cap: mcHistoryRetentionCap,
         mc_history_attribution_audience: mcHistoryAttributionAudience,
+        // null clears the duration-change override so the program inherits the workspace value (ADR-0151).
+        task_duration_change_percent_policy: taskDurationChangePercentPolicy,
         visibility,
         color,
         lead,
@@ -269,6 +286,7 @@ export function ProgramGeneralPage() {
     setInitialMcHistoryEnabled(mcHistoryEnabled);
     setInitialMcHistoryRetentionCap(mcHistoryRetentionCap);
     setInitialMcHistoryAttributionAudience(mcHistoryAttributionAudience);
+    setInitialTaskDurationChangePercentPolicy(taskDurationChangePercentPolicy);
     setInitialVisibility(visibility);
     setInitialColor(color);
     setInitialLead(lead);
@@ -287,6 +305,7 @@ export function ProgramGeneralPage() {
     mcHistoryEnabled,
     mcHistoryRetentionCap,
     mcHistoryAttributionAudience,
+    taskDurationChangePercentPolicy,
     visibility,
     color,
     lead,
@@ -305,6 +324,7 @@ export function ProgramGeneralPage() {
     setMcHistoryEnabled(initialMcHistoryEnabled);
     setMcHistoryRetentionCap(initialMcHistoryRetentionCap);
     setMcHistoryAttributionAudience(initialMcHistoryAttributionAudience);
+    setTaskDurationChangePercentPolicy(initialTaskDurationChangePercentPolicy);
     setVisibility(initialVisibility);
     setColor(initialColor);
     setLead(initialLead);
@@ -321,6 +341,7 @@ export function ProgramGeneralPage() {
     initialMcHistoryEnabled,
     initialMcHistoryRetentionCap,
     initialMcHistoryAttributionAudience,
+    initialTaskDurationChangePercentPolicy,
     initialVisibility,
     initialColor,
     initialLead,
@@ -640,6 +661,22 @@ export function ProgramGeneralPage() {
               options={MC_ATTRIBUTION_OPTIONS}
               inheritFromLabel="the workspace default"
               ariaLabel="Run attribution visible to"
+              scopeNoun="program"
+              canEdit={canEdit}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Duration change &rarr; percent complete"
+            hint={`${DURATION_CHANGE_POLICY_HINT} Inherits the workspace setting unless you override it here.`}
+          >
+            <InheritableSelectField
+              value={taskDurationChangePercentPolicy}
+              onChange={setTaskDurationChangePercentPolicy}
+              inherited={program?.inherited_task_duration_change_percent_policy ?? 'keep'}
+              options={DURATION_CHANGE_POLICY_OPTIONS}
+              inheritFromLabel="the workspace default"
+              ariaLabel="Duration change percent policy"
               scopeNoun="program"
               canEdit={canEdit}
             />
