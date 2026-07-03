@@ -663,7 +663,11 @@ export function BurnChart({
               disabled={isLoading || showEmpty || isError}
               aria-haspopup="menu"
               aria-label="Export chart"
-              onClick={() => {}} // dropdown opens via group-focus-within below
+              // No-op click: the menu is hover/focus-only (group-hover /
+              // group-focus-within below). Click/touch-driven opening —
+              // needed for touch devices with no hover state — is tracked
+              // in issue 1607.
+              onClick={() => {}}
             >
               <span aria-hidden="true">↓</span> Export
             </button>

@@ -13,7 +13,7 @@ const GUIDANCE_ID = 'msproject-xml-guidance';
  * Pure client-side gating: it advertises what TruePPM can ingest today rather
  * than offering a real choice. "TruePPM" is shown disabled ("coming soon") and
  * MS Project is the selected format; under it `.xml` is enabled while
- * `.mpp`/`.mpx` are disabled (backend support tracked in #128/#120). The
+ * `.mpp`/`.mpx` are disabled (backend support tracked in issue 128 / issue 120). The
  * disabled file types are kept perceivable — a visible "Not yet supported"
  * badge and a non-disabled guidance disclosure explaining how to produce an
  * `.xml` from MS Project — rather than silently dimmed, so keyboard and
@@ -29,6 +29,7 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
             role="radio"
             aria-checked={false}
             aria-disabled
+            title="Native TruePPM import is tracked in issue 1611"
             className="cursor-not-allowed rounded-card border border-neutral-border bg-neutral-surface-raised p-3 opacity-60"
           >
             <p className="text-sm font-medium text-neutral-text-primary">TruePPM</p>
@@ -67,16 +68,17 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
           </div>
           {(
             [
-              ['.mpp', 'MS Project (binary)'],
-              ['.mpx', 'Legacy / ProjectLibre'],
+              ['.mpp', 'MS Project (binary)', 'issue 128'],
+              ['.mpx', 'Legacy / ProjectLibre', 'issue 120'],
             ] as const
-          ).map(([ext, label]) => (
+          ).map(([ext, label, issue]) => (
             <div
               key={ext}
               role="radio"
               aria-checked={false}
               aria-disabled
               aria-describedby={GUIDANCE_ID}
+              title={`${ext} import is tracked in ${issue} (planned for 0.6)`}
               className="flex cursor-not-allowed items-center justify-between rounded-card border border-neutral-border px-3 py-2 opacity-60"
             >
               <span className="text-sm text-neutral-text-primary">
@@ -107,7 +109,8 @@ export function FormatPicker({ guidanceOpen, onToggleGuidance }: FormatPickerPro
         >
           In MS Project (desktop): <strong>File → Save As</strong>, choose{' '}
           <strong>XML Format (*.xml)</strong>, then <strong>Save</strong>. Upload that{' '}
-          <code>.xml</code> here. Project for the web can&apos;t save XML — use the desktop app.
+          <code>.xml</code> here. Project for the web can&apos;t save XML — use the desktop app.{' '}
+          .mpp import is tracked in issue 128 and .mpx in issue 120 (planned for 0.6).
         </div>
       </fieldset>
     </div>

@@ -56,7 +56,7 @@ nothing you could not already read in the web client with the same token.
 
 The server is configured entirely from the environment — no config file on disk.
 It authenticates with a **project API token** (`tppm_<64-hex>`), the same token
-used for [inbound integrations](./inbound-task-sync.md). Mint one from a
+used for [inbound integrations](/features/inbound-task-sync/). Mint one from a
 project's settings; the raw token is shown once, so copy it immediately.
 
 | Variable | Required | Description |
@@ -98,9 +98,9 @@ subprocess and speaks MCP over the pipe. For Claude Desktop, add an entry to
 }
 ```
 
-Restart the client; it will spawn `trueppm-mcp` on demand. For the HTTP/SSE
-transports, Docker, and the full security notes, see
-[MCP server (administration)](../administration/mcp-server).
+Restart the client; it will spawn `trueppm-mcp` on demand. A dedicated
+administration guide covering the HTTP/SSE transports, Docker, and the full
+security notes is planned (tracked in issue 1616).
 
 ## What it can answer
 

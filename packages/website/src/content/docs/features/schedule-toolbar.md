@@ -75,7 +75,7 @@ Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`
 
 ## Zoom
 
-The zoom control (rightmost, above the summary chip) is a stepper — **−**, the current level, and **+** — plus a **Fit to project** button that frames the whole project in the viewport. Zoom is continuous from hour-level detail out to a multi-year overview; the date header automatically re-emphasizes its unit (day → week → month → quarter → year) as you scale. You can also zoom with **Ctrl/Cmd** + mouse wheel or a trackpad pinch over the timeline (which zooms toward the cursor), or with `⌘/Ctrl` + `=` / `-` / `0`. See [Zoom on the Schedule view](./schedule#zoom) for the full reference.
+The zoom control (rightmost, above the summary chip) is a stepper — **−**, the current level, and **+** — plus a **Fit to project** button that frames the whole project in the viewport. Zoom is continuous from hour-level detail out to a multi-year overview; the date header automatically re-emphasizes its unit (day → week → month → quarter → year) as you scale. You can also zoom with **Ctrl/Cmd** + mouse wheel or a trackpad pinch over the timeline (which zooms toward the cursor), or with `⌘/Ctrl` + `=` / `-` / `0`. See [Zoom on the Schedule view](/features/schedule/#zoom) for the full reference.
 
 The **Today** button scrolls the timeline so today's date lands at 25% from the left edge.
 
@@ -104,5 +104,5 @@ On tablet widths the toggle folds into the toolbar overflow (⋯) menu as a
 
 ## See also
 
-- [Schedule build mode](./schedule-build-mode) — keyboard-first plan authoring (opt-in flag)
-- [Schedule view](./schedule) — overview of the full Schedule feature
+- [Schedule build mode](/features/schedule-build-mode/) — keyboard-first plan authoring (opt-in flag)
+- [Schedule view](/features/schedule/) — overview of the full Schedule feature

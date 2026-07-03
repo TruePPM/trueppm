@@ -1,7 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createMemoryRouter, RouterProvider } from 'react-router';
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router';
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -22,6 +22,27 @@ function Providers({ children }: { children: ReactNode }) {
 
 export function renderWithProviders(ui: ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {
   return render(ui, { wrapper: Providers, ...options });
+}
+
+/**
+ * Like renderWithProviders, but also wraps in a MemoryRouter — for
+ * components that read route context (useParams, Link, useNavigate) but
+ * are not themselves routed pages, so createMemoryRouter's element-baked-in
+ * config (see renderWithRouter below) would break `rerender`.
+ */
+export function renderWithProvidersAndRouter(
+  ui: ReactElement,
+  { initialEntries = ['/'] }: { initialEntries?: string[] } = {},
+) {
+  const testQueryClient = createTestQueryClient();
+  function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter initialEntries={initialEntries}>{children}</MemoryRouter>
+      </QueryClientProvider>
+    );
+  }
+  return render(ui, { wrapper: Wrapper });
 }
 
 /**

@@ -64,7 +64,7 @@ Navigate with the Prev / Next stepper, the ← / → arrow keys, or click any do
 
 The Sprints view carries a **"what changed since yesterday"** delta panel — a team-wide, chronological view of status moves, new blockers, scope injected mid-sprint, the burndown swing, and per-person activity counts. It is pull-only and status-level. A window control lets you choose **24h**, **48h**, or **Since I last looked** (Friday-to-Monday replays the whole weekend). The standup walk-the-board footer links directly to this panel.
 
-→ See [Daily standup — what changed since yesterday](/features/sprints/#daily-standup--what-changed-since-yesterday)
+→ See [Daily standup — what changed since yesterday](/features/sprints/#what-you-see)
 
 ### WIP overload
 

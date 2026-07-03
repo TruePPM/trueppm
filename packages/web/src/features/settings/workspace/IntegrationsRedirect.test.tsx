@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -9,6 +10,17 @@ const useProjects = vi.fn();
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () =>
     useProjects() as { data: unknown; isLoading: boolean; error: Error | null },
+}));
+
+// Mocked the same way Sidebar.test.tsx mocks NewProjectModal — the modal's
+// own create flow is covered by NewProjectModal's own tests; here we only
+// need to assert the shim wires the button to opening it.
+vi.mock('@/features/shell/NewProjectModal', () => ({
+  NewProjectModal: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="new-project-modal">
+      <button onClick={onClose}>close-modal</button>
+    </div>
+  ),
 }));
 
 function renderShim() {
@@ -41,8 +53,17 @@ describe('IntegrationsRedirect', () => {
       screen.getByText(/Integrations are configured per project/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: /Create your first project/i }),
+      screen.getByRole('button', { name: /Create your first project/i }),
     ).toBeInTheDocument();
+  });
+
+  it('opens the New Project modal when "Create your first project" is clicked', async () => {
+    useProjects.mockReturnValue({ data: [], isLoading: false, error: null });
+    renderShim();
+    expect(screen.queryByTestId('new-project-modal')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /Create your first project/i }));
+    expect(screen.getByTestId('new-project-modal')).toBeInTheDocument();
   });
 
   it('auto-redirects to the only project when the user has exactly one', async () => {

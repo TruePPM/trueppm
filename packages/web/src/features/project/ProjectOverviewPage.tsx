@@ -193,8 +193,13 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
         <div className="flex items-center gap-3 ml-auto">
           <button
             type="button"
+            disabled
+            aria-disabled="true"
+            title="Report export is planned — tracked in issue 1200 (milestone 0.5)"
             className="text-xs border border-neutral-border rounded-control px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface-raised
+              disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
+              disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:bg-neutral-surface-sunken
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
           >
@@ -202,8 +207,13 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
           </button>
           <button
             type="button"
+            disabled
+            aria-disabled="true"
+            title="Status updates are coming — tracked in issue 1606"
             className="text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
               hover:opacity-90
+              disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
+              disabled:cursor-not-allowed disabled:hover:opacity-100
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
           >

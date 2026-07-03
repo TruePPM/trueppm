@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Link, useParams } from 'react-router';
 import {
   DndContext,
   KeyboardSensor,
@@ -329,6 +330,11 @@ function ShippedRow({
   const criteriaIncomplete = a.total > 0 && a.met < a.total;
   const criteriaNotSet = a.total === 0;
   const [open, setOpen] = useState(false);
+  // "+ Add criteria" opens the task detail rather than a dead hash link — the
+  // task drawer is where acceptance criteria are edited. Read via useParams
+  // rather than prop-drilling projectId through SprintReviewSection and
+  // DemoSortableList.
+  const { projectId } = useParams<{ projectId: string }>();
 
   // Sortable hooks are always called (rules of hooks); the handle is only wired
   // when this row is draggable.
@@ -482,13 +488,13 @@ function ShippedRow({
             className="rounded border border-neutral-border bg-transparent px-2 py-1 text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
           <div className="flex flex-wrap items-center gap-2">
-            {criteriaNotSet && story.task_id && (
-              <a
-                href={`#/story/${story.task_id}/acceptance`}
+            {criteriaNotSet && story.task_id && projectId && (
+              <Link
+                to={`/projects/${projectId}/tasks/${story.task_id}`}
                 className="text-xs text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
               >
                 + Add criteria
-              </a>
+              </Link>
             )}
             {story.flagged_to_backlog ? (
               <span className="text-xs text-semantic-on-track" data-testid="flagged-state">

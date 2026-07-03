@@ -904,7 +904,9 @@ function TaskListRowInner({
                   <span>{task.externalLinkSummary.count}</span>
                 </span>
               )}
-            {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
+            {/* Dep chips — shown when task is selected in focus mode; replaces
+                assignee chips. Passive counters, not buttons: click-to-highlight
+                is tracked in issue 1608. */}
             {isSelected && depChips ? (
               <span
                 className="flex items-center gap-0.5 flex-shrink-0"
@@ -912,7 +914,7 @@ function TaskListRowInner({
               >
                 {depChips.predsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
                   >
                     ←{depChips.predsCount}
@@ -920,7 +922,7 @@ function TaskListRowInner({
                 )}
                 {depChips.succsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded-chip text-xs font-medium ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
                   >
                     →{depChips.succsCount}

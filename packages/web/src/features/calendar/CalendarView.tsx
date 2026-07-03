@@ -13,7 +13,7 @@
  *   - Today button + prev/next chevrons for navigation
  *
  * Uses stub hook (useCalendarTasks) returning fixture data until
- * the real TanStack Query hook is wired in issue #55 follow-up.
+ * the real TanStack Query hook is wired — tracked in issue 1613.
  */
 
 import { useState } from 'react';
@@ -39,6 +39,9 @@ function TaskDetailBanner({ taskId, onClose }: TaskDetailBannerProps) {
       className="border-b border-neutral-border bg-neutral-surface-raised px-4 py-2 flex items-center gap-3"
     >
       <span className="text-sm text-neutral-text-primary font-medium">{taskId}</span>
+      <span className="text-xs text-neutral-text-secondary">
+        Full task details are coming — tracked in issue 1613.
+      </span>
       <div className="flex-1" />
       <button
         type="button"

@@ -389,14 +389,14 @@ export function QueueRow({ task, phaseName, phaseColor, isFocused, onFocus, onCl
         <Avatar initials={initials} />
       </span>
 
-      {/* Overflow menu placeholder — promote / demote actions land in a
-          follow-up (#388 queued); the disabled button keeps tab-order parity
-          with the rail's capture CTA. */}
+      {/* Overflow menu placeholder — promote / demote actions are tracked in
+          issue 1610; the disabled button keeps tab-order parity with the
+          rail's capture CTA. */}
       <span
         aria-hidden="true"
         className="inline-flex items-center justify-center text-neutral-text-disabled"
         style={{ width: 24, height: 24, fontSize: 14, lineHeight: 1 }}
-        title="Row actions land in a follow-up"
+        title="Row actions are coming — tracked in issue 1610"
       >
         ⋯
       </span>
