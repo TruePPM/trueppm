@@ -144,9 +144,9 @@ describe('QueueRow', () => {
   it('invokes onClick with the button element as anchor', () => {
     const onClick = vi.fn();
     render(<QueueRow {...BASE_PROPS} onClick={onClick} task={makeTask()} />);
-    // The interactive element is the inner button; the wrapping div carries
-    // the listitem role for the parent list semantics.
-    const button = screen.getByRole('button');
+    // The row-open button is named after the task; the sibling overflow trigger
+    // ("Actions for …") is a second button, so disambiguate by accessible name.
+    const button = screen.getByRole('button', { name: /^Task A,/ });
     fireEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onClick.mock.calls[0][0]).toBe(button);
@@ -155,7 +155,7 @@ describe('QueueRow', () => {
   it('invokes onFocus when the row gains focus', () => {
     const onFocus = vi.fn();
     render(<QueueRow {...BASE_PROPS} onFocus={onFocus} task={makeTask()} />);
-    screen.getByRole('button').focus();
+    screen.getByRole('button', { name: /^Task A,/ }).focus();
     expect(onFocus).toHaveBeenCalledTimes(1);
   });
 });

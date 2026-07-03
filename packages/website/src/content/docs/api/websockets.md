@@ -206,6 +206,7 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `board_view_deleted` | **WS-only** |
 | `milestone_rollup_updated` | **WS-only** |
 | `phases_reordered` | **WS-only** |
+| `queue_reordered` | **WS-only** |
 | `program_closed` | **WS-only** |
 | `program_reopened` | **WS-only** |
 | `program_deleted` | **WS-only** |

@@ -65,6 +65,8 @@ import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
 import { usePhaseReorder } from '@/hooks/usePhaseReorder';
+import { useQueueReorder } from '@/hooks/useQueueReorder';
+import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { Task, TaskStatus } from '@/types';
@@ -1450,6 +1452,8 @@ export function BoardView() {
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
   const phaseReorder = usePhaseReorder(projectId || null);
+  const queueReorder = useQueueReorder(projectId || null);
+  const canManageBacklog = useCanManageBacklog(projectId || undefined);
   // BACKLOG cards live in the band above the phase grid (ADR-0057), not in an
   // inline column inside each phase. The visible-column list excludes BACKLOG
   // even when the saved board config marks it visible — that flag governs the
@@ -2947,6 +2951,8 @@ export function BoardView() {
               focusedCardId={focusedCardId}
               onCardFocus={handleCardFocus}
               onCardClick={handleCardClick}
+              canReorder={canManageBacklog}
+              onReorderGroup={(entries) => queueReorder.mutate(entries)}
               header={
                 projectId ? (
                   <SprintPanel

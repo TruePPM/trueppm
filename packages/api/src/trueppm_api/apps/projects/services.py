@@ -1813,6 +1813,107 @@ def reorder_demo_list(sprint: Any, ordered_ids: list[str]) -> int:
     return changed
 
 
+class QueueReorderValidation(Exception):
+    """Raised when a supplied queue-reorder id is unknown to the project or is not a
+    priority-reorderable task (400) — write nothing. ``ids`` lists the offenders."""
+
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = ids
+        super().__init__(f"Not reorderable in the queue: {', '.join(ids)}")
+
+
+class QueueReorderConflict(Exception):
+    """Raised when a supplied task's ``server_version`` is stale (409) — write nothing.
+
+    The board queue reorders one status group at a time, so — unlike the product
+    backlog — there is no set-completeness check: the client may hold a partial view
+    (filters, "My tasks"). Correctness rides on the per-row optimistic lock alone.
+    """
+
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = ids
+        super().__init__(f"Stale queue snapshot for tasks: {', '.join(ids)}")
+
+
+def reorder_queue_priority(project: Any, ordered: list[tuple[str, int]], actor: Any) -> int:
+    """Persist a promote/demote of the board queue (issue 1610, ADR-0110 shape).
+
+    ``ordered`` is one queue group — *Next up* (NOT_STARTED) or *In flight*
+    (IN_PROGRESS / REVIEW) — as ``[(task_id, server_version), ...]`` in the new
+    display order. Writes dense ``priority_rank = position * 10`` on each row so the
+    queue's ``comparePriority`` sort reflects the drag; the ``* 10`` gap matches the
+    phase-reorder idiom and keeps single-row nudges cheap.
+
+    Why no set-completeness check (unlike ``reorder_backlog``): the queue is an IC
+    pull surface that may be filtered ("My tasks"), so the client legitimately holds a
+    subset of the group. Reordering a subset is a valid, intentional action, so
+    correctness rides on the per-row optimistic lock alone — a stale ``server_version``
+    raises :class:`QueueReorderConflict` (409) and writes nothing.
+
+    Only NOT_STARTED / IN_PROGRESS / REVIEW tasks are reorderable here — BACKLOG rank is
+    owned by ``product_backlog_reorder`` and COMPLETE / ON_HOLD carry no pull priority;
+    any id outside that scope (or outside the project) raises
+    :class:`QueueReorderValidation` (400). Writes only changed rows via ``save()`` so
+    each bumps ``server_version`` and writes ``HistoricalTask`` (audit). Broadcasts
+    ``queue_reordered`` on commit so other board clients refetch. Returns the count of
+    rows whose rank changed; re-applying the same order is a no-op (returns 0).
+    """
+    from django.db.models import Exists, OuterRef, Value
+    from django.db.models.functions import Concat
+
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    reorderable = (TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.REVIEW)
+
+    # A summary (WBS parent) has a descendant whose wbs_path is prefixed by its own —
+    # the same containment test the model uses to gather descendants. Summaries never
+    # render as queue rows (``groupTasksForQueue`` drops them) and their priority_rank
+    # doubles as the phase-column order (``PhaseReorderView``), so excluding them here
+    # keeps a stray summary id from silently reshuffling phases.
+    has_descendant = Task.objects.filter(
+        project=project,
+        is_deleted=False,
+        wbs_path__startswith=Concat(OuterRef("wbs_path"), Value(".")),
+    )
+
+    changed = 0
+    with transaction.atomic():
+        # Lock the candidate rows first to serialise concurrent reorders.
+        live = (
+            Task.objects.select_for_update()
+            .filter(project=project, is_deleted=False, status__in=reorderable)
+            .annotate(_is_summary=Exists(has_descendant))
+            .filter(_is_summary=False)
+        )
+        by_id = {str(t.pk): t for t in live}
+
+        # Membership + status gate: every supplied id must be a live, reorderable task
+        # of this project. An unknown or wrong-status id is a client error (400), never
+        # a partial write.
+        invalid = sorted(tid for tid, _ in ordered if tid not in by_id)
+        if invalid:
+            raise QueueReorderValidation(invalid)
+
+        # Per-row optimistic lock — the only correctness gate (see docstring).
+        stale = [tid for tid, sv in ordered if by_id[tid].server_version != sv]
+        if stale:
+            raise QueueReorderConflict(stale)
+
+        for position, (tid, _) in enumerate(ordered, start=1):
+            task = by_id[tid]
+            new_rank = position * 10
+            if task.priority_rank != new_rank:
+                task.priority_rank = new_rank
+                task.save(update_fields=["priority_rank", "server_version"])
+                changed += 1
+
+        if changed:
+            pid = str(project.id)
+            transaction.on_commit(lambda: broadcast_board_event(pid, "queue_reordered", {}))
+    return changed
+
+
 def flag_outcome_for_backlog(outcome: Any, *, actor: Any) -> Any:
     """Carry a not-shipped review story forward to the backlog in one tap (#1132).
 

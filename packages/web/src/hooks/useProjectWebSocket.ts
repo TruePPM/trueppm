@@ -31,7 +31,7 @@
  *   board_config_updated → invalidate boardConfig
  *   board_view_created / board_view_updated / board_view_deleted → invalidate boardViews
  *   project_created / project_updated / project_deleted → invalidate project + projects
- *   phases_reordered → invalidate tasks
+ *   phases_reordered / queue_reordered → invalidate tasks
  *   board activity feed → the card-sync events above (task_created / task_updated /
  *     task_deleted, sprint_scope_changed, task_comment_created) also invalidate
  *     ['board-activity', projectId] so the activity panel refetches its head page live,
@@ -369,7 +369,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'tasks_reordered' ||
         event_type === 'tasks_restructured' ||
         event_type === 'tasks_bulk_mutated' ||
-        event_type === 'phases_reordered'
+        event_type === 'phases_reordered' ||
+        // A collaborator promoted/demoted a queue row (issue 1610) — the board queue
+        // orders by priority_rank, so refetch the tasks cache to snap to server order.
+        event_type === 'queue_reordered'
       ) {
         scheduleInvalidate('tasks');
       }

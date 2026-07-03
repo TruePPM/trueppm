@@ -9335,6 +9335,78 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/queue/reorder/": {
+            "post": {
+                "operationId": "v1_projects_queue_reorder_create",
+                "description": "Promote / demote tasks in the board queue's priority-sorted groups (issue 1610).\n\nBody: ``{\"tasks\": [{\"id\": \"<uuid>\", \"server_version\": <int>}, ...]}`` — one queue\ngroup (*Next up* or *In flight*) in the target display order. Writes dense\n``priority_rank = position * 10``, optimistic-locked per row on ``server_version``.\nReturns ``200 {\"updated\": <count>}``; ``409`` with the offending ids if a row moved\nunder the client; ``400`` on a malformed body or an id that is not a live, reorderable\n(NOT_STARTED / IN_PROGRESS / REVIEW) task of this project. Unlike the product-backlog\nreorder there is no set-completeness check — the queue may be filtered, so a partial\ngroup is a valid reorder (see ``reorder_queue_priority``).",
+                "summary": "Promote / demote tasks in the board queue",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Body includes the updated row count."
+                    },
+                    "400": {
+                        "description": "Malformed body, or an id that is not a live NOT_STARTED / IN_PROGRESS / REVIEW task of this project."
+                    },
+                    "409": {
+                        "description": "A task changed under the client; body includes the conflicting ids so the client refetches and replays the reorder."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/resource-allocation/": {
             "get": {
                 "operationId": "v1_projects_resource_allocation_retrieve",

@@ -4,8 +4,9 @@
  * top-level empty state.
  */
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { QueueLayout, groupTasksForQueue } from './QueueLayout';
+import { QueueLayout, groupTasksForQueue, reorderGroupTasks } from './QueueLayout';
 import type { Task, TaskStatus } from '@/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -205,5 +206,159 @@ describe('QueueLayout', () => {
     );
     expect(screen.getByText('Refresh logo')).toBeInTheDocument();
     expect(screen.getByText('Audit links')).toBeInTheDocument();
+  });
+});
+
+describe('reorderGroupTasks', () => {
+  const tasks = [
+    makeTask({ id: 'a' }),
+    makeTask({ id: 'b' }),
+    makeTask({ id: 'c' }),
+  ];
+
+  it('promotes a row one slot (swaps with the previous)', () => {
+    expect(reorderGroupTasks(tasks, 2, 1).map((t) => t.id)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('demotes a row one slot (swaps with the next)', () => {
+    expect(reorderGroupTasks(tasks, 0, 1).map((t) => t.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('is a no-op when the target index is out of range', () => {
+    expect(reorderGroupTasks(tasks, 0, -1)).toBe(tasks);
+    expect(reorderGroupTasks(tasks, 2, 3)).toBe(tasks);
+  });
+});
+
+describe('QueueRow overflow menu (issue 1610)', () => {
+  const NOW = new Date('2026-05-09T00:00:00Z');
+
+  it('replaces the former inert span with a real menu button per row', () => {
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+      />,
+    );
+    const trigger = screen.getByTestId('queue-row-menu-a');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('opens a role=menu with Promote / Demote / Open details for a reorderable middle row', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: 1 }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: 1 }),
+          makeTask({ id: 'c', status: 'NOT_STARTED', priorityRank: 3, serverVersion: 1 }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-b'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Promote/ })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: /Demote/ })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
+  });
+
+  it('promote emits the group in its new order (moved row swapped up)', async () => {
+    const user = userEvent.setup();
+    const onReorderGroup = vi.fn();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={onReorderGroup}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: 4 }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: 7 }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-b'));
+    await user.click(screen.getByRole('menuitem', { name: /Promote/ }));
+    expect(onReorderGroup).toHaveBeenCalledWith([
+      { id: 'b', serverVersion: 7 },
+      { id: 'a', serverVersion: 4 },
+    ]);
+  });
+
+  it('disables Promote on the top row and Demote on the bottom row', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[
+          makeTask({ id: 'a', status: 'NOT_STARTED', priorityRank: 1, serverVersion: 1 }),
+          makeTask({ id: 'b', status: 'NOT_STARTED', priorityRank: 2, serverVersion: 1 }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    expect(screen.getByRole('menuitem', { name: /Promote/ })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: /Demote/ })).toBeEnabled();
+  });
+
+  it('omits Promote / Demote without the reorder capability, keeping Open details', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder={false}
+        onReorderGroup={vi.fn()}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    expect(screen.queryByRole('menuitem', { name: /Promote/ })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: /Demote/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
+  });
+
+  it('does not offer Promote / Demote on the Backlog group (sorted by recency, not priority)', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[makeTask({ id: 'bk', status: 'BACKLOG', serverVersion: 1 })]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-bk'));
+    expect(screen.queryByRole('menuitem', { name: /Promote/ })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Open details/ })).toBeInTheDocument();
+  });
+
+  it('closes on Escape', async () => {
+    const user = userEvent.setup();
+    render(
+      <QueueLayout
+        {...BASE_PROPS}
+        now={NOW}
+        canReorder
+        onReorderGroup={vi.fn()}
+        tasks={[makeTask({ id: 'a', status: 'NOT_STARTED', serverVersion: 1 })]}
+      />,
+    );
+    await user.click(screen.getByTestId('queue-row-menu-a'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 });

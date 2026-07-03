@@ -474,7 +474,14 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         # backlog action gated on can_manage_backlog (Admin+ today, PO-role seam).
         if self.action == "product_backlog":
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
-        if self.action in ("product_backlog_auto_rank", "product_backlog_reorder"):
+        if self.action in (
+            "product_backlog_auto_rank",
+            "product_backlog_reorder",
+            "queue_reorder",
+        ):
+            # Priority reorder is a structural backlog action (permissions.can_manage_backlog):
+            # Admin+ or the Product Owner facet. The board queue's promote/demote rides the
+            # same gate as the product-backlog drag so the capability is declared once.
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
         # Recording a last-visited ping is any-member (Viewer+) and intentionally
         # skips IsProjectNotArchived: a user opening an archived project is still a
@@ -1024,6 +1031,112 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         except BacklogReorderConflict as exc:
             return Response(
                 {"detail": "Backlog changed — reload and retry.", "conflicts": exc.ids},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"updated": changed})
+
+    @extend_schema(
+        summary="Promote / demote tasks in the board queue",
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Body includes the updated row count.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Malformed body, or an id that is not a live NOT_STARTED / IN_PROGRESS / "
+                    "REVIEW task of this project."
+                )
+            ),
+            409: OpenApiResponse(
+                description=(
+                    "A task changed under the client; body includes the conflicting ids so "
+                    "the client refetches and replays the reorder."
+                )
+            ),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="queue/reorder")
+    def queue_reorder(self, request: Request, pk: str | None = None) -> Response:
+        """Promote / demote tasks in the board queue's priority-sorted groups (issue 1610).
+
+        Body: ``{"tasks": [{"id": "<uuid>", "server_version": <int>}, ...]}`` — one queue
+        group (*Next up* or *In flight*) in the target display order. Writes dense
+        ``priority_rank = position * 10``, optimistic-locked per row on ``server_version``.
+        Returns ``200 {"updated": <count>}``; ``409`` with the offending ids if a row moved
+        under the client; ``400`` on a malformed body or an id that is not a live, reorderable
+        (NOT_STARTED / IN_PROGRESS / REVIEW) task of this project. Unlike the product-backlog
+        reorder there is no set-completeness check — the queue may be filtered, so a partial
+        group is a valid reorder (see ``reorder_queue_priority``).
+        """
+        from trueppm_api.apps.projects.services import (
+            QueueReorderConflict,
+            QueueReorderValidation,
+            reorder_queue_priority,
+        )
+
+        project = self.get_object()
+
+        tasks_data = request.data.get("tasks")
+        if not isinstance(tasks_data, list) or not tasks_data:
+            return Response(
+                {"tasks": ["This field is required and must be a non-empty list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Bound the payload before the parse loop + select_for_update — a queue group is
+        # realistically a few hundred rows; 2000 is generous headroom while preventing a
+        # giant list from locking every task row (DoS guard). Mirrors product_backlog_reorder.
+        if len(tasks_data) > 2000:
+            return Response(
+                {"tasks": ["Too many entries to reorder in one request (max 2000)."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        invalid: list[str] = []
+        parsed: list[tuple[str, int]] = []
+        for entry in tasks_data:
+            if not isinstance(entry, dict):
+                invalid.append(repr(entry))
+                continue
+            tid = entry.get("id")
+            sv = entry.get("server_version")
+            # bool is an int subclass — exclude it so {"server_version": true} is rejected.
+            if not isinstance(tid, str) or not isinstance(sv, int) or isinstance(sv, bool):
+                invalid.append(repr(entry))
+                continue
+            try:
+                uuid.UUID(tid)
+            except ValueError:
+                invalid.append(tid)
+                continue
+            parsed.append((tid, sv))
+
+        if invalid:
+            bad = ", ".join(invalid)
+            return Response(
+                {"tasks": [f"Invalid entries (expected {{id, server_version}}): {bad}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ids = [tid for tid, _ in parsed]
+        if len(set(ids)) != len(ids):
+            return Response(
+                {"tasks": ["Duplicate task ids in the ordered list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            changed = reorder_queue_priority(project, parsed, request.user)
+        except QueueReorderValidation as exc:
+            bad = ", ".join(exc.ids)
+            return Response(
+                {"tasks": [f"Not reorderable in the queue: {bad}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except QueueReorderConflict as exc:
+            return Response(
+                {"detail": "Queue changed — reload and retry.", "conflicts": exc.ids},
                 status=status.HTTP_409_CONFLICT,
             )
         return Response({"updated": changed})
