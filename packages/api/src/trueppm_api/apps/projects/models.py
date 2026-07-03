@@ -1084,49 +1084,107 @@ class Project(VersionedModel):
         return self.name
 
     def soft_delete(self) -> None:
-        """Soft-delete the project and cascade-tombstone its child rows.
+        """Soft-delete the project row only — the child cascade runs separately.
 
-        ``VersionedModel.soft_delete`` alone marks only this Project row, leaving
-        tasks, sprints, risks, and baselines orphaned with a stale FK pointing at
-        a deleted project. Those children all filter ``is_deleted=False`` on the
-        child row (not the parent), so an un-cascaded soft-delete leaks orphans
-        into "My Work", capacity rollups, active-sprint velocity math, and
-        portfolio counts. Cascade the soft-delete to each child so sync clients
-        receive proper tombstones and no orphan survives — mirroring
-        ``Task.soft_delete`` (which cascades to its dependency edges and subtasks)
-        and the ``delete_program_cascade`` service.
+        Historically (#1111) this method cascaded synchronously to every task,
+        dependency edge, sprint, risk, and baseline inside the request's
+        ATOMIC_REQUESTS transaction. For a large project (≈1000 tasks / 10k edges
+        ≈ 24k round-trips) that risked a request timeout and long-held row locks,
+        so #1112 split the two concerns:
 
-        Each child goes through its own ``soft_delete`` rather than a bulk update
-        so per-model side effects fire: ``Task.soft_delete`` tombstones dependency
-        edges and subtask children, ``Risk.soft_delete`` emits ``risk_changed``.
-        Project deletes are infrequent, so the per-row cost is acceptable; the
-        whole thing runs inside the request's ATOMIC_REQUESTS transaction. (A
-        large project's cascade is offloaded to a background task in #1112 — for
-        now it runs synchronously.)
+        * the project-row tombstone stays **synchronous** (this method) so the
+          project reads as gone the instant the request commits — overview,
+          retrieve, and list all filter ``is_deleted=False``, so a project whose
+          child cascade is still draining is already invisible to every reader;
+        * the child cascade is offloaded to
+          :func:`cascade_project_children_soft_delete`, which the
+          ``cascade_project_soft_delete`` Celery task invokes after commit.
+
+        This method deliberately no longer cascades. A caller that needs the full
+        effect without a worker (a management command, a test) calls
+        ``cascade_project_children_soft_delete(self)`` immediately after this.
 
         The hard-delete path (``?force=true``) is unaffected — Django's DB-level
-        CASCADE removes children directly; this cascade only governs soft-delete.
+        CASCADE removes children directly; this split only governs soft-delete.
         """
-        # Non-subtask tasks first: Task.soft_delete cascades each task's
-        # dependency edges and its drawer-subtask children, so subtasks are
-        # handled by their parent and must not be visited again here — a stale
-        # in-memory row would double-bump server_version and emit a redundant
-        # tombstone. The trailing sweep catches any subtask orphaned under an
-        # already-deleted parent (a pre-existing anomaly) so none is left live
-        # under the deleted project. No select_for_update: the project is being
-        # deleted, and pessimistically locking the whole task set for the full
-        # transaction is needless contention against concurrent task writes.
-        for task in self.tasks.filter(is_deleted=False, is_subtask=False):
-            task.soft_delete()
-        for orphan_subtask in self.tasks.filter(is_deleted=False):
-            orphan_subtask.soft_delete()
-        for sprint in self.sprints.filter(is_deleted=False):
-            sprint.soft_delete()
-        for risk in self.risks.filter(is_deleted=False):
-            risk.soft_delete()
-        for baseline in self.baselines.filter(is_deleted=False):
-            baseline.soft_delete()
         super().soft_delete()
+
+
+def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> None:
+    """Tombstone every board-scoped child of a (soft-deleted) project.
+
+    Split out of ``Project.soft_delete`` in #1112 so the expensive cascade can run
+    in a background Celery task instead of the request transaction. Callable
+    directly for the synchronous full-effect path.
+
+    Idempotent: every pass filters ``is_deleted=False``, so only still-live rows
+    are touched and a re-run — a Celery retry after a broker hiccup, or a
+    duplicate dispatch — is a safe no-op that bumps no versions and emits no
+    duplicate tombstones.
+
+    Bulk ``update()`` with ``F()`` replicates ``VersionedModel.soft_delete``'s
+    version bump for tasks, dependency edges, sprints, and baselines in one
+    round-trip per model instead of one per row (the #1112 win). Within a single
+    UPDATE every ``F()`` reads the pre-update column, so ``server_version`` and
+    ``deleted_version`` both resolve to ``old + 1`` — i.e. ``deleted_version``
+    equals the new ``server_version``, exactly as the per-row path recorded it.
+
+    Two per-model side effects that bulk update cannot express are handled
+    explicitly, preserving the sync-tombstone semantics #1111 established:
+
+    * **dependency edges** — ``Task.soft_delete`` tombstones each task's edges;
+      here a single pass tombstones every edge whose predecessor *or* successor
+      lives in the project (this also covers cross-project edges, whose surviving
+      endpoint in another project loses the link, matching the per-row path);
+    * **risks** — ``Risk.soft_delete`` emits the ``risk_changed`` signal (the OSS
+      extension point for the Enterprise portfolio risk rollup, sent robustly), so
+      risks go through their per-row ``soft_delete`` rather than a bulk update that
+      would silently skip the signal. Risk counts are small, so per-row is cheap.
+
+    Subtasks need no special traversal: every task in the project — subtask or not
+    — is tombstoned by the single task update, so the WBS descendant walk that
+    ``Task.soft_delete`` performs for drawer-subtasks is unnecessary here.
+
+    Note: bulk ``update()`` does not create ``django-simple-history`` rows for the
+    tombstoned children; sync and the nightly reap key off ``server_version`` /
+    ``deleted_version`` (both set here), not history, so this is intended.
+    """
+    project_id = project.pk if isinstance(project, Project) else project
+    now = timezone.now()
+
+    # Edges before tasks is not required for correctness — soft-delete leaves each
+    # task's project_id in place, so the edge match by endpoint→project is stable
+    # regardless of order — but tombstoning edges in one predecessor-or-successor
+    # pass is the whole point: it replaces Task.soft_delete's per-task edge sweep.
+    Dependency.objects.filter(
+        Q(predecessor__project_id=project_id) | Q(successor__project_id=project_id),
+        is_deleted=False,
+    ).update(
+        is_deleted=True,
+        server_version=F("server_version") + 1,
+        deleted_version=F("server_version") + 1,
+        deleted_at=now,
+    )
+    Task.objects.filter(project_id=project_id, is_deleted=False).update(
+        is_deleted=True,
+        server_version=F("server_version") + 1,
+        deleted_version=F("server_version") + 1,
+        deleted_at=now,
+    )
+    Sprint.objects.filter(project_id=project_id, is_deleted=False).update(
+        is_deleted=True,
+        server_version=F("server_version") + 1,
+        deleted_version=F("server_version") + 1,
+    )
+    Baseline.objects.filter(project_id=project_id, is_deleted=False).update(
+        is_deleted=True,
+        server_version=F("server_version") + 1,
+        deleted_version=F("server_version") + 1,
+    )
+    # Risks per-row so risk_changed fires (send_robust) for the Enterprise rollup;
+    # a bulk update would bypass Risk.soft_delete's signal.
+    for risk in Risk.objects.filter(project_id=project_id, is_deleted=False):
+        risk.soft_delete()
 
 
 # ---------------------------------------------------------------------------

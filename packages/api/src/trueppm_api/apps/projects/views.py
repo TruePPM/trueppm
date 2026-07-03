@@ -660,6 +660,10 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
             .values_list("user_id", flat=True)
         ]
 
+        # Tombstone the project ROW synchronously — instant and cheap — then
+        # offload the child cascade (#1112). Overview/retrieve/list all filter
+        # is_deleted=False, so the project reads as gone the moment this commits,
+        # even while the enqueued cascade is still draining its children.
         instance.soft_delete()
         _record_project_audit_event(
             event_type="project_deleted",
@@ -667,6 +671,12 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
             project=instance,
             metadata={"mode": "soft"},
         )
+        # Offload the (potentially ~24k round-trip) child tombstone cascade to a
+        # background task; enqueue_* defers dispatch via transaction.on_commit so a
+        # rolled-back request never fires the worker.
+        from trueppm_api.apps.projects.services import enqueue_project_cascade_soft_delete
+
+        enqueue_project_cascade_soft_delete(project_id)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
