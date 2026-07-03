@@ -83,6 +83,7 @@ import { BoardCardPopover } from './BoardCardPopover';
 import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
 import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
+import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { BacklogDrawer } from './BacklogDrawer';
 import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
@@ -1852,6 +1853,9 @@ export function BoardView() {
   // never have BACKLOG status, so the isSummary check is defensive — it would
   // otherwise be unreachable. The committed half drives buildPhases; the
   // backlog half drives the BacklogBand above the grid.
+  // ⌘K handoff (issue 1609): the rail's search box opens the shared command
+  // palette rather than owning its own capture overlay.
+  const openCommandPalette = useCommandPaletteStore((s) => s.setOpen);
   const { committedTasks, backlogTasks } = useMemo(() => {
     const committed: Task[] = [];
     const backlog: Task[] = [];
@@ -3008,6 +3012,7 @@ export function BoardView() {
                   onSchedule={projectId ? handleScheduleRequest : undefined}
                   onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
                   isCaptureIdeaPending={false}
+                  onOpenCommandPalette={() => openCommandPalette(true)}
                 />
               )}
 
