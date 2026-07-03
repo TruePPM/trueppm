@@ -42,6 +42,25 @@ vi.mock('@/hooks/useSprints', () => ({
     sprint: pid ? { id: 's1', name: 'Sprint 14', state: 'ACTIVE' } : null,
   }),
 }));
+// Shared jump-to-current-sprint targets (#1594). Mirrors the real hook: an
+// in-context target for the routed project, empty off-route. Its own combining /
+// de-dup logic is covered in useCurrentSprintTargets.test.ts.
+const sprintTargets = vi.fn((pid?: string) =>
+  pid
+    ? [
+        {
+          projectId: pid,
+          projectName: 'Atlas',
+          sprintId: 's1',
+          sprintName: 'Sprint 14',
+          path: `/projects/${pid}/board?sprint=s1`,
+        },
+      ]
+    : [],
+);
+vi.mock('@/hooks/useCurrentSprintTargets', () => ({
+  useCurrentSprintTargets: (pid?: string) => sprintTargets(pid),
+}));
 const canManage = vi.fn((pid?: string) => !!pid);
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: (pid?: string) => canManage(pid) }));
 
@@ -76,6 +95,19 @@ afterEach(() => {
   hiddenViews = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
+  sprintTargets.mockImplementation((pid?: string) =>
+    pid
+      ? [
+          {
+            projectId: pid,
+            projectName: 'Atlas',
+            sprintId: 's1',
+            sprintName: 'Sprint 14',
+            path: `/projects/${pid}/board?sprint=s1`,
+          },
+        ]
+      : [],
+  );
   scheduleTasks.mockImplementation((pid?: string) => ({
     tasks: pid
       ? [{ id: 't1', name: 'Wire OAuth', wbs: '1.4.2', status: 'IN_PROGRESS', shortId: 'A1B2' }]
@@ -112,11 +144,17 @@ describe('useCommandItems — tier assembly', () => {
     expect(navigate).not.toHaveBeenCalled(); // opens drawer, does not navigate
   });
 
-  it('builds Tier-2 active-sprint + retro targets when a sprint is active', () => {
+  it('builds the top-ranked sprint jump + in-context retro target when a sprint is active', () => {
     const { result } = renderHook(() => useCommandItems(true));
     const items = byId(result.current);
-    expect(items.get('current:active-sprint:p1')?.label).toBe('Active Sprint — Sprint 14');
+    // The board jump is the first-class, top-ranked `sprint` group (#1594)…
+    const jump = items.get('sprint:s1');
+    expect(jump?.label).toBe('Current sprint — Sprint 14');
+    expect(jump?.group).toBe('sprint');
+    expect(jump?.detail).toBe('Atlas');
+    // …the retro jump stays as an in-context `current` target.
     expect(items.get('current:retro:p1')?.label).toBe('Open Sprint 14 retro');
+    expect(items.has('current:active-sprint:p1')).toBe(false);
   });
 
   it('role-gates the grooming target on the manage-backlog capability', () => {

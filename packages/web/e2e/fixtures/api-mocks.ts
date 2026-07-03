@@ -263,6 +263,10 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route('**/api/v1/me/notifications/**', (route) =>
     route.fulfill(jsonResponse(paginated([]))),
   );
+  // Cross-team "current sprint" lens (#1594) — the pinned CurrentSprintButton and
+  // the ⌘K sprint action are mounted on every routed page, so default to an empty
+  // list. Specs exercising the control override this with their own page.route(...).
+  await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(jsonResponse([])));
 
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>

@@ -89,6 +89,14 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     }),
   );
 
+  // Cross-team "current sprint" lens (#1594) — CurrentSprintButton is mounted
+  // globally in TopBar, so every routed page calls this. useMyActiveSprints
+  // expects a raw array; without this mock it falls through to the paginated
+  // catch-all object above, which crashes the app when the hook iterates it.
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,

@@ -21,15 +21,23 @@ const MOCK_ITEMS: CommandItem[] = [
     run: runOpenTask,
   },
   {
-    id: 'current:active-sprint:p1',
-    label: 'Active Sprint — Sprint 14',
-    group: 'current',
+    id: 'sprint:s1',
+    label: 'Current sprint — Sprint 14',
+    group: 'sprint',
     tag: 'Sprint',
+    detail: 'Atlas',
     run: vi.fn(),
   },
   { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: runMyWork },
   { id: 'jump:program:apollo', label: 'Apollo', group: 'jump', tag: 'Program', run: runApollo },
-  { id: 'action:theme', label: 'Switch theme', group: 'action', tag: 'Action', keywords: 'dark', run: runTheme },
+  {
+    id: 'action:theme',
+    label: 'Switch theme',
+    group: 'action',
+    tag: 'Action',
+    keywords: 'dark',
+    run: runTheme,
+  },
 ];
 vi.mock('./useCommandItems', () => ({ useCommandItems: () => MOCK_ITEMS }));
 
@@ -86,7 +94,7 @@ describe('CommandPalette', () => {
     render(<CommandPalette />);
     const input = screen.getByRole('combobox');
     // Cold (empty query) the Tasks group is gated out, so the first visible item
-    // is the current-project Active Sprint; ArrowDown lands on My Work.
+    // is the top-ranked Current sprint jump; ArrowDown lands on My Work.
     fireEvent.keyDown(input, { key: 'ArrowDown' });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(runMyWork).toHaveBeenCalledTimes(1);
@@ -114,11 +122,11 @@ describe('CommandPalette', () => {
     open();
     render(<CommandPalette />);
     const input = screen.getByRole('combobox');
-    // Cold, the Tasks group is gated out, so the first option is Active Sprint.
-    expect(input).toHaveAttribute('aria-activedescendant', 'cmdk-opt-current:active-sprint:p1');
+    // Cold, the Tasks group is gated out, so the first option is the Current sprint jump.
+    expect(input).toHaveAttribute('aria-activedescendant', 'cmdk-opt-sprint:s1');
     const dialog = screen.getByRole('dialog');
     const selected = within(dialog).getByRole('option', { selected: true });
-    expect(selected).toHaveTextContent('Active Sprint');
+    expect(selected).toHaveTextContent('Current sprint');
   });
 
   it('gates the Tasks group behind a query, then reveals matches', () => {
@@ -130,7 +138,9 @@ describe('CommandPalette', () => {
     // Typing a task match reveals the Tasks group.
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'oauth' } });
     expect(screen.getByText('Tasks')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: /Open task: Wire OAuth callback/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: /Open task: Wire OAuth callback/ }),
+    ).toBeInTheDocument();
   });
 
   it('opens the task drawer (runs the task item) on Enter', () => {
