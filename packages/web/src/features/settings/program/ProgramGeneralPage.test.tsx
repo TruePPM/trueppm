@@ -1,4 +1,4 @@
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -63,6 +63,9 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     inherited_mc_history_enabled: true,
     inherited_mc_history_retention_cap: 100,
     inherited_mc_history_attribution_audience: 'ADMIN_OWNER',
+    task_duration_change_percent_policy: null,
+    effective_task_duration_change_percent_policy: 'keep',
+    inherited_task_duration_change_percent_policy: 'keep',
     attachments_enabled: null,
     allowed_attachment_types: null,
     effective_attachments_enabled: true,
@@ -126,6 +129,16 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByLabelText('Program code')).toHaveValue('PH2');
     expect(screen.getByRole('button', { name: 'Auto', pressed: true })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
+  });
+
+  it('renders the duration-change policy control inheriting the workspace default', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    const group = screen.getByRole('radiogroup', { name: 'Duration change percent policy' });
+    expect(group).toBeInTheDocument();
+    // Fixture override is null → inheriting; the inherited value ('keep') surfaces
+    // via the "Inherit (Keep entered %)" chip.
+    expect(within(group).getByText(/Keep entered %/)).toBeInTheDocument();
   });
 
   it('re-seeds the form when the program in the route changes (no remount)', () => {
@@ -233,6 +246,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
+        task_duration_change_percent_policy: null,
       },
     });
   });
@@ -313,6 +327,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
+        task_duration_change_percent_policy: null,
       },
     });
   });
@@ -351,6 +366,7 @@ describe('ProgramGeneralPage (settings)', () => {
         mc_history_enabled: null,
         mc_history_retention_cap: null,
         mc_history_attribution_audience: null,
+        task_duration_change_percent_policy: null,
       },
     });
   });

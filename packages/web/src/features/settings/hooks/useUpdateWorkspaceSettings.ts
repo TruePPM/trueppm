@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
   MethodologyOverridePolicy,
@@ -33,6 +34,8 @@ interface WorkspaceSettingsPatchRaw {
   mc_history_retention_cap?: number;
   mc_history_attribution_audience?: MCAttributionAudience;
   mc_history_override_policy?: MCHistoryOverridePolicy;
+  task_duration_change_percent_policy?: DurationChangePercentPolicy;
+  task_duration_change_percent_override_policy?: 'inherit' | 'suggest' | 'enforce';
   methodology?: ProgramMethodology;
   methodology_override_policy?: MethodologyOverridePolicy;
   attachments_enabled?: boolean;
@@ -61,6 +64,10 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
     raw.mc_history_attribution_audience = patch.mcHistoryAttributionAudience;
   if (patch.mcHistoryOverridePolicy !== undefined)
     raw.mc_history_override_policy = patch.mcHistoryOverridePolicy;
+  if (patch.taskDurationChangePercentPolicy !== undefined)
+    raw.task_duration_change_percent_policy = patch.taskDurationChangePercentPolicy;
+  if (patch.taskDurationChangePercentOverridePolicy !== undefined)
+    raw.task_duration_change_percent_override_policy = patch.taskDurationChangePercentOverridePolicy;
   if (patch.methodology !== undefined) raw.methodology = patch.methodology;
   if (patch.methodologyOverridePolicy !== undefined)
     raw.methodology_override_policy = patch.methodologyOverridePolicy;

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
   MethodologyOverridePolicy,
@@ -30,6 +31,8 @@ interface WorkspaceSettingsRaw {
   mc_history_retention_cap: number;
   mc_history_attribution_audience: MCAttributionAudience;
   mc_history_override_policy: MCHistoryOverridePolicy;
+  task_duration_change_percent_policy: DurationChangePercentPolicy;
+  task_duration_change_percent_override_policy: 'inherit' | 'suggest' | 'enforce';
   methodology: ProgramMethodology;
   methodology_override_policy: MethodologyOverridePolicy;
   attachments_enabled: boolean;
@@ -57,6 +60,8 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     mcHistoryRetentionCap: raw.mc_history_retention_cap,
     mcHistoryAttributionAudience: raw.mc_history_attribution_audience,
     mcHistoryOverridePolicy: raw.mc_history_override_policy,
+    taskDurationChangePercentPolicy: raw.task_duration_change_percent_policy,
+    taskDurationChangePercentOverridePolicy: raw.task_duration_change_percent_override_policy,
     methodology: raw.methodology,
     methodologyOverridePolicy: raw.methodology_override_policy,
     attachmentsEnabled: raw.attachments_enabled,

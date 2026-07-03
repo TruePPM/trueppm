@@ -263,6 +263,14 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
         }),
       }),
     );
+    // The changes-log now also reads duration-events (ADR-0151, issue 1254).
+    await page.route(/\/api\/v1\/sprints\/sp-active\/duration-events\//, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ events: [] }),
+      }),
+    );
 
     await page.goto(BASE_URL);
     const card = page.getByRole('region', { name: /Advancing to Milestone/i });

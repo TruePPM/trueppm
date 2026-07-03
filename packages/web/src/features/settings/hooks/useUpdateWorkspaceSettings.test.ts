@@ -96,6 +96,8 @@ describe('useUpdateWorkspaceSettings', () => {
       mcHistoryOverridePolicy: 'lock',
       attachmentsOverridePolicy: 'suggest',
       iterationLabelOverridePolicy: 'inherit',
+      taskDurationChangePercentPolicy: 'prorate',
+      taskDurationChangePercentOverridePolicy: 'enforce',
     });
 
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
@@ -104,6 +106,8 @@ describe('useUpdateWorkspaceSettings', () => {
       mc_history_override_policy: 'lock',
       attachments_override_policy: 'suggest',
       iteration_label_override_policy: 'inherit',
+      task_duration_change_percent_policy: 'prorate',
+      task_duration_change_percent_override_policy: 'enforce',
     });
   });
 

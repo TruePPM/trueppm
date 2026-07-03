@@ -187,6 +187,21 @@ Deferred **conditionally** (only when an engine change makes it reachable):
   `bulk_update()` (§5). Not built now because it would record zero events against
   the current engine.
 
+### Consumer-slice addendum (issue 1254 — deferred frontend)
+The frontend follow-up (issue 1254) implements the three deferred surfaces above.
+It required **one** small backend addition not specified in the original slice:
+- `GET /api/v1/sprints/{id}/duration-events/` — a read-only, member-gated
+  (Viewer+) per-sprint aggregate of the `TaskDurationChangeEvent` rows whose
+  `sprint` FK was captured at change time. The §7 read action is **per-task**;
+  the sprint changes-log needs a **per-sprint** read so it does not fan out one
+  request per sprint task on the client (the codebase avoids that N-request
+  pattern). It mirrors the existing `GET /sprints/{id}/scope-changes/` action
+  exactly — same permission gate, no new model, no mutation, no async work.
+The chip is surfaced **locally** by the editing client (it reads the project's
+`effective_task_duration_change_percent_policy` and computes the prorate
+suggestion client-side); the `task_duration_changed` WS event stays a no-op
+(issue 1323) to avoid clobbering the editor's in-flight optimistic edit.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |

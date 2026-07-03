@@ -1,7 +1,17 @@
-import { useEffect, useRef } from 'react';
-import { useSprintScopeChanges, type ScopeChangeEvent } from '@/hooks/useSprints';
+import { useEffect, useMemo, useRef } from 'react';
+import {
+  useSprintScopeChanges,
+  useSprintDurationChanges,
+  type ScopeChangeEvent,
+  type SprintDurationChangeEvent,
+} from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+
+/** A scope-change and a duration-change row, merged into one time-sorted feed. */
+type FeedItem =
+  | { kind: 'scope'; at: string; event: ScopeChangeEvent }
+  | { kind: 'duration'; at: string; event: SprintDurationChangeEvent };
 
 interface Props {
   /** Sprint whose scope-change audit to show. */
@@ -22,6 +32,7 @@ interface Props {
  */
 export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   const { data, isLoading } = useSprintScopeChanges(sprintId);
+  const { data: durationData, isLoading: durationLoading } = useSprintDurationChanges(sprintId);
   const itl = useIterationLabel();
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   // Trap Tab inside the drawer; restore focus to the trigger on close (issue 1357).
@@ -37,7 +48,21 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   }, [onClose]);
 
   const summary = data?.summary;
-  const events = data?.events ?? [];
+
+  // Merge scope-changes and duration-changes into one newest-first feed so the
+  // team scans a single chronological log (ADR-0151, issue 1254). Both are
+  // read-only audit rows; they differ only by icon/accent, not by section.
+  const feed: FeedItem[] = useMemo(() => {
+    const scopeEvents = data?.events ?? [];
+    const durationEvents = durationData?.events ?? [];
+    const items: FeedItem[] = [
+      ...scopeEvents.map((e): FeedItem => ({ kind: 'scope', at: e.added_at, event: e })),
+      ...durationEvents.map((e): FeedItem => ({ kind: 'duration', at: e.created_at, event: e })),
+    ];
+    return items.sort((a, b) => b.at.localeCompare(a.at));
+  }, [data?.events, durationData?.events]);
+
+  const loading = isLoading || durationLoading;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-neutral-text-primary/40">
@@ -76,17 +101,21 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <p className="px-4 py-3 text-xs text-neutral-text-disabled">Loading scope changes…</p>
-          ) : events.length === 0 ? (
+          {loading ? (
+            <p className="px-4 py-3 text-xs text-neutral-text-disabled">Loading changes…</p>
+          ) : feed.length === 0 ? (
             <p className="px-4 py-6 text-center text-xs italic text-neutral-text-disabled">
-              No scope changes since this {itl.lower} was activated.
+              No changes since this {itl.lower} was activated.
             </p>
           ) : (
             <ul className="flex flex-col">
-              {events.map((e) => (
-                <ScopeChangeRow key={e.id} event={e} />
-              ))}
+              {feed.map((item) =>
+                item.kind === 'scope' ? (
+                  <ScopeChangeRow key={`scope-${item.event.id}`} event={item.event} />
+                ) : (
+                  <DurationChangeRow key={`duration-${item.event.id}`} event={item.event} />
+                ),
+              )}
             </ul>
           )}
         </div>
@@ -144,6 +173,57 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
       >
         {STATUS_LABEL[event.status]}
       </span>
+    </li>
+  );
+}
+
+/**
+ * A mid-sprint duration-change row (ADR-0151, issue 1254). Read-only, interleaved
+ * with scope-change rows in the same feed; distinguished by an info-blue
+ * circular-arrow glyph (vs the scope rows' amber ± accent) so the two are
+ * separable by shape and color (WCAG 1.4.1). The "% recalculated" line appears
+ * only when the policy prorated the value (percent_complete_after set).
+ */
+function DurationChangeRow({ event }: { event: SprintDurationChangeEvent }) {
+  const when = new Date(event.created_at).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+  const recalculated =
+    event.percent_complete_after !== null &&
+    event.percent_complete_after !== event.percent_complete_at_change;
+  return (
+    <li
+      className="px-4 py-2.5 flex items-start gap-3 border-b border-neutral-border/60 last:border-b-0"
+      data-testid="duration-change-row"
+    >
+      <span
+        className="text-xs mt-0.5 shrink-0 text-brand-primary"
+        aria-label="duration changed"
+      >
+        <span aria-hidden="true">↻</span>
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-neutral-text-primary truncate" title={event.task_name ?? undefined}>
+          {event.task_name ?? 'Task'}
+          {' · '}
+          <span className="tppm-mono text-neutral-text-secondary">
+            Duration {event.old_duration}d → {event.new_duration}d
+          </span>
+        </p>
+        {recalculated && (
+          <p className="text-xs text-neutral-text-secondary">
+            % complete recalculated{' '}
+            <span className="tppm-mono">
+              {Math.round(event.percent_complete_at_change)}% →{' '}
+              {Math.round(event.percent_complete_after as number)}%
+            </span>
+          </p>
+        )}
+        <p className="text-xs text-neutral-text-secondary">
+          {event.actor_name ?? 'Automatic'} · <span className="tppm-mono">{when}</span>
+        </p>
+      </div>
     </li>
   );
 }

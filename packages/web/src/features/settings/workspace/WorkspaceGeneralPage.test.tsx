@@ -25,6 +25,8 @@ const WS: WorkspaceSettings = {
   mcHistoryRetentionCap: 100,
   mcHistoryAttributionAudience: 'ADMIN_OWNER',
   mcHistoryOverridePolicy: 'allow',
+  taskDurationChangePercentPolicy: 'prorate',
+  taskDurationChangePercentOverridePolicy: 'suggest',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
@@ -136,6 +138,31 @@ describe('WorkspaceGeneralPage — forecast history', () => {
     expect(screen.getByRole('combobox', { name: 'Run attribution visible to' })).toHaveValue(
       'ADMIN_OWNER',
     );
+  });
+
+  it('renders the duration-change policy select seeded from the workspace settings', () => {
+    renderPage();
+    const select = screen.getByRole('combobox', { name: /Duration change to percent complete/i });
+    expect(select).toHaveValue('prorate');
+    // The shared option labels come from durationChangePolicy.ts.
+    expect(within(select).getByRole('option', { name: 'Prorate automatically' })).toBeInTheDocument();
+  });
+
+  it('renders the duration-change Enforce policy as a disabled Enterprise affordance', () => {
+    renderPage();
+    const enforce = screen.getByRole('radio', {
+      name: /Force this policy everywhere; overrides are ignored\./i,
+    });
+    expect(enforce).toBeDisabled();
+    expect(
+      screen.getByRole('radio', {
+        name: /Programs and projects can choose their own policy\./i,
+      }),
+    ).toBeChecked();
+    const ee = within(enforce.closest('span') as HTMLElement).getByRole('link', {
+      name: /Available in TruePPM Enterprise/i,
+    });
+    expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
   it('clamps the retention input to the 500 hard cap', async () => {

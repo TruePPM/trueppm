@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  DurationChangePercentPolicy,
   MCAttributionAudience,
   PaginatedResponse,
   ProjectDefaultView,
@@ -99,6 +100,10 @@ export interface UpdateProjectPayload {
   mc_history_enabled?: boolean | null;
   mc_history_retention_cap?: number | null;
   mc_history_attribution_audience?: MCAttributionAudience | null;
+  /** Percent-complete-on-duration-change policy override (ADR-0151, issue 1254).
+   *  `null` clears the override so the project inherits the program/workspace value.
+   *  Admin+-only server-side. */
+  task_duration_change_percent_policy?: DurationChangePercentPolicy | null;
   /** Attachment-policy overrides (ADR-0153, issue 976). `attachments_enabled`: `null`
    *  clears the override so the project inherits the program/workspace value.
    *  `allowed_attachment_types` is tri-state: `null` = inherit, `[]` = explicit

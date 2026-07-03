@@ -19258,6 +19258,50 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/duration-events/": {
+            "get": {
+                "operationId": "v1_sprints_duration_events_retrieve",
+                "description": "Read the sprint's mid-sprint duration-change events (ADR-0151, issue 1254).\n\nRead-only; any project member (Viewer+) — the team-readable audit that\nsurfaces on the sprint changes-log so a duration change made during the\nsprint is visible alongside scope changes. The per-task read action\nalready exists; this per-sprint aggregate exists so the changes-log does\nnot fan out one request per sprint task. No mutation, no new table.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/incoming_carryover/": {
             "get": {
                 "operationId": "v1_sprints_incoming_carryover_retrieve",

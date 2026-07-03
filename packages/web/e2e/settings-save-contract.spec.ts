@@ -36,6 +36,11 @@ const FIXTURE_PROJECT = {
   visibility: 'WORKSPACE',
   timezone: '',
   default_view: 'SCHEDULE',
+  // Duration-change percent policy (ADR-0151, issue 1254) — null override inherits
+  // the resolved 'keep' default so the General page renders the inheriting control.
+  task_duration_change_percent_policy: null,
+  effective_task_duration_change_percent_policy: 'keep',
+  inherited_task_duration_change_percent_policy: 'keep',
 };
 
 const FIXTURE_ME = {

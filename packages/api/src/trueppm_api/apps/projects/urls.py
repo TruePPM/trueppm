@@ -468,6 +468,12 @@ urlpatterns = [
         SprintViewSet.as_view({"post": "scope_changes_reject"}),
         name="sprints-scope-changes-reject",
     ),
+    # Mid-sprint duration-change feed for the changes-log (ADR-0151, issue 1254).
+    path(
+        "sprints/<pk>/duration-events/",
+        SprintViewSet.as_view({"get": "duration_events"}),
+        name="sprints-duration-events",
+    ),
     path(
         "scope-changes/<pk>/accept/",
         SprintScopeChangeViewSet.as_view({"post": "accept"}),

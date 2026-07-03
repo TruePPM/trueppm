@@ -427,6 +427,45 @@ export function useSprintScopeChanges(sprintId: string | null | undefined) {
   });
 }
 
+/** One mid-sprint duration-change event surfaced on the changes-log (ADR-0151, issue 1254). */
+export interface SprintDurationChangeEvent {
+  id: string;
+  task_id: string;
+  task_name: string | null;
+  old_duration: number;
+  new_duration: number;
+  percent_complete_at_change: number;
+  /** Non-null only when the policy prorated the % (keep/confirm leave it null). */
+  percent_complete_after: number | null;
+  policy_applied: 'keep' | 'prorate' | 'confirm';
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface SprintDurationChanges {
+  events: SprintDurationChangeEvent[];
+}
+
+/**
+ * GET /api/v1/sprints/{id}/duration-events/ — duration-change events captured
+ * against this sprint (ADR-0151, issue 1254). A per-sprint aggregate of the
+ * `TaskDurationChangeEvent` rows whose active sprint was recorded at change time,
+ * so the sprint changes-log surfaces a mid-sprint duration change without fanning
+ * out one request per sprint task. Read-only; team-readable (Viewer+).
+ */
+export function useSprintDurationChanges(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'duration-events'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintDurationChanges>(
+        `/sprints/${sprintId}/duration-events/`,
+      );
+      return res.data;
+    },
+    enabled: !!sprintId,
+  });
+}
+
 export interface VelocitySprintEntry {
   id: string;
   name: string;
