@@ -137,12 +137,12 @@ export function NotificationPanel({ onClose }: Props) {
               tabIndex={active ? 0 : -1}
               onKeyDown={handleFilterKeyDown}
               onClick={() => setFilter(f.value)}
-              className={`text-xs px-2 h-7 rounded-control border
+              className={`text-xs px-2 h-7 font-medium border-b-2 transition-colors
                 focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
                 ${
                   active
-                    ? 'border-brand-primary text-brand-primary bg-brand-primary/5'
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-raised'
+                    ? 'border-brand-primary text-brand-primary'
+                    : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary'
                 }`}
             >
               {f.label}
