@@ -8,6 +8,10 @@ import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
+import {
+  milestoneVarianceAnnotation,
+  varianceToneTextClass,
+} from '@/lib/milestoneVariance';
 
 const STATUS_OPTIONS: Array<{ value: TaskStatus; label: string }> = [
   { value: 'BACKLOG', label: 'Backlog' },
@@ -169,7 +173,11 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
             )}
           </div>
           {milestoneRollupActive && task.milestoneRollup ? (
-            <MilestoneRollupReadOnly rollup={task.milestoneRollup} />
+            <MilestoneRollupReadOnly
+              rollup={task.milestoneRollup}
+              onCriticalPath={task.isCritical}
+              totalFloatDays={task.totalFloat ?? null}
+            />
           ) : task.isSummary || !editable ? (
             <p className="text-sm tppm-mono text-neutral-text-primary">
               {Math.round(task.progress)}%
@@ -247,14 +255,26 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
 
 function MilestoneRollupReadOnly({
   rollup,
+  onCriticalPath,
+  totalFloatDays,
 }: {
   rollup: NonNullable<ReturnType<typeof useScheduleTasks>['tasks']>[number]['milestoneRollup'];
+  /** CPM critical-path flag of the milestone task (issue 551). */
+  onCriticalPath: boolean | null;
+  /** CPM total float (working days) of the milestone task (issue 551). */
+  totalFloatDays: number | null;
 }) {
   const itl = useIterationLabel();
   if (!rollup || rollup.percent_complete == null) return null;
   const pct = Math.round(rollup.percent_complete);
   const basis = rollup.rollup_basis === 'tasks' ? 'tasks' : 'points';
   const variance = rollup.variance_days;
+  // CPM annotation (issue 551): color band + float/critical-path suffix.
+  const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
+    varianceDays: variance,
+    totalFloatDays,
+    onCriticalPath,
+  });
   return (
     <div className="flex flex-col gap-1.5">
       <p
@@ -279,18 +299,24 @@ function MilestoneRollupReadOnly({
       </p>
       {variance != null && variance !== 0 && (
         <p
-          className={[
-            'text-xs tppm-mono',
-            variance < 0
-              ? 'text-semantic-on-track'
-              : variance <= 5
-                ? 'text-semantic-at-risk'
-                : 'text-semantic-critical',
-          ].join(' ')}
+          className={['text-xs tppm-mono', varianceToneTextClass(tone)].join(' ')}
+          aria-label={
+            (() => {
+              const slipPhrase =
+                variance < 0
+                  ? `${itl.singular} plan ${Math.abs(variance)} days ahead`
+                  : `${itl.singular} plan ${variance} days slip`;
+              return ariaAnnotation ? `${slipPhrase}, ${ariaAnnotation}` : slipPhrase;
+            })()
+          }
         >
-          {variance < 0
-            ? `${itl.singular} plan: ${variance}d ahead`
-            : `${itl.singular} plan: +${variance}d slip`}
+          {(() => {
+            const base =
+              variance < 0
+                ? `${itl.singular} plan: ${variance}d ahead`
+                : `${itl.singular} plan: +${variance}d slip`;
+            return annotation ? `${base} · ${annotation}` : base;
+          })()}
         </p>
       )}
     </div>

@@ -326,6 +326,48 @@ describe('OverviewSection — milestone rollup', () => {
     expect(variance.className).toMatch(/text-semantic-critical/);
   });
 
+  // CPM float / critical-path annotation (issue 551) --------------------------
+
+  it('annotates the variance line with float and stays amber within float', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      totalFloat: 8,
+      isCritical: false,
+      milestoneRollup: {
+        percent_complete: 50,
+        rollup_basis: 'points',
+        variance_days: 3,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const variance = screen.getByText(/Sprint plan: \+3d slip · 8d float/);
+    expect(variance.className).toMatch(/text-semantic-at-risk/);
+  });
+
+  it('forces critical color + "critical path" annotation for a critical milestone', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      totalFloat: 0,
+      isCritical: true,
+      milestoneRollup: {
+        percent_complete: 50,
+        rollup_basis: 'points',
+        variance_days: 2,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    const variance = screen.getByText(/Sprint plan: \+2d slip · critical path/);
+    expect(variance.className).toMatch(/text-semantic-critical/);
+  });
+
   it('shows the persistent "scope changed" chip when sprint_scope_changed is true (#550)', () => {
     mockTasks.splice(0, mockTasks.length, {
       ...baseTask,

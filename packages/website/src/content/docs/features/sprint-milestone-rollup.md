@@ -33,6 +33,16 @@ When at least one sprint targets a milestone task:
   `Sprint plan: -2d ahead`. This is computed from the latest ACTIVE / PLANNED
   sprint's `finish_date` against the milestone's CPM date. Sprint dates are
   never automatically mutated.
+- The variance chip **will be annotated with CPM float** *(ships in 0.4)* so a
+  slip reads against the schedule's tolerance, not just its magnitude. Off the
+  critical path it reads `Sprint plan: +3d slip · 8d float` and its color band
+  reflects slip-vs-float — red when the slip exceeds the available float, amber
+  when the float absorbs it, green when ahead. On the critical path it reads
+  `Sprint plan: +3d slip · critical path` in the critical color regardless of
+  slip magnitude, because a critical milestone has no float to give. The
+  `total_float` / `is_critical` inputs are already computed by the CPM engine.
+  The annotation appears in all three milestone surfaces: the Schedule-view task
+  list, the milestone Overview drawer, and the AdvancingToMilestone card.
 - A **scope-changed chip** appears when an active sprint's current backlog
   points sum diverges from its activation-time `committed_points` snapshot.
   *(Added in 0.3.)* The percent stays bounded; the chip surfaces the

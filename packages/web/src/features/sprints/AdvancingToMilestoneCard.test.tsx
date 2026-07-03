@@ -1,8 +1,43 @@
 import { screen } from '@testing-library/react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { makeSprint, makeMilestone, makeRollup } from './sprintTestFixtures';
+import type { Task } from '@/types';
+
+// The card joins the milestone task from the schedule task list to read
+// isCritical / totalFloat for the CPM annotation (issue 551). Mock the hook so tests
+// control those CPM fields deterministically.
+const mockCardTasks: Task[] = [];
+vi.mock('@/hooks/useScheduleTasks', () => ({
+  useScheduleTasks: () => ({ tasks: mockCardTasks, links: [], isLoading: false, error: null }),
+}));
+
+/** Minimal milestone Task carrying only the fields the card reads. */
+function milestoneTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task-fat',
+    wbs: '1.4.2',
+    name: 'FAT review',
+    start: '2026-04-21',
+    finish: '2026-04-21',
+    duration: 0,
+    progress: 0,
+    parentId: null,
+    isCritical: false,
+    isComplete: false,
+    isSummary: false,
+    isMilestone: true,
+    status: 'NOT_STARTED',
+    assignees: [],
+    notes: '',
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mockCardTasks.length = 0;
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -218,6 +253,51 @@ describe('AdvancingToMilestoneCard', () => {
     );
     const chip = screen.getByLabelText(/Sprint plan: -2d ahead/i);
     expect(chip.className).toMatch(/text-semantic-on-track/);
+  });
+
+  // CPM float / critical-path annotation (issue 551) --------------------------
+
+  it('annotates the chip with "critical path" and forces red when the milestone is critical', () => {
+    mockCardTasks.push(milestoneTask({ isCritical: true, totalFloat: 0 }));
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({ rollup: makeRollup({ variance_days: 2 }) }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByText(/Sprint plan: \+2d slip · critical path/)).toBeInTheDocument();
+    const chip = screen.getByLabelText(/on the critical path/i);
+    expect(chip.className).toMatch(/text-semantic-critical/);
+  });
+
+  it('annotates with float and stays amber when the slip is within float', () => {
+    mockCardTasks.push(milestoneTask({ isCritical: false, totalFloat: 8 }));
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({ rollup: makeRollup({ variance_days: 3 }) }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    const chip = screen.getByText(/Sprint plan: \+3d slip · 8d float/);
+    expect(chip.className).toMatch(/text-semantic-at-risk/);
+  });
+
+  it('turns red when the slip exceeds float even though it is only 3 days', () => {
+    mockCardTasks.push(milestoneTask({ isCritical: false, totalFloat: 1 }));
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({ rollup: makeRollup({ variance_days: 3 }) }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    const chip = screen.getByText(/Sprint plan: \+3d slip · 1d float/);
+    expect(chip.className).toMatch(/text-semantic-critical/);
   });
 
   it('says "across N sprints" when multiple sprints target the milestone', () => {

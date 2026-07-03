@@ -10,6 +10,11 @@ import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
 import type { IterationLabelForms } from '@/lib/iterationLabel';
 import { ScopeChangedChip } from './ScopeChangedChip';
 import { useSprintScopeChanges } from '@/hooks/useSprints';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import {
+  milestoneVarianceAnnotation,
+  varianceToneChipClass,
+} from '@/lib/milestoneVariance';
 
 interface Props {
   sprint: ApiSprint;
@@ -44,6 +49,13 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
   const itl = useIterationLabel(projectId);
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
+
+  // CPM annotation (issue 551): join the milestone task from the already-loaded
+  // schedule task list (warm TanStack Query cache — the parent SprintsView
+  // reads the same key, so this is a cache hit, not a second fetch) to read
+  // `isCritical` / `totalFloat`. No new API — both are on TaskSerializer.
+  const { tasks } = useScheduleTasks(projectId || undefined);
+  const milestoneTask = detail ? (tasks?.find((t) => t.id === detail.id) ?? null) : null;
 
   // Promote affordance (DA-02 / ADR-0106): binding a milestone is a
   // schedule-authoring write, so only SCHEDULER+ sees the entry point. The
@@ -81,7 +93,12 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
           </div>
 
           {rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null && (
-            <RollupBlock rollup={rollup} label={itl} />
+            <RollupBlock
+              rollup={rollup}
+              label={itl}
+              onCriticalPath={milestoneTask?.isCritical ?? null}
+              totalFloatDays={milestoneTask?.totalFloat ?? null}
+            />
           )}
 
           {predecessorsInSprint && predecessorsInSprint.total > 0 && (
@@ -139,6 +156,10 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
 interface RollupBlockProps {
   rollup: MilestoneRollup;
   label: IterationLabelForms;
+  /** CPM critical-path flag of the milestone task (issue 551). Null until CPM runs. */
+  onCriticalPath: boolean | null;
+  /** CPM total float (working days) of the milestone task (issue 551). Null until CPM runs. */
+  totalFloatDays: number | null;
 }
 
 /**
@@ -148,7 +169,7 @@ interface RollupBlockProps {
  * persistent, clickable chip (#550) — replacing the former hover-only ⓘ — that
  * opens the scope-change audit drawer with the per-event delta.
  */
-function RollupBlock({ rollup, label }: RollupBlockProps) {
+function RollupBlock({ rollup, label, onCriticalPath, totalFloatDays }: RollupBlockProps) {
   const percent = rollup.percent_complete!;
   const scopeSprintId = rollup.scope_change_sprint_id ?? null;
   // Fetch the delta only for this one card (single instance) so the chip can
@@ -172,7 +193,12 @@ function RollupBlock({ rollup, label }: RollupBlockProps) {
           : `this ${label.lower}`}
       </p>
       {rollup.variance_days != null && (
-        <VarianceChip days={rollup.variance_days} iterationSingular={label.singular} />
+        <VarianceChip
+          days={rollup.variance_days}
+          iterationSingular={label.singular}
+          onCriticalPath={onCriticalPath}
+          totalFloatDays={totalFloatDays}
+        />
       )}
       {rollup.sprint_scope_changed && scopeSprintId && (
         <span className="mt-0.5 self-start">
@@ -186,34 +212,43 @@ function RollupBlock({ rollup, label }: RollupBlockProps) {
 interface VarianceChipProps {
   days: number;
   iterationSingular: string;
+  /** CPM critical-path flag of the milestone task (issue 551). */
+  onCriticalPath: boolean | null;
+  /** CPM total float (working days) of the milestone task (issue 551). */
+  totalFloatDays: number | null;
 }
 
 /**
- * Sprint-plan variance vs the milestone date. Different signal from
- * DaysOutChip: that one is anchored to TODAY, this one is anchored to the
- * SPRINT'S planned finish. Both can be informative simultaneously — sprint
- * ends in 5d but milestone is 8d out → variance is -3 (ahead).
+ * Sprint-plan variance vs the milestone date, annotated with CPM float /
+ * critical-path status (issue 551). Different signal from DaysOutChip: that one is
+ * anchored to TODAY, this one is anchored to the SPRINT'S planned finish. Both
+ * can be informative simultaneously — sprint ends in 5d but milestone is 8d
+ * out → variance is -3 (ahead).
+ *
+ * The color band comes from slip-vs-float, not slip magnitude: `+3d slip` on a
+ * milestone with 8d of float is amber; the same slip on a 1d-float or critical
+ * milestone is red. See {@link milestoneVarianceAnnotation}.
  */
-function VarianceChip({ days, iterationSingular }: VarianceChipProps) {
-  let className: string;
-  let label: string;
-  if (days < 0) {
-    className = 'border-semantic-on-track/40 text-semantic-on-track';
-    label = `${iterationSingular} plan: ${days}d ahead`;
-  } else if (days === 0) {
-    className = 'border-neutral-border text-neutral-text-primary';
-    label = `${iterationSingular} plan: on time`;
-  } else if (days <= 5) {
-    className = 'border-semantic-at-risk/40 text-semantic-at-risk';
-    label = `${iterationSingular} plan: +${days}d slip`;
-  } else {
-    className = 'border-semantic-critical/40 text-semantic-critical';
-    label = `${iterationSingular} plan: +${days}d slip`;
-  }
+function VarianceChip({ days, iterationSingular, onCriticalPath, totalFloatDays }: VarianceChipProps) {
+  const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
+    varianceDays: days,
+    totalFloatDays,
+    onCriticalPath,
+  });
+
+  const base =
+    days < 0
+      ? `${iterationSingular} plan: ${days}d ahead`
+      : days === 0
+        ? `${iterationSingular} plan: on time`
+        : `${iterationSingular} plan: +${days}d slip`;
+  const label = annotation ? `${base} · ${annotation}` : base;
+  const ariaLabel = ariaAnnotation ? `${base}, ${ariaAnnotation}` : base;
+
   return (
     <span
-      className={`tppm-mono inline-flex self-start items-center px-2 py-0.5 rounded border bg-transparent text-xs ${className}`}
-      aria-label={label}
+      className={`tppm-mono inline-flex self-start items-center px-2 py-0.5 rounded border bg-transparent text-xs ${varianceToneChipClass(tone)}`}
+      aria-label={ariaLabel}
     >
       {label}
     </span>
