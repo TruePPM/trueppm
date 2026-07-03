@@ -39,7 +39,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
       className="fixed inset-0 z-50 md:hidden flex flex-col"
     >
       <div
-        className="flex-1 bg-black/40"
+        className="flex-1 bg-neutral-overlay"
         aria-hidden="true"
         onClick={onClose}
       />

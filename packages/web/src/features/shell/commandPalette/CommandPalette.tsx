@@ -121,7 +121,7 @@ export function CommandPalette() {
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[12vh]">
       {/* Backdrop — click to close (mirrors the shell drawer pattern). */}
-      <div className="absolute inset-0 bg-black/40" aria-hidden="true" onClick={() => setOpen(false)} />
+      <div className="absolute inset-0 bg-neutral-overlay" aria-hidden="true" onClick={() => setOpen(false)} />
       <div
         role="dialog"
         aria-modal="true"

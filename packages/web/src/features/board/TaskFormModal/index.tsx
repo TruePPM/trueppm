@@ -1134,7 +1134,7 @@ export function TaskFormModal({
     <>
       <div
         aria-hidden="true"
-        className="hidden md:block fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] motion-safe:animate-scrim-fade"
+        className="hidden md:block fixed inset-0 z-40 bg-neutral-overlay backdrop-blur-[2px] motion-safe:animate-scrim-fade"
         onPointerDown={() => {
           if (isDirty) {
             setShowDiscardConfirm(true);

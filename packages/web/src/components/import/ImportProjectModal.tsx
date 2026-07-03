@@ -118,7 +118,7 @@ export function ImportProjectModal({ onClose, onCreated, programId, programName 
       <button
         type="button"
         aria-label="Close dialog"
-        className="fixed inset-0 z-50 cursor-default bg-black/40"
+        className="fixed inset-0 z-50 cursor-default bg-neutral-overlay"
         onClick={onClose}
       />
       <div className="pointer-events-none fixed inset-0 z-[51] flex items-center justify-center p-4">

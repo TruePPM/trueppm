@@ -43,7 +43,7 @@ export function SessionExpiredBanner() {
       aria-modal="true"
       aria-labelledby="session-expired-title"
       aria-describedby="session-expired-body"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
     >
       <div
         ref={trapRef}

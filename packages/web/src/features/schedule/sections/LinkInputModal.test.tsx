@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { LinkInputModal } from './LinkInputModal';
 
@@ -17,6 +18,53 @@ describe('LinkInputModal', () => {
   it('renders the dialog and focuses the URL input when opened', () => {
     render(<LinkInputModal open onClose={vi.fn()} onSubmit={vi.fn()} />);
     expect(screen.getByRole('dialog', { name: /Pin a link/ })).toBeTruthy();
+    expect(screen.getByPlaceholderText('https://figma.com/…')).toHaveFocus();
+  });
+
+  it('traps Tab inside the dialog — wraps from the last control back to the URL input', () => {
+    render(<LinkInputModal open onClose={vi.fn()} onSubmit={vi.fn()} />);
+    // "Pin link" is disabled (and so not a Tab stop) until the URL field has a
+    // value — fill it so the last focusable in the trap is the real one.
+    fireEvent.change(screen.getByPlaceholderText('https://figma.com/…'), {
+      target: { value: 'https://figma.com/x' },
+    });
+    const pinLink = screen.getByRole('button', { name: 'Pin link' });
+    pinLink.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(screen.getByPlaceholderText('https://figma.com/…')).toHaveFocus();
+  });
+
+  it('traps Shift+Tab inside the dialog — wraps from the URL input to the last control', () => {
+    render(<LinkInputModal open onClose={vi.fn()} onSubmit={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('https://figma.com/…'), {
+      target: { value: 'https://figma.com/x' },
+    });
+    const urlInput = screen.getByPlaceholderText('https://figma.com/…');
+    urlInput.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Pin link' })).toHaveFocus();
+  });
+
+  it('restores focus to the trigger that opened it on close', () => {
+    function Wrapper() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            + Pin link
+          </button>
+          <LinkInputModal open={open} onClose={() => setOpen(false)} onSubmit={vi.fn()} />
+        </>
+      );
+    }
+    render(<Wrapper />);
+    const trigger = screen.getByRole('button', { name: '+ Pin link' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(screen.getByPlaceholderText('https://figma.com/…')).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
   });
 
   it('shows an inline error when the URL field is empty on submit', () => {

@@ -846,6 +846,15 @@ RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECOND
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
 
+# Cursor pagination for the offline delta PULL (#1013). A cold start (since=0)
+# on a large project would otherwise materialize every row into one unbounded
+# multi-MB response, past the "500-task delta < 3s" mobile target. The pull now
+# returns at most PAGE_SIZE rows (across all collections) per request and the
+# client loops on the cursor. PAGE_SIZE is the default; MAX_PAGE_SIZE clamps a
+# client-requested page_size so one request can never re-open the unbounded cliff.
+TRUEPPM_SYNC_PULL_PAGE_SIZE: int = env.int("TRUEPPM_SYNC_PULL_PAGE_SIZE", default=1000)
+TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE: int = env.int("TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE", default=5000)
+
 # Retention window in days for per-row soft-deleted tombstones in live projects
 # (is_deleted=True rows on Task, Risk, Sprint, Dependency). Rows older than this
 # are hard-deleted by the nightly sync.reap_domain_tombstones task. The 90-day

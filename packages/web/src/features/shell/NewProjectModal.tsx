@@ -142,7 +142,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
         type="button"
         aria-label="Close dialog"
         tabIndex={-1}
-        className="fixed inset-0 z-50 bg-black/40 cursor-default"
+        className="fixed inset-0 z-50 bg-neutral-overlay cursor-default"
         onClick={onClose}
       />
       <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">

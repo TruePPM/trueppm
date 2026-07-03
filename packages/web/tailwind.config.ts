@@ -60,6 +60,10 @@ const config: Config = {
           'text-secondary': 'rgb(var(--neutral-text-secondary) / <alpha-value>)',
           'text-disabled':  'rgb(var(--neutral-text-disabled) / <alpha-value>)',
           'text-inverse':   'rgb(var(--neutral-text-inverse) / <alpha-value>)',
+          // Modal/slide-out scrim backdrop (rule 8d, issue 575). Pre-computed
+          // RGBA like `--sem-*-bg` — cannot be combined with the `/N` opacity
+          // modifier. Replaces the raw `bg-black/40` literal.
+          overlay:          'var(--neutral-overlay)',
         },
         // Semantic status tokens — lighter variants in dark mode (see globals.css).
         semantic: {
