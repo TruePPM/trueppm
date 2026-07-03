@@ -29,7 +29,10 @@ export function ScheduleAddMilestoneButton({
       title={disabled ? 'Read-only access' : 'Add new milestone (⌘M)'}
       data-testid="add-milestone-button"
       className={[
-        'inline-flex h-7 px-3 items-center gap-1.5 rounded-control text-xs font-medium transition-colors',
+        // shrink-0 + whitespace-nowrap keep the button a fixed size in the
+        // flex-nowrap toolbar (web-rule 113) — without them it absorbs all the
+        // toolbar's shrinkage at high browser zoom and its label wraps (issue 1632).
+        'inline-flex h-7 px-3 items-center gap-1.5 rounded-control text-xs font-medium transition-colors shrink-0 whitespace-nowrap',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
         disabled
           ? 'bg-neutral-surface-sunken text-neutral-text-disabled border border-neutral-border cursor-not-allowed'

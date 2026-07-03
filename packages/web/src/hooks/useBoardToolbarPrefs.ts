@@ -39,21 +39,63 @@ export interface BoardToolbarPrefs {
   groupBy: BoardGroupMode;
 }
 
+/** Desktop fallback layout when the user has never explicitly chosen one. */
+const DEFAULT_LAYOUT: BoardLayoutVariant = 'rail';
+
+/**
+ * Internal persisted shape. `layout` is nullable — `null` means the user has
+ * *never explicitly chosen* a layout, which is distinct from an explicit
+ * `'rail'`. The board relies on this distinction to auto-default the layout to
+ * Queue on a phone (issue 605) without silently overriding a real choice; a
+ * density / zoom / groupBy change must therefore never persist a layout it was
+ * given for free (see `write`).
+ */
+interface StoredPrefs {
+  layout: BoardLayoutVariant | null;
+  backlogDensity: BacklogDensity;
+  zoom: BoardZoom;
+  groupBy: BoardGroupMode;
+}
+
 const STORAGE_KEY = 'trueppm.board.toolbarPrefs.v1';
-const DEFAULTS: BoardToolbarPrefs = {
-  layout: 'rail',
+const DEFAULTS: StoredPrefs = {
+  layout: null,
   backlogDensity: 'comfortable',
   zoom: 'normal',
   groupBy: 'phase',
 };
 
-function read(): BoardToolbarPrefs {
+/**
+ * Resolve the layout the board should actually render.
+ *
+ * On a phone (`isMobile`) the desktop phase-grid layouts (rail / drawer) are
+ * unusable, so when the user has never explicitly chosen a layout we auto-pick
+ * the mobile-friendly Queue (issue 605). An explicit choice — including an
+ * explicit rail / drawer set on desktop — is always honored, so we never
+ * silently flip a user who picked their layout on purpose across the breakpoint.
+ */
+export function resolveBoardLayout(
+  storedLayout: BoardLayoutVariant,
+  layoutExplicit: boolean,
+  isMobile: boolean,
+): BoardLayoutVariant {
+  if (isMobile && !layoutExplicit) return 'queue';
+  return storedLayout;
+}
+
+function read(): StoredPrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULTS;
     const parsed = JSON.parse(raw) as Partial<BoardToolbarPrefs>;
     return {
-      layout: parsed.layout === 'drawer' || parsed.layout === 'queue' ? parsed.layout : 'rail',
+      // Stays `null` unless a valid explicit choice was persisted — this is what
+      // lets the board auto-default it on mobile (issue 605) without clobbering a
+      // real preference. `'rail'` here means the user explicitly picked rail.
+      layout:
+        parsed.layout === 'rail' || parsed.layout === 'drawer' || parsed.layout === 'queue'
+          ? parsed.layout
+          : null,
       backlogDensity:
         parsed.backlogDensity === 'compact' || parsed.backlogDensity === 'full'
           ? parsed.backlogDensity
@@ -72,9 +114,15 @@ function read(): BoardToolbarPrefs {
   }
 }
 
-function write(prefs: BoardToolbarPrefs): void {
+function write(prefs: StoredPrefs): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    // Omit a `null` layout (JSON.stringify drops `undefined` keys) so a blob
+    // written by a density / zoom / groupBy change never masquerades as an
+    // explicit layout choice on the next read (issue 605).
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ ...prefs, layout: prefs.layout ?? undefined }),
+    );
   } catch {
     /* localStorage unavailable — non-fatal, prefs revert to defaults next mount */
   }
@@ -82,6 +130,8 @@ function write(prefs: BoardToolbarPrefs): void {
 
 export function useBoardToolbarPrefs(): {
   layout: BoardLayoutVariant;
+  /** True once the user has explicitly chosen a layout (issue 605). */
+  layoutExplicit: boolean;
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
@@ -90,7 +140,7 @@ export function useBoardToolbarPrefs(): {
   setZoom: (z: BoardZoom) => void;
   setGroupBy: (g: BoardGroupMode) => void;
 } {
-  const [prefs, setPrefs] = useState<BoardToolbarPrefs>(() => read());
+  const [prefs, setPrefs] = useState<StoredPrefs>(() => read());
 
   // Cross-tab sync: if another tab updates the prefs, mirror the change here.
   useEffect(() => {
@@ -134,7 +184,11 @@ export function useBoardToolbarPrefs(): {
   }, []);
 
   return {
-    layout: prefs.layout,
+    // Effective layout for callers that don't care about mobile auto-defaulting
+    // — the desktop fallback. Callers that need the mobile-aware layout combine
+    // `layout` + `layoutExplicit` via `resolveBoardLayout`.
+    layout: prefs.layout ?? DEFAULT_LAYOUT,
+    layoutExplicit: prefs.layout !== null,
     backlogDensity: prefs.backlogDensity,
     zoom: prefs.zoom,
     groupBy: prefs.groupBy,
