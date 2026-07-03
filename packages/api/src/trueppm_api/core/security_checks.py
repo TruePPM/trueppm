@@ -163,6 +163,51 @@ def check_attachment_storage(
 
 
 # ---------------------------------------------------------------------------
+# Signed-URL backend detection — the attachment ``signed-url`` action must refuse
+# rather than lie when the storage backend can't actually produce a time-limited,
+# user-scoped URL (#573, MED-2 follow-up to !306's security review).
+# ---------------------------------------------------------------------------
+
+#: Storage backends known to sign ``.url()`` with a query-string expiry (the
+#: django-storages object-storage backends). Explicit allow-list, not a deny-list
+#: of known-bad backends: an unrecognized backend (including a self-hoster's
+#: custom one) might silently behave just like ``FileSystemStorage`` and return a
+#: stable indefinite-lifetime path, which is exactly the misleading ``expires_at``
+#: this check exists to prevent. Self-hosters running a signing-capable backend
+#: not yet in this list can opt in via ``TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS``.
+_SIGNING_CAPABLE_STORAGE_BACKENDS = frozenset(
+    {
+        "storages.backends.s3boto3.S3Boto3Storage",  # django-storages, legacy class name
+        "storages.backends.s3.S3Storage",  # django-storages >=1.14
+        "storages.backends.gcloud.GoogleCloudStorage",  # django-storages GCS
+        "storages.backends.azure_storage.AzureStorage",  # django-storages Azure Blob
+    }
+)
+
+
+def storage_backend_supports_signed_urls(
+    backend_path: str | None,
+    *,
+    force_signing_capable: bool = False,
+) -> bool:
+    """Whether ``backend_path``'s ``.url()`` produces a real time-limited signed URL.
+
+    ``TaskAttachment.file.url`` is a genuine signed URL only for object-storage
+    backends that sign the query string with an expiry (S3/MinIO, GCS, Azure Blob
+    via django-storages). ``FileSystemStorage`` — and any backend this function
+    doesn't recognize — returns the same indefinite-lifetime path on every call, so
+    the ``expires_at`` the ``signed-url`` action promises would be fiction. Fails
+    closed: only an explicitly allow-listed backend is trusted; the operator opt-in
+    (``force_signing_capable``, wired to ``TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS``)
+    exists for a signing-capable backend not yet on the list rather than silently
+    trusting an unrecognized one.
+    """
+    if force_signing_capable:
+        return True
+    return backend_path in _SIGNING_CAPABLE_STORAGE_BACKENDS
+
+
+# ---------------------------------------------------------------------------
 # Integration credential encryption key — refuse to boot in prod without a valid
 # Fernet key (#1002). Mirrors the fail-closed posture chosen for SECRET_KEY
 # (#566) and attachment storage (#775).

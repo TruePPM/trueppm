@@ -14266,7 +14266,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/signed-url/": {
             "get": {
                 "operationId": "v1_projects_tasks_attachments_signed_url_retrieve",
-                "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL).",
+                "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL). Refuses with\n501 when the configured storage backend can't actually produce a signed,\ntime-limited URL (#573, MED-2) — see ``AttachmentSigningNotSupported``.",
                 "summary": "Issue a signed download URL for an attachment",
                 "parameters": [
                     {

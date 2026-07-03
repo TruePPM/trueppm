@@ -12,6 +12,7 @@ from django.core.checks import Error, registry
 
 from trueppm_api.core.security_checks import (
     check_attachment_storage,
+    storage_backend_supports_signed_urls,
     validate_attachment_storage,
 )
 
@@ -65,3 +66,55 @@ def test_system_check_flags_local_storage_when_debug_off(
     assert errors
     assert all(isinstance(e, Error) for e in errors)
     assert errors[0].id == "trueppm.E004"
+
+
+# ---------------------------------------------------------------------------
+# Signed-URL backend detection (#573, MED-2 follow-up to !306's security review)
+# ---------------------------------------------------------------------------
+
+
+def test_local_storage_is_not_signing_capable() -> None:
+    assert storage_backend_supports_signed_urls(_LOCAL) is False
+
+
+def test_filesystem_dotted_variant_is_not_signing_capable() -> None:
+    variant = "django.core.files.storage.filesystem.FileSystemStorage"
+    assert storage_backend_supports_signed_urls(variant) is False
+
+
+def test_unrecognized_custom_backend_is_not_signing_capable() -> None:
+    """Fail closed: an unlisted backend is treated the same as FileSystemStorage,
+    not assumed to sign, since a self-hoster's custom backend may not either."""
+    assert storage_backend_supports_signed_urls("myapp.storage.WeirdBackend") is False
+
+
+def test_none_backend_is_not_signing_capable() -> None:
+    assert storage_backend_supports_signed_urls(None) is False
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "storages.backends.s3boto3.S3Boto3Storage",
+        "storages.backends.s3.S3Storage",
+        "storages.backends.gcloud.GoogleCloudStorage",
+        "storages.backends.azure_storage.AzureStorage",
+    ],
+)
+def test_known_object_storage_backends_are_signing_capable(backend: str) -> None:
+    assert storage_backend_supports_signed_urls(backend) is True
+
+
+def test_force_signing_capable_overrides_unlisted_backend() -> None:
+    """Operator opt-in (TRUEPPM_ATTACHMENT_STORAGE_SIGNS_URLS) for a
+    signing-capable backend not yet on the allow-list."""
+    assert (
+        storage_backend_supports_signed_urls(
+            "myapp.storage.WeirdBackend", force_signing_capable=True
+        )
+        is True
+    )
+
+
+def test_force_signing_capable_is_a_noop_when_already_capable() -> None:
+    assert storage_backend_supports_signed_urls(_S3, force_signing_capable=True) is True
