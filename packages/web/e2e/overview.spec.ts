@@ -72,6 +72,33 @@ async function setupRoutes(page: import('@playwright/test').Page) {
     );
   });
 
+  // Auth stubs keep the session-expired race from firing. This page fans out to
+  // many endpoints; any unmocked 401 → token-refresh → second 401 → expireSession()
+  // overlays a "session expired" modal. Interactive tests (opening the Update
+  // Status dialog, issue 1606) run long enough to lose that race, so anchor the
+  // refresh path to success here for every test in the file.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        email: 'e2e@trueppm.local',
+        username: 'e2e',
+        first_name: 'E2E',
+        last_name: 'User',
+        is_active: true,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/auth/token/refresh/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access: 'e2e-token-refreshed' }),
+    }),
+  );
+
   await page.route(`**/api/v1/projects/`, (route) =>
     route.fulfill({
       status: 200,
@@ -106,6 +133,34 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(FIXTURE_MY_TASKS),
+    }),
+  );
+
+  // Header hooks (issue 1606): project detail feeds the reported-health chip;
+  // the self-membership row feeds the RBAC gate on the Update Status dialog.
+  // Default health is AUTO (no chip) and role is Admin (300) so the dialog's
+  // Save action is enabled; individual tests override as needed. The detail
+  // route also answers PATCH (the dialog's write) with a 200 echo.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_PROJECTS[0], ...body }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...FIXTURE_PROJECTS[0], health: 'AUTO' }),
+    });
+  });
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'self', role: 300 }]),
     }),
   );
 
@@ -255,6 +310,58 @@ test.describe('Project overview page', () => {
     // BurnChart card on this page also renders a button with accessible name "Export chart".
     await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /update status/i })).toBeVisible();
+  });
+
+  // issue 1606 — the Update Status button was a dead disabled control; it now
+  // opens a dialog that records the PM's manual health override.
+  test('Update Status dialog — golden path records the reported health', async ({ page }) => {
+    await page.getByRole('button', { name: /update status/i }).click();
+
+    const dialog = page.getByRole('dialog', { name: /update project status/i });
+    await expect(dialog).toBeVisible();
+
+    // Choose a report and save; the PATCH carries the chosen health value.
+    await dialog.getByRole('button', { name: 'At risk' }).click();
+    const patchPromise = page.waitForRequest(
+      (req) =>
+        req.method() === 'PATCH' && req.url().endsWith(`/api/v1/projects/${PROJECT_ID}/`),
+    );
+    await dialog.getByRole('button', { name: /save status/i }).click();
+
+    const patch = await patchPromise;
+    expect(patch.postDataJSON()).toMatchObject({ health: 'AT_RISK' });
+
+    // Dialog closes on success.
+    await expect(dialog).toBeHidden();
+  });
+
+  test('Update Status dialog — server error surfaces inline and keeps the dialog open', async ({
+    page,
+  }) => {
+    // Fail the PATCH; keep the GET detail response intact.
+    await page.unroute(`**/api/v1/projects/${PROJECT_ID}/`);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) => {
+      if (route.request().method() === 'PATCH') {
+        return route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ health: ['You need at least Project Manager role.'] }),
+        });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_PROJECTS[0], health: 'AUTO' }),
+      });
+    });
+
+    await page.getByRole('button', { name: /update status/i }).click();
+    const dialog = page.getByRole('dialog', { name: /update project status/i });
+    await dialog.getByRole('button', { name: 'Critical' }).click();
+    await dialog.getByRole('button', { name: /save status/i }).click();
+
+    await expect(dialog.getByRole('alert')).toContainText(/Project Manager role/i);
+    await expect(dialog).toBeVisible();
   });
 
   test('MC section shows Run forecast CTA when no simulation result', async ({ page }) => {

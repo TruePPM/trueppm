@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -15,11 +15,13 @@ vi.mock('@/hooks/useProjectId', () => ({
 
 const mockedGet = vi.fn();
 const mockedPost = vi.fn();
+const mockedPatch = vi.fn();
 
 vi.mock('@/api/client', () => ({
   apiClient: {
     get: (...args: unknown[]) => mockedGet(...args) as unknown,
     post: (...args: unknown[]) => mockedPost(...args) as unknown,
+    patch: (...args: unknown[]) => mockedPatch(...args) as unknown,
   },
 }));
 
@@ -58,9 +60,24 @@ const OVERVIEW_RESPONSE = {
 const ATTENTION_RESPONSE = { items: [] };
 const MY_TASKS_RESPONSE = { tasks: [] };
 const CP_TASKS_RESPONSE = { count: 0, next: null, previous: null, results: [] };
+// Header hooks added in issue 1606: useProject (project detail) + useCurrentUserRole
+// (self membership row). Default to a manual health of AUTO (no reported chip) and a
+// non-Admin role so the common assertions are unaffected; individual tests override.
+const PROJECT_DETAIL = { id: 'proj-1', server_version: 1, name: 'Proj', health: 'AUTO' };
+const SELF_MEMBERSHIP_MEMBER = [{ id: 'me', role: 100 }];
+
+/** Resolve the two header-hook endpoints; return null for anything else. */
+function headerHookResponse(url: string): { data: unknown } | null {
+  if (url === '/projects/proj-1/') return { data: PROJECT_DETAIL };
+  if (url.endsWith('/members/')) return { data: SELF_MEMBERSHIP_MEMBER };
+  return null;
+}
 
 beforeEach(() => {
+  mockedPatch.mockReset();
   mockedGet.mockImplementation((url: string) => {
+    const header = headerHookResponse(url);
+    if (header) return Promise.resolve(header);
     if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
     if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
     if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
@@ -191,6 +208,49 @@ describe('ProjectOverviewPage', () => {
       // Health badge appears in the header
       expect(screen.getAllByText('On track').length).toBeGreaterThan(0);
     });
+  });
+
+  // issue 1606 — the "Update Status" header button was a dead disabled control;
+  // it now opens the reported-health dialog.
+  it('renders an enabled Update Status button (no longer a dead control)', async () => {
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /update status/i });
+    expect(btn).toBeEnabled();
+  });
+
+  it('opens the Update project status dialog on click', async () => {
+    renderPage();
+    const btn = await screen.findByRole('button', { name: /update status/i });
+    fireEvent.click(btn);
+    const dialog = await screen.findByRole('dialog', { name: /update project status/i });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'At risk' })).toBeInTheDocument();
+  });
+
+  it('shows a "Reported" chip only when the manual health is non-AUTO', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/projects/proj-1/')
+        return Promise.resolve({ data: { ...PROJECT_DETAIL, health: 'AT_RISK' } });
+      if (url.endsWith('/members/')) return Promise.resolve({ data: SELF_MEMBERSHIP_MEMBER });
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(/Reported project health: At risk/i)).toBeInTheDocument();
+    });
+  });
+
+  it('does not show a "Reported" chip when the manual health is AUTO', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getAllByText('On track').length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByLabelText(/Reported project health/i)).toBeNull();
   });
 
   it('shows owner name in header subtitle', async () => {

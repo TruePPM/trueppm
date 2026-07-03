@@ -1,9 +1,18 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_ADMIN } from '@/lib/roles';
 import { apiClient } from '@/api/client';
-import type { PaginatedResponse } from '@/api/types';
+import type { PaginatedResponse, ProjectHealth } from '@/api/types';
 import type { MonteCarloResult } from '@/types';
+import { UpdateStatusDialog } from '@/features/project/UpdateStatusDialog';
+import {
+  HEALTH_LABEL as REPORTED_HEALTH_LABEL,
+  HEALTH_ACTIVE as REPORTED_HEALTH_ACTIVE,
+} from '@/features/project/projectHealth';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
@@ -157,9 +166,23 @@ function daysFromToday(iso: string): number {
 
 interface ProjectHeaderProps {
   overview: OverviewData;
+  projectId: string;
 }
 
-function ProjectHeader({ overview }: ProjectHeaderProps) {
+function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const { data: project } = useProject(projectId);
+  const { role } = useCurrentUserRole(projectId);
+  // Server gates the `health` field to Admin+ (ProjectSerializer.validate); role
+  // is null while the membership query loads, so gate pessimistically to avoid a
+  // flash of an editable Save action.
+  const canEditHealth = role !== null && role >= ROLE_ADMIN;
+  // The PM's manual health override (issue 520) is a separate signal from the
+  // computed schedule badge — surface it only when the PM has actually reported
+  // one (non-AUTO), so the "Update Status" action has a visible effect.
+  const reportedHealth: ProjectHealth = project?.health ?? 'AUTO';
+  const hasReport = reportedHealth !== 'AUTO';
+
   const healthBadgeClass = {
     on_track: 'border-semantic-on-track/40 text-semantic-on-track',
     at_risk: 'border-semantic-at-risk/40 text-semantic-at-risk',
@@ -190,6 +213,15 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
         >
           {healthLabel}
         </span>
+        {hasReport && (
+          <span
+            className={`bg-transparent border rounded-chip px-2 py-0.5 text-xs font-medium ${REPORTED_HEALTH_ACTIVE[reportedHealth]}`}
+            aria-label={`Reported project health: ${REPORTED_HEALTH_LABEL[reportedHealth]}`}
+            title="Status reported by the project manager — separate from the schedule signal."
+          >
+            Reported: {REPORTED_HEALTH_LABEL[reportedHealth]}
+          </span>
+        )}
         <div className="flex items-center gap-3 ml-auto">
           <button
             type="button"
@@ -207,13 +239,9 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
           </button>
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            title="Status updates are coming — tracked in issue 1606"
+            onClick={() => setStatusDialogOpen(true)}
             className="text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
               hover:opacity-90
-              disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary
-              disabled:cursor-not-allowed disabled:hover:opacity-100
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
           >
@@ -222,6 +250,15 @@ function ProjectHeader({ overview }: ProjectHeaderProps) {
         </div>
       </div>
       <p className="text-xs text-neutral-text-secondary">{subtitle}</p>
+
+      {statusDialogOpen && (
+        <UpdateStatusDialog
+          projectId={projectId}
+          currentHealth={reportedHealth}
+          canEdit={canEditHealth}
+          onClose={() => setStatusDialogOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -845,7 +882,9 @@ export function ProjectOverviewPage() {
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
       {/* Project header */}
-      {overview && !overviewLoading && <ProjectHeader overview={overview} />}
+      {overview && !overviewLoading && projectId && (
+        <ProjectHeader overview={overview} projectId={projectId} />
+      )}
 
       {/* KPI rows — three risk-ranked focus cards lead, three demote to a
           compact secondary strip. Worst-first ordering means the card
