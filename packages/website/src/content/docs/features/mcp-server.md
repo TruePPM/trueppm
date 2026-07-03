@@ -56,8 +56,14 @@ nothing you could not already read in the web client with the same token.
 
 The server is configured entirely from the environment — no config file on disk.
 It authenticates with a **project API token** (`tppm_<64-hex>`), the same token
-used for [inbound integrations](/features/inbound-task-sync/). Mint one from a
-project's settings; the raw token is shown once, so copy it immediately.
+used for [inbound integrations](/features/inbound-task-sync/), scoped read-only
+for this purpose.
+
+The fastest way to connect: **Project or Program → Settings → Integrations →
+API Tokens → Create token**, then choose the **"Read-only for AI assistants"**
+scope (`mcp:read`). The reveal dialog shows the raw token once, plus a
+ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
+straight into your client and skip the manual assembly below.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -81,8 +87,9 @@ rather than letting every query fail later.
 ### Wiring it into Claude Desktop
 
 stdio is the primary transport: the AI client launches the server as a
-subprocess and speaks MCP over the pipe. For Claude Desktop, add an entry to
-`claude_desktop_config.json`:
+subprocess and speaks MCP over the pipe. If you minted an `mcp:read` token
+from the Integrations settings page above, paste its generated snippet and
+you're done. Otherwise, add an entry to `claude_desktop_config.json` by hand:
 
 ```json
 {
