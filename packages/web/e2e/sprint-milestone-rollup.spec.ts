@@ -202,6 +202,56 @@ const BASELINE_ROLLUP: RollupShape = {
   sprint_count: 1,
 };
 
+/**
+ * Minimal `/tasks/` payload carrying the milestone task with its CPM
+ * `is_critical` / `total_float` fields (#551). The AdvancingToMilestoneCard
+ * joins this from useScheduleTasks to annotate the variance chip. Overriding
+ * the empty `/tasks/` route from setupCommon (last-registered route wins).
+ */
+async function mockMilestoneTask(
+  page: import('@playwright/test').Page,
+  cpm: { is_critical: boolean; total_float: number | null },
+) {
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id: 'task-fat',
+            wbs_path: '1.4.2',
+            name: 'FAT review',
+            early_start: '2026-04-21',
+            early_finish: '2026-04-21',
+            planned_start: null,
+            duration: 0,
+            percent_complete: 0,
+            status: 'NOT_STARTED',
+            is_milestone: true,
+            is_summary: false,
+            parent_id: null,
+            actual_start: null,
+            actual_finish: null,
+            schedule_variance_days: null,
+            baseline_start: null,
+            baseline_finish: null,
+            late_finish: null,
+            optimistic_duration: null,
+            most_likely_duration: null,
+            pessimistic_duration: null,
+            estimate_status: null,
+            ...cpm,
+          },
+        ],
+      }),
+    }),
+  );
+}
+
 test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
   test('renders the rolled-up percent + "by points" basis + +3d slip variance', async ({
     page,
@@ -227,6 +277,56 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
     await expect(card.getByText('73%')).toBeVisible();
     await expect(card.getByText(/by points/i)).toBeVisible();
     await expect(card.getByLabel(/Sprint plan: \+3d slip/i)).toBeVisible();
+  });
+
+  test('annotates the variance chip with "critical path" when the milestone is critical (#551)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [makeSprint(BASELINE_ROLLUP)],
+        }),
+      }),
+    );
+    await mockMilestoneTask(page, { is_critical: true, total_float: 0 });
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    // Critical override: red chip + "critical path" suffix regardless of slip.
+    await expect(card.getByText(/\+3d slip · critical path/)).toBeVisible();
+  });
+
+  test('annotates the variance chip with remaining float when off the critical path (#551)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [makeSprint(BASELINE_ROLLUP)],
+        }),
+      }),
+    );
+    await mockMilestoneTask(page, { is_critical: false, total_float: 8 });
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    // Slip within float → amber chip annotated with "8d float".
+    await expect(card.getByText(/\+3d slip · 8d float/)).toBeVisible();
   });
 
   test('persistent scope-changed chip opens the audit drawer (#550)', async ({ page }) => {

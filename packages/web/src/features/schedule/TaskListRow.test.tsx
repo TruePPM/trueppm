@@ -179,6 +179,51 @@ describe('TaskListRow', () => {
     expect(nameEl.getAttribute('title')).not.toMatch(/on the critical path/i);
   });
 
+  // CPM float / critical-path annotation on the milestone rollup cell (#551) --
+  const milestoneRollup = {
+    percent_complete: 50,
+    rollup_basis: 'points' as const,
+    variance_days: 3,
+    sprint_scope_changed: false,
+    sprint_count: 1,
+  };
+
+  it('milestone rollup cell annotates the variance with float and stays amber within float', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isMilestone: true, duration: 0, progress: 0, totalFloat: 8, milestoneRollup }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    const chip = screen.getByText(/\+3d · 8d float/);
+    expect(chip.className).toMatch(/text-semantic-at-risk/);
+  });
+
+  it('milestone rollup cell forces red + "critical path" for a critical milestone', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{
+          ...base,
+          isMilestone: true,
+          duration: 0,
+          progress: 0,
+          totalFloat: 0,
+          isCritical: true,
+          milestoneRollup: { ...milestoneRollup, variance_days: 2 },
+        }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    const chip = screen.getByText(/\+2d · critical path/);
+    expect(chip.className).toMatch(/text-semantic-critical/);
+  });
+
   it('summary task applies font-medium style', () => {
     renderWithRouter(<TaskListRow task={{ ...base, isSummary: true }} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const nameEl = screen.getByText('Design Phase');

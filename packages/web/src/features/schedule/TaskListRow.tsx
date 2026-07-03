@@ -24,6 +24,10 @@ import {
   type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
 import { formatRelative } from '@/lib/formatRelative';
+import {
+  milestoneVarianceAnnotation,
+  varianceToneTextClass,
+} from '@/lib/milestoneVariance';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
@@ -1307,7 +1311,14 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
   if (task.isMilestone && hasRollup && rollup) {
     const pct = Math.round(rollup.percent_complete!);
     const variance = rollup.variance_days;
-    const varianceLabel =
+    // CPM annotation (#551): color band + float/critical-path suffix from
+    // task.isCritical / task.totalFloat (already on TaskSerializer — no new API).
+    const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
+      varianceDays: variance,
+      totalFloatDays: task.totalFloat,
+      onCriticalPath: task.isCritical,
+    });
+    const baseVarianceLabel =
       variance == null
         ? null
         : variance < 0
@@ -1315,21 +1326,21 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
           : variance === 0
             ? '0d'
             : `+${variance}d`;
+    const varianceLabel =
+      baseVarianceLabel && annotation
+        ? `${baseVarianceLabel} · ${annotation}`
+        : baseVarianceLabel;
     const varianceClass =
       variance == null || variance === 0
         ? 'text-neutral-text-secondary'
-        : variance < 0
-          ? 'text-semantic-on-track'
-          : variance <= 5
-            ? 'text-semantic-at-risk'
-            : 'text-semantic-critical';
+        : varianceToneTextClass(tone);
     const ariaLabelParts = [`Progress ${pct}% (${itl.lower} rollup, locked)`];
     if (variance != null && variance !== 0) {
-      ariaLabelParts.push(
+      const slipPhrase =
         variance < 0
-          ? `${itl.singular} plan ${Math.abs(variance)} days ahead.`
-          : `${itl.singular} plan ${variance} days slip.`,
-      );
+          ? `${itl.singular} plan ${Math.abs(variance)} days ahead`
+          : `${itl.singular} plan ${variance} days slip`;
+      ariaLabelParts.push(ariaAnnotation ? `${slipPhrase}, ${ariaAnnotation}.` : `${slipPhrase}.`);
     }
     if (rollup.sprint_scope_changed) {
       ariaLabelParts.push(`${itl.singular} scope changed since activation.`);
