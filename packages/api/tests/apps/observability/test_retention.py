@@ -2,7 +2,7 @@
 
 Covers:
   - IsAdminUser gating (401 unauth / 403 non-staff) on all four endpoints
-  - GET returns the five operational policies, schedule, and recent runs
+  - GET returns the six operational policies, schedule, and recent runs
   - PATCH persists RetentionPolicy overrides + schedule; weekly requires a day;
     the non-disablable sync window is forced enabled
   - resolve_retention: override (enabled) / disabled (None) / settings fallback
@@ -52,6 +52,7 @@ _EXPECTED_KEYS = [
     "TRUEPPM_WEBHOOK_RETENTION_DAYS",
     "TRUEPPM_IMPORT_RETENTION_DAYS",
     "TRUEPPM_SYNC_BATCH_RETENTION_HOURS",
+    "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
 ]
 
 
@@ -95,7 +96,7 @@ class TestGating:
 
 @pytest.mark.django_db
 class TestRetentionGet:
-    def test_returns_five_policies_in_order(self) -> None:
+    def test_returns_six_policies_in_order(self) -> None:
         res = _admin_client().get(URL)
         assert res.status_code == 200
         keys = [p["key"] for p in res.data["policies"]]

@@ -184,9 +184,10 @@ def system_health(_request: Request) -> Response:
     methods=["GET"],
     summary="Retention policy editor state",
     description=(
-        "Returns the editable retention policy for the five operational tables "
+        "Returns the editable retention policy for the six operational tables "
         "(event history, task runs, webhook deliveries, import requests, sync "
-        "batches) with estimated row counts and sizes, the purge schedule, and the "
+        "batches, soft-deleted projects) with estimated row counts and sizes, the "
+        "purge schedule, and the "
         "seven most recent purge runs. Row counts and sizes are PostgreSQL "
         "estimates. Workspace operators tune these from Settings → System health → "
         "Retention & purge (ADR-0173). Requires a staff (admin) account."
@@ -251,7 +252,7 @@ def retention_impact(request: Request) -> Response:
 @extend_schema(
     summary="Run a purge now (or dry-run)",
     description=(
-        "Dispatch the retention purge coordinator across all five operational tables. "
+        "Dispatch the retention purge coordinator across all six operational tables. "
         "`dry_run=true` counts eligible rows without deleting. Best-effort dispatch: "
         "returns 202 with the new run's id; the run completes asynchronously and "
         "appears in the recent-runs log. Requires a staff (admin) account."

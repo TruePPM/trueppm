@@ -93,6 +93,13 @@ env:
   # No trailing slash, no path. Standardized on the TRUEPPM_ prefix pre-0.3
   # (#1355); the legacy bare FRONTEND_BASE_URL still works as a fallback.
   TRUEPPM_FRONTEND_BASE_URL: ""
+  # Retention window (days) for soft-deleted ("trashed") projects. Once a project
+  # has been in the trash longer than this, the consolidated retention purge
+  # (retention.run_purge, ADR-0173) HARD-deletes it and all its child data via DB
+  # CASCADE. Default 30. Set to "0" or omit to keep the default; operators tune the
+  # live value from Workspace → Settings → System Health. Set to an empty string to
+  # disable auto-purge (trashed projects retained unbounded).
+  TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS: "30"
   # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
   # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
   # so the Beat-driven notification drain has the same transport everywhere.

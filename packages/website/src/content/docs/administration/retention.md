@@ -49,12 +49,13 @@ the window — the next scheduled or manual run enforces it.
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
+| `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
 
-**One purge coordinator, not five nightly jobs.** These five tables were previously purged
-by five separate nightly Beat jobs at staggered UTC times. As of ADR-0173 they are purged
-by a **single retention purge coordinator** that runs all five as one unified run on the
-schedule below (default **02:00 UTC daily**). The per-table tasks still exist and remain
-dispatchable, but they are no longer independently scheduled.
+**One purge coordinator, not many nightly jobs.** The outbox and history tables were
+originally purged by separate nightly Beat jobs at staggered UTC times. As of ADR-0173 the
+retention windows above are purged by a **single retention purge coordinator** that runs
+all six as one unified run on the schedule below (default **02:00 UTC daily**). Each
+per-table task still exists and remains dispatchable, but none is independently scheduled.
 
 **Workspace export archives are purged separately.** A completed workspace export
 (Settings → Archive / Delete → *Export all data*, ADR-0174) writes a full `.tar.gz` to
@@ -81,6 +82,35 @@ value) and restart the API/worker pods. Example:
 TRUEPPM_WEBHOOK_RETENTION_DAYS=30
 ```
 
+## Trashed projects are hard-deleted after the window
+
+:::note[Ships in 0.4]
+Automatic hard-delete of trashed projects lands in **TruePPM 0.4** (the first beta).
+Manual soft delete and `?force=true` hard delete already ship; the *scheduled* purge below
+is the 0.4 addition.
+:::
+
+Deleting a project is a **soft delete**: the project drops out of every list, board, and
+report immediately, but its row and all its child data (tasks, dependencies, sprints,
+risks, baselines) are retained so the deletion can be reviewed and — until it is purged —
+reversed with a `?force=true` hard delete or restored by an operator.
+
+`TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` (default `30`) will bound that grace period.
+Once a project has been in the trash longer than the window, the retention coordinator will
+**hard-delete** it: the project row and, via database `CASCADE`, its entire child subtree
+are permanently removed in one pass. This is the same removal the manual `?force=true`
+delete performs, applied automatically on a schedule. Like every retention window it is
+**irreversible** and can be tuned or disabled (set the value to `None` in a settings
+override) exactly like the others.
+
+:::caution[Age is measured from the delete, not the purge]
+A project soft-deleted **before** this feature ships has no recorded delete timestamp
+(`deleted_at IS NULL`). Because its age cannot be known, it will be deliberately **never**
+auto-purged — the safe default is to keep it. Such a legacy trashed project can still be
+removed manually with a `?force=true` delete; only projects deleted after the feature ships
+carry a timestamp and age out automatically.
+:::
+
 ## Purge schedule
 
 The coordinator's schedule is operator-configurable (Settings → Retention & purge):
@@ -99,7 +129,7 @@ window.
 
 ## Running a purge on demand
 
-- **Run purge now** — deletes eligible rows immediately across all five tables. It is
+- **Run purge now** — deletes eligible rows immediately across all six tables. It is
   **irreversible** and is protected by a confirmation dialog.
 - **Dry run** — counts what *would* be purged and **deletes nothing**. Use it to preview
   impact before committing to a real run.
@@ -113,7 +143,7 @@ dies mid-run can't block future runs indefinitely.
 ## Purge log
 
 The editor shows the most recent purge runs — each with its start time, duration, state
-(`ok` / `partial` / `failed` / `running` / `dry run`), how many of the five tables
+(`ok` / `partial` / `failed` / `running` / `dry run`), how many of the six tables
 completed, rows deleted, and bytes freed.
 
 **Counts and sizes are estimates.** The row counts and table sizes shown in the editor
@@ -130,8 +160,11 @@ purge" component card reports real state (`ok` / `partial` / `failed`) instead o
 - **Non-terminal rows.** `PENDING` webhook deliveries and `PENDING`/`DISPATCHED`
   import requests are still in flight — the drain may re-dispatch them — so they are
   excluded from the purge regardless of age. Only terminal rows are eligible.
-- **Active business data.** Retention purges target *outbox and history* tables only.
-  Projects, tasks, schedules, and baselines are never touched by these jobs.
+- **Live business data.** Retention purges target *outbox, history, and trashed* records
+  only. **Live** projects, tasks, schedules, and baselines are never touched — a project
+  will become eligible only after you have explicitly deleted it (moved it to the trash)
+  *and* the soft-delete retention window has elapsed. See [Trashed
+  projects](#trashed-projects-are-hard-deleted-after-the-window) below.
 - **API-token audit log.** `ApiTokenAuditEntry` rows (project- and
   program-scoped token mint/revoke events) are **never** purged — they are kept
   indefinitely as compliance evidence and have no retention window.

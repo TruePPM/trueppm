@@ -31,7 +31,7 @@ class RetentionSpec(TypedDict):
     disablable: bool
 
 
-# The five operational tables surfaced in the editor (ADR-0173 §A). Order is the
+# The six operational tables surfaced in the editor (ADR-0173 §A). Order is the
 # display order in the policy table. ``key`` matches the ADR-0081 settings name;
 # ``default`` mirrors ``settings/base.py`` so the resolver and the UI agree even
 # before any override row exists. ``disablable`` is False only for sync batches,
@@ -76,6 +76,14 @@ RETENTION_SPECS: list[RetentionSpec] = [
         "unit": "hours",
         "default": 24,
         "disablable": False,
+    },
+    {
+        "key": "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
+        "label": "Soft-deleted projects",
+        "note": "Projects in the trash — hard-deleted with all child data past the window.",
+        "unit": "days",
+        "default": 30,
+        "disablable": True,
     },
 ]
 

@@ -1974,7 +1974,7 @@
         "/api/v1/health/retention/": {
             "get": {
                 "operationId": "v1_health_retention_retrieve",
-                "description": "Returns the editable retention policy for the five operational tables (event history, task runs, webhook deliveries, import requests, sync batches) with estimated row counts and sizes, the purge schedule, and the seven most recent purge runs. Row counts and sizes are PostgreSQL estimates. Workspace operators tune these from Settings → System health → Retention & purge (ADR-0173). Requires a staff (admin) account.",
+                "description": "Returns the editable retention policy for the six operational tables (event history, task runs, webhook deliveries, import requests, sync batches, soft-deleted projects) with estimated row counts and sizes, the purge schedule, and the seven most recent purge runs. Row counts and sizes are PostgreSQL estimates. Workspace operators tune these from Settings → System health → Retention & purge (ADR-0173). Requires a staff (admin) account.",
                 "summary": "Retention policy editor state",
                 "tags": [
                     "meta"
@@ -2063,12 +2063,13 @@
                                 "TASK_RUN_RETENTION_DAYS",
                                 "TRUEPPM_WEBHOOK_RETENTION_DAYS",
                                 "TRUEPPM_IMPORT_RETENTION_DAYS",
-                                "TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
+                                "TRUEPPM_SYNC_BATCH_RETENTION_HOURS",
+                                "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
                             ],
                             "type": "string",
                             "minLength": 1
                         },
-                        "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS",
+                        "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS",
                         "required": true
                     },
                     {
@@ -2109,7 +2110,7 @@
         "/api/v1/health/retention/runs/": {
             "post": {
                 "operationId": "v1_health_retention_runs_create",
-                "description": "Dispatch the retention purge coordinator across all five operational tables. `dry_run=true` counts eligible rows without deleting. Best-effort dispatch: returns 202 with the new run's id; the run completes asynchronously and appears in the recent-runs log. Requires a staff (admin) account.",
+                "description": "Dispatch the retention purge coordinator across all six operational tables. `dry_run=true` counts eligible rows without deleting. Best-effort dispatch: returns 202 with the new run's id; the run completes asynchronously and appears in the recent-runs log. Requires a staff (admin) account.",
                 "summary": "Run a purge now (or dry-run)",
                 "tags": [
                     "meta"
@@ -26245,10 +26246,11 @@
                     "TASK_RUN_RETENTION_DAYS",
                     "TRUEPPM_WEBHOOK_RETENTION_DAYS",
                     "TRUEPPM_IMPORT_RETENTION_DAYS",
-                    "TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
+                    "TRUEPPM_SYNC_BATCH_RETENTION_HOURS",
+                    "TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
                 ],
                 "type": "string",
-                "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
+                "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
             },
             "Landing": {
                 "type": "object",

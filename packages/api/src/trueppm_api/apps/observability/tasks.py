@@ -236,7 +236,7 @@ def _trim_runs() -> None:
     name="retention.run_purge",
 )
 def run_retention_purge(self: object, run_id: str | None = None, dry_run: bool = False) -> None:
-    """Coordinator: purge all five operational tables as one unified run.
+    """Coordinator: purge all six operational tables as one unified run.
 
     Two entry points (ADR-0173 §C/§D):
 
