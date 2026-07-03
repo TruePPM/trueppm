@@ -1311,7 +1311,7 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
   if (task.isMilestone && hasRollup && rollup) {
     const pct = Math.round(rollup.percent_complete!);
     const variance = rollup.variance_days;
-    // CPM annotation (#551): color band + float/critical-path suffix from
+    // CPM annotation (issue 551): color band + float/critical-path suffix from
     // task.isCritical / task.totalFloat (already on TaskSerializer — no new API).
     const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
       varianceDays: variance,

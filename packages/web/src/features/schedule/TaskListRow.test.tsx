@@ -179,7 +179,7 @@ describe('TaskListRow', () => {
     expect(nameEl.getAttribute('title')).not.toMatch(/on the critical path/i);
   });
 
-  // CPM float / critical-path annotation on the milestone rollup cell (#551) --
+  // CPM float / critical-path annotation on the milestone rollup cell (issue 551) --
   const milestoneRollup = {
     percent_complete: 50,
     rollup_basis: 'points' as const,

@@ -1,5 +1,5 @@
 /**
- * Shared CPM annotation for the milestone rollup variance chip (#551).
+ * Shared CPM annotation for the milestone rollup variance chip (issue 551).
  *
  * The variance chip on milestone rows previously showed only the sprint-plan
  * slip vs the milestone date (`+3d slip` / `-2d ahead`). That number is
@@ -59,7 +59,7 @@ export interface MilestoneVarianceAnnotation {
  *      the slip magnitude (a critical milestone has no float to absorb a slip).
  *   2. Off the critical path with known float → `on-track` when ahead, else
  *      `critical` when the slip exceeds the float and `at-risk` when it fits.
- *   3. Off the critical path without float (scheduler not run) → the pre-#551
+ *   3. Off the critical path without float (scheduler not run) → the pre-issue-551
  *      magnitude band (≤5d amber, else red), with no float suffix.
  */
 export function milestoneVarianceAnnotation({
@@ -88,7 +88,7 @@ export function milestoneVarianceAnnotation({
     // (2) Slip vs float: red when the slip exceeds available float, amber when absorbed.
     tone = varianceDays > totalFloatDays ? 'critical' : 'at-risk';
   } else {
-    // (3) No CPM float to compare against — fall back to the pre-#551 magnitude band.
+    // (3) No CPM float to compare against — fall back to the pre-issue-551 magnitude band.
     tone = varianceDays <= 5 ? 'at-risk' : 'critical';
   }
 

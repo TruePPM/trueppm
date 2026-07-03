@@ -259,9 +259,9 @@ function MilestoneRollupReadOnly({
   totalFloatDays,
 }: {
   rollup: NonNullable<ReturnType<typeof useScheduleTasks>['tasks']>[number]['milestoneRollup'];
-  /** CPM critical-path flag of the milestone task (#551). */
+  /** CPM critical-path flag of the milestone task (issue 551). */
   onCriticalPath: boolean | null;
-  /** CPM total float (working days) of the milestone task (#551). */
+  /** CPM total float (working days) of the milestone task (issue 551). */
   totalFloatDays: number | null;
 }) {
   const itl = useIterationLabel();
@@ -269,7 +269,7 @@ function MilestoneRollupReadOnly({
   const pct = Math.round(rollup.percent_complete);
   const basis = rollup.rollup_basis === 'tasks' ? 'tasks' : 'points';
   const variance = rollup.variance_days;
-  // CPM annotation (#551): color band + float/critical-path suffix.
+  // CPM annotation (issue 551): color band + float/critical-path suffix.
   const { tone, annotation, ariaAnnotation } = milestoneVarianceAnnotation({
     varianceDays: variance,
     totalFloatDays,

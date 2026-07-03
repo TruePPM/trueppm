@@ -6,7 +6,7 @@ import { makeSprint, makeMilestone, makeRollup } from './sprintTestFixtures';
 import type { Task } from '@/types';
 
 // The card joins the milestone task from the schedule task list to read
-// isCritical / totalFloat for the CPM annotation (#551). Mock the hook so tests
+// isCritical / totalFloat for the CPM annotation (issue 551). Mock the hook so tests
 // control those CPM fields deterministically.
 const mockCardTasks: Task[] = [];
 vi.mock('@/hooks/useScheduleTasks', () => ({
@@ -255,7 +255,7 @@ describe('AdvancingToMilestoneCard', () => {
     expect(chip.className).toMatch(/text-semantic-on-track/);
   });
 
-  // CPM float / critical-path annotation (#551) --------------------------
+  // CPM float / critical-path annotation (issue 551) --------------------------
 
   it('annotates the chip with "critical path" and forces red when the milestone is critical', () => {
     mockCardTasks.push(milestoneTask({ isCritical: true, totalFloat: 0 }));

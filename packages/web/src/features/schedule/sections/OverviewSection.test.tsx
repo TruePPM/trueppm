@@ -326,7 +326,7 @@ describe('OverviewSection — milestone rollup', () => {
     expect(variance.className).toMatch(/text-semantic-critical/);
   });
 
-  // CPM float / critical-path annotation (#551) --------------------------
+  // CPM float / critical-path annotation (issue 551) --------------------------
 
   it('annotates the variance line with float and stays amber within float', () => {
     mockTasks.splice(0, mockTasks.length, {

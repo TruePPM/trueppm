@@ -50,7 +50,7 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
   const detail = sprint.target_milestone_detail;
   const rollup = detail?.rollup ?? null;
 
-  // CPM annotation (#551): join the milestone task from the already-loaded
+  // CPM annotation (issue 551): join the milestone task from the already-loaded
   // schedule task list (warm TanStack Query cache — the parent SprintsView
   // reads the same key, so this is a cache hit, not a second fetch) to read
   // `isCritical` / `totalFloat`. No new API — both are on TaskSerializer.
@@ -156,9 +156,9 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
 interface RollupBlockProps {
   rollup: MilestoneRollup;
   label: IterationLabelForms;
-  /** CPM critical-path flag of the milestone task (#551). Null until CPM runs. */
+  /** CPM critical-path flag of the milestone task (issue 551). Null until CPM runs. */
   onCriticalPath: boolean | null;
-  /** CPM total float (working days) of the milestone task (#551). Null until CPM runs. */
+  /** CPM total float (working days) of the milestone task (issue 551). Null until CPM runs. */
   totalFloatDays: number | null;
 }
 
@@ -212,15 +212,15 @@ function RollupBlock({ rollup, label, onCriticalPath, totalFloatDays }: RollupBl
 interface VarianceChipProps {
   days: number;
   iterationSingular: string;
-  /** CPM critical-path flag of the milestone task (#551). */
+  /** CPM critical-path flag of the milestone task (issue 551). */
   onCriticalPath: boolean | null;
-  /** CPM total float (working days) of the milestone task (#551). */
+  /** CPM total float (working days) of the milestone task (issue 551). */
   totalFloatDays: number | null;
 }
 
 /**
  * Sprint-plan variance vs the milestone date, annotated with CPM float /
- * critical-path status (#551). Different signal from DaysOutChip: that one is
+ * critical-path status (issue 551). Different signal from DaysOutChip: that one is
  * anchored to TODAY, this one is anchored to the SPRINT'S planned finish. Both
  * can be informative simultaneously — sprint ends in 5d but milestone is 8d
  * out → variance is -3 (ahead).
