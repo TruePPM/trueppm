@@ -9,6 +9,13 @@ describe('ScheduleAddMilestoneButton', () => {
     expect(screen.getByText('+ Milestone')).toBeInTheDocument();
   });
 
+  it('stays a fixed size in the flex-nowrap toolbar (no zoom reflow, issue 1632)', () => {
+    render(<ScheduleAddMilestoneButton onAddMilestone={vi.fn()} />);
+    const btn = screen.getByTestId('add-milestone-button');
+    expect(btn.className).toMatch(/\bshrink-0\b/);
+    expect(btn.className).toMatch(/\bwhitespace-nowrap\b/);
+  });
+
   it('exposes a hotkey-aware accessible label', () => {
     render(<ScheduleAddMilestoneButton onAddMilestone={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Add new milestone (Cmd+M)' })).toBeInTheDocument();
