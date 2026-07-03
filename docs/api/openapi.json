@@ -9806,6 +9806,14 @@
                 "summary": "Pull the offline sync delta for a project",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `next_cursor` is null / `has_more` is false, then adopt `timestamp` as the next `since`."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -9813,6 +9821,14 @@
                             "format": "uuid"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum rows returned across all collections in one page. Defaults to `TRUEPPM_SYNC_PULL_PAGE_SIZE`; clamped to `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE`."
                     },
                     {
                         "in": "query",
@@ -9840,12 +9856,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "$ref": "#/components/schemas/SyncPullResponse"
                                 }
                             }
                         },
-                        "description": "WatermelonDB pull envelope: `{timestamp, changes}`. `timestamp` is the new high-water mark to send as `since` on the next pull. `changes` maps each synced collection (`projects`, `tasks`, `dependencies`, `calendars`, `memberships`, `risks`, `sprints`, `sprint_retros`, `retro_action_items`, `task_suggested_assignees`, `task_links`, `task_recurrence_rules`, `time_entries`) to a `{created, updated, deleted}` bucket, where `created`/`updated` are arrays of row objects and `deleted` is an array of tombstoned row ids."
+                        "description": ""
                     }
                 }
             },
@@ -34937,6 +34952,36 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
+            },
+            "SyncPullResponse": {
+                "type": "object",
+                "description": "Response envelope for the paginated delta pull (#1013).\n\n``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing\n``changes`` and ``timestamp`` fields are unchanged, so an older client that\nignores the cursor still gets a valid (first) page. The client loops while\n``has_more`` is true, sending the previous ``next_cursor`` back and keeping\n``since`` constant, then adopts ``timestamp`` as the next ``since``.",
+                "properties": {
+                    "changes": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "Per-collection WatermelonDB buckets (created/updated/deleted)."
+                    },
+                    "timestamp": {
+                        "type": "integer",
+                        "description": "High-water mark to adopt as `since` once the delta is fully drained (after the last page)."
+                    },
+                    "next_cursor": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Opaque continuation token. Pass it as the `cursor` query param on the next request; `null` when the delta is exhausted."
+                    },
+                    "has_more": {
+                        "type": "boolean",
+                        "description": "True while more pages remain for this `since` session."
+                    }
+                },
+                "required": [
+                    "changes",
+                    "has_more",
+                    "next_cursor",
+                    "timestamp"
+                ]
             },
             "SyncUploadChangesRequest": {
                 "type": "object",

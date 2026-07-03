@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -34,11 +34,13 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskSuggestedAssignee,
 )
+from trueppm_api.apps.sync.pagination import SyncCursor, SyncSource, paginate_changes
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
     SyncMembershipSerializer,
     SyncProjectSerializer,
+    SyncPullResponseSerializer,
     SyncRetroActionItemSerializer,
     SyncRiskSerializer,
     SyncSprintRetroSerializer,
@@ -125,24 +127,32 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     "Omitting it silently triggers a full re-sync."
                 ),
             ),
-        ],
-        responses={
-            200: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
+            OpenApiParameter(
+                name="cursor",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
                 description=(
-                    "WatermelonDB pull envelope: `{timestamp, changes}`. "
-                    "`timestamp` is the new high-water mark to send as `since` on "
-                    "the next pull. `changes` maps each synced collection "
-                    "(`projects`, `tasks`, `dependencies`, `calendars`, "
-                    "`memberships`, `risks`, `sprints`, `sprint_retros`, "
-                    "`retro_action_items`, `task_suggested_assignees`, "
-                    "`task_links`, `task_recurrence_rules`, `time_entries`) to a "
-                    "`{created, updated, deleted}` bucket, where `created`/"
-                    "`updated` are arrays of row objects and `deleted` is an "
-                    "array of tombstoned row ids."
+                    "Opaque pagination continuation token (#1013). Omit on the "
+                    "first request; on each subsequent request pass the previous "
+                    "response's `next_cursor`. Keep `since` constant for the whole "
+                    "paging session. Loop until `next_cursor` is null / `has_more` "
+                    "is false, then adopt `timestamp` as the next `since`."
                 ),
             ),
-        },
+            OpenApiParameter(
+                name="page_size",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Maximum rows returned across all collections in one page. "
+                    "Defaults to `TRUEPPM_SYNC_PULL_PAGE_SIZE`; clamped to "
+                    "`TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE`."
+                ),
+            ),
+        ],
+        responses={200: SyncPullResponseSerializer},
     )
     def get(self, request: Request, pk: str) -> Response:
         # Validate `since` parameter.
@@ -153,6 +163,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 raise ValueError
         except (ValueError, TypeError) as err:
             raise ValidationError({"since": "Must be a non-negative integer."}) from err
+
+        # Validate the optional continuation cursor and page size (#1013).
+        cursor_raw = request.query_params.get("cursor")
+        cursor = SyncCursor.decode(cursor_raw) if cursor_raw else None
+        page_size = self._resolve_page_size(request)
 
         # Resolve project — 404 if missing or soft-deleted.
         try:
@@ -187,16 +202,25 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 retro__team_visibility=RetroVisibility.TEAM_ONLY
             )
 
-        changes = {
-            "projects": self._collect(
+        # Ordered sync sources: (collection, base queryset, serializer). Each base
+        # queryset carries the project scope, the `server_version__gt=since` floor,
+        # and any RBAC/visibility filters. The pager (#1013) drains them in this
+        # fixed order, keyset-seeking on (server_version, id) within each, so the
+        # response is bounded by page_size without skipping or duplicating rows.
+        # The order is stable across pages — do not reorder without a protocol bump.
+        sources: list[SyncSource] = [
+            (
+                "projects",
                 Project.objects.filter(pk=project.pk, server_version__gt=since),
                 SyncProjectSerializer,
             ),
-            "tasks": self._collect(
+            (
+                "tasks",
                 Task.objects.filter(project=project, server_version__gt=since),
                 SyncTaskSerializer,
             ),
-            "dependencies": self._collect(
+            (
+                "dependencies",
                 # Same-project edges only. Cross-project edges (ADR-0120) are
                 # deliberately excluded from the single-project offline delta:
                 # their successor task lives in a project this client may not have
@@ -211,7 +235,8 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 ).select_related("predecessor"),
                 SyncDependencySerializer,
             ),
-            "calendars": self._collect(
+            (
+                "calendars",
                 # prefetch_related("exceptions") feeds the nested read-only
                 # exceptions array on SyncCalendarSerializer (ADR-0193) without a
                 # per-calendar lazy load — parity with CalendarViewSet and
@@ -223,45 +248,50 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 else Calendar.objects.none(),
                 SyncCalendarSerializer,
             ),
-            "memberships": self._collect(
+            (
+                "memberships",
                 ProjectMembership.objects.filter(project=project, server_version__gt=since),
                 SyncMembershipSerializer,
             ),
-            "risks": self._collect(
+            (
+                "risks",
                 Risk.objects.filter(project=project, server_version__gt=since).prefetch_related(
                     "tasks"
                 ),
                 SyncRiskSerializer,
             ),
-            "sprints": self._collect(
+            (
+                "sprints",
                 Sprint.objects.filter(project=project, server_version__gt=since),
                 SyncSprintSerializer,
             ),
-            "sprint_retros": self._collect(retro_qs, SyncSprintRetroSerializer),
-            "retro_action_items": self._collect(
-                retro_action_item_qs, SyncRetroActionItemSerializer
-            ),
-            "task_suggested_assignees": self._collect(
+            ("sprint_retros", retro_qs, SyncSprintRetroSerializer),
+            ("retro_action_items", retro_action_item_qs, SyncRetroActionItemSerializer),
+            (
+                "task_suggested_assignees",
                 TaskSuggestedAssignee.objects.filter(
                     task__project=project, server_version__gt=since
                 ),
                 SyncTaskSuggestedAssigneeSerializer,
             ),
-            "task_links": self._collect(
+            (
+                "task_links",
                 TaskLink.objects.filter(task__project=project, server_version__gt=since),
                 SyncTaskLinkSerializer,
             ),
-            "task_recurrence_rules": self._collect(
+            (
+                "task_recurrence_rules",
                 TaskRecurrenceRule.objects.filter(
                     task__project=project, server_version__gt=since
                 ).select_related("task"),
                 SyncTaskRecurrenceRuleSerializer,
             ),
-            # Time entries are scoped to the CALLER's own rows (ADR-0185 §6): the
-            # per-project delta never leaks a colleague's entries, mirroring the
-            # /me/ REST surface's non-surveillance discipline. A soft-deleted entry
-            # yields a tombstone through the standard _collect path.
-            "time_entries": self._collect(
+            (
+                # Time entries are scoped to the CALLER's own rows (ADR-0185 §6): the
+                # per-project delta never leaks a colleague's entries, mirroring the
+                # /me/ REST surface's non-surveillance discipline. A soft-deleted entry
+                # yields a tombstone through the standard _collect path.
+                "time_entries",
                 TimeEntry.objects.filter(
                     task__project=project,
                     user=cast("_User", request.user),
@@ -269,9 +299,38 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 ).select_related("task"),
                 SyncTimeEntrySerializer,
             ),
-        }
+        ]
 
-        return Response({"changes": changes, "timestamp": timestamp})
+        changes, next_cursor, has_more = paginate_changes(
+            sources, cursor=cursor, page_size=page_size, collect=self._collect
+        )
+
+        return Response(
+            {
+                "changes": changes,
+                "timestamp": timestamp,
+                "next_cursor": next_cursor.encode() if next_cursor is not None else None,
+                "has_more": has_more,
+            }
+        )
+
+    @staticmethod
+    def _resolve_page_size(request: Request) -> int:
+        """Clamp the requested ``page_size`` to ``[1, MAX]`` with a sane default (#1013).
+
+        A missing or non-numeric value falls back to the default rather than 400ing:
+        the pager is a transport optimization, not a contract the client must satisfy.
+        """
+        default = getattr(settings, "TRUEPPM_SYNC_PULL_PAGE_SIZE", 1000)
+        maximum = getattr(settings, "TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE", 5000)
+        raw = request.query_params.get("page_size")
+        if raw is None:
+            return default
+        try:
+            requested = int(raw)
+        except (ValueError, TypeError):
+            return default
+        return max(1, min(requested, maximum))
 
     def get_throttles(self) -> list[BaseThrottle]:
         """Throttle the write (POST) path only; pull (GET) stays unthrottled."""

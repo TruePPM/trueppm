@@ -315,6 +315,196 @@ def test_sync_task_serializer_declares_required_mobile_fields() -> None:
     assert not missing, f"SyncTaskSerializer is missing mobile-critical fields: {missing}"
 
 
+# ---------------------------------------------------------------------------
+# Cursor pagination (#1013)
+#
+# server_version is a PER-ROW edit counter, not a global sequence: on cold start
+# every freshly created row shares server_version=1. The pager therefore keysets
+# on (collection_index, server_version, id) so a page boundary can fall between
+# two rows of the same version without skipping or duplicating any. These tests
+# prove: pages are bounded by page_size, contiguous, non-overlapping, and
+# reassemble to the full delta — and that an incremental (since>0) pull still
+# paginates correctly.
+# ---------------------------------------------------------------------------
+
+from itertools import count as _count  # noqa: E402
+
+from trueppm_api.apps.sync.pagination import SyncCursor  # noqa: E402
+
+# Monotonic short_id source so repeated _seed_tasks calls in one test never
+# collide on the per-project (project_id, short_id) unique constraint.
+_short_id_seq = _count(1)
+
+
+def _seed_tasks(project: Project, count: int, *, server_version: int = 1) -> list[str]:
+    """Bulk-insert ``count`` tasks at a fixed server_version; return their id strings.
+
+    bulk_create bypasses ``VersionedModel.save`` (which would set server_version=1
+    and allocate short_id), so both are set explicitly: server_version so the rows
+    clear the ``server_version__gt=since`` floor, and a unique short_id so the
+    per-project unique constraint is satisfied.
+    """
+    tasks = [
+        Task(
+            project=project,
+            name=f"T{n}",
+            short_id=f"T{n}",
+            duration=1,
+            server_version=server_version,
+        )
+        for n in (next(_short_id_seq) for _ in range(count))
+    ]
+    Task.objects.bulk_create(tasks)
+    return [str(t.pk) for t in tasks]
+
+
+def _drain(
+    client: APIClient, project: Project, *, since: str, page_size: int
+) -> tuple[list[tuple[str, str]], int]:
+    """Loop the paginated pull to exhaustion.
+
+    Returns ``(emitted, page_count)`` where ``emitted`` is every
+    ``(collection, id)`` pair delivered across all pages (updated + deleted), in
+    delivery order. Asserts each page is bounded by ``page_size``.
+    """
+    emitted: list[tuple[str, str]] = []
+    cursor: str | None = None
+    pages = 0
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_watermark",
+        return_value=1,
+    ):
+        while True:
+            params = {"since": since, "page_size": str(page_size)}
+            if cursor is not None:
+                params["cursor"] = cursor
+            resp = client.get(_url(project), params)
+            assert resp.status_code == 200, resp.data
+            page_rows = 0
+            for collection, bucket in resp.data["changes"].items():
+                for row in bucket["updated"]:
+                    emitted.append((collection, row["id"]))
+                    page_rows += 1
+                for row_id in bucket["deleted"]:
+                    emitted.append((collection, row_id))
+                    page_rows += 1
+            assert page_rows <= page_size, f"page exceeded page_size: {page_rows} > {page_size}"
+            pages += 1
+            cursor = resp.data["next_cursor"]
+            if not resp.data["has_more"]:
+                assert cursor is None
+                break
+            assert cursor is not None
+            assert pages < 10_000, "pager failed to terminate"
+    return emitted, pages
+
+
+@pytest.mark.django_db
+def test_sync_cold_start_paginates_contiguous_non_overlapping(
+    authed_client: APIClient,
+    project: Project,
+    calendar: Calendar,
+    membership: ProjectMembership,
+) -> None:
+    task_ids = _seed_tasks(project, 2000)
+    page_size = 137  # deliberately not a divisor — forces an uneven final page
+
+    emitted, pages = _drain(authed_client, project, since="0", page_size=page_size)
+
+    # Paginated: 2000 tasks + project + calendar + membership at page_size 137
+    # cannot fit in one page.
+    assert pages > 1
+
+    # Non-overlapping: no (collection, id) pair is delivered twice.
+    assert len(emitted) == len(set(emitted))
+
+    # Contiguous + reassembles to the full set: every seeded task appears exactly
+    # once, and the union across pages equals the whole cold-start delta.
+    emitted_tasks = [row_id for coll, row_id in emitted if coll == "tasks"]
+    assert set(emitted_tasks) == set(task_ids)
+    assert len(emitted_tasks) == len(task_ids)  # no duplicates
+
+    emitted_ids = {row_id for _coll, row_id in emitted}
+    assert str(project.pk) in emitted_ids
+    assert str(calendar.pk) in emitted_ids
+    assert str(membership.pk) in emitted_ids
+
+
+@pytest.mark.django_db
+def test_sync_cold_start_page_size_clamped_to_max(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """A page_size above the configured max is clamped, not honored (#1013)."""
+    from django.test import override_settings
+
+    _seed_tasks(project, 30)
+    with override_settings(TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE=10):
+        _emitted, pages = _drain(authed_client, project, since="0", page_size=9999)
+    # 30 tasks + project + membership across pages capped at 10 rows each.
+    assert pages >= 3
+
+
+@pytest.mark.django_db
+def test_sync_incremental_pull_paginates(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """An incremental (since>0) pull returns only bumped rows, and still pages."""
+    _seed_tasks(project, 500, server_version=1)  # baseline, already synced
+    bumped = _seed_tasks(project, 300, server_version=2)  # edited since checkpoint
+
+    emitted, pages = _drain(authed_client, project, since="1", page_size=50)
+
+    emitted_tasks = [row_id for coll, row_id in emitted if coll == "tasks"]
+    # Only the version-2 rows come back; the 500 version-1 rows are excluded.
+    assert set(emitted_tasks) == set(bumped)
+    assert len(emitted_tasks) == len(bumped)
+    assert pages > 1
+
+
+@pytest.mark.django_db
+def test_sync_single_page_is_backward_compatible(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    """A small project drains in one page: has_more False, next_cursor None (#1013)."""
+    _seed_tasks(project, 5)
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_watermark",
+        return_value=1,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    assert resp.status_code == 200
+    assert resp.data["has_more"] is False
+    assert resp.data["next_cursor"] is None
+    task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
+    assert len(task_ids) == 5
+
+
+@pytest.mark.django_db
+def test_sync_malformed_cursor_returns_400(
+    authed_client: APIClient,
+    project: Project,
+    membership: ProjectMembership,
+) -> None:
+    resp = authed_client.get(_url(project), {"since": "0", "cursor": "!!!not-base64!!!"})
+    assert resp.status_code == 400
+
+
+def test_sync_cursor_round_trips() -> None:
+    """The opaque cursor token encodes and decodes losslessly (#1013)."""
+    original = SyncCursor(index=3, version=7, row_id="a1b2c3d4-0000-0000-0000-000000000000")
+    assert SyncCursor.decode(original.encode()) == original
+    fresh = SyncCursor(index=2, version=0, row_id=None)
+    assert SyncCursor.decode(fresh.encode()) == fresh
+
+
 @pytest.mark.django_db
 def test_sync_soft_deleted_risk_appears_in_deleted_list(
     authed_client: APIClient, project: Project, membership: ProjectMembership

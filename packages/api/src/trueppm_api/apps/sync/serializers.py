@@ -321,6 +321,42 @@ class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
 
 
 # ---------------------------------------------------------------------------
+# Pull (GET) response envelope — documents the paginated delta shape (#1013).
+# ---------------------------------------------------------------------------
+
+
+class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """Response envelope for the paginated delta pull (#1013).
+
+    ``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing
+    ``changes`` and ``timestamp`` fields are unchanged, so an older client that
+    ignores the cursor still gets a valid (first) page. The client loops while
+    ``has_more`` is true, sending the previous ``next_cursor`` back and keeping
+    ``since`` constant, then adopts ``timestamp`` as the next ``since``.
+    """
+
+    changes = serializers.DictField(
+        help_text="Per-collection WatermelonDB buckets (created/updated/deleted).",
+    )
+    timestamp = serializers.IntegerField(
+        help_text=(
+            "High-water mark to adopt as `since` once the delta is fully drained "
+            "(after the last page)."
+        ),
+    )
+    next_cursor = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Opaque continuation token. Pass it as the `cursor` query param on the "
+            "next request; `null` when the delta is exhausted."
+        ),
+    )
+    has_more = serializers.BooleanField(
+        help_text="True while more pages remain for this `since` session.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Upload (push) serializer — mobile offline → server (ADR-0082, issue #667)
 #
 # Validates only the batch envelope. Per-row task validation reuses the REST
