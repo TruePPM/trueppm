@@ -205,15 +205,16 @@ describe('LoginPage', () => {
     );
   });
 
-  it('shows an invite-based tooltip when Request access is clicked', async () => {
+  it('directs new users to their admin instead of a dead signup link', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Request access' }));
-
-    expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'Accounts are invite-based — ask your workspace admin for an invite.',
-    );
+    // TruePPM is invite-based; there is no self-service signup, so the footer
+    // is honest static copy — not a link to a nonexistent /signup route.
+    expect(
+      screen.getByText('Need access? Ask your workspace admin to invite you.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /request access/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /request access/i })).not.toBeInTheDocument();
   });
 
   it('remember-me checkbox toggles', () => {
