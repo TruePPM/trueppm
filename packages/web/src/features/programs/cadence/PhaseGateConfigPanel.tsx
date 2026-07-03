@@ -75,7 +75,7 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
     <div
       role="presentation"
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-50 flex justify-end bg-black/40"
+      className="fixed inset-0 z-50 flex justify-end bg-neutral-overlay"
     >
       <aside
         role="dialog"

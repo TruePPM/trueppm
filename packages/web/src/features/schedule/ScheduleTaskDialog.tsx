@@ -142,7 +142,7 @@ export function ScheduleTaskDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/40" aria-hidden="true" onClick={onClose} />
+      <div className="fixed inset-0 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
       <div
         ref={dialogRef}
         role="dialog"

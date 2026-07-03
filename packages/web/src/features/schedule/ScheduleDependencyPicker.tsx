@@ -272,7 +272,7 @@ export function ScheduleDependencyPicker({
       <button
         type="button"
         aria-label="Close dialog"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-neutral-overlay"
         onClick={onClose}
       />
       <div
