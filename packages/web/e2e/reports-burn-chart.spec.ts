@@ -214,6 +214,59 @@ test.describe('Reports tab — variant switching', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Export menu — click/keyboard driven open/close (issue 1607)
+// ---------------------------------------------------------------------------
+
+test.describe('Reports tab — export menu', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    await expect(page.getByRole('heading', { name: /burn chart/i })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('clicking the trigger opens the menu and reveals PNG/PDF items', async ({ page }) => {
+    const trigger = page.getByRole('button', { name: /export chart/i });
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // Menu items are CSS-hidden until opened.
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /download pdf/i })).toBeVisible();
+  });
+
+  test('picking Download PNG closes the menu', async ({ page }) => {
+    const trigger = page.getByRole('button', { name: /export chart/i });
+    await trigger.click();
+    await page.getByRole('menuitem', { name: /download png/i }).click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    // Move the pointer off the group so the group-hover enhancement does not
+    // keep the (state-closed) menu visible while asserting it is hidden.
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+  });
+
+  test('Escape closes an open menu', async ({ page }) => {
+    const trigger = page.getByRole('button', { name: /export chart/i });
+    await trigger.click();
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+  });
+
+  test('clicking outside closes an open menu', async ({ page }) => {
+    const trigger = page.getByRole('button', { name: /export chart/i });
+    await trigger.click();
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeVisible();
+    await page.getByRole('heading', { name: 'Reports' }).click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('menuitem', { name: /download png/i })).toBeHidden();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error state
 // ---------------------------------------------------------------------------
 

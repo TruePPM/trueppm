@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AreaChart,
   Area,
@@ -391,6 +391,29 @@ export function BurnChart({
   const [since, setSince] = useState<string | undefined>();
   const [until, setUntil] = useState<string | undefined>();
   const chartRef = useRef<HTMLDivElement>(null);
+  // Export menu open/close is state-driven so it works on touch and in
+  // browsers that do not focus a <button> on click (Safari/Firefox on macOS).
+  // CSS group-hover stays as a progressive enhancement for pointer users.
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExportMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [exportMenuOpen]);
 
   const isSprintCtx = !!sprintId;
   const itl = useIterationLabel(projectId);
@@ -657,34 +680,46 @@ export function BurnChart({
               <option value="points">Story points</option>
             </select>
           )}
-          <div className="relative group">
+          <div className="relative group" ref={exportMenuRef}>
             <button
               className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-xs font-medium text-neutral-text-primary flex items-center gap-1.5 hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
               disabled={isLoading || showEmpty || isError}
               aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
               aria-label="Export chart"
-              // No-op click: the menu is hover/focus-only (group-hover /
-              // group-focus-within below). Click/touch-driven opening —
-              // needed for touch devices with no hover state — is tracked
-              // in issue 1607.
-              onClick={() => {}}
+              onClick={() => setExportMenuOpen((open) => !open)}
             >
               <span aria-hidden="true">↓</span> Export
             </button>
             <div
               role="menu"
-              className="absolute right-0 top-full mt-1 w-40 bg-neutral-surface border border-neutral-border rounded-card shadow-none overflow-hidden z-10 hidden group-hover:block group-focus-within:block"
+              // State drives the explicit open (click/touch, keyboard Enter/
+              // Space on the trigger, and Escape/outside-click to dismiss);
+              // group-hover stays as a progressive enhancement for pointer
+              // users. group-focus-within is deliberately NOT used — it would
+              // re-show the menu whenever the focused trigger is focused, so
+              // Escape could never dismiss it for a keyboard user (issue 1607).
+              className={[
+                'absolute right-0 top-full mt-1 w-40 bg-neutral-surface border border-neutral-border rounded-card shadow-none overflow-hidden z-10',
+                exportMenuOpen ? 'block' : 'hidden group-hover:block',
+              ].join(' ')}
             >
               <button
                 role="menuitem"
-                onClick={() => void exportPng()}
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  void exportPng();
+                }}
                 className="w-full text-left px-3 py-2 text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 Download PNG
               </button>
               <button
                 role="menuitem"
-                onClick={() => void exportPdf()}
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  void exportPdf();
+                }}
                 className="w-full text-left px-3 py-2 text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-brand-primary"
               >
                 Download PDF
