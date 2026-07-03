@@ -111,6 +111,47 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/ws/ticket/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }) }),
   );
+  // Keep the session-expired banner (SessionExpiredBanner, `fixed inset-0
+  // z-[100]`) from ever mounting over the canvas (issue 805). The banner is a
+  // full-screen overlay that intercepts every real pointer event, so a
+  // `page.mouse` drag lands on the banner instead of the interaction canvas and
+  // scrollLeft never moves. It is tripped when an unmocked endpoint 401s and the
+  // recovery `POST /auth/token/refresh/` also 401s (expireSession). Mocking the
+  // secondary endpoints the shell/toolbar read on a project route — and making
+  // refresh succeed — removes that trigger so the canvas stays hit-testable.
+  await page.route('**/api/v1/auth/token/refresh/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access: 'e2e-token' }) }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'u1', email: 'e2e@example.com', first_name: 'E', last_name: '2E', is_staff: false }) }),
+  );
+  await page.route('**/api/v1/workspace/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'w1', name: 'E2E', public_sharing_enabled: false }) }),
+  );
+  await page.route('**/api/v1/programs/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route('**/api/v1/projects/*/sprints/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route('**/api/v1/projects/*/velocity/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sprints: [] }) }),
+  );
+  await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (route) =>
+    route.fulfill({ status: 204, contentType: 'application/json', body: '' }),
+  );
+  await page.route('**/api/v1/projects/*/visit/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) }),
+  );
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
   // Accept the project WebSocket so the StatusBar connection pill (#643) reaches
   // "Live" instead of stalling on "Connecting…". Leaving the socket open (never
   // closing it) makes the client fire `open` → markLive(); we send no frames.
@@ -290,47 +331,60 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
     await expect(page.getByRole('button', { name: 'Fit schedule to window' }).first()).toBeVisible();
   });
 
-  // Skipped pending investigation in #805. Both gesture variants (Space + drag
-  // and middle-button drag) land `scrollLeft === 0` in Playwright headless,
-  // 100% deterministic across all retries — even though `GanttPanFSM` unit
-  // tests pass and `_rebuildScales` forces `totalWidth >= 3 × viewportWidth`
-  // (so `maxLeft > 0` is not the cause). The pan feature itself is verified
-  // manually and the FSM is covered by `GanttPanFSM.test.ts`; what is
-  // unblocked here is the end-to-end integration coverage. Drop `test.fixme`
-  // once the root cause in #805 is identified.
-  test.fixme('drag pans the timeline horizontally (#491)', async ({ page }) => {
+  // Real-mouse middle-button drag pans the timeline end-to-end (#491, #805).
+  //
+  // This was fixme'd because both gesture variants deterministically landed
+  // `scrollLeft === 0` in headless. Root cause (issue 805): unmocked shell/
+  // toolbar endpoints 401 and the recovery `POST /auth/token/refresh/` — also
+  // unmocked — 401s too, tripping `expireSession()`, which mounts
+  // SessionExpiredBanner as a `fixed inset-0 z-[100]` overlay directly over the
+  // canvas. Real pointer input (`page.mouse`) hit-tests to the topmost element,
+  // so every event landed on the banner and never reached the interaction
+  // canvas. It was never a GanttPanFSM or pointer-capture bug — the FSM is unit-
+  // covered and works. With those endpoints now mocked in `gotoSchedule` the
+  // banner never mounts, the canvas is hit-testable, and the genuine user
+  // gesture drives `_onPointerDown → panFSM.start → _onPointerMove → scrollLeft`.
+  test('drag pans the timeline horizontally (#491)', async ({ page }) => {
     const scroll = page.getByTestId('schedule-canvas-scroll');
     await expect(scroll).toBeVisible();
 
+    // Wait for the engine to build a scrollable timeline (_rebuildScales forces
+    // totalWidth >= 3 × viewport) before driving the pan — otherwise there is
+    // nothing to scroll and the assertion would race the first paint.
+    await expect
+      .poll(async () =>
+        scroll.evaluate((el) => (el as HTMLElement).scrollWidth - (el as HTMLElement).clientWidth),
+      )
+      .toBeGreaterThan(0);
+
     const box = await scroll.boundingBox();
     if (!box) throw new Error('canvas scroll container has no bounding box');
-    const y = box.y + box.height / 2;
-    const startX = box.x + box.width * 0.7;
+    const y = box.y + 14;
+    const startX = box.x + box.width * 0.6;
 
     // Middle-button drag claims the gesture immediately (no arm step) and
-    // bypasses the bar-drag FSM (rule 129). Dragging left reveals later dates.
+    // bypasses the bar-drag FSM (rule 129). Dragging left reveals later dates,
+    // so scrollLeft increases.
     await page.mouse.move(startX, y);
     await page.mouse.down({ button: 'middle' });
+    await page.mouse.move(startX - 40, y, { steps: 4 });
     await page.mouse.move(startX - 200, y, { steps: 8 });
     await page.mouse.up({ button: 'middle' });
 
     // The scroll container actually scrolls — proves the pan FSM moved through
-    // PANNING and the engine applied the delta to scrollLeft.
+    // PANNING and the engine applied the delta to the real scroll container.
     await expect
       .poll(async () => scroll.evaluate((el) => (el as HTMLElement).scrollLeft))
       .toBeGreaterThan(0);
   });
 
-  // Integration coverage for the pan seam while #805 keeps the real-mouse gesture
-  // above fixme'd (Playwright headless never lands scrollLeft > 0 through
-  // page.mouse — a headless input-delivery limitation, not a product bug; the
-  // GanttPanFSM logic itself is unit-covered). This test drives the SAME engine
-  // path the mouse gesture would (interaction-canvas pointerdown[middle] →
-  // _onPointerDown → panFSM.start → pointermove → panFSM.move → container.scrollLeft)
-  // by dispatching synthetic PointerEvents on the interaction canvas, so the
-  // component→engine→scrollLeft wiring has a live integration check that does not
-  // depend on headless real-mouse delivery. If this ever regresses, the pan is
-  // broken regardless of the mouse-path fixme.
+  // Complementary integration check that drives the SAME engine path
+  // (interaction-canvas pointerdown[middle] → _onPointerDown → panFSM.start →
+  // pointermove → panFSM.move → container.scrollLeft) by dispatching synthetic
+  // PointerEvents directly on the interaction canvas. It targets the canvas
+  // element regardless of any overlay, so it isolates the component→engine→
+  // scrollLeft wiring from real-mouse hit-testing. If this regresses, the pan is
+  // broken at the seam independent of the real-gesture test above.
   test('middle-button pointer sequence pans the engine scrollLeft (#491, integration seam for #805)', async ({
     page,
   }) => {
@@ -430,6 +484,14 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
 
     // 401-guard safety net — registered FIRST so every specific route wins.
     await page.route('**/api/v1/**', (route) => route.fulfill(json(emptyList)));
+    // `/me/active-sprints/` returns a BARE array (MyActiveSprintEntry[]), not a
+    // paginated envelope. The shell's CurrentSprintButton (#1594) renders on
+    // every route now, and `useCurrentSprintTargets` does `for (const e of
+    // myActiveSprints ?? [])` — so the catch-all's `{count:0,…}` object above
+    // would be iterated as an object and throw "(r ?? []) is not iterable",
+    // tripping the root error boundary and unmounting the grid. Mock it with its
+    // real array shape.
+    await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/auth/me/', (route) =>
       route.fulfill(json({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' })),
     );
