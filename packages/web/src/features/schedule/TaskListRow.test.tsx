@@ -162,6 +162,23 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText(/critical path/i)).toBeInTheDocument();
   });
 
+  // Rule-49 (issue 734): the critical-path signal is not color-only — the task
+  // name carries the explanatory HTML `title` tooltip alongside color + aria-label.
+  it('critical task name has the explanatory title tooltip', () => {
+    renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
+    const nameEl = screen.getByText('Design Phase');
+    expect(nameEl).toHaveAttribute(
+      'title',
+      'This task is on the critical path — a delay here delays the project end date',
+    );
+  });
+
+  it('non-critical task name does not use the critical-path tooltip', () => {
+    renderWithRouter(<TaskListRow task={{ ...base, isCritical: false }} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
+    const nameEl = screen.getByText('Design Phase');
+    expect(nameEl.getAttribute('title')).not.toMatch(/on the critical path/i);
+  });
+
   it('summary task applies font-medium style', () => {
     renderWithRouter(<TaskListRow task={{ ...base, isSummary: true }} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const nameEl = screen.getByText('Design Phase');
