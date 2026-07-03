@@ -41,6 +41,58 @@ This page describes the architecture of TruePPM as it exists today. The scheduli
 
 Every feature is a REST or WebSocket endpoint before it is a UI element. Web and mobile clients have no privileged access — they are API consumers identical to any third-party integration. The OpenAPI schema at `/api/schema/` is the authoritative contract.
 
+### Computed, not guessed
+
+*The AI-native foundation.* Every incumbent is bolting an LLM onto a project database and letting the model
+guess dates. TruePPM takes the opposite stance, and it has a name: **computed,
+not guessed.** An AI-surfaced answer is never the language model's opinion — it is
+a CPM or Monte Carlo computation the engine performed, carrying a server-side
+derivation you can cite. The model's only job is to translate a question into an
+engine call and to phrase the engine's answer back in natural language. It never
+supplies the number.
+
+This is an architectural commitment, not a feature toggle. It is why the
+scheduling engine is a [separate, deterministic package](#scheduling-as-a-separate-package)
+and why [every feature is an API fact first](#api-first): if a value is computed
+server-side and reachable over the API, an agent can retrieve it and cite it; if
+it lived only in a chat prompt, the agent could only guess at it.
+
+```
+Incumbent — the LLM is the answer:
+
+    question ─▶ LLM ─▶ asserted answer
+                       (a plausible guess; no derivation to check)
+
+
+TruePPM — the engine is the answer: "computed, not guessed"
+
+    question ─▶ NL layer ─▶ engine call ─▶ provenance-carrying answer
+                (translates   (CPM / Monte    ("P80 is Oct 22, derived from
+                 to a call)    Carlo computes)  this critical chain" — citable)
+```
+
+The principle is sequenced across the roadmap as one body of work, not four
+scattered AI bullets — see the [roadmap](/overview/roadmap/):
+
+- **Provenance graph** (#1058) — every computed date, float, and P80 will carry
+  the derivation an agent can cite, so an answer is explainable, not asserted.
+  This is the first piece and it lands with the 0.4 read-only
+  [MCP server](/features/mcp-server/).
+- **Natural-language query layer** (#1060 #1061, planned for 0.5) — will compile a
+  question into engine calls, never into an answer; the model translates, the
+  engine answers.
+- **Safe agent writes** (#1062–#1064, planned for 0.6) — an engine-as-referee will
+  reject any agent write that would create an impossible schedule; this is the
+  write side of the same principle.
+- **Reproducible answers** (#1065, planned for 0.9) — a computed response will
+  carry an engine-version and input hash so the number can be re-run and audited
+  later.
+
+The AI-native foundation is unshipped; the first piece (provenance) is targeted at
+the 0.4 beta. The dates above are targets, not commitments — the
+[roadmap](/overview/roadmap/) is the source of record for what has shipped versus
+what is planned.
+
 ### Offline-first sync protocol
 
 The API exposes a WatermelonDB-compatible sync endpoint (`GET /api/v1/projects/{pk}/sync/`) returning `changes` and `deleted` arrays keyed by `server_version`. This is designed for future mobile and PWA clients — see [Offline Sync](/features/offline-sync/) for details.

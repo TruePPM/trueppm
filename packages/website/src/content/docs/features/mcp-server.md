@@ -15,6 +15,14 @@ path, a Monte Carlo slip forecast, sprint status, the risk register, My Work.
 Answers are computed server-side by the same CPM/Monte Carlo engine the web UI
 uses, never guessed by a model, and nothing leaves your box.
 
+The MCP server is the first place you feel TruePPM's AI principle —
+**computed, not guessed.** Every incumbent bolts an LLM onto a project database
+and lets the model guess dates; here the model only translates your question into
+an engine call, and the CPM/Monte Carlo engine supplies the number. The answer is
+a computation with a derivation, not a language model's opinion. See
+[Computed, not guessed](/architecture/overview/#computed-not-guessed)
+for the full architectural picture.
+
 :::note[Edition]
 The MCP server is part of the **Community (OSS)** edition (Apache 2.0). It
 exposes only data the requesting user can already read under their existing
