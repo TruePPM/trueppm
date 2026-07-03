@@ -363,11 +363,15 @@ export function SettingsShell({
         </div>
         )}
 
-        {/* The single scrolling page. scrollbar-gutter:stable keeps the track
-            reserved so growing/shrinking sections never shift the panel (issue 776). */}
+        {/* The single scrolling page. min-h-0 is load-bearing: a flex child
+            defaults to min-height:auto (its content height), so without it this
+            flex-1 item refuses to shrink, overflows the height chain, and lets
+            <main> scroll past the content into empty canvas (issue 1618).
+            scrollbar-gutter:stable keeps the track reserved so growing/shrinking
+            sections never shift the panel (issue 776). */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
+          className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
           data-testid="settings-content-scroll"
         >
           {children}

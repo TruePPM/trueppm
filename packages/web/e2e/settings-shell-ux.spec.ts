@@ -154,6 +154,26 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
     expect(gutter).toBe('stable');
   });
 
+  // #1618: min-h-0 keeps the flex-1 scroll child from taking its content-height
+  // min and overflowing the height chain, which let <main> scroll past the
+  // content into empty canvas. The panel must not exceed the viewport height.
+  test('content scroll container is height-constrained (no over-scroll into empty canvas)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const scroll = page.getByTestId('settings-content-scroll');
+    await expect(scroll).toBeVisible();
+    const minHeight = await scroll.evaluate((el) => getComputedStyle(el).minHeight);
+    expect(minHeight).toBe('0px');
+    // The scroll panel is bounded by the viewport — it never grows to its full
+    // content height (which is what produced the over-scroll into blank canvas).
+    const viewport = page.viewportSize();
+    const panelHeight = await scroll.evaluate((el) => el.getBoundingClientRect().height);
+    expect(panelHeight).toBeLessThanOrEqual((viewport?.height ?? 720) + 1);
+  });
+
   // #776: the SCOPE switcher must not navigate to a blank page. With no programs
   // in the workspace, the Program scope segment is disabled rather than falling
   // back to a non-settings landing.

@@ -65,6 +65,18 @@ describe('ProjectArchivePage lifecycle (#967)', () => {
     expect(screen.getByRole('button', { name: /Archive Atlas Migration/i })).toBeEnabled();
   });
 
+  it('renders the Transfer ownership (warning) card with adaptive dark-mode tokens (#1619)', () => {
+    renderPage();
+    // The warning card must use the adaptive semantic-warning fill, not the
+    // static bg-brand-accent-light (#FFF3CD) that washes out in dark mode.
+    const heading = screen.getByRole('heading', { name: 'Transfer ownership' });
+    const card = heading.closest('div.rounded-card');
+    expect(card).not.toBeNull();
+    expect(card!.className).toContain('bg-semantic-warning-bg');
+    expect(card!.className).toContain('border-semantic-warning/70');
+    expect(card!.className).not.toContain('bg-brand-accent-light');
+  });
+
   it('Transfer ownership opens the picker dialog and POSTs the chosen member', async () => {
     const user = userEvent.setup();
     renderPage();
