@@ -298,9 +298,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               and not purchasable until post-1.0, so it is neither hidden (which
               reads as broken OSS) nor promoted (a prominent badge/marketing page
               for a feature you can't buy yet is premature). It renders as a
-              disabled, grayed-out row with a tooltip — the rule-122 / HeatmapPage
-              "Level loads" pattern (rule 177). Promote to the rule-121 EE-badge
-              upsell once the feature ships at 1.0. */}
+              disabled, grayed-out row with a tooltip — the rule-122 disabled-
+              control pattern (rule 177), reserved for a post-1.0 not-yet-buyable
+              feature. (A pre-1.0 extension-point slot renders empty instead, no
+              teaser — see the resources_heatmap.level_loads fix in issue 1614.)
+              Promote to the rule-121 EE-badge upsell once the feature ships at
+              1.0. */}
           {showFull && edition === 'community' && (
             <button
               type="button"
