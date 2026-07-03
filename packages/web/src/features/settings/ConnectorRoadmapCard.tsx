@@ -31,7 +31,7 @@ type AvailableConnector = {
   description: string;
   /**
    * Where to go to use it. `external` links open the published docs site in a
-   * new tab (rule 212 — never an in-app `/docs/...` path); in-app links route
+   * new tab (rule 212 — never an in-app docs route); in-app links route
    * within the SPA. Omitted when the capability has no destination of its own
    * (the cloud-file preview lives on the task, so linking anywhere is wrong).
    */
