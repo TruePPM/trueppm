@@ -29,9 +29,9 @@ import {
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import {
   DndContext,
-  PointerSensor,
   KeyboardSensor,
   TouchSensor,
   useSensor,
@@ -1845,8 +1845,22 @@ export function BoardView() {
     [canManageScope, pendingScopeChangeId, acceptScope, rejectScope],
   );
 
+  // Space-held click-drag panning of the board grid (issue 1265). While Space is
+  // held, `shouldSuppressDrag` gates the pointer sensor so a pointer-down pans
+  // the scroll container instead of lifting a card; releasing Space restores
+  // normal @dnd-kit drag. `scrollRef` attaches to the desktop grid scroller.
+  const {
+    scrollRef: boardScrollRef,
+    isSpaceHeld: isBoardPanArmed,
+    isPanning: isBoardPanning,
+    shouldSuppressDrag,
+  } = useSpaceDragPan();
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(SpaceAwarePointerSensor, {
+      activationConstraint: { distance: 4 },
+      shouldSuppressActivation: shouldSuppressDrag,
+    }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor),
   );
@@ -3022,9 +3036,20 @@ export function BoardView() {
                 />
               )}
 
-              {/* Board grid — scrollable */}
+              {/* Board grid — scrollable. `boardScrollRef` + the grab/grabbing
+                  cursor classes wire Space-held drag-panning (issue 1265);
+                  `select-none` while panning stops text selection mid-drag. */}
               <div
-                className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken"
+                ref={boardScrollRef}
+                data-testid="board-scroll"
+                data-space-panning={isBoardPanning ? 'true' : undefined}
+                className={`flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken${
+                  isBoardPanArmed
+                    ? isBoardPanning
+                      ? ' cursor-grabbing select-none'
+                      : ' cursor-grab'
+                    : ''
+                }`}
                 // Board zoom CSS vars (issue 379) — cascade to the column-header / lane /
                 // phase-rail grids and the column card-stacks below.
                 style={BOARD_ZOOM_VARS[toolbarPrefs.zoom]}
