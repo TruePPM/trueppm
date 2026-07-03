@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramSchedulePage } from './ProgramSchedulePage';
+import { transformProgramSchedule } from './transformProgramSchedule';
+import { HEADER_HEIGHT, ROW_HEIGHT } from '@/features/schedule/scheduleConstants';
 import type { ProgramSchedule } from '../hooks/useProgramSchedule';
 
 const useProgramSchedule = vi.fn<() => unknown>();
@@ -108,6 +110,21 @@ describe('ProgramSchedulePage', () => {
     expect(screen.getByText(/Cross-project critical path across 2 projects/)).toBeInTheDocument();
     expect(screen.getByTestId('canvas-timeline')).toBeInTheDocument();
     expect(screen.getByText('Critical path')).toBeInTheDocument();
+  });
+
+  it('wraps the canvas in a scrollable container with a content-height spacer (#1624)', () => {
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    // The container the engine scrolls must be overflow-auto, or the browser
+    // never fires `scroll` and the virtualizing engine stays pinned at row 0.
+    const scroll = screen.getByTestId('program-schedule-canvas-scroll');
+    expect(scroll.className).toContain('overflow-auto');
+    // Its spacer child must be sized to every lane row so scrollHeight exceeds
+    // the viewport — this is the regression the bug was missing.
+    const spacer = scroll.firstElementChild as HTMLElement;
+    const rowCount = transformProgramSchedule(GOLDEN).tasks.length;
+    expect(rowCount).toBeGreaterThan(0);
+    expect(spacer.style.height).toBe(`${HEADER_HEIGHT + rowCount * ROW_HEIGHT}px`);
   });
 
   it('shows the empty state when there are no scheduled tasks', () => {
