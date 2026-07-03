@@ -91,7 +91,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay p-4"
       role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();

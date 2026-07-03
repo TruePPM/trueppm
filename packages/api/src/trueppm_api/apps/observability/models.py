@@ -99,7 +99,7 @@ class RetentionSchedule(models.Model):
 
 
 class PurgeRun(models.Model):
-    """One unified retention-purge run across the five operational tables (ADR-0173 §B).
+    """One unified retention-purge run across the six operational tables (ADR-0173 §B).
 
     The coordinator records a row per run — scheduled, manual, or dry-run — with a
     per-table breakdown in ``tables``. This is the backing for the "recent purges"

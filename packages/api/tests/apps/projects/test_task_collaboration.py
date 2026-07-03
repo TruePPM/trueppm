@@ -45,13 +45,22 @@ def _mute_broadcasts() -> object:
 
 @pytest.fixture(autouse=True)
 def _mute_throttle() -> object:
-    """MentionRateThrottle would hit Redis on the comment-create path — bypass."""
+    """MentionRateThrottle would hit Redis on the comment-create path — bypass.
+
+    TaskAttachmentUploadThrottle (#574) would likewise hit Redis on every
+    attachment create call in this file — bypass it too so these tests stay
+    deterministic and don't burn real throttle budget across the suite.
+    """
     with (
         patch(
             "trueppm_api.apps.notifications.throttles.MentionRateThrottle.allow_request",
             return_value=True,
         ),
         patch("trueppm_api.apps.notifications.throttles.record_mention_usage"),
+        patch(
+            "trueppm_api.apps.projects.throttles.TaskAttachmentUploadThrottle.allow_request",
+            return_value=True,
+        ),
     ):
         yield
 

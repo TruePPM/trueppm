@@ -96,7 +96,7 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
   return createPortal(
     <div
       role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

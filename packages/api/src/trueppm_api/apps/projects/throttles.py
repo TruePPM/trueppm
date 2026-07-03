@@ -199,3 +199,45 @@ class TokenIssuanceThrottle(BaseThrottle):
 
     def wait(self) -> float | None:
         return getattr(self, "wait_seconds", None)
+
+
+class TaskAttachmentUploadThrottle(BaseThrottle):
+    """60 req/min per user on the task-attachment create action (#574, security
+    review !306 LOW-3).
+
+    ``MentionRateThrottle`` bounds comment-mention fan-out, but
+    ``TaskAttachmentViewSet.create`` had no throttle at all — an authenticated
+    Member could burst-upload attachments unbounded, cost-bounded only by the
+    100 MB ``DATA_UPLOAD_MAX_MEMORY_SIZE`` per request. 60/min comfortably
+    covers Sarah-style "PM uploads 50 photos in 30s" while blunting a scripted
+    burst. Fail-open on Redis error, matching every other throttle in this
+    module — a broker outage must not block legitimate uploads. Hardening the
+    Redis-down fail-open behavior itself is explicitly deferred to a
+    follow-up issue (see #574), not fixed here.
+    """
+
+    USER_LIMIT: ClassVar[int] = 60
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return True  # let permission classes deal with anonymous
+
+        bucket_key = f"rate:task_attachment_upload:{user.pk}"
+        count: int
+        try:
+            client = _client()
+            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
+            if count == 1:
+                client.expire(bucket_key, 60)
+        except redis.RedisError:
+            logger.exception("TaskAttachmentUploadThrottle: Redis error, failing open")
+            return True
+
+        if count > self.USER_LIMIT:
+            self.wait_seconds = 60
+            return False
+        return True
+
+    def wait(self) -> float | None:
+        return getattr(self, "wait_seconds", None)

@@ -6,9 +6,10 @@
  * the typing user sees the error before the POST round-trip.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Button } from '@/components/Button';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 interface Props {
   open: boolean;
@@ -22,15 +23,18 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
   const [url, setUrl] = useState('');
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const urlInputRef = useRef<HTMLInputElement>(null);
+  // Traps Tab/Shift+Tab inside the dialog, focuses the first field (the URL
+  // input, the first focusable descendant) on open, routes Escape to onClose,
+  // and restores focus to the "+ Pin link" trigger on close (issue 575 —
+  // this `role="dialog" aria-modal="true"` previously let Tab escape into the
+  // body). Reuse this hook on any future modal rather than re-deriving it.
+  const trapRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
-  // Focus the URL input on open so keyboard-only users land in the right place.
   useEffect(() => {
     if (open) {
       setUrl('');
       setTitle('');
       setError(null);
-      requestAnimationFrame(() => urlInputRef.current?.focus());
     }
   }, [open]);
 
@@ -52,21 +56,13 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
     [url, title, onSubmit],
   );
 
-  // Esc closes — handled at the form level via the native cancel button + tab focus.
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      ref={trapRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-overlay focus:outline-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="link-modal-title"
@@ -82,7 +78,6 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-neutral-text-secondary">URL</span>
           <input
-            ref={urlInputRef}
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}

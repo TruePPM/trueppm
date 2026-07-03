@@ -193,8 +193,11 @@ describe('BoardCardPopover (issue #304)', () => {
 
   it('closes on scrim tap on mobile', () => {
     const { container, props } = renderPopover(baseTask(), { isMobile: true });
-    // Scrim is the first child div with aria-hidden="true" and bg-black/40 sibling-of-dialog.
-    const scrim = container.querySelector('[aria-hidden="true"].bg-black\\/40') as HTMLElement;
+    // BottomSheet owns the mobile scrim — locate it by its stable testid
+    // rather than a Tailwind class literal (issue 575: bg-black/40 →
+    // bg-neutral-overlay), which would silently stop matching on any future
+    // scrim-token change too.
+    const scrim = container.querySelector('[data-testid="bottom-sheet-scrim"]') as HTMLElement;
     expect(scrim).toBeTruthy();
     fireEvent.pointerDown(scrim);
     expect(props.onClose).toHaveBeenCalledTimes(1);

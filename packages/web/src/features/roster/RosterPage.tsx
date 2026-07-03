@@ -124,7 +124,7 @@ export function RosterPage() {
 
       {/* Mobile add bottom sheet */}
       {showAddCombobox && (
-        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end bg-black/40">
+        <div className="md:hidden fixed inset-0 z-40 flex flex-col justify-end bg-neutral-overlay">
           <div
             role="dialog"
             aria-modal="true"

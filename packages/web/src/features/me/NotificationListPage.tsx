@@ -75,12 +75,12 @@ export function NotificationListPage() {
               type="button"
               aria-selected={active}
               onClick={() => setFilter(f.value)}
-              className={`text-xs px-3 h-7 rounded-control border
+              className={`text-xs px-3 h-7 font-medium border-b-2 transition-colors
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
-                    ? 'border-brand-primary text-brand-primary bg-brand-primary/5'
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-raised'
+                    ? 'border-brand-primary text-brand-primary'
+                    : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary'
                 }`}
             >
               {f.label}
