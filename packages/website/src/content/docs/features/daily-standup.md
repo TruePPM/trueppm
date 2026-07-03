@@ -9,7 +9,7 @@ The daily standup walk-the-board surface was added in 0.3 (the agile team releas
 
 The **Standup** button on the active sprint board opens a focused walk-the-board mode designed for running the Daily Scrum as a team ceremony. It walks through each teammate one at a time with a clean, distraction-free layout.
 
-This is a **per-person current-state** lens — who has what, who is blocked, and what got done since the last working day. It is distinct from the [team-wide "what changed since yesterday" delta panel](/features/sprints/#daily-standup--what-changed-since-yesterday) on the Sprints view, which shows a chronological stream of status moves and scope changes across the whole team. The two surfaces are complementary: run the walk-the-board mode during the standup ceremony, and use the delta panel for a team-wide view of the last period's activity. The standup footer links to the delta panel.
+This is a **per-person current-state** lens — who has what, who is blocked, and what got done since the last working day. It is distinct from the [team-wide "what changed since yesterday" delta panel](/features/sprints/#what-you-see) on the Sprints view, which shows a chronological stream of status moves and scope changes across the whole team. The two surfaces are complementary: run the walk-the-board mode during the standup ceremony, and use the delta panel for a team-wide view of the last period's activity. The standup footer links to the delta panel.
 
 ## Opening standup mode
 
@@ -62,7 +62,7 @@ Standup mode updates in real time over WebSocket. If a teammate moves a card on 
 
 ## Relationship to the "what changed since yesterday" panel
 
-The [Daily standup delta panel](/features/sprints/#daily-standup--what-changed-since-yesterday) on the Sprints view shows a **team-wide chronological stream**: moved cards, new blockers, injected scope, burndown swing, and per-person activity counts, with a configurable look-back window (24h, 48h, or "since I last looked"). It answers "what happened to the sprint?"
+The [Daily standup delta panel](/features/sprints/#what-you-see) on the Sprints view shows a **team-wide chronological stream**: moved cards, new blockers, injected scope, burndown swing, and per-person activity counts, with a configurable look-back window (24h, 48h, or "since I last looked"). It answers "what happened to the sprint?"
 
 The walk-the-board mode answers a different question: "where is each person right now?" The two views are complementary. The standup footer carries a direct link to the delta panel so you can move between them without navigating away.
 

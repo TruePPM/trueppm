@@ -114,6 +114,8 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSsoTooltip, setShowSsoTooltip] = useState(false);
+  const [showForgotTooltip, setShowForgotTooltip] = useState(false);
+  const [showRequestAccessTooltip, setShowRequestAccessTooltip] = useState(false);
 
   const emailId = useId();
   const passwordId = useId();
@@ -248,14 +250,29 @@ export function LoginPage() {
                 disabled:opacity-50 disabled:cursor-not-allowed
               "
             />
-            <div className="flex justify-end">
-              <a
-                href="/forgot-password"
+            <div className="flex justify-end relative">
+              <button
+                type="button"
+                onClick={() => setShowForgotTooltip((v) => !v)}
+                onBlur={() => setShowForgotTooltip(false)}
+                aria-expanded={showForgotTooltip}
                 aria-label="Forgot password?"
-                className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark"
+                className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
               >
                 Forgot?
-              </a>
+              </button>
+              {showForgotTooltip && (
+                <div
+                  role="tooltip"
+                  className="
+                    absolute top-full right-0 mt-2 z-10 w-56
+                    bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
+                    whitespace-normal shadow-none border border-neutral-border
+                  "
+                >
+                  Password reset is coming — tracked in issue 765.
+                </div>
+              )}
             </div>
           </div>
 
@@ -314,7 +331,8 @@ export function LoginPage() {
             <div className="flex-1 h-px bg-neutral-border" />
           </div>
 
-          {/* SSO button — stub in OSS; enterprise overrides this component */}
+          {/* SSO button — stub until basic OIDC login lands (issue 1392);
+              enterprise may still override this component's slot */}
           <div className="relative">
             <button
               type="button"
@@ -336,12 +354,12 @@ export function LoginPage() {
               <div
                 role="tooltip"
                 className="
-                  absolute top-full left-1/2 -translate-x-1/2 mt-2 z-10
+                  absolute top-full left-1/2 -translate-x-1/2 mt-2 z-10 w-64
                   bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
-                  whitespace-nowrap shadow-none border border-neutral-border
+                  whitespace-normal shadow-none border border-neutral-border
                 "
               >
-                SSO available in Enterprise tier
+                Single sign-on with your identity provider is coming — tracked in issue 1392.
                 <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-neutral-text-primary rotate-45 border-l border-t border-neutral-border" />
               </div>
             )}
@@ -349,14 +367,30 @@ export function LoginPage() {
         </form>
 
         {/* Footer link */}
-        <p className="text-xs text-neutral-text-disabled">
+        <p className="text-xs text-neutral-text-disabled relative inline-block w-fit">
           New to TruePPM?{' '}
-          <a
-            href="/signup"
-            className="font-medium text-brand-primary hover:text-brand-primary-dark"
+          <button
+            type="button"
+            onClick={() => setShowRequestAccessTooltip((v) => !v)}
+            onBlur={() => setShowRequestAccessTooltip(false)}
+            aria-expanded={showRequestAccessTooltip}
+            className="font-medium text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
             Request access
-          </a>
+          </button>
+          {showRequestAccessTooltip && (
+            <div
+              role="tooltip"
+              className="
+                absolute bottom-full left-0 mb-2 z-10 w-64
+                bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
+                whitespace-normal shadow-none border border-neutral-border
+              "
+            >
+              Accounts are invite-based — ask your workspace admin for an invite. A
+              request-access flow is tracked in issue 1615.
+            </div>
+          )}
         </p>
       </div>
 

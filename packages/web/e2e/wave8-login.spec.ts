@@ -42,10 +42,10 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(checkbox).toBeChecked();
   });
 
-  test('Forgot? link is present below the password input', async ({ page }) => {
+  test('Forgot? control is present below the password input', async ({ page }) => {
     await page.goto('/login');
 
-    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeVisible();
   });
 
   test('Tab order goes Email → Password → Forgot? → Keep me signed in → Sign in (Forgot? does not interrupt the credentials)', async ({ page }) => {
@@ -63,10 +63,10 @@ test.describe('Wave 8 — Login screen', () => {
     await page.keyboard.press('Tab');
     await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
 
-    // The link sits below the password input — Forgot? comes AFTER the
+    // The control sits below the password input — Forgot? comes AFTER the
     // password in the tab order, not between Email and Password.
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeFocused();
 
     await page.keyboard.press('Tab');
     await expect(page.getByLabel(/Keep me signed in/)).toBeFocused();
@@ -75,14 +75,16 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeFocused();
   });
 
-  test('SSO button shows enterprise tooltip on click', async ({ page }) => {
+  test('SSO button shows coming-soon tooltip on click', async ({ page }) => {
     await page.goto('/login');
 
     const ssoButton = page.getByRole('button', { name: 'Continue with SSO' });
     await expect(ssoButton).toBeVisible();
 
     await ssoButton.click();
-    await expect(page.getByRole('tooltip')).toContainText('SSO available in Enterprise tier');
+    await expect(page.getByRole('tooltip')).toContainText(
+      'Single sign-on with your identity provider is coming',
+    );
   });
 
   test('marketing panel shows headline and build info', async ({ page }) => {

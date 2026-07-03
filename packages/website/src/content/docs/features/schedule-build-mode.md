@@ -87,4 +87,4 @@ The reverse holds when you outdent: if a summary task loses all its children, it
 
 ## See also
 
-- [Schedule view toolbar](./schedule-toolbar) — toolbar controls, filter groups, and the summary chip
+- [Schedule view toolbar](/features/schedule-toolbar/) — toolbar controls, filter groups, and the summary chip

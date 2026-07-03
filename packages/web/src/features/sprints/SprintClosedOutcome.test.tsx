@@ -1,6 +1,14 @@
+import type { ReactElement } from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
-import { renderWithProviders as render } from '@/test/utils';
+import { screen, render as rtlRender } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createMemoryRouter, RouterProvider } from 'react-router';
+// SprintClosedOutcome's ShippedRow reads useParams() (issue 1617 — "+ Add
+// criteria" now routes to the task drawer instead of a dead hash link), so
+// this suite needs a Router context, not just QueryClientProvider. Uses the
+// wrapper-based helper (not renderWithRouter) because several tests below
+// call `rerender` with a new SprintClosedOutcome element directly.
+import { renderWithProvidersAndRouter as render } from '@/test/utils';
 import userEvent from '@testing-library/user-event';
 
 import { SprintClosedOutcome } from './SprintClosedOutcome';
@@ -54,6 +62,20 @@ function review(overrides: Partial<SprintOutcome['review']> = {}): SprintOutcome
     commitment: { committed_count: 12, shipped_count: 1, carried_count: 1 },
     ...overrides,
   };
+}
+
+// Renders at a real /projects/:projectId/sprints route so useParams()
+// resolves — needed to assert the "+ Add criteria" link href (issue 1617).
+function renderAtProjectRoute(ui: ReactElement, projectId: string) {
+  const testQueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const testRouter = createMemoryRouter([{ path: '/projects/:projectId/sprints', element: ui }], {
+    initialEntries: [`/projects/${projectId}/sprints`],
+  });
+  return rtlRender(
+    <QueryClientProvider client={testQueryClient}>
+      <RouterProvider router={testRouter} />
+    </QueryClientProvider>,
+  );
 }
 
 function outcome(overrides: Partial<SprintOutcome> = {}): SprintOutcome {
@@ -349,6 +371,30 @@ describe('SprintClosedOutcome — Sprint Review polish (Wave D #1129–#1133)', 
     await userEvent.type(note, 'Refined next sprint');
     note.blur();
     expect(noteMutate).toHaveBeenCalledWith({ outcomeId: 'o-not', note: 'Refined next sprint' });
+  });
+
+  it('issue 1617: "+ Add criteria" links to the task detail route, not a dead hash link', () => {
+    renderAtProjectRoute(
+      <SprintClosedOutcome
+        outcome={outcome({
+          review: review({
+            shipped: [
+              shippedStory({
+                outcome_id: 'o-not',
+                task_id: 't-not',
+                task_short_id: 'T-302',
+                task_title: 'Receipt email',
+                acceptance: { met: 0, total: 0 },
+              }),
+            ],
+          }),
+        })}
+        canCurateDemo
+      />,
+      'proj-42',
+    );
+    const link = screen.getByRole('link', { name: /add criteria/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-42/tasks/t-not');
   });
 
   it('#1130: a curator sees a presenter input on a demo-flagged story (fires set-presenter)', async () => {

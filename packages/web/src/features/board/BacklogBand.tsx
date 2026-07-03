@@ -519,14 +519,15 @@ export function BacklogBand({
         </button>
       </div>
 
-      {/* Search row — visual placeholder. Capture/search wiring is queued in
-          a follow-up under epic #361. */}
+      {/* Search row — visual placeholder. Capture/search wiring is tracked
+          in issue 1609. */}
       <div className="px-4 pb-2.5">
         <div
           className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs text-neutral-text-disabled"
           style={{ height: 30 }}
           role="search"
           aria-label="Search backlog (placeholder)"
+          title="Backlog search is coming — tracked in issue 1609"
         >
           <span aria-hidden="true">⌕</span>
           <span className="flex-1">Search or capture an idea…</span>

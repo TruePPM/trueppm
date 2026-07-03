@@ -189,7 +189,31 @@ describe('LoginPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
 
-    expect(screen.getByRole('tooltip')).toHaveTextContent('SSO available in Enterprise tier');
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Single sign-on with your identity provider is coming — tracked in issue 1392.',
+    );
+  });
+
+  it('shows a "coming soon" tooltip when Forgot? is clicked', async () => {
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Password reset is coming — tracked in issue 765.',
+    );
+  });
+
+  it('shows an invite-based tooltip when Request access is clicked', async () => {
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Request access' }));
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Accounts are invite-based — ask your workspace admin for an invite.',
+    );
   });
 
   it('remember-me checkbox toggles', () => {

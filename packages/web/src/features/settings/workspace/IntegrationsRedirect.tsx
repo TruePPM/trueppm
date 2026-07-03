@@ -14,14 +14,16 @@
  * Integration Hub UI (trueppm-enterprise#114).
  */
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useProjects } from '@/hooks/useProjects';
 import { SettingsCard } from '../SettingsShell';
+import { NewProjectModal } from '@/features/shell/NewProjectModal';
 
 export function IntegrationsRedirect() {
   const { data: projects, isLoading } = useProjects();
   const navigate = useNavigate();
+  const [showNewProject, setShowNewProject] = useState(false);
 
   // Single-project case: transparent redirect, no UI flash. Runs as a side
   // effect after data is loaded so the auto-redirect path stays a one-time
@@ -55,8 +57,9 @@ export function IntegrationsRedirect() {
               You don&apos;t have any projects yet. Create a project to add
               webhooks, API tokens, and connected accounts.
             </p>
-            <Link
-              to="/projects/new"
+            <button
+              type="button"
+              onClick={() => setShowNewProject(true)}
               className="
                 inline-flex items-center h-8 px-3 rounded-control text-[13px] font-medium
                 bg-brand-primary text-white hover:bg-brand-primary-dark
@@ -64,13 +67,22 @@ export function IntegrationsRedirect() {
               "
             >
               Create your first project
-            </Link>
+            </button>
             <p className="mt-5 text-[12px] text-neutral-text-secondary">
               Looking for workspace-wide integration management? That&apos;s
               part of the Enterprise edition.
             </p>
           </div>
         </SettingsCard>
+        {showNewProject && (
+          <NewProjectModal
+            onClose={() => setShowNewProject(false)}
+            onCreated={(projectId) => {
+              setShowNewProject(false);
+              void navigate(`/projects/${projectId}/settings/integrations`);
+            }}
+          />
+        )}
       </div>
     );
   }

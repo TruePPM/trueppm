@@ -439,11 +439,12 @@ interface AddSkillRowProps {
 
 function AddSkillRow(_props: AddSkillRowProps) {
   // Skill addition uses the SkillEditor from RosterDetailPanel — wire up
-  // in a follow-up once the skill search combobox is extracted as a shared
-  // component. For now surface a placeholder CTA.
+  // once the skill search combobox is extracted as a shared component
+  // (tracked in issue 1612). For now surface a placeholder CTA.
   return (
-    <p className="mt-2 text-xs text-neutral-text-disabled italic">
-      Use the project Team tab to manage skills in detail.
+    <p className="mt-2 text-xs text-neutral-text-secondary italic">
+      Use the project Team tab to manage skills in detail. Inline skill add is tracked in
+      issue 1612.
     </p>
   );
 }

@@ -3336,12 +3336,17 @@ export function BoardView() {
         </DragOverlay>
       </DndContext>
 
-      {/* Mobile FAB — creates task in the first visible column (rule 104) */}
+      {/* Mobile FAB — creates task in the first visible column (rule 104).
+          Wiring is tracked in issue 605; disabled until then. */}
       <button
         type="button"
+        disabled
+        aria-disabled="true"
+        title="Task creation from the board is coming — tracked in issue 605"
         className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
           border border-brand-primary-dark text-white flex items-center justify-center
           text-2xl font-light md:hidden z-10
+          disabled:opacity-50 disabled:cursor-not-allowed
           focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
           focus-visible:ring-offset-brand-primary"
         aria-label="Add task"

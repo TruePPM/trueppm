@@ -218,7 +218,7 @@ describe('RiskPopover', () => {
     render(<RiskPopover projectId="proj1" task={baseTask} onClose={onClose} />);
     fireEvent.click(screen.getByRole('button', { name: /Open in risk register/ }));
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/projects/proj1/risks');
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/proj1/risk');
   });
 
   it('renders multiple risks as a list', () => {
