@@ -47,6 +47,10 @@ THIRD_PARTY_APPS = [
     "allauth.account",
     "channels",
     "drf_spectacular",
+    # Serves the Swagger UI / ReDoc static bundles from Django static ('self')
+    # so the /api/docs/ and /api/schema/swagger-ui/ pages render under the strict
+    # CSP without a CDN. Must precede any app that would shadow its static files.
+    "drf_spectacular_sidecar",
     "simple_history",
 ]
 
@@ -933,6 +937,16 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Serve the Swagger UI / ReDoc assets from the bundled sidecar package (Django
+    # static, same origin) instead of the default jsdelivr CDN. Our strict CSP
+    # (script-src / style-src 'self', no CDN host) blocks the CDN-hosted bundles,
+    # leaving the docs pages blank. SIDECAR resolves every asset under 'self', so
+    # the pages work under CSP and offline/air-gapped. Paired with the split
+    # Swagger view in urls.py, which moves the bootstrap JS out of an inline
+    # <script> (also blocked by script-src 'self') to a same-origin request.
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
     # Self-hosted deployments serve the API from their own origin, so the schema
     # advertises a single templated server (scheme + host variables) whose
     # defaults are the local-dev address. Without a top-level `servers` array,

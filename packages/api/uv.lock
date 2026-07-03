@@ -723,6 +723,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/32/d9/502c56fc3ca960075d00956283f1c44e8cafe433dada03f9ed2821f3073b/drf_spectacular-0.29.0-py3-none-any.whl", hash = "sha256:d1ee7c9535d89848affb4427347f7c4a22c5d22530b8842ef133d7b72e19b41a", size = 105433, upload-time = "2025-11-02T03:40:24.823Z" },
 ]
 
+[package.optional-dependencies]
+sidecar = [
+    { name = "drf-spectacular-sidecar" },
+]
+
+[[package]]
+name = "drf-spectacular-sidecar"
+version = "2026.7.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/51/9e038d14bf51a0bd051e8bcb690287349c908fa7ba69021d9f3e5d5ac51f/drf_spectacular_sidecar-2026.7.1.tar.gz", hash = "sha256:40113c4066c7bc3ef15a7ce1c40cda227a907a9986748024a813a9e0595eba25", size = 2593211, upload-time = "2026-07-01T13:39:06.084Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9d/76/d08f5c79f7643dbff4512605c28b75481966ed6c8cc9b397c9dd2ee91cd1/drf_spectacular_sidecar-2026.7.1-py3-none-any.whl", hash = "sha256:bc6d50c9b64660e45e09296d39553b3e759eedd825fc41d631ee5b3f88e0c5de", size = 2617384, upload-time = "2026-07-01T13:39:03.787Z" },
+]
+
 [[package]]
 name = "execnet"
 version = "2.1.2"
@@ -1856,7 +1873,7 @@ dependencies = [
     { name = "django-simple-history" },
     { name = "djangorestframework" },
     { name = "djangorestframework-simplejwt" },
-    { name = "drf-spectacular" },
+    { name = "drf-spectacular", extra = ["sidecar"] },
     { name = "jsonschema" },
     { name = "msgpack" },
     { name = "psycopg" },
@@ -1905,7 +1922,7 @@ requires-dist = [
     { name = "djangorestframework", specifier = ">=3.15,<4.0" },
     { name = "djangorestframework-simplejwt", specifier = ">=5.3,<6.0" },
     { name = "djangorestframework-stubs", extras = ["compatible-mypy"], marker = "extra == 'dev'", specifier = ">=3.15,<4.0" },
-    { name = "drf-spectacular", specifier = ">=0.27,<1.0" },
+    { name = "drf-spectacular", extras = ["sidecar"], specifier = ">=0.27,<1.0" },
     { name = "jsonschema", specifier = ">=4.21,<5.0" },
     { name = "msgpack", specifier = ">=1.2.1,<2.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
