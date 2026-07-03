@@ -9,8 +9,10 @@ a separate same-origin JS request instead of inline.
 
 These tests assert the CSP-compatible shape so a regression (reverting to the
 inline view, or re-pointing the assets at a CDN) fails loudly instead of
-shipping a blank page again. They read only settings + rendered templates, so no
-database access is required.
+shipping a blank page again. Crucially they also *fetch* every referenced asset:
+serving from same-origin `/static/` only helps if something actually serves it,
+and under `uvicorn` (not `runserver`) that is WhiteNoise — the first version of
+this fix pointed at `/static/` assets that 404'd because nothing served them.
 """
 
 from __future__ import annotations
@@ -61,6 +63,35 @@ def test_docs_assets_are_same_origin_not_cdn(client: APIClient, path: str) -> No
         assert not re.match(r"^(https?:)?//", url), f"{url} is a cross-origin (CDN) asset"
     # The default drf-spectacular CDN must not reappear.
     assert "jsdelivr" not in html and "cdn." not in html
+
+
+def _referenced_static_assets(html: str) -> list[str]:
+    """The `/static/...` script + stylesheet URLs the docs page references."""
+    urls = re.findall(r'src="([^"]+)"', html) + re.findall(
+        r'<link rel="stylesheet" href="([^"]+)"', html
+    )
+    return [u for u in urls if u.startswith("/static/")]
+
+
+@pytest.mark.parametrize("path", DOCS_PATHS)
+def test_referenced_assets_are_actually_served(client: APIClient, path: str) -> None:
+    """Every /static/ asset the page references must return 200 — not 404.
+
+    This is the assertion that guards the real bug (#1603): the page can point at
+    same-origin `/static/drf_spectacular_sidecar/...` URLs and still render blank
+    if nothing serves them. We run under uvicorn, so WhiteNoise is what serves
+    them; fetch each referenced bundle/stylesheet and require a real hit.
+    """
+    html = client.get(path).content.decode()
+    assets = _referenced_static_assets(html)
+    # The bundle JS, standalone preset, and stylesheet all live under /static/.
+    assert len(assets) >= 3, f"expected the sidecar bundle assets, got {assets}"
+    for url in assets:
+        r = client.get(url)
+        assert r.status_code == 200, f"{url} returned {r.status_code} (asset not served)"
+        # A real asset has bytes; a 404 body would be empty/HTML.
+        body = b"".join(r.streaming_content) if r.streaming else r.content
+        assert body, f"{url} served an empty body"
 
 
 @pytest.mark.parametrize("path", DOCS_PATHS)
