@@ -372,6 +372,55 @@ def test_missing_client_batch_id_rejected(admin_client: APIClient, project: Proj
     assert resp.status_code == 400
 
 
+# ---------------------------------------------------------------------------
+# Typed envelope shape (#786) — the changes map is a typed nested serializer
+# (per-collection created/updated/deleted) instead of an opaque DictField. A
+# well-formed batch is still accepted byte-identically; a malformed envelope is
+# rejected at serializer validation with a 400 before any batch row is written.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_typed_envelope_accepts_well_formed(admin_client: APIClient, project: Project) -> None:
+    """A valid WatermelonDB-shaped batch is still accepted under the typed envelope."""
+    task_id = str(uuid.uuid4())
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": task_id, "name": "Typed"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert Task.objects.filter(pk=task_id).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "bad_changes",
+    [
+        pytest.param("not-an-object", id="changes-is-a-string"),
+        pytest.param(["a", "list"], id="changes-is-a-list"),
+        pytest.param({"tasks": {"deleted": "should-be-a-list"}}, id="deleted-not-a-list"),
+        pytest.param(
+            {"tasks": {"created": ["row-must-be-an-object"]}}, id="created-row-not-object"
+        ),
+    ],
+)
+def test_malformed_envelope_rejected(
+    admin_client: APIClient, project: Project, bad_changes: Any
+) -> None:
+    """The typed nested serializer rejects a malformed changes envelope with a 400.
+
+    Each case is shape-invalid at the envelope level (before per-row task
+    validation), so it is caught by ``SyncUploadRequestSerializer`` and no
+    ``SyncBatch`` row is written.
+    """
+    body = {"client_batch_id": str(uuid.uuid4()), "changes": bad_changes}
+    resp = admin_client.post(_url(project), body, format="json")
+    assert resp.status_code == 400
+    assert not SyncBatch.objects.exists()
+    assert not Task.objects.exists()
+
+
 @pytest.mark.django_db
 def test_cross_project_sprint_rejected(admin_client: APIClient, project: Project) -> None:
     """Assigning a sprint from another project is an IDOR — rejected at validate."""
