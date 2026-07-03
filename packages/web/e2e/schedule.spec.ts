@@ -484,6 +484,14 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
 
     // 401-guard safety net — registered FIRST so every specific route wins.
     await page.route('**/api/v1/**', (route) => route.fulfill(json(emptyList)));
+    // `/me/active-sprints/` returns a BARE array (MyActiveSprintEntry[]), not a
+    // paginated envelope. The shell's CurrentSprintButton (#1594) renders on
+    // every route now, and `useCurrentSprintTargets` does `for (const e of
+    // myActiveSprints ?? [])` — so the catch-all's `{count:0,…}` object above
+    // would be iterated as an object and throw "(r ?? []) is not iterable",
+    // tripping the root error boundary and unmounting the grid. Mock it with its
+    // real array shape.
+    await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(json([])));
     await page.route('**/api/v1/auth/me/', (route) =>
       route.fulfill(json({ id: 'u1', email: 'pm@example.com', first_name: 'P', last_name: 'M' })),
     );
