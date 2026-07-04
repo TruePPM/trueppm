@@ -1907,6 +1907,15 @@ website:build:
   # Verify the Starlight documentation site builds cleanly.
   # Catches broken links, invalid frontmatter, and build errors early.
   extends: .website
+  # `npm run build` renders ```mermaid fences to static inline SVG at build time
+  # via rehype-mermaid, which drives a headless Chromium through Playwright
+  # (ADR-0198). The shared `.website` base image is node:22-alpine (musl libc),
+  # on which Playwright's bundled Chromium — a glibc binary — cannot launch, so
+  # the build would fail there. Override to the same glibc Playwright image the
+  # web:e2e suite already uses; Chromium is pre-installed at $PLAYWRIGHT_BROWSERS_PATH
+  # and its version matches the `playwright` devDependency (v1.58.2). The client
+  # payload stays JS-free — the browser runs only on this build machine.
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
   stage: test
   <<: *rules-website
   script:
@@ -1926,6 +1935,9 @@ website:build:
 pages:
   # GitLab Pages requires the job name to be "pages" and artifacts in public/.
   extends: .website
+  # Rebuilds the site, so it renders Mermaid and needs the same glibc Playwright
+  # image as website:build (see the note there — Alpine's musl can't run Chromium).
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
   stage: deploy
   needs: ["website:build"]
   rules:

@@ -1,6 +1,7 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlightVersions from "starlight-versions";
+import rehypeMermaid from "rehype-mermaid";
 
 // When a release is cut, add an entry here. The plugin is only loaded when
 // at least one version exists (it errors on an empty array).
@@ -14,6 +15,56 @@ const versionPlugins =
 
 export default defineConfig({
   site: "https://docs.trueppm.com",
+  // Build-time (SSR) Mermaid rendering (ADR-0198). `rehype-mermaid` renders each
+  // ```mermaid fence to a static inline <svg> at build time using a headless
+  // Chromium (Playwright) — the browser runs only on the build machine, so the
+  // shipped HTML carries zero client-side JavaScript and makes no runtime network
+  // fetch. `strategy: "inline-svg"` keeps the SVG nodes in the DOM so the diagram
+  // is selectable, accessible, and stylable. Starlight's Expressive Code
+  // intentionally ignores the `mermaid` language, leaving the fence for
+  // rehype-mermaid to consume.
+  //
+  // Theme: a single `base` render with a design-system palette engineered to read
+  // on BOTH the light (#ffffff) and dark (#17181c) page bodies. Starlight toggles
+  // color modes via a `data-theme` attribute (not `prefers-color-scheme`), so
+  // rehype-mermaid's `dark`/`<picture>` variant — which keys off the OS scheme —
+  // would desync from a manual toggle; a single theme-agnostic palette avoids that
+  // failure mode with zero client JS. Filled indigo nodes with white labels, and
+  // neutral edges (gray-3 `#8b90a0`, identical in both modes), stay legible on
+  // either background. See ADR-0198 for the rejected alternatives.
+  markdown: {
+    rehypePlugins: [
+      [
+        rehypeMermaid,
+        {
+          strategy: "inline-svg",
+          mermaidConfig: {
+            theme: "base",
+            themeVariables: {
+              fontFamily:
+                "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              // Filled accent nodes with white labels — reads on white and navy.
+              primaryColor: "#3b5bdb",
+              primaryBorderColor: "#c5d0f6",
+              primaryTextColor: "#ffffff",
+              // Neutral edges: gray-3 is the same hex in light and dark mode.
+              lineColor: "#8b90a0",
+              // Subgraph clusters and secondary nodes: transparent panel with a
+              // neutral border so no light card is stamped onto the dark body.
+              secondaryColor: "#3b5bdb",
+              tertiaryColor: "transparent",
+              clusterBkg: "transparent",
+              clusterBorder: "#8b90a0",
+              titleColor: "#8b90a0",
+              nodeTextColor: "#ffffff",
+              // Edge label chips: filled neutral with light text, legible on both.
+              edgeLabelBackground: "#545867",
+            },
+          },
+        },
+      ],
+    ],
+  },
   integrations: [
     starlight({
       title: "TruePPM",

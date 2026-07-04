@@ -7,32 +7,23 @@ This page describes the architecture of TruePPM as it exists today. The scheduli
 
 ## System diagram
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Clients                           │
-│         React web (browser)                         │
-└───────────────────────┬─────────────────────────────┘
-                        │ REST / WebSocket
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│              Django ASGI (uvicorn)                  │
-│                                                     │
-│  ┌──────────────┐  ┌──────────────────────────────┐ │
-│  │  DRF ViewSets│  │  Django Channels              │ │
-│  │  REST API    │  │  WebSocket consumers          │ │
-│  └──────┬───────┘  └──────────────┬───────────────┘ │
-│         │                         │                 │
-│  ┌──────▼─────────────────────────▼───────────────┐ │
-│  │           PostgreSQL 16                        │ │
-│  │  (ltree WBS hierarchy, GiST indexes)           │ │
-│  └────────────────────────────────────────────────┘ │
-│                                                     │
-│  ┌──────────────────────┐  ┌──────────────────────┐ │
-│  │  Celery worker       │  │  Valkey              │ │
-│  │  CPM auto-scheduler  │◄─┤  broker + channel    │ │
-│  │  (trueppm-scheduler) │  │  layer (Redis-compat)│ │
-│  └──────────────────────┘  └──────────────────────┘ │
-└─────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    client["React web (browser)"]
+
+    subgraph asgi["Django ASGI (uvicorn)"]
+        drf["DRF ViewSets<br/>REST API"]
+        channels["Django Channels<br/>WebSocket consumers"]
+        pg[("PostgreSQL 16<br/>ltree WBS hierarchy, GiST indexes")]
+    end
+
+    worker["Celery worker<br/>CPM auto-scheduler<br/>(trueppm-scheduler)"]
+    valkey["Valkey<br/>broker + channel layer<br/>(Redis-compatible)"]
+
+    client -->|REST / WebSocket| asgi
+    drf --> pg
+    channels --> pg
+    valkey --> worker
 ```
 
 ## Key design decisions
