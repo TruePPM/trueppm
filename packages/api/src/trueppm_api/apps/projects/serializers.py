@@ -297,7 +297,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # _SCHEDULER_WRITABLE_FIELDS, alongside methodology). SPRINT default; not an
             # inheritable override — it's a project-local board setting.
             "board_cadence",
-            # Stale-task nudge threshold in days (ADR-0199, #646). Board-level setting;
+            # Stale-task nudge threshold in days (ADR-0200, #646). Board-level setting;
             # Admin-only write by the allowlist default (deliberately NOT in
             # _SCHEDULER_WRITABLE_FIELDS — it governs notifications, not scheduling).
             "stale_task_threshold_days",
@@ -597,7 +597,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "board_cadence", "estimation_mode"})
 
     def validate_stale_task_threshold_days(self, value: int) -> int:
-        """Bound the stale-task nudge threshold to a sane 1–365 day range (ADR-0199).
+        """Bound the stale-task nudge threshold to a sane 1–365 day range (ADR-0200).
 
         Zero would mark every task stale the instant its status is stamped (a nonsense
         firehose); an unbounded value is an accidental "never nudge" that is better

@@ -1,4 +1,4 @@
-# ADR-0199: Stale-task daily detection and per-user notification
+# ADR-0200: Stale-task daily detection and per-user notification
 
 ## Status
 Accepted

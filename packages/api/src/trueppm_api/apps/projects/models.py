@@ -937,7 +937,7 @@ class Project(VersionedModel):
         choices=BoardCadence.choices,
         default=BoardCadence.SPRINT,
     )
-    # Stale-task nudge threshold in whole days (ADR-0199, #646). The daily
+    # Stale-task nudge threshold in whole days (ADR-0200, #646). The daily
     # detect_stale_tasks scan notifies a task's assignee once the task has sat in a
     # non-terminal status longer than this many days. Board-level config lives as a
     # discrete Project column (matching board_cadence/agile_features) rather than a
@@ -1820,7 +1820,7 @@ class Task(VersionedModel):
             # enabled by that earlier migration.
             GinIndex(fields=["name"], opclasses=["gin_trgm_ops"], name="task_name_trgm"),
             GinIndex(fields=["notes"], opclasses=["gin_trgm_ops"], name="task_notes_trgm"),
-            # Daily stale-task scan (ADR-0199) runs once per project:
+            # Daily stale-task scan (ADR-0200) runs once per project:
             # WHERE project_id = X AND NOT is_deleted AND status IN (non-terminal)
             #   AND status_changed_at < cutoff.
             # Leading project_id equality confines each per-project query to that

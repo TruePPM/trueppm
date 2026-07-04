@@ -618,7 +618,7 @@ def create_stale_task_notifications(
 ) -> int:
     """Scan every project for stale non-terminal tasks and nudge their assignees.
 
-    ADR-0199. A task is *stale* when it has sat in its current status for more than
+    ADR-0200. A task is *stale* when it has sat in its current status for more than
     the owning project's ``stale_task_threshold_days`` (default 7) and that status is
     non-terminal — every ``TaskStatus`` except ``COMPLETE``. Staleness is defined by
     *status column*, not ``percent_complete``: a card in ``REVIEW`` coerces

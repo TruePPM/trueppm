@@ -12,7 +12,7 @@ Three Beat-scheduled tasks:
   index on ``(recipient, is_read, -created_at)`` shallow for the unread
   query path.
 
-- ``detect_stale_tasks`` — nightly (ADR-0199), scans every project for
+- ``detect_stale_tasks`` — nightly (ADR-0200), scans every project for
   non-terminal tasks that have sat in their current status past the project's
   ``stale_task_threshold_days`` (default 7) and nudges the assignee via the
   #639 event-notification rail. Idempotent: dedupes against existing unread
@@ -109,7 +109,7 @@ def archive_old_notifications(self: object) -> None:
     name="notifications.detect_stale_tasks",
 )
 def detect_stale_tasks(self: object) -> None:
-    """Nudge assignees of stale non-terminal tasks (ADR-0199).
+    """Nudge assignees of stale non-terminal tasks (ADR-0200).
 
     Runs nightly via Celery Beat. Delegates to
     :func:`notifications.services.create_stale_task_notifications`, which owns the
@@ -120,7 +120,7 @@ def detect_stale_tasks(self: object) -> None:
     all create zero duplicates. The singleton lock (``on_contention="skip"``) also
     prevents two overlapping runs. A failed run is not retried — the tasks are still
     stale tomorrow, so silent re-attempt on the next tick is correct and avoids a
-    retry storm (ADR-0199 §Durable Execution item 8).
+    retry storm (ADR-0200 §Durable Execution item 8).
     """
     from .services import create_stale_task_notifications
 

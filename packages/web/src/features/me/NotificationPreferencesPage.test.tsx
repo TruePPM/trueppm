@@ -41,7 +41,7 @@ const PREFERENCES: NotificationPreferenceRow[] = [
   pref(6, 'task.due_date_changed', 'email', false),
   pref(7, 'comment_on_my_task', 'in_app', true),
   pref(8, 'comment_on_my_task', 'email', false),
-  // Stale-task daily nudge (ADR-0199, #646) — data-driven, renders from its pref rows.
+  // Stale-task daily nudge (ADR-0200, #646) — data-driven, renders from its pref rows.
   pref(9, 'task.stale', 'in_app', true),
   pref(10, 'task.stale', 'email', false),
 ];
@@ -76,7 +76,7 @@ describe('NotificationPreferencesPage', () => {
       screen.getAllByText('When the planned date of your task changes').length,
     ).toBeGreaterThan(0);
     expect(screen.getAllByText('When someone comments on your task').length).toBeGreaterThan(0);
-    // Stale-task nudge (ADR-0199) renders its toggle row purely from its pref rows.
+    // Stale-task nudge (ADR-0200) renders its toggle row purely from its pref rows.
     expect(screen.getAllByText('When a task you own goes stale').length).toBeGreaterThan(0);
   });
 

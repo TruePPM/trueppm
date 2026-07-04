@@ -1,4 +1,4 @@
-"""Tests for stale-task daily detection + notification fan-out (ADR-0199, #646).
+"""Tests for stale-task daily detection + notification fan-out (ADR-0200, #646).
 
 Covers the ``create_stale_task_notifications`` scan service: threshold edge cases at
 exactly N days, terminal / unassigned / percent-complete exclusions, per-project

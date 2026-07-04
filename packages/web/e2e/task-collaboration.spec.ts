@@ -975,7 +975,7 @@ test.describe('Task collaboration — notification preferences (#311)', () => {
     await expect(emailToggle).toHaveAttribute('aria-checked', 'true');
   });
 
-  test('stale-task nudge toggle (ADR-0199, #646) renders data-driven and saves', async ({
+  test('stale-task nudge toggle (ADR-0200, #646) renders data-driven and saves', async ({
     page,
   }) => {
     // The settings page is data-driven, so the stale-task row appears purely from its

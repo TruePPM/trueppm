@@ -342,7 +342,7 @@ CELERY_BEAT_SCHEDULE = {
         # 03:15 UTC — after other nightly purge/archive jobs.
         "schedule": crontab(hour=3, minute=15),
     },
-    # Daily stale-task detection (ADR-0199): nudge assignees of non-terminal tasks
+    # Daily stale-task detection (ADR-0200): nudge assignees of non-terminal tasks
     # that have sat in their status past the project's stale_task_threshold_days
     # (default 7). Dedupes against existing unread task.stale notifications.
     "detect-stale-tasks": {
