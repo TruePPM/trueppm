@@ -1,0 +1,169 @@
+{{- if .Values.backup.enabled }}
+{{- if .Values.backup.persistence.enabled }}
+{{- if not .Values.backup.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "trueppm.fullname" . }}-backup
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - {{ .Values.backup.persistence.accessMode | quote }}
+  {{- if .Values.backup.persistence.storageClass }}
+  storageClassName: {{ .Values.backup.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size | quote }}
+---
+{{- end }}
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "trueppm.fullname" . }}-backup
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  # Never overlap a slow backup with the next scheduled run — a second pg_dump
+  # against the same database while the first is still streaming just doubles I/O
+  # for no benefit.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: {{ .Values.backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      # A backup either completes or it doesn't; retry a couple of times on a
+      # transient DB blip, then surface the failure (it becomes a failed Job the
+      # operator can alert on).
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            {{- include "trueppm.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          volumes:
+            # Scratch space for the dump/tar staging (readOnlyRootFilesystem is on).
+            - name: tmp
+              emptyDir: {}
+            - name: backups
+              {{- if .Values.backup.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.persistence.existingClaim | default (printf "%s-backup" (include "trueppm.fullname" .)) }}
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+            {{- if .Values.backup.mediaDir }}
+            {{- with .Values.backup.extraVolumes }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- end }}
+          containers:
+            - name: backup
+              image: "{{ .Values.backup.image.repository }}:{{ .Values.backup.image.tag }}"
+              imagePullPolicy: {{ .Values.backup.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              env:
+                # DATABASE_URL from the chart-owned connection Secret — the same
+                # single credential source of truth the API and worker use, so the
+                # backup never carries a second copy of the password.
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ include "trueppm.urlSecretName" . }}
+                      key: DATABASE_URL
+                - name: OUTPUT_DIR
+                  value: {{ .Values.backup.outputDir | quote }}
+                - name: KEEP_DAILY
+                  value: {{ .Values.backup.keepDaily | quote }}
+                {{- if .Values.backup.mediaDir }}
+                - name: MEDIA_DIR
+                  value: {{ .Values.backup.mediaDir | quote }}
+                {{- end }}
+                {{- if .Values.backup.s3.enabled }}
+                - name: S3_BUCKET
+                  value: {{ .Values.backup.s3.bucket | quote }}
+                - name: S3_ENDPOINT
+                  value: {{ .Values.backup.s3.endpoint | quote }}
+                - name: AWS_DEFAULT_REGION
+                  value: {{ .Values.backup.s3.region | quote }}
+                {{- if .Values.backup.s3.existingSecret }}
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.s3.existingSecret }}
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.backup.s3.existingSecret }}
+                      key: AWS_SECRET_ACCESS_KEY
+                {{- end }}
+                {{- end }}
+              # Inline backup command — mirrors scripts/backup.sh (pg_dump
+              # --format=custom into a single timestamped tarball, then prune to
+              # KEEP_DAILY newest). Kept inline rather than mounting the repo-root
+              # script because Helm .Files.Get cannot read across the chart
+              # boundary and the lean app image carries no pg_dump. Restore is a
+              # manual action with scripts/restore.sh (see the runbook).
+              command:
+                - /bin/sh
+                - -ec
+                - |
+                  set -eu
+                  TS="$(date -u +%Y%m%dT%H%M%SZ)"
+                  ART="${OUTPUT_DIR}/trueppm-backup-${TS}.tar.gz"
+                  STAGE="$(mktemp -d /tmp/trueppm-backup.XXXXXX)"
+                  trap 'rm -rf "$STAGE"' EXIT
+                  mkdir -p "$OUTPUT_DIR"
+                  echo "waiting for PostgreSQL..."
+                  i=0; until pg_isready -d "$DATABASE_URL" >/dev/null 2>&1; do
+                    i=$((i+1)); [ "$i" -ge 30 ] && { echo "postgres not ready"; exit 1; }; sleep 1
+                  done
+                  echo "dumping database..."
+                  pg_dump --format=custom --no-owner --no-privileges \
+                    -d "$DATABASE_URL" -f "$STAGE/db.dump"
+                  if [ -n "${MEDIA_DIR:-}" ] && [ -d "${MEDIA_DIR}" ]; then
+                    echo "archiving media ${MEDIA_DIR}..."
+                    tar -czf "$STAGE/media.tar.gz" -C "$MEDIA_DIR" . || true
+                  fi
+                  {
+                    echo "TruePPM backup manifest"
+                    echo "created_utc: $TS"
+                    echo "pg_dump_version: $(pg_dump --version | head -n1)"
+                  } > "$STAGE/MANIFEST"
+                  tar -czf "$ART" -C "$STAGE" .
+                  echo "backup written: $ART"
+                  if [ -n "${S3_BUCKET:-}" ]; then
+                    echo "S3_BUCKET set ($S3_BUCKET) — upload with your object-storage CLI/sidecar; see runbook"
+                  fi
+                  # Retention: keep the KEEP_DAILY newest artifacts (names sort
+                  # chronologically). No-op when KEEP_DAILY is empty/0.
+                  if [ -n "${KEEP_DAILY:-}" ] && [ "${KEEP_DAILY}" -gt 0 ] 2>/dev/null; then
+                    ls -1 "$OUTPUT_DIR"/trueppm-backup-*.tar.gz 2>/dev/null | sort -r \
+                      | tail -n "+$((KEEP_DAILY + 1))" \
+                      | while IFS= read -r f; do echo "pruning $f"; rm -f "$f"; done
+                  fi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+                - name: backups
+                  mountPath: {{ .Values.backup.outputDir | quote }}
+                {{- if .Values.backup.mediaDir }}
+                {{- with .Values.backup.extraVolumeMounts }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+{{- end }}

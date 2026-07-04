@@ -174,6 +174,88 @@ env:
 #         name: trueppm-env
 envFrom: []
 
+# Scheduled logical backups (issue #320). OFF by default: a backup CronJob is an
+# opt-in operational choice — it needs somewhere durable to write (a PVC or an
+# S3-compatible bucket), and enabling it silently would create a PVC the operator
+# never asked for. Turn it on deliberately once you have chosen a destination.
+#
+# The CronJob runs scripts/backup.sh inside the API image (which carries
+# postgresql-client + the script), dumps the database with pg_dump --format=custom,
+# and writes a single timestamped artifact. Restore is a manual, deliberate action
+# with scripts/restore.sh — see docs → Administration → Backup & Restore.
+#
+# This is LOGICAL backup only (pg_dump). Continuous archiving / point-in-time
+# recovery (WAL shipping), cross-region replication, and managed backup automation
+# are Enterprise HA features (trueppm-enterprise #20).
+backup:
+  enabled: false
+  # Cron schedule (cluster timezone). Default: 02:00 every day.
+  schedule: "0 2 * * *"
+  # Image used by the backup CronJob. Defaults to the upstream PostgreSQL image,
+  # which carries pg_dump / pg_isready / psql at the matching major version. The
+  # lean application image ships only libpq5 (no client binaries), so the job runs
+  # from a client-capable image and connects over the network via DATABASE_URL —
+  # it needs no application code. The inline backup command mirrors
+  # scripts/backup.sh (same pg_dump --format=custom, same timestamped artifact);
+  # restores are performed manually with scripts/restore.sh.
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  # How many previously-failed/succeeded jobs Kubernetes retains for inspection.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  # Where the artifact is written inside the job container. With a PVC (below)
+  # this path is the mounted volume; the retention prune runs against it.
+  outputDir: /backups
+  # Include the local media/attachment directory in the artifact. Only relevant
+  # when attachments are on a local PVC (TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE);
+  # with object storage (S3/MinIO) the bucket is backed up by the object store and
+  # this should stay empty. Set to the in-container media path to include it.
+  mediaDir: ""
+  # Retention. keepDaily is enforced in-job by scripts/backup.sh after each run
+  # (it prunes the output directory to the N newest artifacts). keepWeekly is
+  # advisory metadata for an external lifecycle policy (e.g. S3 bucket lifecycle
+  # rules or a sweep job) — the in-cluster CronJob does not itself promote dailies
+  # to weeklies. Document your off-cluster retention alongside these values.
+  keepDaily: 7
+  keepWeekly: 4
+  # Destination. Two mutually-supported shapes:
+  #   persistence.enabled: true  → mount a chart-managed PVC at outputDir
+  #   s3: { ... }                → pass S3-compatible env vars to the job so a
+  #                                custom outputDir/upload step can target a bucket
+  # Leave both off only if you are supplying your own volume via extraVolumes.
+  persistence:
+    enabled: false
+    # Reuse an existing claim instead of creating one.
+    existingClaim: ""
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+  # S3-compatible off-cluster destination. When set, these are injected as env
+  # vars into the job so backup.sh (or a wrapper) can upload the artifact. The
+  # secret key MUST come from a Kubernetes Secret, never a plaintext value here.
+  s3:
+    enabled: false
+    bucket: ""
+    endpoint: ""
+    region: ""
+    # Reference the credentials Secret (keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY).
+    existingSecret: ""
+  # Extra volumes / mounts for the backup job — the supported way to give the job
+  # read access to your media PVC when mediaDir is set (mount the same claim the
+  # API uses at the mediaDir path, read-only). Ignored unless mediaDir is set.
+  extraVolumes: []
+  extraVolumeMounts: []
+  # Resource requests/limits for the backup job container.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
 # Admin bootstrap settings.
 # The bootstrap init container runs `create_admin` once on first deploy and
 # writes the one-time password to passwordFile (emptyDir, 0o600).

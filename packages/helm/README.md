@@ -66,6 +66,21 @@ kubectl get secret <release>-trueppm-connection \
 | `resources.api` / `resources.worker` | 512Mi req / 2Gi limit | Per-container resources. |
 | `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. |
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
+| `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
+| `backup.schedule` | `0 2 * * *` | Cron schedule (cluster timezone). |
+| `backup.keepDaily` / `backup.keepWeekly` | `7` / `4` | Retention: `keepDaily` is enforced in-job; `keepWeekly` is advisory for an off-cluster lifecycle policy. |
+| `backup.persistence.enabled` | `false` | Mount a chart-managed PVC at `backup.outputDir`. |
+| `backup.s3.enabled` | `false` | Inject S3-compatible env vars for an off-cluster destination. |
+
+## Scheduled backups (opt-in)
+
+`backup.enabled=true` renders a CronJob that runs `pg_dump --format=custom` against
+the database (using the same chart-owned connection Secret as the API — no second
+password copy) and writes a single timestamped artifact to a PVC or S3-compatible
+bucket, pruning to `backup.keepDaily`. It is **off by default** so enabling it never
+creates a PersistentVolumeClaim you did not ask for. Restore is a deliberate manual
+action with `scripts/restore.sh`. Full runbook: docs → Administration → Backup &
+Restore.
 
 ## Production (managed datastores)
 

@@ -842,6 +842,87 @@ helm:lint:
       done
       [ "$fail" -eq 0 ] || exit 1
 
+backup:restore-drill:
+  # Restore drill (#320): the standing evidence that scripts/backup.sh and
+  # scripts/restore.sh actually work end to end. Seeds a database (required
+  # ltree + pg_trgm extensions and two tables with known row counts), backs it up
+  # into a single artifact, DROPs the database, restores from the artifact, and
+  # asserts the row counts match and the extensions survived. A schema-only proof
+  # — it deliberately does NOT boot Django, so it stays self-contained on the
+  # Debian-based postgres:16 image (which carries bash + pg_dump/pg_restore/psql/
+  # pg_isready), needing no prebaked registry image.
+  #
+  # Trigger: nightly schedule (catches rot between changes) + any change to the
+  # scripts or the CronJob template (and this CI file, so the job tests itself).
+  stage: test
+  image:
+    name: postgres:16
+    # The postgres image ENTRYPOINT starts a database; blank it so GitLab runs
+    # the job script instead (same override helm:lint uses for alpine/helm).
+    entrypoint: [""]
+  services:
+    # The service reads POSTGRES_DB/USER/PASSWORD from the global variables block.
+    - name: postgres:16-alpine
+      alias: postgres
+  variables:
+    PGPASSWORD: trueppm
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres:5432/drilldb"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - scripts/backup.sh
+        - scripts/restore.sh
+        - packages/helm/templates/cronjob-backup.yaml
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/backup.sh
+        - scripts/restore.sh
+        - packages/helm/templates/cronjob-backup.yaml
+        - .gitlab-ci.yml
+  script:
+    - echo "waiting for the postgres service..."
+    - until pg_isready -h postgres -U trueppm >/dev/null 2>&1; do sleep 1; done
+    - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
+    # Seed a representative schema: the two extensions the real schema depends on
+    # (ltree powers wbs_path, pg_trgm powers trigram search) plus two tables with
+    # known row counts to assert against after the round-trip.
+    - |
+      psql "$DATABASE_URL" <<'SQL'
+      CREATE EXTENSION IF NOT EXISTS ltree;
+      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      CREATE TABLE projects_project (id serial PRIMARY KEY, name text);
+      INSERT INTO projects_project (name) SELECT 'p' || g FROM generate_series(1, 42) g;
+      CREATE TABLE projects_task (id serial PRIMARY KEY, wbs_path ltree, title text);
+      INSERT INTO projects_task (wbs_path, title)
+        SELECT ('1.' || g)::ltree, 't' || g FROM generate_series(1, 100) g;
+      SQL
+    - BEFORE_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
+    - BEFORE_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
+    - echo "seeded projects=$BEFORE_PROJECTS tasks=$BEFORE_TASKS"
+    # 1. back up
+    - ./scripts/backup.sh --output-dir "$CI_PROJECT_DIR/drill-backups"
+    - ARTIFACT=$(ls -1 "$CI_PROJECT_DIR"/drill-backups/trueppm-backup-*.tar.gz | head -n1)
+    - echo "artifact=$ARTIFACT"
+    # 2. destroy the source (FORCE drops any lingering connection from pg_dump)
+    - psql -h postgres -U trueppm -d trueppm_test -c "DROP DATABASE drilldb WITH (FORCE);"
+    - psql -h postgres -U trueppm -d trueppm_test -c "CREATE DATABASE drilldb;"
+    # 3. restore (restore.sh verifies ltree + pg_trgm internally and exits non-zero if absent)
+    - ./scripts/restore.sh --artifact "$ARTIFACT" --yes
+    # 4. assert the round-trip preserved every row
+    - AFTER_PROJECTS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_project;")
+    - AFTER_TASKS=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM projects_task;")
+    - echo "restored projects=$AFTER_PROJECTS tasks=$AFTER_TASKS"
+    - |
+      if [ "$AFTER_PROJECTS" != "$BEFORE_PROJECTS" ] || [ "$AFTER_TASKS" != "$BEFORE_TASKS" ]; then
+        echo "RESTORE DRILL FAILED: row counts differ after restore" >&2
+        echo "  projects: before=$BEFORE_PROJECTS after=$AFTER_PROJECTS" >&2
+        echo "  tasks:    before=$BEFORE_TASKS after=$AFTER_TASKS" >&2
+        exit 1
+      fi
+    - echo "restore drill GREEN — row counts match and required extensions present"
+
 mcp:lint:
   extends: .fast-job
   # Standalone MCP server (packages/mcp, ADR-0186). A pure HTTP client with no
