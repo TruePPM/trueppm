@@ -13,9 +13,13 @@
  * callers without backlog-manage rights — the server is the real gate.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/Button';
-import { ConfirmDiscardDialog } from '@/features/settings/components/ConfirmDiscardDialog';
+import { useEffect, useRef } from 'react';
+import {
+  DialogFooter,
+  UnsavedChangesDialog,
+  useDirtyDraft,
+  useUnsavedChangesGuard,
+} from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { DorState, Task, TaskType } from '@/types';
@@ -90,15 +94,22 @@ export function StoryDetailDrawer({
   // aria-modal and the Tab focus-trap track the viewport (issue 1357).
   const isMobile = useBreakpoint() === 'sm';
 
-  const [draft, setDraft] = useState<ScalarDraft>(() => toDraft(story));
-  const [initial, setInitial] = useState<ScalarDraft>(() => toDraft(story));
-  // Styled, focus-trapped discard prompt in place of the native window.confirm
-  // (issue 1357).
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Draft/baseline/dirty + revert + post-save re-snapshot — the shared
+  // editable-surface contract (web-rule 217), replacing the hand-rolled copy.
+  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<ScalarDraft>(
+    toDraft(story),
+  );
+
+  // Dismiss-guard: Esc / ✕ / mobile backdrop open the styled, focus-trapped
+  // discard prompt when dirty in place of the native window.confirm (issue 1357).
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose,
+  });
 
   // Suspend the drawer's own trap while the discard prompt is up so its trap
   // (active on mobile) doesn't fight the dialog's trap for the same Tab cycle.
-  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !confirmDiscard);
+  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !guardOpen);
 
   // Focus the close button when the drawer mounts/swaps stories.
   useEffect(() => {
@@ -106,46 +117,14 @@ export function StoryDetailDrawer({
     return () => clearTimeout(t);
   }, []);
 
-  const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(initial),
-    [draft, initial],
-  );
-
   function set<K extends keyof ScalarDraft>(key: K, val: ScalarDraft[K]) {
-    setDraft((d) => ({ ...d, [key]: val }));
+    setField(key, val);
   }
-
-  function requestClose() {
-    if (dirty) {
-      setConfirmDiscard(true);
-      return;
-    }
-    onClose();
-  }
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        requestClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty]);
 
   function handleSave() {
-    const patch = changedFields(draft, initial);
+    const patch = changedFields(draft, baseline);
     if (Object.keys(patch).length === 0) return;
-    patchStory.mutate(
-      { taskId: story.id, patch },
-      { onSuccess: () => setInitial(draft) },
-    );
-  }
-
-  function handleCancel() {
-    setDraft(initial);
+    patchStory.mutate({ taskId: story.id, patch }, { onSuccess: () => commit() });
   }
 
   // Readiness gate (server-authoritative, mirrored client-side from the live
@@ -296,31 +275,18 @@ export function StoryDetailDrawer({
           />
         </div>
 
-        {/* Deferred save bar — only while the scalar form is dirty. */}
+        {/* Deferred save bar — only while the scalar form is dirty (web-rule 217). */}
         {dirty && (
-          <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-neutral-border px-4">
-            <span className="mr-auto text-xs text-neutral-text-secondary">Unsaved changes</span>
-            {patchStory.isError && (
-              <span role="alert" className="text-xs text-semantic-critical">
-                Save failed
-              </span>
-            )}
-            <Button variant="ghost" size="sm" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleSave} disabled={patchStory.isPending}>
-              {patchStory.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          </div>
+          <DialogFooter
+            onSave={handleSave}
+            onCancel={reset}
+            saving={patchStory.isPending}
+            error={patchStory.isError ? 'Save failed' : null}
+          />
         )}
       </div>
 
-      {confirmDiscard && (
-        <ConfirmDiscardDialog
-          onKeepEditing={() => setConfirmDiscard(false)}
-          onDiscard={onClose}
-        />
-      )}
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </>
   );
 }

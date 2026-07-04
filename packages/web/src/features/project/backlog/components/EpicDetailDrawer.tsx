@@ -11,9 +11,13 @@
  * server is the real gate (a 403 surfaces as a save error).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/Button';
-import { ConfirmDiscardDialog } from '@/features/settings/components/ConfirmDiscardDialog';
+import { useEffect, useRef } from 'react';
+import {
+  DialogFooter,
+  UnsavedChangesDialog,
+  useDirtyDraft,
+  useUnsavedChangesGuard,
+} from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import type { Task } from '@/types';
@@ -54,15 +58,21 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
   // claiming one fixed modality (issue 1357).
   const isMobile = useBreakpoint() === 'sm';
 
-  const [draft, setDraft] = useState<Draft>(() => toDraft(epic));
-  const [initial, setInitial] = useState<Draft>(() => toDraft(epic));
-  // Discard-confirm replaces window.confirm() so the prompt is keyboard-trapped,
-  // styled, and screen-reader-announced like the rest of the app (issue 1357).
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Draft/baseline/dirty + revert + post-save re-snapshot — the shared
+  // editable-surface contract (web-rule 217), replacing the hand-rolled copy.
+  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<Draft>(toDraft(epic));
+
+  // Dismiss-guard: Esc / ✕ / mobile backdrop route through requestClose, which
+  // opens the styled, focus-trapped prompt when dirty instead of the native
+  // window.confirm() (issue 1357). The guard owns the Escape listener.
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose,
+  });
 
   // Suspend the drawer's own trap while the discard prompt is up so its trap
   // (active on mobile) doesn't fight the dialog's trap for the same Tab cycle.
-  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !confirmDiscard);
+  const trapRef = useFocusTrap<HTMLDivElement>(isMobile && !guardOpen);
 
   // Focus the close button when the drawer mounts.
   useEffect(() => {
@@ -70,44 +80,15 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
     return () => clearTimeout(t);
   }, []);
 
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(initial), [draft, initial]);
   // The server rejects an empty epic name; block the save (with a hint) rather than letting a
   // blank name silently swallow an otherwise-valid description edit.
   const nameBlank = draft.name.trim() === '';
 
-  function set<K extends keyof Draft>(key: K, val: Draft[K]) {
-    setDraft((d) => ({ ...d, [key]: val }));
-  }
-
-  function requestClose() {
-    if (dirty) {
-      setConfirmDiscard(true);
-      return;
-    }
-    onClose();
-  }
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        requestClose();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty]);
-
   function handleSave() {
     if (nameBlank) return;
-    const patch = changedFields(draft, initial);
+    const patch = changedFields(draft, baseline);
     if (Object.keys(patch).length === 0) return;
-    patchEpic.mutate({ epicId: epic.id, patch }, { onSuccess: () => setInitial(draft) });
-  }
-
-  function handleCancel() {
-    setDraft(initial);
+    patchEpic.mutate({ epicId: epic.id, patch }, { onSuccess: () => commit() });
   }
 
   return (
@@ -159,7 +140,7 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
             <input
               type="text"
               value={draft.name}
-              onChange={(e) => set('name', e.target.value)}
+              onChange={(e) => setField('name', e.target.value)}
               onKeyDown={(e) => {
                 // Enter commits the batched edit from the (single-line) name field, restoring
                 // the quick-rename keystroke the inline rename used to offer.
@@ -177,7 +158,7 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
             <span className="text-xs font-medium text-neutral-text-secondary">Description</span>
             <textarea
               value={draft.notes}
-              onChange={(e) => set('notes', e.target.value)}
+              onChange={(e) => setField('notes', e.target.value)}
               rows={6}
               aria-label="Epic description"
               placeholder="What outcome groups these stories?"
@@ -186,42 +167,20 @@ export function EpicDetailDrawer({ projectId, epic, onClose }: EpicDetailDrawerP
           </label>
         </div>
 
-        {/* Deferred save bar — only while the form is dirty. */}
+        {/* Deferred save bar — only while the form is dirty (web-rule 217). */}
         {dirty && (
-          <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-neutral-border px-4">
-            {nameBlank ? (
-              <span role="alert" className="mr-auto text-xs text-semantic-critical">
-                Name is required
-              </span>
-            ) : (
-              <span className="mr-auto text-xs text-neutral-text-secondary">Unsaved changes</span>
-            )}
-            {patchEpic.isError && (
-              <span role="alert" className="text-xs text-semantic-critical">
-                Save failed
-              </span>
-            )}
-            <Button variant="ghost" size="sm" onClick={handleCancel}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              disabled={patchEpic.isPending || nameBlank}
-            >
-              {patchEpic.isPending ? 'Saving…' : 'Save'}
-            </Button>
-          </div>
+          <DialogFooter
+            onSave={handleSave}
+            onCancel={reset}
+            saving={patchEpic.isPending}
+            saveDisabled={nameBlank}
+            validationMessage={nameBlank ? 'Name is required' : null}
+            error={patchEpic.isError ? 'Save failed' : null}
+          />
         )}
       </div>
 
-      {confirmDiscard && (
-        <ConfirmDiscardDialog
-          onKeepEditing={() => setConfirmDiscard(false)}
-          onDiscard={onClose}
-        />
-      )}
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </>
   );
 }
