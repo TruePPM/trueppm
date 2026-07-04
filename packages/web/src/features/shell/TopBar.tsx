@@ -22,6 +22,7 @@ import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
+import { SyncStatusBadge } from './SyncStatusBadge';
 import { NotificationBell } from './NotificationBell';
 import { UserMenu } from './UserMenu';
 
@@ -206,6 +207,12 @@ export function TopBar({ onHamburgerClick }: Props) {
         {/* Online collaborators — desktop only (hidden md:flex inside the component);
             renders nothing off-project or when no one else is online. */}
         <PresenceAvatarStack users={onlineUsers} />
+
+        {/* Calm write-sync indicator (ADR-0201, issue 374) — persistent; reflects
+            the client-side write queue (Synced / Syncing / Offline / Error) and
+            opens a modal with the pending-write list and manual retry. Stays
+            visible on mobile: offline trust matters most there. */}
+        <SyncStatusBadge />
 
         {/* Notification bell — visible at all widths. */}
         <NotificationBell />

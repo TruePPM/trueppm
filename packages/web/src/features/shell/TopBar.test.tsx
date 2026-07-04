@@ -176,7 +176,9 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       { user_id: 'u-alice', display_name: 'Alice Smith' },
     ];
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    const presence = screen.getByRole('status');
+    // Disambiguate from the SyncStatusBadge's own aria-live status region (#374)
+    // by the presence accessible name.
+    const presence = screen.getByRole('status', { name: /viewing|Alice Smith/ });
     expect(presence).toHaveAccessibleName(/Alice Smith/);
     expect(presence).not.toHaveAccessibleName(/Me Myself/);
   });
