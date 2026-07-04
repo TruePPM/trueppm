@@ -49,6 +49,7 @@ export const CANONICAL_VIEW_ORDER: readonly string[] = [
   'resources',
   'risk',
   'reports',
+  'activity',
   'settings',
 ];
 

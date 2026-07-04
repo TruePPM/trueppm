@@ -2161,8 +2161,13 @@ security:semgrep:
   # gate now fails on WARNING too. INFO-level findings stay un-gated (out of
   # scope for #1154) — hence the explicit severity list rather than the default.
   #
-  # Rules are pulled from the Semgrep registry (p/ packs); no Semgrep AppSec
-  # Platform account or token is used — this is a self-contained, local-rules run.
+  # Rules are VENDORED under .semgrep/ (p/default, p/react, p/django), not pulled
+  # live from the registry — so the scan runs fully offline. The live registry
+  # fetch was the pipeline's largest tail-variance source (34s→113s swing, #1639)
+  # and a reproducibility hole (a registry rule change could fail an unrelated
+  # MR). Refresh with scripts/update-semgrep-rules.sh; keep the pack list there in
+  # lockstep with the .semgrep/*.yml configs below. No Semgrep AppSec Platform
+  # account or token is used — this is a self-contained, local-rules run.
   stage: security
   image:
     name: semgrep/semgrep:1.166.0@sha256:c180f0c93a17b420c0af5006214a29d3c747c5459c732b740191adf657dd0068
@@ -2175,12 +2180,15 @@ security:semgrep:
         - packages/web/src/**/*
         - packages/api/src/**/*
         - packages/scheduler/src/**/*
+        - .semgrep/**/*
         - .gitlab-ci.yml
   variables:
     SEMGREP_SEND_METRICS: "off"
   script:
+    # --config against local files (not p/ pack names) → no network, no registry
+    # variance. Scope, severity gate, and excludes are unchanged from the live run.
     - semgrep scan
-        --config p/default --config p/django --config p/react
+        --config .semgrep/default.yml --config .semgrep/django.yml --config .semgrep/react.yml
         --severity ERROR --severity WARNING --error --metrics off
         --exclude 'node_modules' --exclude 'dist'
         --exclude '*.test.ts' --exclude '*.test.tsx' --exclude 'e2e' --exclude 'tests'

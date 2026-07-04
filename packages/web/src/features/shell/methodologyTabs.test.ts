@@ -87,7 +87,7 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     const byId = (id: string) => groups.find((g) => g.id === id)?.visibleViews;
     expect(byId('PLAN')).toEqual(['schedule', 'grid', 'calendar']);
     expect(byId('SPRINT')).toEqual(['product-backlog', 'sprints', 'board']);
-    expect(byId('TRACK')).toEqual(['today', 'risk', 'reports']);
+    expect(byId('TRACK')).toEqual(['today', 'risk', 'reports', 'activity']);
     expect(byId('PEOPLE')).toEqual(['resources']);
   });
 
@@ -109,7 +109,7 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
     expect(groups.find((g) => g.id === 'SPRINT')).toBeUndefined();
     const track = groups.find((g) => g.id === 'TRACK');
-    expect(track?.visibleViews).toEqual(['today', 'board', 'risk', 'reports']);
+    expect(track?.visibleViews).toEqual(['today', 'board', 'risk', 'reports', 'activity']);
   });
 
   it('today (ADR-0180) leads the TRACK group and is visible for every methodology', () => {

@@ -61,6 +61,11 @@ const RiskRegisterView = lazy(() =>
 const ReportsView = lazy(() =>
   import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })),
 );
+const ProjectActivityPage = lazy(() =>
+  import('@/features/project/activity/ProjectActivityPage').then((m) => ({
+    default: m.ProjectActivityPage,
+  })),
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
@@ -166,6 +171,11 @@ const DeadLetterInspectorPage = lazy(() =>
 const RetentionPurgePage = lazy(() =>
   import('@/features/settings/workspace/systemHealth/RetentionPurgePage').then((m) => ({
     default: m.RetentionPurgePage,
+  })),
+);
+const WorkspaceTrashPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceTrashPage').then((m) => ({
+    default: m.WorkspaceTrashPage,
   })),
 );
 const InviteAcceptPage = lazy(() =>
@@ -367,6 +377,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ReportsView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'activity',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectActivityPage />
                   </Suspense>
                 ),
               },
@@ -587,6 +605,17 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <IntegrationsRedirect />
+              </Suspense>
+            ),
+          },
+          // Trash (issue 1113, ADR-0202) — recoverable soft-deleted projects. Renders its
+          // own SettingsShell (like the System Health area). Any member may view; the
+          // per-row Restore is Owner-gated by the API.
+          {
+            path: 'settings/trash',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <WorkspaceTrashPage />
               </Suspense>
             ),
           },
