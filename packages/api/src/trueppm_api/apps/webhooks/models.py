@@ -32,17 +32,30 @@ class WebhookEventType(models.TextChoices):
     SPRINT_ACTIVATED = "sprint.activated", "Sprint Activated"
     SPRINT_CLOSED = "sprint.closed", "Sprint Closed"
     SPRINT_SCOPE_CHANGED = "sprint.scope_changed", "Sprint Scope Changed"
+    # Risk / baseline / comment domain events added in #1082 (ADR-0206). First-party
+    # domain events that extend the catalog beyond agile so external reporting and
+    # alerting tooling can observe the risk register, baseline captures, and the
+    # comment thread. risk.escalated fires when computed severity (probability ×
+    # impact) increases; risk.closed on the transition into CLOSED. comment.created
+    # carries no comment body (privacy-conservative) and is distinct from
+    # task.mentioned, which fires only when a comment mentions someone.
+    RISK_OPENED = "risk.opened", "Risk Opened"
+    RISK_ESCALATED = "risk.escalated", "Risk Escalated"
+    RISK_CLOSED = "risk.closed", "Risk Closed"
+    BASELINE_CAPTURED = "baseline.captured", "Baseline Captured"
+    COMMENT_CREATED = "comment.created", "Comment Created"
 
 
 ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 
 # Hard cap on the number of OSS webhook event types (ADR-0083, raised 11→14 by
-# ADR-0147 for the agile trio). Adding a 15th event requires its own ADR — this is
-# the gate against the per-customer event proliferation that is the explicit
-# Enterprise upsell. The trio are first-party domain events, not custom/user-defined
-# events, so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
+# ADR-0147 for the agile trio, then 14→19 by ADR-0206 for the risk/baseline/comment
+# domain events). Adding a 20th event requires its own ADR — this is the gate
+# against the per-customer event proliferation that is the explicit Enterprise
+# upsell. These are all first-party domain events, not custom/user-defined events,
+# so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
 # WebhookEventType drifts from this number.
-OSS_WEBHOOK_EVENT_CAP = 14
+OSS_WEBHOOK_EVENT_CAP = 19
 
 
 class Webhook(models.Model):

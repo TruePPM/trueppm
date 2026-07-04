@@ -53,7 +53,7 @@ Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook UR
 
 ## Event types
 
-OSS fires **14 event types** (a deliberate hard cap):
+OSS fires **19 event types** (a deliberate hard cap):
 
 | Event | When fired |
 |-------|-----------|
@@ -71,10 +71,17 @@ OSS fires **14 event types** (a deliberate hard cap):
 | `sprint.activated` | A sprint transitions PLANNED → ACTIVE |
 | `sprint.closed` | A sprint is closed (carries the completion snapshot — see note) |
 | `sprint.scope_changed` | A mid-sprint scope injection is **accepted** into the commitment |
+| `risk.opened` | A risk is created (new risks default to status OPEN) |
+| `risk.escalated` | A risk's computed severity (probability × impact) increases |
+| `risk.closed` | A risk transitions into status CLOSED |
+| `baseline.captured` | A baseline snapshot is captured |
+| `comment.created` | A comment is added to a task (every comment; no body in the payload) |
 
 The last four task events were added in 0.2 (available since the `0.2.0-alpha.1` pre-release). A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
 The three `sprint.*` events were added in **0.3** so external dashboards, Slack, and CI can observe the sprint cadence. `sprint.scope_changed` fires only when a mid-sprint injection is *accepted* (it models scope that entered the commitment) — never on a silent injection or a reject.
+
+The five `risk.*`, `baseline.*`, and `comment.created` events ship in **0.4**, extending the catalog beyond agile so external reporting and alerting tooling can observe the risk register, baseline captures, and the comment thread. `risk.escalated` fires whenever an update raises the computed severity (probability × impact); `risk.closed` fires on the transition into CLOSED (never on a move to RESOLVED or another state). A single risk update may fire both `risk.escalated` and `risk.closed`. `comment.created` fires for *every* comment (distinct from `task.mentioned`, which fires only when a comment @mentions someone) and deliberately carries **no comment body** — only the comment id, author, task context, and timestamp — so a webhook consumer never receives comment content.
 
 :::caution[`sprint.closed` velocity is privacy-gated]
 The `sprint.closed` payload carries the completion snapshot (`completed_points`, `completed_task_count`, `goal_outcome`) — this is team velocity. A webhook consumer is external to the team, so these fields are sent only when the team has explicitly shared the `velocity` signal outward (the team raises the `velocity` signal's audience to `program_shared` in the project's signal-privacy settings). Otherwise the three fields are `null` and a `velocity_suppressed: true` marker is added so consumers keep a stable payload shape. The committed plan (`committed_points`, `committed_task_count`) is the team's published plan, not a performance metric, so it is never gated.
