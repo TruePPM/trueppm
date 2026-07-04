@@ -13,6 +13,12 @@ export type ProjectScope = 'all' | 'none' | (string & {});
 // the user's nav shape. Read defensively (private mode / SSR).
 const PINNED_KEY = 'trueppm.rail.pinned';
 const EXPANDED_KEY = 'trueppm.rail.expanded';
+// Per-user pinned mobile BottomNav views (issue 1591): view keys the user
+// promotes into the primary rail slots, ahead of the methodology defaults.
+// localStorage (client-side prefs only, no API) mirrors the existing rail-pref
+// pattern above. Overview + Today stay anchored, so pins fill the remaining
+// primary slots (see bottomNavItems.ts).
+const MOBILE_PINNED_VIEWS_KEY = 'trueppm.mobilenav.pinned';
 function readIds(key: string): string[] {
   try {
     const raw = localStorage.getItem(key);
@@ -72,6 +78,13 @@ interface ShellState {
   /** Expanded program ids — the rail Programs tree (v2). Persisted. */
   expandedProgramIds: string[];
   toggleProgram: (programId: string) => void;
+  /**
+   * Mobile BottomNav views the user pinned into the primary rail (issue 1591).
+   * Ordered by pin recency. Persisted per user (localStorage).
+   */
+  pinnedMobileViews: string[];
+  /** Pin or unpin a view from the mobile primary rail. */
+  toggleMobileViewPin: (view: string) => void;
 }
 
 const initialCollapse = readCollapsed();
@@ -110,6 +123,15 @@ export const useShellStore = create<ShellState>()((set) => ({
         : [...s.expandedProgramIds, programId];
       writeIds(EXPANDED_KEY, next);
       return { expandedProgramIds: next };
+    }),
+  pinnedMobileViews: readIds(MOBILE_PINNED_VIEWS_KEY),
+  toggleMobileViewPin: (view) =>
+    set((s) => {
+      const next = s.pinnedMobileViews.includes(view)
+        ? s.pinnedMobileViews.filter((v) => v !== view)
+        : [...s.pinnedMobileViews, view];
+      writeIds(MOBILE_PINNED_VIEWS_KEY, next);
+      return { pinnedMobileViews: next };
     }),
 }));
 

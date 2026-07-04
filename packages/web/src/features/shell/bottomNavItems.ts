@@ -52,6 +52,14 @@ export const CANONICAL_VIEW_ORDER: readonly string[] = [
   'settings',
 ];
 
+/**
+ * Views anchored to the front of the primary rail regardless of methodology or
+ * user pins: `overview` (always-on landing) then `today` (the issue-1324
+ * headline-view guarantee). User pins fill the *remaining* primary slots — they
+ * never displace these two, so Today can't be buried by a pin.
+ */
+export const ANCHOR_VIEWS: readonly string[] = ['overview', 'today'];
+
 /** Max cells in the rail. Slot 5 becomes "More" when the reachable set exceeds this. */
 export const MOBILE_RAIL_SLOTS = 5;
 const MAX_PRIMARY_WITH_OVERFLOW = MOBILE_RAIL_SLOTS - 1; // 4 tabs + a More button
@@ -64,15 +72,27 @@ export interface MobileNavSplit {
 }
 
 /**
- * Order the reachable set: methodology-priority views first (in priority order,
- * only those present), then everything else in canonical order.
+ * Order the reachable set for the rail. Precedence, front to back:
+ *   1. anchors (`overview`, `today`) — never displaced (issue 1324);
+ *   2. user pins in pin order (issue 1591) — the user's chosen primary views;
+ *   3. methodology-priority views (ADR-0196 defaults);
+ *   4. everything else in canonical order.
+ * Each view is placed once, at its highest-precedence position.
  */
-function orderReachable(reachable: Iterable<string>, methodology: Methodology): string[] {
+function orderReachable(
+  reachable: Iterable<string>,
+  methodology: Methodology,
+  pinned: readonly string[],
+): string[] {
   const set = new Set(reachable);
-  const priority = MOBILE_PRIMARY_PRIORITY[methodology].filter((v) => set.has(v));
-  const prioritySet = new Set(priority);
-  const rest = CANONICAL_VIEW_ORDER.filter((v) => set.has(v) && !prioritySet.has(v));
-  return [...priority, ...rest];
+  const anchors = ANCHOR_VIEWS.filter((v) => set.has(v));
+  const placed = new Set<string>(anchors);
+  const pins = pinned.filter((v) => set.has(v) && !placed.has(v));
+  pins.forEach((v) => placed.add(v));
+  const priority = MOBILE_PRIMARY_PRIORITY[methodology].filter((v) => set.has(v) && !placed.has(v));
+  priority.forEach((v) => placed.add(v));
+  const rest = CANONICAL_VIEW_ORDER.filter((v) => set.has(v) && !placed.has(v));
+  return [...anchors, ...pins, ...priority, ...rest];
 }
 
 /**
@@ -84,12 +104,19 @@ function orderReachable(reachable: Iterable<string>, methodology: Methodology): 
  * `reachable` is the caller-composed set (methodology filter ∩ per-project
  * surface visibility ∩ per-user hidden_views ∩ role gate, ∪ {overview, settings})
  * — this function is purely about ordering and the ≤5 cap.
+ *
+ * `pinned` is the user's per-user pinned view keys (issue 1591). Pins are
+ * promoted into the primary slots ahead of the methodology defaults, but behind
+ * the {@link ANCHOR_VIEWS}, so a pin can claim slot 3/4 (e.g. a construction PM
+ * pinning Schedule) without ever burying Overview or Today. Unreachable pins are
+ * ignored. Defaults to no pins, preserving the pure ADR-0196 ordering.
  */
 export function selectMobileNav(
   reachable: Iterable<string>,
   methodology: Methodology,
+  pinned: readonly string[] = [],
 ): MobileNavSplit {
-  const ordered = orderReachable(reachable, methodology);
+  const ordered = orderReachable(reachable, methodology, pinned);
   if (ordered.length <= MOBILE_RAIL_SLOTS) {
     return { primary: ordered, overflow: [] };
   }

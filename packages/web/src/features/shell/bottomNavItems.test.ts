@@ -155,4 +155,72 @@ describe('selectMobileNav', () => {
       }
     }
   });
+
+  // Issue 1591 — user pins promote chosen views into the primary rail ahead of
+  // the methodology defaults, without ever burying Overview/Today.
+  describe('user pins (issue 1591)', () => {
+    it('promotes a pinned overflow view into the primary rail', () => {
+      // AGILE would park Schedule in the overflow; pinning it makes it primary.
+      const reachable = [
+        'overview',
+        'today',
+        'board',
+        'product-backlog',
+        'sprints',
+        'schedule',
+        'grid',
+        'risk',
+        'reports',
+        'settings',
+      ];
+      const { primary, overflow } = selectMobileNav(reachable, 'AGILE', ['schedule']);
+      expect(primary).toContain('schedule');
+      // Pins sit right after the anchors, ahead of the methodology defaults.
+      expect(primary.slice(0, 3)).toEqual(['overview', 'today', 'schedule']);
+      expect(overflow).not.toContain('schedule');
+    });
+
+    it('never displaces the Overview/Today anchors, even with multiple pins', () => {
+      const reachable = [
+        'overview',
+        'today',
+        'board',
+        'product-backlog',
+        'schedule',
+        'grid',
+        'risk',
+        'reports',
+        'settings',
+      ];
+      const { primary } = selectMobileNav(reachable, 'AGILE', ['risk', 'reports']);
+      expect(primary[0]).toBe('overview');
+      expect(primary[1]).toBe('today');
+      // Both pins claimed the remaining two primary slots, in pin order.
+      expect(primary).toEqual(['overview', 'today', 'risk', 'reports']);
+    });
+
+    it('ignores pins that are not in the reachable set (no phantom tabs)', () => {
+      const reachable = ['overview', 'today', 'schedule', 'grid'];
+      const { primary, overflow } = selectMobileNav(reachable, 'WATERFALL', ['board', 'risk']);
+      // board/risk are unreachable, so the WATERFALL default stands.
+      expect(primary).toEqual(['overview', 'today', 'schedule', 'grid']);
+      expect(overflow).toEqual([]);
+    });
+
+    it('falls back to the methodology default when nothing is pinned', () => {
+      const reachable = [
+        'overview',
+        'today',
+        'board',
+        'schedule',
+        'grid',
+        'risk',
+        'reports',
+        'settings',
+      ];
+      expect(selectMobileNav(reachable, 'WATERFALL', []).primary).toEqual(
+        selectMobileNav(reachable, 'WATERFALL').primary,
+      );
+    });
+  });
 });

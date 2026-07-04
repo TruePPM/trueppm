@@ -40,6 +40,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useShellStore } from '@/stores/shellStore';
 
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
@@ -67,6 +68,9 @@ describe('BottomNav', () => {
     mockUseRole.mockReturnValue({ role: 200, isLoading: false });
     mockUseCurrentUser.mockReturnValue({ user: { hidden_views: [] }, isLoading: false });
     seedProject();
+    // Reset per-user mobile pins (issue 1591) between tests.
+    useShellStore.setState({ pinnedMobileViews: [] });
+    localStorage.clear();
   });
 
   it('renders null when there is no projectId', () => {
@@ -180,6 +184,56 @@ describe('BottomNav', () => {
       expect(within(dialog).queryByRole('link', { name: /Backlog/i })).not.toBeInTheDocument();
       expect(within(dialog).queryByRole('link', { name: /Risks/i })).not.toBeInTheDocument();
     }
+  });
+
+  it('promotes a view to a primary tab after the user pins it from the More sheet (issue 1591)', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/board'] });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    // HYBRID parks Schedule in the overflow by default — not a primary tab.
+    expect(within(nav).queryByRole('link', { name: /Schedule/i })).not.toBeInTheDocument();
+
+    await user.click(within(nav).getByRole('button', { name: /^More/ }));
+    const dialog = await screen.findByRole('dialog');
+    // Pin Schedule from the overflow row's pin toggle.
+    await user.click(
+      within(dialog).getByRole('button', { name: /^Pin Schedule to navigation bar/i }),
+    );
+
+    // Schedule is now a primary rail tab, and the store persisted the pin.
+    expect(within(nav).getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
+    expect(useShellStore.getState().pinnedMobileViews).toContain('schedule');
+  });
+
+  it('lets the user unpin a pinned primary view from the More sheet (issue 1591)', async () => {
+    useShellStore.setState({ pinnedMobileViews: ['schedule'] });
+    const user = userEvent.setup();
+    renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/board'] });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    // Pinned Schedule is a primary tab.
+    expect(within(nav).getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
+
+    await user.click(within(nav).getByRole('button', { name: /^More/ }));
+    const dialog = await screen.findByRole('dialog');
+    // The "On the navigation bar" section offers an Unpin toggle for it.
+    await user.click(
+      within(dialog).getByRole('button', { name: /^Unpin Schedule from navigation bar/i }),
+    );
+
+    expect(useShellStore.getState().pinnedMobileViews).not.toContain('schedule');
+    expect(within(nav).queryByRole('link', { name: /Schedule/i })).not.toBeInTheDocument();
+  });
+
+  it('does not offer a pin toggle for Settings (always reachable via More, issue 539)', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<BottomNav />, { initialEntries: ['/projects/proj-1/board'] });
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    await user.click(within(nav).getByRole('button', { name: /^More/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('link', { name: /Settings/i })).toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole('button', { name: /Settings to navigation bar/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('applies the configured iteration label to the Sprints entry', async () => {
