@@ -90,3 +90,32 @@ export function sortRisksBySeverity<T extends Pick<Risk, 'severity'>>(
   const sign = sort === 'desc' ? -1 : 1;
   return [...risks].sort((a, b) => sign * (a.severity - b.severity));
 }
+
+/**
+ * "Newest" sort (issue 1230) — most recently created risk first, by `created_at`
+ * ISO string (lexicographic order matches chronological order for ISO-8601).
+ * Never mutates the input array. Mutually exclusive with the severity sort in
+ * the view: only one ordering is active at a time.
+ */
+export function sortRisksByNewest<T extends Pick<Risk, 'created_at'>>(risks: T[]): T[] {
+  return [...risks].sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/**
+ * Live per-facet counts over the full loaded list (issue 1230), so each segment
+ * chip can preview how many risks it would show without the user selecting it.
+ * Computed over the unfiltered list — the chips describe the whole register, not
+ * the currently narrowed table.
+ */
+export function riskFilterCounts(
+  risks: Risk[],
+  currentUserId: string | null,
+): Record<RiskFilter, number> {
+  const counts: Record<RiskFilter, number> = { all: 0, high: 0, unmitigated: 0, mine: 0 };
+  for (const r of risks) {
+    for (const f of RISK_FILTERS) {
+      if (matchesRiskFilter(r, f.value, currentUserId)) counts[f.value] += 1;
+    }
+  }
+  return counts;
+}

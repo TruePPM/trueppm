@@ -369,4 +369,46 @@ describe('RiskRegisterView', () => {
     expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
     expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
   });
+
+  it('renders the register summary sub-line "N in register · X high · Y unmitigated" (issue 1230)', () => {
+    useRisksState.risks = [FIXTURE_RISK, HIGH_RISK]; // both OPEN, both sev >= 12
+    renderWithProviders(<RiskRegisterView />);
+    const summary = screen.getByText(
+      (_content, el) =>
+        el?.tagName.toLowerCase() === 'p' && (el.textContent ?? '').includes('in register'),
+    );
+    expect(summary.textContent).toContain('2 in register');
+    expect(summary.textContent).toContain('2 high');
+    expect(summary.textContent).toContain('2 unmitigated');
+  });
+
+  it('sorts the table by newest when the Newest toggle is pressed (issue 1230)', () => {
+    const older = { ...FIXTURE_RISK, id: 'o', title: 'Older risk', created_at: '2026-01-01T00:00:00Z' };
+    const newer = { ...FIXTURE_RISK, id: 'n', title: 'Newer risk', created_at: '2026-03-01T00:00:00Z' };
+    useRisksState.risks = [older, newer]; // server/input order: Older, Newer
+    renderWithProviders(<RiskRegisterView />);
+
+    const newestToggle = screen.getByRole('button', { name: 'Newest' });
+    expect(newestToggle).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(newestToggle);
+    expect(newestToggle).toHaveAttribute('aria-pressed', 'true');
+
+    const rows = screen
+      .getAllByRole('button', { name: /Open risk:/ })
+      .map((r) => r.getAttribute('aria-label') ?? '');
+    expect(rows[0]).toContain('Newer risk');
+    expect(rows[1]).toContain('Older risk');
+  });
+
+  it('Newest and the Severity column sort are mutually exclusive (issue 1230)', () => {
+    useRisksState.risks = [FIXTURE_RISK, HIGH_RISK];
+    renderWithProviders(<RiskRegisterView />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }));
+    expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'true');
+
+    // Clicking the Severity header clears the Newest toggle.
+    fireEvent.click(screen.getByRole('button', { name: /Severity/ }));
+    expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'false');
+  });
 });

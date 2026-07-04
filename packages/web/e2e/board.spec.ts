@@ -85,6 +85,10 @@ const FIXTURE_TASKS = [
     is_blocked: true,
     linked_risks_count: 1,
     linked_risks_max_severity: 18,
+    // v2 identity meta (issue 1230): visible short id, story-points pill, stream tag.
+    short_id: 'b3build01',
+    story_points: 5,
+    parent_epic: 'epic-alpha',
   },
   {
     id: 'b4',
@@ -344,6 +348,17 @@ test.describe('Board view', () => {
     page,
   }) => {
     await expect(page.getByLabel(/1 linked risk, severity red\. Click to view\./)).toBeVisible();
+  });
+
+  test('Build card shows the v2 identity meta: short id + points pill (issue 1230)', async ({
+    page,
+  }) => {
+    // Gate on the Build card being rendered before asserting card-face chrome.
+    await expect(page.getByRole('button', { name: /^Build, 60% complete/ })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText('b3build01')).toBeVisible();
+    await expect(page.getByLabel('5 story points')).toBeVisible();
   });
 
   test('? opens the keyboard cheatsheet and Esc closes it (issue #195)', async ({ page }) => {

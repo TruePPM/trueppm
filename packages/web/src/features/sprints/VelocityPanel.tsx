@@ -3,6 +3,17 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface Props {
   velocity: ProjectVelocity;
+  /**
+   * The project's ACTIVE sprint (issue 1230), used only for the "this sprint
+   * N/M" in-flight stat. Distinct from the velocity series, which is closed
+   * sprints only — the active sprint is not yet history. Null/absent when there
+   * is no active sprint, in which case the stat is suppressed.
+   */
+  currentSprint?: {
+    name: string;
+    completed_points: number | null;
+    committed_points: number | null;
+  } | null;
 }
 
 const BAR_W = 32;
@@ -17,7 +28,7 @@ const LABEL_H = 30;
  * forecast range chip. Bar colour is a coarse signal: green on completion ≥ 0.85,
  * amber on 0.6–0.85, red below. ADR-0036 footer note references the CPM feed.
  */
-export function VelocityPanel({ velocity }: Props) {
+export function VelocityPanel({ velocity, currentSprint }: Props) {
   const itl = useIterationLabel();
   const sprints = velocity.sprints;
   const max = Math.max(
@@ -54,6 +65,18 @@ export function VelocityPanel({ velocity }: Props) {
           Velocity
         </h2>
         <div className="flex items-baseline gap-2">
+          {/* In-flight "this sprint N/M" stat (issue 1230) — the ACTIVE sprint's
+              completed-of-committed points, so the panel shows where the team is
+              right now alongside its closed-sprint history. Suppressed when there
+              is no active sprint or it was never sized in points. */}
+          {currentSprint && currentSprint.committed_points != null && (
+            <span
+              className="tppm-mono text-xs px-2 py-0.5 rounded border border-brand-primary/30 bg-brand-primary/5 text-brand-primary"
+              aria-label={`This ${itl.lower}: ${currentSprint.completed_points ?? 0} of ${currentSprint.committed_points} points completed`}
+            >
+              This {itl.lower} {currentSprint.completed_points ?? 0}/{currentSprint.committed_points}
+            </span>
+          )}
           {excludedCount > 0 && (
             <span
               className="tppm-mono text-xs px-2 py-0.5 rounded border border-dashed border-neutral-border bg-transparent text-neutral-text-secondary"
@@ -136,17 +159,24 @@ export function VelocityPanel({ velocity }: Props) {
                 : ratio >= 0.6
                   ? { cls: 'fill-semantic-at-risk', band: 'at risk' }
                   : { cls: 'fill-semantic-critical', band: 'below target' };
-            const h = (completed / max) * CHART_H;
+            // Stacked committed-vs-completed bars (issue 1230): the committed
+            // envelope is the full-height muted backdrop; the health-colored
+            // completed fill sits inside it from the baseline up, so the gap
+            // above the fill reads as unfinished commitment at a glance. An
+            // excluded sprint renders only the hatched envelope (no health fill).
+            const completedH = (completed / max) * CHART_H;
+            const committedH = (committed / max) * CHART_H;
             const x = BAR_GAP + i * (BAR_W + BAR_GAP);
             return (
               <g key={s.id}>
                 <rect
                   x={x}
-                  y={CHART_H - h}
+                  y={CHART_H - committedH}
                   width={BAR_W}
-                  height={h}
-                  className={cls}
+                  height={committedH}
+                  className={excluded ? '' : 'fill-neutral-surface-sunken stroke-neutral-border'}
                   fill={excluded ? 'url(#velocity-excluded-hatch)' : undefined}
+                  strokeWidth={excluded ? 0 : 1}
                   rx={2}
                 >
                   <title>
@@ -155,6 +185,20 @@ export function VelocityPanel({ velocity }: Props) {
                       : `${s.name}: ${completed}/${committed} pts (${band})`}
                   </title>
                 </rect>
+                {!excluded && completedH > 0 && (
+                  // Health-colored completed fill inside the committed envelope.
+                  // The committed rect above owns the accessible <title>; this
+                  // fill is decorative to keep one title per bar.
+                  <rect
+                    x={x}
+                    y={CHART_H - completedH}
+                    width={BAR_W}
+                    height={completedH}
+                    className={cls}
+                    rx={2}
+                    aria-hidden="true"
+                  />
+                )}
                 <text
                   x={x + BAR_W / 2}
                   y={CHART_H + 12}
@@ -206,7 +250,8 @@ export function VelocityPanel({ velocity }: Props) {
       )}
 
       <p id="velocity-band-legend" className="sr-only">
-        Bar colour indicates {itl.lower} health: on track is 85 percent or more of
+        Each bar stacks completed points inside the committed-points envelope. Bar
+        colour indicates {itl.lower} health: on track is 85 percent or more of
         committed points completed, at risk is 60 to 85 percent, below target is
         under 60 percent. {itl.plural} marked excluded are held out of the velocity
         average and forecast.

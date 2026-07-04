@@ -1,5 +1,6 @@
 import type { Risk } from '@/api/types';
 import { RiskMatrixCell } from './RiskMatrixCell';
+import { isUnmitigated } from './riskFilters';
 
 export interface SelectedCell {
   probability: number;
@@ -24,6 +25,11 @@ const LEGEND = [
 const GRID_WIDTH = 'w-[304px]';
 
 export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProps) {
+  // "N unmitigated need action" callout (issue 1230): the count of active,
+  // undecided threats (OPEN / MITIGATING) across the whole register — the ones
+  // the matrix is warning about. Suppressed when the register is fully handled.
+  const needActionCount = risks.filter(isUnmitigated).length;
+
   function handleCellClick(probability: number, impact: number) {
     if (!onCellSelect) return;
     const isActive = selectedCell?.probability === probability && selectedCell?.impact === impact;
@@ -129,6 +135,22 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
               </div>
             ))}
           </dl>
+
+          {/* "N unmitigated need action" callout (issue 1230) — a plain-language
+              summary of the live threat load beneath the matrix. */}
+          {needActionCount > 0 && (
+            <p
+              className="mt-4 ml-6 inline-flex items-center gap-1.5 text-xs font-medium
+                text-semantic-at-risk"
+              role="status"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block w-1.5 h-1.5 rounded-full bg-semantic-at-risk shrink-0"
+              />
+              {needActionCount} unmitigated need action
+            </p>
+          )}
         </div>
       </div>
     </div>

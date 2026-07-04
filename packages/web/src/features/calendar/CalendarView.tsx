@@ -26,6 +26,7 @@ import { CalendarGrid } from './CalendarGrid';
 import { parseUTCDate, formatMonthLabel, formatDayLabel } from './calendarUtils';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useSprints } from '@/hooks/useSprints';
 
 // ---------------------------------------------------------------------------
 // Task detail banner — inline, avoids a full modal (keeps the calendar in view)
@@ -129,6 +130,14 @@ export function CalendarView() {
   const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
   const { tasks } = useCalendarTasks();
   const projectId = useProjectId();
+  // Sprint-boundary markers (issue 1230): reuse the existing sprints list to dot
+  // the day cells where a sprint starts or finishes, so cadence lands on the
+  // calendar without a new endpoint. Degrades to no dots when the project has no
+  // sprints (or the list is still loading).
+  const { sprints } = useSprints(projectId ?? null);
+  const sprintBoundaries = new Set<string>(
+    sprints.flatMap((s) => [s.start_date, s.finish_date]),
+  );
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -239,6 +248,7 @@ export function CalendarView() {
             anchorIso={anchorIso}
             tasks={tasks}
             onTaskClick={handleTaskClick}
+            sprintBoundaries={sprintBoundaries}
           />
         )}
       </div>

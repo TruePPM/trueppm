@@ -19,6 +19,7 @@ import { PendingAcceptanceChip } from './PendingAcceptanceChip';
 import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
+import { phaseColor } from './phaseColors';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -723,6 +724,12 @@ function BoardCardImpl({
 
   // Comfortable and Detailed density
   const showNudge = task.progress === 100 && task.status !== 'COMPLETE';
+  // Stream/label color tag (issue 1230): a stable per-stream hue keyed to the
+  // card's epic, falling back to its WBS phase (summary parent) when the card
+  // is not grouped under an epic. Cards in the same stream share a color so the
+  // eye can cluster them at a glance. `null` when the card belongs to neither.
+  const streamKey = task.parentEpic ?? task.parentId ?? null;
+  const streamColor = streamKey ? phaseColor(streamKey) : null;
   // In detailed mode show all assignees; comfortable caps at 3
   const visibleAssignees = isDetailed ? task.assignees : task.assignees.slice(0, 3);
   const hiddenCount = isDetailed ? 0 : Math.max(0, task.assignees.length - 3);
@@ -811,6 +818,40 @@ function BoardCardImpl({
             {task.name}
           </span>
         </div>
+
+        {/* Identity meta row (issue 1230) — a stream/label color tag (keyed to the
+            card's epic, or its WBS phase parent when ungrouped), the visible
+            short id, and a story-points pill. Each element is independently
+            guarded so the row only renders when the card carries that datum. The
+            color dot is decorative (aria-hidden): its meaning — which stream a
+            card belongs to — is redundant grouping, never conveyed by color
+            alone for anything load-bearing (WCAG 1.4.1). */}
+        {(streamColor !== null || task.shortId || task.storyPoints != null) && (
+          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+            {streamColor !== null && (
+              <span
+                className="inline-block w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: streamColor }}
+                title="Stream"
+                aria-hidden="true"
+              />
+            )}
+            {task.shortId && (
+              <span className="tppm-mono text-xs text-neutral-text-disabled truncate">
+                {task.shortId}
+              </span>
+            )}
+            {task.storyPoints != null && (
+              <span
+                className="ml-auto shrink-0 inline-flex items-center px-1.5 py-px rounded-chip text-xs font-semibold tppm-mono
+                  bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary"
+                aria-label={`${task.storyPoints} story point${task.storyPoints === 1 ? '' : 's'}`}
+              >
+                {task.storyPoints} pts
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Badge row — worst-offender badge (or CP at detailed), pending chip, assignees */}
         {((cardSignal && !isDetailed) ||
