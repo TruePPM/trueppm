@@ -179,16 +179,58 @@ ADR-0027). To give #1053 a signal that CPM is still pending, Project gains
 the `recalculate_schedule` task stamps it on success. The web Schedule view shows the
 existing `RecalculatingBadge` while `recalculated_at` is null/older than the import.
 
-### 7. Exporter (event-timeline export deferred)
-The exporter keeps emitting **v1** (final-state, `schema_version: "1.0"`) for now, so the
-existing byte-identical round-trip guarantee (#616) is preserved unchanged and a live
-program still exports cleanly to share/edit. **Reconstructing the full `events` timeline
-from `*.history` + burn snapshots + scope-change rows is deferred to a follow-up** — it is
-a large, round-trip-determinism-sensitive change whose value is the import/edit workflow,
-not the demo on-ramp (which is entirely the import path). A v2 sample therefore exports as
-a v1 final-state document; re-importing it materializes final state without replay. The
-`events`-export AC of #1074 is explicitly carried to the follow-up (**#1109**, which also
-covers `retro.*` replay) rather than rushed.
+### 7. Exporter (event-timeline export — delivered in #1109)
+The exporter keeps emitting **v1** (final-state, `schema_version: "1.0"`) **by default**,
+so the existing byte-identical round-trip guarantee (#616) is preserved unchanged and a
+live program still exports cleanly to share/edit. #1109 adds an **opt-in v2 event-timeline
+export** (`export_program(program, with_events=True)`, and the `--with-events` flag on the
+`export_program` management command); the REST `/programs/{id}/export` endpoint stays on
+the v1 default, so there is no API-surface change.
+
+**Design (#1109):**
+- **Relative dates.** With `with_events=True` the doc declares an explicit `anchor` (the
+  earliest project `start_date` — deterministic and always present) and every date field
+  is rewritten as an exact offset `A±N!`. The `!` (no weekend-snap) is essential: a snapped
+  date would drift on re-import and break determinism.
+- **Event reconstruction.** `events[]` is rebuilt from the history tables:
+  `task.status` (Task-history transitions, skipping the creation row), `task.comment`
+  (`TaskComment`), `sprint.activate` / `sprint.close` (sprint lifecycle timestamps +
+  `goal_outcome`), `sprint.scope_inject` (still-**PENDING** `SprintScopeChange` rows), and
+  `retro.action` (retro action items). Events sort by `(at, target, action, seq)` — the
+  array index is the replay tiebreak for same-instant beats.
+- **Byte-determinism** holds because the v2 export is a **fixpoint**: each reconstructed
+  event replays to a state that reconstructs to the same event, and the importer's
+  synthesizer is naturally suppressed for an export-sourced seed (every task that has
+  history already carries authored `task.status` events, so `_synthesize_tasks` skips it;
+  every activated/closed sprint carries authored lifecycle events). Event actors always
+  resolve to a real `accounts[]` slug (a non-account history user falls back to the
+  deterministic OWNER account) so the ref never dangles and round-trips.
+- **Deliberately not reconstructed** (documented fidelity gaps, *not* determinism breaks):
+  `task.assign` / `task.estimate` / `task.points` / `task.ac_met` — their end value already
+  rides the task's final-state fields, so an event would double-apply; `risk.status` — the
+  importer births risks at their final status, so a status event is a round-trip-unstable
+  no-op; `sprint.scope_resolve` (no persisted resolve timestamp; a rejected injection
+  removed the task from its sprint) and `retro.promote` (a promoted backlog task has no
+  `wbs_path` and cannot be a seed task). The target row's **final** state is always
+  preserved via its fields; only those intermediate audit rows are not round-tripped. A
+  task with no `wbs_path` (e.g. a promoted retro action item) is excluded from the export
+  entirely, since the schema requires a WBS identity.
+- Two small replay-side changes support the round-trip: `sprint.scope_inject` now backdates
+  `SprintScopeChange.added_at` to the beat (so a PENDING injection reconstructs with a
+  stable timestamp), and the newly-added `retro.action` / `retro.promote` handlers write
+  backdated creation rows like the other replay handlers.
+
+### 7a. `retro.*` replay (delivered in #1109)
+ADR-0114's original taxonomy listed `retro.action` / `retro.promote` but they were dropped
+from the implemented v2.0 enum pending the `SprintRetro` surface. #1109 re-adds them (schema
+enum + `_EVENT_TARGET_KIND`, both targeting the **sprint** — `SprintRetro` is 1:1 with
+`Sprint`). `SprintRetro` + `RetroActionItem` already exist (ADR-0071); no model change or
+migration is needed. `retro.action` lazily gets-or-creates the sprint's `SprintRetro` and
+appends a `RetroActionItem` (text/assignee/points, backdated); `retro.promote` matches an
+item by `body` and promotes it to a project-backlog `Task` (`status=BACKLOG`, `sprint=None`)
+with a backdated creation row, mirroring `promote_retro_action_item` but writing directly
+(no on-commit broadcast/recalc — replay is side-effect-suppressed). `time.log` remains the
+only deferred action (still blocked on the #926 time-entry model).
 
 ## Alternatives Considered
 | Option | Pros | Cons |

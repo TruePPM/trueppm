@@ -326,13 +326,15 @@
             "sprint.scope_inject",
             "sprint.scope_resolve",
             "baseline.capture",
-            "risk.status"
+            "risk.status",
+            "retro.action",
+            "retro.promote"
           ],
-          "description": "v2.0 replayed actions. retro.* (needs SprintRetro) and time.log (needs the #926 time-entry model) are deferred — see ADR-0114."
+          "description": "v2.0 replayed actions. retro.action creates a RetroActionItem on the target sprint's retro; retro.promote promotes an existing action item (matched by `body`) into a project-backlog task (ADR-0114 §7 / #1109). time.log (needs the #926 time-entry model) is still deferred — see ADR-0114."
         },
         "target": {
           "type": "string",
-          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status).",
+          "description": "What the event mutates: \"task:<project-slug>:<wbs-path>\" (task.*, scope_inject/resolve), \"sprint:<project-slug>:<sprint-slug>\" (sprint.activate/close, retro.action/promote), \"project:<project-slug>\" (baseline.capture), or \"risk:<slug>\" (risk.status).",
           "maxLength": 320
         },
         "from": { "type": "string", "maxLength": 64 },

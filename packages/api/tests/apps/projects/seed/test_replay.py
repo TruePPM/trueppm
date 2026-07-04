@@ -20,10 +20,12 @@ from trueppm_api.apps.projects.models import (
     BaselineTask,
     EstimateStatus,
     Project,
+    RetroActionItem,
     Risk,
     ScopeChangeStatus,
     Sprint,
     SprintBurnSnapshot,
+    SprintRetro,
     SprintScopeChange,
     SprintState,
     Task,
@@ -361,6 +363,120 @@ def test_replay_is_deterministic(owner: Any) -> None:
     p2 = import_seed(_v2_seed(), owner=owner, create_users=True)
     n2 = _task(p2, "1").history.count()
     assert n1 == n2 >= 4
+
+
+# --- retro.* replay (ADR-0114 §7a / #1109) ---------------------------------
+
+
+def _retro_seed() -> dict[str, Any]:
+    """One completed sprint with two retro action items, one promoted."""
+    return {
+        "schema_version": "2.0",
+        "anchor": ANCHOR,
+        "program": {"slug": "retro", "name": "Retro", "methodology": "AGILE", "lead": "alex"},
+        "accounts": [
+            {"slug": "alex", "username": "retro-alex", "display_name": "Alex", "role": "OWNER"},
+            {"slug": "priya", "username": "retro-priya", "display_name": "Priya", "role": "MEMBER"},
+        ],
+        "projects": [
+            {
+                "slug": "core",
+                "name": "Core",
+                "methodology": "AGILE",
+                "agile_features": True,
+                "start_date": "A-25",
+                "sprints": [
+                    {
+                        "slug": "s1",
+                        "name": "Sprint 1",
+                        "state": "COMPLETED",
+                        "start_date": "A-20",
+                        "finish_date": "A-6",
+                        "committed_points": 5,
+                        "completed_points": 5,
+                    }
+                ],
+                "tasks": [
+                    {
+                        "wbs_path": "1",
+                        "name": "Build auth",
+                        "status": "COMPLETE",
+                        "story_points": 5,
+                        "sprint": "s1",
+                        "delivery_mode": "scrum",
+                    }
+                ],
+            }
+        ],
+        "events": [
+            {
+                "at": "A-6T17:30",
+                "actor": "alex",
+                "action": "retro.action",
+                "target": "sprint:core:s1",
+                "body": "Add integration tests",
+                "assignee": "priya",
+                "points": 3,
+            },
+            {
+                "at": "A-6T17:35",
+                "actor": "alex",
+                "action": "retro.action",
+                "target": "sprint:core:s1",
+                "body": "Document the auth flow",
+            },
+            {
+                "at": "A-5T09:00",
+                "actor": "alex",
+                "action": "retro.promote",
+                "target": "sprint:core:s1",
+                "body": "Add integration tests",
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def retro_program(owner: Any) -> Any:
+    return import_seed(_retro_seed(), owner=owner, create_users=True)
+
+
+def test_retro_action_creates_retro_and_items(retro_program: Any) -> None:
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    retro = SprintRetro.objects.get(sprint=sprint)
+    items = RetroActionItem.objects.filter(retro=retro).order_by("created_at")
+    assert items.count() == 2
+    first = items.first()
+    assert first is not None
+    assert first.text == "Add integration tests"
+    assert first.assignee is not None and first.assignee.username == "retro-priya"
+    assert first.story_points == 3
+
+
+def test_retro_action_item_is_backdated(retro_program: Any) -> None:
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    item = RetroActionItem.objects.filter(retro__sprint=sprint).order_by("created_at").first()
+    assert item is not None
+    assert item.created_at.date() <= date.fromisoformat(ANCHOR)
+
+
+def test_retro_promote_creates_backlog_task(retro_program: Any) -> None:
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    item = RetroActionItem.objects.get(retro__sprint=sprint, text="Add integration tests")
+    # The promoted item links to a real project-backlog task (status BACKLOG,
+    # sprint None) — the retro→task loop the demo shows closed.
+    assert item.promoted_task_id is not None
+    task = Task.objects.get(pk=item.promoted_task_id)
+    assert task.status == TaskStatus.BACKLOG
+    assert task.sprint_id is None
+    assert task.name == "Add integration tests"
+    assert task.project_id == sprint.project_id
+
+
+def test_retro_promote_only_promotes_matching_item(retro_program: Any) -> None:
+    sprint = Sprint.objects.get(project__program=retro_program, name="Sprint 1")
+    other = RetroActionItem.objects.get(retro__sprint=sprint, text="Document the auth flow")
+    assert other.promoted_task_id is None  # only the matched body was promoted
 
 
 def test_v1_seed_has_no_replay(owner: Any) -> None:
