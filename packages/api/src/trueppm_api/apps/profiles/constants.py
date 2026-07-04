@@ -36,6 +36,7 @@ HIDEABLE_VIEW_KEYS: frozenset[str] = frozenset(
         "today",
         "risk",
         "reports",
+        "activity",
         # PEOPLE group
         "resources",
     }
