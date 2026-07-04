@@ -309,6 +309,8 @@ test.describe('Sprint header buttons (#299)', () => {
     // recoverable, not a crash.
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Close sprint' })).toBeEnabled();
+    // And the user gets an explicit error toast so the stalled dialog is explained (#1631).
+    await expect(page.getByText("Couldn't close the sprint — try again.")).toBeVisible();
   });
 
   test('Activate → on the last planned card activates it and the board reflects the ACTIVE transition', async ({ page }) => {

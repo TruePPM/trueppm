@@ -41,6 +41,7 @@ import {
   type SprintFilterValue,
 } from './SprintFilterPopover';
 import { CloseSprintDialog } from './CloseSprintDialog';
+import { toast } from '@/components/Toast/toast';
 import { RetroHandoffBanner } from './RetroHandoffBanner';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
@@ -330,6 +331,12 @@ export function SprintsView() {
         onSuccess: () => {
           setCloseDialogOpen(false);
           setRetroHandoff(closing);
+        },
+        // The dialog only closes in onSuccess, so a failed close leaves it open
+        // with no other signal. Fire an explicit error toast so the user knows
+        // the sprint was not closed and can retry (issue 1631).
+        onError: () => {
+          toast.error("Couldn't close the sprint — try again.");
         },
       },
     );

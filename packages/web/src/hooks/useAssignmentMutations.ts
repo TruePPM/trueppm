@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from '@/components/Toast/toast';
 import type { TaskAssignment } from '@/types';
 
 interface ApiTaskResource {
@@ -67,6 +68,12 @@ export function useAddAssignment(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
+    // The combobox closes in the caller's onSettled regardless of outcome, so a
+    // failed add would otherwise vanish with no signal. Fire an explicit error
+    // toast so the user knows the resource was not assigned (issue 1631).
+    onError: () => {
+      toast.error("Couldn't add the resource — try again.");
+    },
   });
 }
 
@@ -104,6 +111,7 @@ export function useUpdateAssignment(taskId: string, projectId: string) {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(['task-assignments', taskId], context.snapshot);
       }
+      toast.error("Couldn't update the allocation — try again.");
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
@@ -140,6 +148,7 @@ export function useRemoveAssignment(taskId: string, projectId: string) {
       if (context?.snapshot !== undefined) {
         queryClient.setQueryData(['task-assignments', taskId], context.snapshot);
       }
+      toast.error("Couldn't remove the resource — try again.");
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });

@@ -23,15 +23,18 @@ import {
   type AssignmentWarning,
 } from './useAssignmentMutations';
 
-const { postMock, patchMock, deleteMock } = vi.hoisted(() => ({
+const { postMock, patchMock, deleteMock, toastMock } = vi.hoisted(() => ({
   postMock: vi.fn(),
   patchMock: vi.fn(),
   deleteMock: vi.fn(),
+  toastMock: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warm: vi.fn(), dismiss: vi.fn() },
 }));
 
 vi.mock('@/api/client', () => ({
   apiClient: { post: postMock, patch: patchMock, delete: deleteMock },
 }));
+
+vi.mock('@/components/Toast/toast', () => ({ toast: toastMock }));
 
 function makeWrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -110,6 +113,17 @@ describe('useAddAssignment', () => {
     expect(result.current.data?.warnings).toEqual([]);
   });
 
+  it('fires an error toast when the POST fails (#1631)', async () => {
+    postMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    const { result } = renderHook(() => useAddAssignment('p1'), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ taskId: 't1', resourceId: 'r1', units: 1 });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastMock.error).toHaveBeenCalledWith("Couldn't add the resource — try again.");
+  });
+
   it('invalidates the task-assignments and tasks queries on success', async () => {
     postMock.mockResolvedValueOnce({
       data: { id: 'a1', resource: 'r1', resource_name: 'Alice', units: 0.5, warnings: [] },
@@ -158,6 +172,7 @@ describe('useUpdateAssignment', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     const cached = qc.getQueryData<TaskAssignment[]>(['task-assignments', 't1']);
     expect(cached?.[0].units).toBe(0.5);
+    expect(toastMock.error).toHaveBeenCalledWith("Couldn't update the allocation — try again.");
   });
 });
 
@@ -197,5 +212,6 @@ describe('useRemoveAssignment', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     const cached = qc.getQueryData<TaskAssignment[]>(['task-assignments', 't1']);
     expect(cached?.map((a) => a.id)).toEqual(['a1', 'a2']);
+    expect(toastMock.error).toHaveBeenCalledWith("Couldn't remove the resource — try again.");
   });
 });
