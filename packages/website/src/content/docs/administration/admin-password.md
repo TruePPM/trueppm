@@ -95,10 +95,41 @@ Pass the new password via stdin/env from a secret manager — never inline.
 
 ## End-user password reset
 
-Self-service password reset is **not yet available** in the community edition —
-there is no public reset endpoint or reset-email flow today. Until it ships, an
-administrator resets a user's password directly with the same `changepassword`
-command used for the admin account below:
+The community edition includes a **self-service password reset** flow. A user who
+has forgotten their password clicks **Forgot password?** on the sign-in page and
+follows the flow:
+
+1. **`/forgot-password`** — the user enters their work email and requests a reset
+   link. The response is the same whether or not the address has an account, so the
+   page never reveals which emails are registered (no account enumeration).
+2. **Reset email** — if the address belongs to an account, TruePPM emails a
+   single-use link that is valid for **30 minutes**.
+3. **`/reset-password/confirm/…`** — the link opens a page where the user sets a new
+   password (minimum 10 characters, at least one number or symbol, and different
+   from their current password).
+4. **All other sessions are signed out** — a successful reset revokes every other
+   active session for that account, so a leaked-but-forgotten session on another
+   device cannot outlive the reset.
+
+The reset endpoints are rate limited to blunt abuse (email-bombing a victim and
+probing for registered addresses).
+
+### Requirements and edge cases
+
+- **Outbound email must be configured.** The reset link can only be delivered once
+  the `EMAIL_*` transport is set (see [Configuration](/administration/configuration/)).
+  Until then the request still returns success — it never leaks that email is
+  unconfigured — but no message is delivered, so use the `changepassword` fallback
+  below.
+- **SSO accounts.** A user who signs in through single sign-on has no local password
+  to reset; the request screen shows a hint that SSO sign-in is unaffected. Their
+  password is managed by their identity provider.
+
+### Administrator fallback
+
+When email is not configured, or a user cannot complete the flow, an administrator
+resets a password directly with the same `changepassword` command used for the admin
+account:
 
 ```bash
 docker compose exec api python manage.py changepassword <username>

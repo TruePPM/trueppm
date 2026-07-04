@@ -1,5 +1,5 @@
 import { useState, useId, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
@@ -114,7 +114,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSsoTooltip, setShowSsoTooltip] = useState(false);
-  const [showForgotTooltip, setShowForgotTooltip] = useState(false);
 
   const emailId = useId();
   const passwordId = useId();
@@ -249,29 +248,19 @@ export function LoginPage() {
                 disabled:opacity-50 disabled:cursor-not-allowed
               "
             />
-            <div className="flex justify-end relative">
-              <button
-                type="button"
-                onClick={() => setShowForgotTooltip((v) => !v)}
-                onBlur={() => setShowForgotTooltip(false)}
-                aria-expanded={showForgotTooltip}
+            <div className="flex justify-end">
+              {/* Self-service password reset (issue 765). Links to the public
+                  /forgot-password flow; sits below the password input so the
+                  keyboard tab order stays Email → Password → Forgot? → Keep me
+                  signed in → Sign in without a detour through the recovery link in
+                  the middle of the credentials. */}
+              <Link
+                to="/forgot-password"
                 aria-label="Forgot password?"
                 className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
               >
                 Forgot?
-              </button>
-              {showForgotTooltip && (
-                <div
-                  role="tooltip"
-                  className="
-                    absolute top-full right-0 mt-2 z-10 w-56
-                    bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
-                    whitespace-normal shadow-none border border-neutral-border
-                  "
-                >
-                  Password reset is coming — tracked in issue 765.
-                </div>
-              )}
+              </Link>
             </div>
           </div>
 

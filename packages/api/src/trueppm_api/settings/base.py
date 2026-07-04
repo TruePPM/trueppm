@@ -454,6 +454,13 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# Self-service password reset (ADR-0209). Django's stateless
+# ``PasswordResetTokenGenerator`` (default_token_generator) rejects tokens older
+# than this window in ``check_token``. 30 minutes is the value surfaced in the
+# reset-email copy and on the "sent" / "expired" screens — short enough to bound a
+# leaked-link window, long enough for a user to act on the email.
+PASSWORD_RESET_TIMEOUT = env.int("TRUEPPM_PASSWORD_RESET_TIMEOUT", default=1800)
+
 # ---------------------------------------------------------------------------
 # SimpleJWT token lifetimes + httpOnly refresh-cookie migration (#897)
 # ---------------------------------------------------------------------------
@@ -707,6 +714,15 @@ REST_FRAMEWORK = {
         "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default="60/min"),
         "user": env("TRUEPPM_THROTTLE_USER_RATE", default="1000/min"),
         "login": "10/min",
+        # Self-service password reset (#765, ADR-0209). Covers BOTH the request
+        # endpoint (which emails a reset link) and the confirm endpoint (which sets
+        # the new password). 5/min per IP bounds two abuses at once: email-bombing a
+        # victim by looping the request endpoint, and timing/enumeration probing of
+        # which addresses have accounts (the request endpoint returns an identical
+        # 200 either way, so the throttle is the primary enumeration defense — see
+        # ADR-0209). 5/min still leaves ample room for a human who mistypes, resends,
+        # and retries a confirm a couple of times.
+        "password_reset": "5/min",
         # JWT refresh (#814). 60/min is loose enough that any realistic
         # web/mobile client (5-minute access-token TTL → ~12 refreshes/hour)
         # never trips it, but tight enough that a stolen/leaked refresh token

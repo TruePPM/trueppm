@@ -45,7 +45,10 @@ test.describe('Wave 8 — Login screen', () => {
   test('Forgot? control is present below the password input', async ({ page }) => {
     await page.goto('/login');
 
-    await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeVisible();
+    // Now a real link into the self-service reset flow (#765), not a "coming soon" button.
+    const forgot = page.getByRole('link', { name: 'Forgot password?' });
+    await expect(forgot).toBeVisible();
+    await expect(forgot).toHaveAttribute('href', '/forgot-password');
   });
 
   test('Tab order goes Email → Password → Forgot? → Keep me signed in → Sign in (Forgot? does not interrupt the credentials)', async ({ page }) => {
@@ -66,7 +69,7 @@ test.describe('Wave 8 — Login screen', () => {
     // The control sits below the password input — Forgot? comes AFTER the
     // password in the tab order, not between Email and Password.
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('button', { name: 'Forgot password?' })).toBeFocused();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeFocused();
 
     await page.keyboard.press('Tab');
     await expect(page.getByLabel(/Keep me signed in/)).toBeFocused();
