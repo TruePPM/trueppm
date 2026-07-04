@@ -1,6 +1,6 @@
 """Celery tasks for the notifications app (ADR-0075 §F durable-execution).
 
-Two Beat-scheduled tasks:
+Three Beat-scheduled tasks:
 
 - ``drain_notification_emails`` — every 30 s, finds Notification rows with
   ``email_pending=True`` older than the 5-min orphan window, renders an email
@@ -11,6 +11,12 @@ Two Beat-scheduled tasks:
   Notification older than 90 days that has ``is_read=True``. Keeps the
   index on ``(recipient, is_read, -created_at)`` shallow for the unread
   query path.
+
+- ``detect_stale_tasks`` — nightly (ADR-0200), scans every project for
+  non-terminal tasks that have sat in their current status past the project's
+  ``stale_task_threshold_days`` (default 7) and nudges the assignee via the
+  #639 event-notification rail. Idempotent: dedupes against existing unread
+  ``task.stale`` notifications, so a re-run creates zero duplicates.
 """
 
 from __future__ import annotations
@@ -90,6 +96,37 @@ def archive_old_notifications(self: object) -> None:
     operational concern (not in 0.2).
     """
     _do_archive()
+
+
+@idempotent_task(
+    lock_key_template="detect_stale_tasks",
+    lock_ttl=300,
+    on_contention="skip",
+    soft_time_limit=110,
+    time_limit=120,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="notifications.detect_stale_tasks",
+)
+def detect_stale_tasks(self: object) -> None:
+    """Nudge assignees of stale non-terminal tasks (ADR-0200).
+
+    Runs nightly via Celery Beat. Delegates to
+    :func:`notifications.services.create_stale_task_notifications`, which owns the
+    per-project threshold query, the unread dedupe, and the preference-gated fan-out.
+
+    Idempotent by construction: the dedupe against existing unread ``task.stale``
+    notifications means a broker retry, a manual re-queue, or the next nightly tick
+    all create zero duplicates. The singleton lock (``on_contention="skip"``) also
+    prevents two overlapping runs. A failed run is not retried — the tasks are still
+    stale tomorrow, so silent re-attempt on the next tick is correct and avoids a
+    retry storm (ADR-0200 §Durable Execution item 8).
+    """
+    from .services import create_stale_task_notifications
+
+    created = create_stale_task_notifications()
+    if created:
+        logger.info("detect_stale_tasks: created %d stale-task notification(s)", created)
 
 
 # ---------------------------------------------------------------------------

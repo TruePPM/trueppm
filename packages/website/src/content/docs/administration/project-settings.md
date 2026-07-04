@@ -48,6 +48,22 @@ The **Notifications** page sets **per-member notification preferences** — each
 controls which project events notify them. Preferences are stored per membership, not
 as a single project-wide switch.
 
+### Stale-task threshold
+
+A daily background scan nudges the **assignee** of any task that has sat in a
+non-terminal status (anything other than *Complete*) longer than the project's
+**stale-task threshold** — `stale_task_threshold_days`, default **7 days**. The nudge
+lands in the assignee's notification inbox (and, if they opt in, as email) via the
+*"When a task you own goes stale"* preference on their personal
+[notification settings](/features/settings/project-notifications/). Re-runs dedupe
+against the existing unread nudge, so a still-stale task is not notified twice.
+
+The threshold is a board-level setting on the project, editable by a **Project Manager
+(Admin)** or **Owner** via `PATCH /api/v1/projects/{id}/` with
+`{"stale_task_threshold_days": <1–365>}`. A dedicated settings-page control is planned;
+today it is set through the API. Unassigned stale cards are surfaced by the board card's
+*stalled* chip rather than a notification, since there is no single owner to nudge.
+
 ## Lifecycle
 
 The **Lifecycle** page handles a project's end-of-life:

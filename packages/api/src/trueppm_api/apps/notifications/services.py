@@ -586,3 +586,140 @@ def create_event_notifications(
         return 0
     Notification.objects.bulk_create(notifications)
     return len(notifications)
+
+
+# Default per-board stale threshold, mirrored on Project.stale_task_threshold_days
+# so a Project that predates the field (or has it cleared) still gets a sane cutoff.
+DEFAULT_STALE_TASK_THRESHOLD_DAYS = 7
+
+
+def _stale_pref_allows(
+    stored: dict[Any, dict[str, bool]],
+    defaults: dict[tuple[str, str], bool],
+    event: str,
+    user_id: Any,
+    channel: str,
+) -> bool:
+    """Resolve one (user, channel) delivery decision against stored prefs + defaults.
+
+    A module-level helper (not a closure) so it does not capture the per-project loop
+    variables in :func:`create_stale_task_notifications` — same fall-back semantics as
+    :func:`create_event_notifications`: stored preference wins, else the default.
+    """
+    per_user = stored.get(user_id, {})
+    if channel in per_user:
+        return per_user[channel]
+    return defaults.get((event, channel), False)
+
+
+def create_stale_task_notifications(
+    *,
+    now: datetime.datetime | None = None,
+) -> int:
+    """Scan every project for stale non-terminal tasks and nudge their assignees.
+
+    ADR-0200. A task is *stale* when it has sat in its current status for more than
+    the owning project's ``stale_task_threshold_days`` (default 7) and that status is
+    non-terminal — every ``TaskStatus`` except ``COMPLETE``. Staleness is defined by
+    *status column*, not ``percent_complete``: a card in ``REVIEW`` coerces
+    ``percent_complete`` to 100 (it is functionally done, pending sign-off) yet is the
+    flagship "task I forgot in Review" case, so it must stay in scope. The threshold is
+    per-project, so the cutoff is evaluated one project at a time.
+
+    Only the task's **assignee** is notified — an unassigned card has no single owner
+    to nudge (those are surfaced by the board-card chip instead). Delivery is gated by
+    each assignee's global ``NotificationPreference`` for ``(task.stale, channel)``,
+    exactly like :func:`create_event_notifications`, but resolved and written in bulk
+    to keep the daily scan off the N+1 path.
+
+    Idempotent: a ``(recipient, task)`` that already has an **unread, un-archived**
+    ``task.stale`` notification is skipped, so re-running the scan (retry, manual
+    re-queue, or the next daily tick) creates zero duplicates.
+
+    Args:
+        now: Injected clock for deterministic testing; defaults to ``timezone.now()``.
+
+    Returns:
+        The total number of Notification rows created across all projects.
+    """
+    from trueppm_api.apps.projects.models import Project, Task, TaskStatus
+
+    now = now or timezone.now()
+    event = NotificationEventType.TASK_STALE.value
+    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
+    non_terminal = [s for s in TaskStatus.values if s != TaskStatus.COMPLETE]
+
+    total = 0
+    for project in (
+        Project.objects.filter(is_deleted=False).only("id", "stale_task_threshold_days").iterator()
+    ):
+        threshold = project.stale_task_threshold_days or DEFAULT_STALE_TASK_THRESHOLD_DAYS
+        cutoff = now - datetime.timedelta(days=threshold)
+        candidates = list(
+            Task.objects.filter(
+                project_id=project.id,
+                is_deleted=False,
+                status__in=non_terminal,
+                status_changed_at__lt=cutoff,
+                assignee_id__isnull=False,
+            ).values_list("id", "name", "assignee_id")
+        )
+        if not candidates:
+            continue
+
+        task_ids = [row[0] for row in candidates]
+        already_notified = set(
+            Notification.objects.filter(
+                event_type=event,
+                is_read=False,
+                is_archived=False,
+                task_id__in=task_ids,
+            ).values_list("recipient_id", "task_id")
+        )
+
+        assignee_ids = {row[2] for row in candidates}
+        stored: dict[Any, dict[str, bool]] = {}
+        for pref in NotificationPreference.objects.filter(
+            user_id__in=assignee_ids, event_type=event
+        ):
+            stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
+
+        rows: list[Notification] = []
+        for task_id, name, assignee_id in candidates:
+            if (assignee_id, task_id) in already_notified:
+                continue
+            if not _stale_pref_allows(
+                stored, defaults, event, assignee_id, NotificationChannel.IN_APP.value
+            ):
+                continue
+            # Task.name is CharField(max_length=512) but Notification.subject is
+            # max_length=255. bulk_create bypasses field validation, so an over-long
+            # name would raise a Postgres DataError and abort the whole nightly scan
+            # (this project and every later one). Truncate the name used in the
+            # subject well under the limit, mirroring _sanitize_snippet's bounding.
+            display_name = name if len(name) <= 200 else name[:200].rstrip() + "…"
+            subject = f'"{display_name}" has gone stale'
+            body = (
+                f'Your task "{display_name}" has sat in the same status for more than '
+                f"{threshold} days. If it is still active, move it forward; "
+                f"otherwise update its status so the board reflects reality."
+            )
+            rows.append(
+                Notification(
+                    recipient_id=assignee_id,
+                    event_type=event,
+                    subject=subject,
+                    body=body,
+                    project_id=project.id,
+                    task_id=task_id,
+                    email_pending=_stale_pref_allows(
+                        stored, defaults, event, assignee_id, NotificationChannel.EMAIL.value
+                    ),
+                )
+            )
+        if rows:
+            # batch_size caps the INSERT statement size so a pathologically large
+            # single-project backlog is chunked rather than one unbounded statement.
+            Notification.objects.bulk_create(rows, batch_size=500)
+            total += len(rows)
+    return total

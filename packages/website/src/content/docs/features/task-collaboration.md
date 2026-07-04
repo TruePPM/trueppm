@@ -294,6 +294,19 @@ deleted"). The deleter is not notified of their own action, and permanent
 Who deleted which project, and when, is also recorded in the
 [workspace audit log](/administration/audit-log/).
 
+### Stale-task nudge
+
+A nightly scan reminds you about your own work that has stopped moving. If a task
+**assigned to you** has sat in the same non-terminal status — anything other than
+*Complete* — longer than the project's stale-task threshold (default **7 days**), you
+get an in-app *"When a task you own goes stale"* notification. A card in **Review**
+awaiting sign-off is the flagship case: it's the "task I forgot in Review" slip that
+otherwise only surfaces at Friday standup. In-app is ON by default; email is opt-in
+off, toggleable from the same preference matrix. Repeat runs dedupe against your
+existing unread nudge, so a still-stale task is not notified twice — read or act on it,
+and only then does a later run nudge again. The threshold is a per-project setting an
+admin configures; see [Project settings → Notifications](/administration/project-settings/).
+
 ## API
 
 The full REST surface is documented in [docs/api/](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/api/openapi.json).
