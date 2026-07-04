@@ -77,23 +77,65 @@ for mr in mrs:
 
 Flag any MR > 48 hours from open to merge. Most TruePPM MRs are solo-author with no review wait, so a long sit time means pipeline retries or a stuck check.
 
-### 1b. CI job duration leaders (last 5 pipelines on main)
+### 1b. CI wall-clock — run time, the stage tail, and variance (last ~20 pipelines on main)
+
+Wall-clock is set by the **critical path** (the longest chain of `needs`-gated
+stages), not by the sum of job durations. Three traps make naïve "top 3 longest
+jobs" reads wrong; profile against all three:
+
+**Trap 1 — queue contention masquerading as slowness.** `updated_at - created_at`
+includes time a pipeline sat waiting for a free runner. Batch-merge pileups (many
+pipelines launched in the same second) produce 20–49 min outliers that are *pure
+queue*, not work. Use GitLab's own `duration` field (active run time) and discard
+the congestion outliers before reasoning about the trend.
 
 ```bash
-glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&per_page=5" 2>/dev/null \
+# Pull run-time (duration) for the last 20 successful main pipelines — the clean signal.
+glab api "projects/trueppm%2Ftrueppm/pipelines?ref=main&status=success&per_page=20" 2>/dev/null \
   | python3 -c "
-import json, sys
-pipes = json.load(sys.stdin)
-for p in pipes:
-    print(f\"pipeline {p['id']}  sha={p['sha'][:8]}  status={p['status']}\")
-" 
-
-# Then for each pipeline id, fetch jobs and sort by duration:
-# glab api \"projects/trueppm%2Ftrueppm/pipelines/<id>/jobs\" \
-#   | python3 -c "import json,sys; jobs=json.load(sys.stdin); print('\n'.join(f\"{j['duration'] or 0:>6.1f}s {j['name']}\" for j in sorted(jobs, key=lambda j: -(j['duration'] or 0))[:10]))"
+import json, sys, subprocess
+for p in json.load(sys.stdin):
+    d = json.loads(subprocess.check_output(['glab','api',f\"projects/trueppm%2Ftrueppm/pipelines/{p['id']}\"]))
+    print(f\"{p['iid']:>6}  {(d.get('duration') or 0)/60:>5.1f} min  {d['created_at'][:16]}\")
+"
 ```
 
-Flag any job consistently > 5 min. Flag the **top 3** duration leaders regardless — they're the levers.
+Read the **distribution**, not one number: floor (best case), median, and tail.
+A creep from "5 to 7 min" is usually floor→median→tail of a noisy band, not one
+heavy job that landed — say so explicitly rather than hunting for a culprit that
+isn't there.
+
+**Trap 2 — the tail job is not the longest job.** The last job to *finish* in the
+critical stage sets the wall-clock, even if a parallel job ran longer. Reconstruct
+the stage timeline from `started_at`/`finished_at` and find what ends last:
+
+```bash
+glab api "projects/trueppm%2Ftrueppm/pipelines/<id>/jobs?per_page=100" 2>/dev/null \
+  | python3 -c "
+import json, sys
+from datetime import datetime
+def t(x): return datetime.fromisoformat(x.replace('Z','+00:00')) if x else None
+jobs=[j for j in json.load(sys.stdin) if j.get('started_at') and j.get('finished_at')]
+t0=min(t(j['started_at']) for j in jobs)
+jobs.sort(key=lambda j:-(t(j['finished_at'])-t0).total_seconds())
+for j in jobs[:6]:
+    print(f\"ends {(t(j['finished_at'])-t0).total_seconds():>5.0f}s  {j['duration'] or 0:>5.0f}s  {j['stage']:<10} {j['name']}\")
+"
+```
+
+**Trap 3 — variance, not mean, is the fixable friction.** A job whose run-to-run
+duration swings by >~30s (e.g. 34s→113s) is a tail-variance problem even if its
+median is modest. The usual root cause is a **network fetch on the hot path** — a
+live registry / remote-config pull inside a job whose engine is otherwise pinned.
+The fix pattern is to **vendor/pin it offline** (as `.semgrep/` did for the SAST
+rule packs in #1639): pin the input into the repo, drop the network from the job.
+This both kills the variance and closes a reproducibility hole (a remote change
+failing an otherwise-green MR). This matches the repo's existing ethos — pinned
+image digests, `uv.lock`, cargo-deny `deny.toml`.
+
+Flag: any job consistently > 5 min; the **top 3** duration leaders; the **stage
+tail** even if it's not a duration leader; and any job with a **>30s run-to-run
+swing**. These are the levers.
 
 ### 1c. Override and skip signals (last 50 commits + recent MR descriptions)
 
