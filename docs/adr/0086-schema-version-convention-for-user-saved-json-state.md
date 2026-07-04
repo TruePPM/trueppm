@@ -124,8 +124,8 @@ and is the thing that stops the debt from growing in the meantime.
 
 ## Related
 
-- **#645 / ADR-0201** — Implementation rollout: registry helpers on both sides,
+- **#645 / ADR-0202** — Implementation rollout: registry helpers on both sides,
   retro-apply to `useBoardSavedViews`, read-time upgrade of existing payloads.
   This ADR was split from #645 so the convention lands a release earlier and
-  constrains new work in the interim; ADR-0201 records the concrete rollout.
+  constrains new work in the interim; ADR-0202 records the concrete rollout.
 - **#649** — This ADR.

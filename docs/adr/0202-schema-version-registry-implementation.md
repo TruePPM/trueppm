@@ -1,4 +1,4 @@
-# ADR-0201: Forward-Migration Registry Implementation for User-Saved JSON State
+# ADR-0202: Forward-Migration Registry Implementation for User-Saved JSON State
 
 ## Status
 Accepted — implements ADR-0086.
@@ -6,7 +6,7 @@ Accepted — implements ADR-0086.
 > Numbering note: ADR-0086 reserved this implementation rollout to #645. The
 > issue text referenced "ADR-0199", but 0199 and 0200 were already committed on
 > `main` (`board-filter-bar-facets`, `stale-task-daily-detection`) by the time
-> this branch landed, so this record takes the next genuinely-free number, 0201.
+> this branch landed, so this record takes the next genuinely-free number. 0199/0200 were taken on main, and 0201 collided with a parallel branch (#374), so this record uses 0202.
 
 ## Context
 

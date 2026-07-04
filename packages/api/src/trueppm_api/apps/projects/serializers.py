@@ -4159,7 +4159,7 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     extensions without breaking older clients.
 
     On read, config is run through the forward-migration registry
-    (``schema_migrations.migrate_payload``, ADR-0086 / ADR-0201): a stale stored
+    (``schema_migrations.migrate_payload``, ADR-0086 / ADR-0202): a stale stored
     payload is upgraded to the current shape before any client sees it, and the
     resolved ``schema_version`` is returned alongside. New writes are born at the
     current version (the model column defaults to it), so the upgrade is a no-op

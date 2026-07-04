@@ -2749,7 +2749,7 @@ class BoardSavedView(models.Model):
         show_cost:       bool
         risk_linked_only: bool
 
-    schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0201). On read,
+    schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0202). On read,
     ``BoardSavedViewSerializer`` runs the payload through the forward-migration
     registry (``schema_migrations.migrate_payload``) keyed on this column, so a
     stale payload is upgraded to the current shape before any client sees it.

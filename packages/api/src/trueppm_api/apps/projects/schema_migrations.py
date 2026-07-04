@@ -1,4 +1,4 @@
-"""Forward-migration registry for user-saved JSON state (ADR-0086 / ADR-0201).
+"""Forward-migration registry for user-saved JSON state (ADR-0086 / ADR-0202).
 
 Every user-saved JSON payload (saved views, filters, dashboards) carries a
 top-level ``schema_version: int``. No business code reads a raw stored payload;
