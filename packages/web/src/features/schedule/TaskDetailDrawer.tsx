@@ -23,6 +23,7 @@ import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
+import { TaskDescriptionField } from './TaskDescriptionField';
 import { registerOssDrawerSections } from './sections';
 
 // Register OSS sections at module init — Enterprise registers in its own
@@ -395,6 +396,18 @@ function DrawerContent({
   // through the active panel's content. Focus follows selection (automatic
   // activation) since switching tabs is cheap here.
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // Last Description textarea scrollTop, kept alive across tab switches (issue
+  // 1048). DrawerContent stays mounted while the drawer is open, but the Details
+  // panel — and the Description field inside it — unmounts when another tab is
+  // active, so the scroll cache has to live one level up from the field. Reset
+  // it when the task identity changes so a long scroll doesn't leak to the next
+  // task opened in the same drawer.
+  const descScrollRef = useRef(0);
+  useEffect(() => {
+    descScrollRef.current = 0;
+  }, [task.id]);
+
   const handleTabKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
@@ -591,12 +604,13 @@ function DrawerContent({
                       />
                     </SectionErrorBoundary>
                   )}
-                  <DescriptionField
+                  <TaskDescriptionField
                     value={notesDraft}
                     onChange={onNotesChange}
                     onBlur={onFlush}
                     changedElsewhere={notesChangedElsewhere}
                     readOnly={!canEdit}
+                    scrollTopRef={descScrollRef}
                   />
                 </div>
                 <SectionList
@@ -661,57 +675,6 @@ function DrawerContent({
         </div>
       )}
     </>
-  );
-}
-
-/**
- * Deferred-save Description field (#962). The one free-text field that stages
- * edits behind the drawer's save bar; it flushes on blur (and on tab-switch /
- * close via the parent), so the save bar acts as a safety net rather than a
- * gate (VoC-tuned B-lite). A concurrent-edit notice warns before an unsaved
- * edit would overwrite a collaborator's change.
- */
-function DescriptionField({
-  value,
-  onChange,
-  onBlur,
-  changedElsewhere,
-  readOnly = false,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onBlur: () => void;
-  changedElsewhere: boolean;
-  /** 1046: Viewers see the description read-only rather than an editable field
-   *  whose PATCH 403s on blur. */
-  readOnly?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-        Description
-      </div>
-      <textarea
-        aria-label="Description"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        rows={3}
-        readOnly={readOnly}
-        placeholder={readOnly ? 'No description' : 'Add a description…'}
-        className={[
-          'w-full rounded-control border border-neutral-border px-3 py-2.5',
-          'text-sm leading-relaxed text-neutral-text-primary placeholder:text-neutral-text-disabled',
-          'resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-          readOnly ? 'bg-neutral-surface-sunken cursor-default' : 'bg-neutral-surface',
-        ].join(' ')}
-      />
-      {!readOnly && changedElsewhere && (
-        <p role="status" className="mt-1.5 text-xs text-semantic-at-risk">
-          Updated by someone else since you started editing — saving will overwrite their change.
-        </p>
-      )}
-    </div>
   );
 }
 

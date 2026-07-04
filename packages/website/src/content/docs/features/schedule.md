@@ -49,6 +49,12 @@ note is never committed by accident. That edit still flushes automatically when
 you blur the field, switch tabs, or close the drawer, and a notice warns you if
 someone else changed the description while you were typing.
 
+The Description supports lightweight **Markdown** — `**bold**`, bullet and
+numbered lists, and `` `inline code` `` — so acceptance criteria, checklists,
+and governance notes stay scannable. When the field is unfocused it renders the
+formatted result; click it to edit the raw Markdown, and blur to return to the
+rendered view. Viewers see the rendered description read-only.
+
 The tabs are extension points: each section registers against the
 `task_detail.section` slot with a priority and a tab, so TruePPM Enterprise can
 add its own sections without the community edition knowing about them.
