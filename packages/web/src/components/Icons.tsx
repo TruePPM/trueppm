@@ -531,6 +531,22 @@ export function InboxIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Thumbtack — pin/unpin a view onto the mobile navigation bar (issue 1591) */
+export function PinIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <path d="M6 1.5h4a1 1 0 0 1 .9 1.45L10 5v2l2 2v1.5H8.75V14L8 15.5 7.25 14v-3.5H4V9l2-2V5L5.1 2.95A1 1 0 0 1 6 1.5z" />
+    </svg>
+  );
+}
+
 /** Horizontal ellipsis — overflow menus */
 export function MoreHorizontalIcon({ className, ...rest }: IconProps) {
   return (

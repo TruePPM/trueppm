@@ -5,15 +5,13 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
-import {
-  groupedVisibleViewsForUser,
-  surfaceHiddenViews,
-} from '@/features/shell/methodologyTabs';
+import { groupedVisibleViewsForUser, surfaceHiddenViews } from '@/features/shell/methodologyTabs';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
-import { selectMobileNav } from '@/features/shell/bottomNavItems';
+import { ANCHOR_VIEWS, selectMobileNav } from '@/features/shell/bottomNavItems';
 import { MoreSheet } from '@/features/shell/MoreSheet';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useShellStore } from '@/stores/shellStore';
 
 // Bottom navigation rail — shown at < md (768px) in place of the top-bar view
 // tabs (ADR-0134 rule 3: mobile carries view nav here, never the desktop
@@ -37,6 +35,8 @@ export function BottomNav() {
   const { role } = useCurrentUserRole(projectId ?? undefined);
   const project = useProject(projectId);
   const { user } = useCurrentUser();
+  const pinnedMobileViews = useShellStore((s) => s.pinnedMobileViews);
+  const toggleMobileViewPin = useShellStore((s) => s.toggleMobileViewPin);
   const [sheetOpen, setSheetOpen] = useState(false);
   const moreButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -76,8 +76,13 @@ export function BottomNav() {
     'settings',
   ];
 
-  const { primary, overflow } = selectMobileNav(reachable, methodology);
+  // Promote the user's pinned views (issue 1591) into the primary slots ahead
+  // of the methodology defaults; Overview/Today stay anchored (see ANCHOR_VIEWS).
+  const { primary, overflow } = selectMobileNav(reachable, methodology, pinnedMobileViews);
   const hasOverflow = overflow.length > 0;
+  // Non-anchor primary views the user can unpin from the More sheet's "On the
+  // bar" section — Overview/Today are anchored and never customizable.
+  const customizablePrimary = primary.filter((v) => !ANCHOR_VIEWS.includes(v));
   // Which overflow-parked surface (if any) is currently active. Match `settings`
   // by its path prefix so any settings sub-page counts, and resolve the label
   // off the view *key* (not `currentView`) so a settings sub-page still reads as
@@ -89,7 +94,7 @@ export function BottomNav() {
   const activeOverflowLabel =
     activeOverflowView === 'sprints'
       ? sprintsLabel
-      : (activeOverflowView ? VIEW_TAB_META[activeOverflowView]?.label : undefined) ?? 'view';
+      : ((activeOverflowView ? VIEW_TAB_META[activeOverflowView]?.label : undefined) ?? 'view');
 
   if (!projectId) return null;
 
@@ -169,6 +174,9 @@ export function BottomNav() {
           }}
           projectId={projectId}
           views={overflow}
+          barViews={customizablePrimary}
+          pinnedViews={pinnedMobileViews}
+          onTogglePin={toggleMobileViewPin}
           currentView={currentView}
           isSettingsActive={isSettingsActive}
           sprintsLabel={sprintsLabel}

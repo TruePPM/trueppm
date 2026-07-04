@@ -108,6 +108,35 @@ test.describe('Mobile BottomNav reachability (#1464)', () => {
     await expect(sheet.getByRole('link', { name: /Reports/i })).toBeVisible();
   });
 
+  test('WATERFALL — Schedule is a primary tab by default (issue 1591 default-promotion)', async ({
+    page,
+  }) => {
+    await setup(page, 'WATERFALL');
+    // The schedule-first pair leads WATERFALL, so a construction PM finds
+    // Schedule on the rail without opening More.
+    await expect(rail(page).getByRole('link', { name: /Schedule/i })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test('user can pin Schedule to the rail from the More sheet (issue 1591)', async ({ page }) => {
+    await setup(page, 'HYBRID');
+    await expect(rail(page)).toBeVisible({ timeout: 10_000 });
+    // HYBRID parks Schedule in the overflow by default (Board + Backlog lead).
+    await expect(rail(page).getByRole('link', { name: /Schedule/i })).toHaveCount(0);
+
+    const sheet = await openMore(page);
+    await sheet.getByRole('button', { name: /^Pin Schedule to navigation bar/i }).click();
+
+    // Schedule is now a primary rail tab.
+    await expect(rail(page).getByRole('link', { name: /Schedule/i })).toBeVisible();
+    // ...and the pin survives a reload (persisted client-side).
+    await page.reload();
+    await expect(rail(page).getByRole('link', { name: /Schedule/i })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
   test('More sheet closes on Escape and restores focus to the trigger', async ({ page }) => {
     await setup(page, 'HYBRID');
     const sheet = await openMore(page);
