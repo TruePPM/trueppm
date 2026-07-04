@@ -39,7 +39,7 @@ export function useUpdateTaskStatus() {
     },
     // The card position is driven by the ['tasks'] cache, which is only
     // invalidated on success — so a failed move reverts the card silently. Fire
-    // an explicit error toast so the user knows the move did not stick (#1631).
+    // an explicit error toast so the user knows the move did not stick (issue 1631).
     onError: () => {
       toast.error("Couldn't move the card — try again.");
     },

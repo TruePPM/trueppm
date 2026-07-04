@@ -334,7 +334,7 @@ export function SprintsView() {
         },
         // The dialog only closes in onSuccess, so a failed close leaves it open
         // with no other signal. Fire an explicit error toast so the user knows
-        // the sprint was not closed and can retry (#1631).
+        // the sprint was not closed and can retry (issue 1631).
         onError: () => {
           toast.error("Couldn't close the sprint — try again.");
         },

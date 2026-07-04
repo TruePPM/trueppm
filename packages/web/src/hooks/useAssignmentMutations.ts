@@ -70,7 +70,7 @@ export function useAddAssignment(projectId: string) {
     },
     // The combobox closes in the caller's onSettled regardless of outcome, so a
     // failed add would otherwise vanish with no signal. Fire an explicit error
-    // toast so the user knows the resource was not assigned (#1631).
+    // toast so the user knows the resource was not assigned (issue 1631).
     onError: () => {
       toast.error("Couldn't add the resource — try again.");
     },
