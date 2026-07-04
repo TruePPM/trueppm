@@ -4,7 +4,7 @@ import { useSyncStatusStore } from '@/stores/syncStatusStore';
 
 export const queryClient = new QueryClient({
   // Every successful write stamps the session "last synced" time that powers the
-  // SyncStatusBadge (ADR-0203). Reading the store lazily via getState() keeps this
+  // SyncStatusBadge (ADR-0205). Reading the store lazily via getState() keeps this
   // module free of React and avoids a hook dependency at client-construction time.
   mutationCache: new MutationCache({
     onSuccess: () => {

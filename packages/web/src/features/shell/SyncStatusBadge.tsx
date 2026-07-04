@@ -98,7 +98,7 @@ function StateIcon({
 
 /**
  * SyncStatusBadge (issue 374) — a persistent, calm write-sync indicator in the
- * TopBar right cluster. Reflects the client-side write queue (ADR-0203): Synced,
+ * TopBar right cluster. Reflects the client-side write queue (ADR-0205): Synced,
  * Syncing N, Offline · N pending, or Sync error. Click opens a focus-trapped
  * modal with the pending-write list, last error, drain progress, and manual retry.
  *

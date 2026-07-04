@@ -1,6 +1,6 @@
 /**
  * Session-scoped sync-status state that the TanStack Query mutation cache can't
- * express on its own (ADR-0203): the last time a write successfully reached the
+ * express on its own (ADR-0205): the last time a write successfully reached the
  * server, and the peak size of the current drain so the SyncStatusBadge modal can
  * show determinate "X of Y" progress.
  *

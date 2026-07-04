@@ -526,15 +526,26 @@ lint:adr-collisions:
   # share a four-digit prefix — the recurring failure mode where parallel
   # branches each grab "the next free number" off a stale main and silently
   # corrupt the design-decision audit trail (a `per ADR-NNNN` reference stops
-  # resolving to a single file). The renumbering in #918 cleared the existing
-  # duplicates; this gate keeps them from coming back. ~1s.
+  # resolving to a single file).
+  #
+  # In an MR pipeline the script also runs a cross-branch scan so the collision
+  # is caught *before* merge, not on the post-merge main job: it compares the
+  # ADR number(s) this MR adds against (a) the numbers already on the target
+  # branch (git-only) and (b) the numbers other open MRs add (GitLab API). Half
+  # (b) uses the built-in CI_JOB_TOKEN — the same credential check-issue-boundary
+  # and check-todo-grep already use for same-project reads, so no extra token is
+  # provisioned. (The optional ADR_GATE_TOKEN is only for instances that lock
+  # down the job-token API scope.) GIT_DEPTH:0 gives the merge-base history the
+  # diff needs. ~2s.
   stage: lint
   image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  variables:
+    GIT_DEPTH: "0"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
-    - apk add --no-cache bash
+    - apk add --no-cache bash git curl jq
   script:
     - bash scripts/check-adr-collisions.sh
 
