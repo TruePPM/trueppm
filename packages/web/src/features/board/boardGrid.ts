@@ -24,18 +24,27 @@ export const BOARD_STUB_W = 34;
  * its scroll container horizontally rather than squishing columns) or a narrow
  * `BOARD_STUB_W` track when the column is collapsed.
  *
+ * A column with an explicit width in `columnWidths` (issue 285 — drag the header
+ * right edge to resize) emits a fixed `${px}px` track that overrides the
+ * zoom-driven `--board-col-w` default for that one column; unset columns keep
+ * the default. A collapsed column always wins with its narrow stub track.
+ *
  * @param columns The visible board columns, in display order.
  * @param collapsedColumns Statuses currently folded to stubs.
+ * @param columnWidths Optional per-status explicit widths (px), keyed by status.
  * @returns A `grid-template-columns` string.
  */
 export function boardGridTemplate(
   columns: { status: TaskStatus }[],
   collapsedColumns: Set<TaskStatus>,
+  columnWidths?: Record<string, number>,
 ): string {
   const tracks = columns
-    .map((c) =>
-      collapsedColumns.has(c.status) ? `${BOARD_STUB_W}px` : 'var(--board-col-w,272px)',
-    )
+    .map((c) => {
+      if (collapsedColumns.has(c.status)) return `${BOARD_STUB_W}px`;
+      const w = columnWidths?.[c.status];
+      return typeof w === 'number' ? `${w}px` : 'var(--board-col-w,272px)';
+    })
     .join(' ');
   return `var(--board-phase-col,188px) ${tracks}`;
 }

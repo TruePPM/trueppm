@@ -47,4 +47,31 @@ describe('boardGridTemplate (#1458/#1459)', () => {
   it('emits only the sidebar track when there are no columns', () => {
     expect(boardGridTemplate([], new Set())).toBe('var(--board-phase-col,188px) ');
   });
+
+  describe('explicit column widths (#285)', () => {
+    it('emits a fixed px track for a column with a stored width, default otherwise', () => {
+      const tpl = boardGridTemplate(COLS, new Set(), { IN_PROGRESS: 320 });
+      const colTracks = tpl.replace('var(--board-phase-col,188px) ', '').split(' ');
+      expect(colTracks).toEqual([
+        'var(--board-col-w,272px)',
+        '320px',
+        'var(--board-col-w,272px)',
+        'var(--board-col-w,272px)',
+      ]);
+    });
+
+    it('lets a collapsed stub win over a stored width for the same column', () => {
+      const tpl = boardGridTemplate(COLS, new Set<TaskStatus>(['IN_PROGRESS']), {
+        IN_PROGRESS: 320,
+      });
+      const colTracks = tpl.replace('var(--board-phase-col,188px) ', '').split(' ');
+      expect(colTracks[1]).toBe(`${BOARD_STUB_W}px`);
+    });
+
+    it('ignores an empty width map (behaves like the two-arg call)', () => {
+      expect(boardGridTemplate(COLS, new Set(), {})).toBe(
+        boardGridTemplate(COLS, new Set()),
+      );
+    });
+  });
 });
