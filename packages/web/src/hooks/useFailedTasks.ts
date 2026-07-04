@@ -28,6 +28,10 @@ export interface FailedTask {
   first_failed_at: string;
   last_failed_at: string;
   status: FailedTaskStatus;
+  /** Operator-action audit (ADR-0210). Populated once a task is requeued/dropped. */
+  resolution_note: string;
+  resolved_by_display: string | null;
+  resolved_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

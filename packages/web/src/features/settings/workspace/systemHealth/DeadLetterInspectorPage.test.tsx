@@ -8,6 +8,7 @@
  * the REAL FailedTask / PaginatedResponse shape — no invented keys.
  */
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -41,6 +42,9 @@ function makeTask(over: Partial<FailedTask> = {}): FailedTask {
     first_failed_at: '2026-05-24T10:00:00Z',
     last_failed_at: '2026-05-25T08:00:00Z',
     status: 'dead' as FailedTaskStatus,
+    resolution_note: '',
+    resolved_by_display: null,
+    resolved_at: null,
     ...over,
   };
 }
@@ -147,5 +151,27 @@ describe('DeadLetterInspectorPage', () => {
     useFailedTask.mockReturnValue(detailResult({ error: new Error('boom') }));
     renderPage('/settings/health/dead-letters?selected=task-1');
     expect(screen.getByText(/Failed to load task details/i)).toBeInTheDocument();
+  });
+
+  it('shows both bulk actions under the default (all) filter', () => {
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask()]) }));
+    renderPage();
+    expect(screen.getByRole('button', { name: /Requeue all \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Drop all \(1\)/ })).toBeInTheDocument();
+  });
+
+  it('hides both bulk actions under a Dismissed-only filter (rule 218 — no dead affordance)', async () => {
+    const user = userEvent.setup();
+    useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ status: 'dismissed' })]) }));
+    renderPage();
+
+    // Default filter: both bulk buttons present.
+    expect(screen.getByRole('button', { name: /Requeue all/ })).toBeInTheDocument();
+
+    // Filter to Dismissed: requeue-all can't act (terminal) and drop-all is a
+    // no-op (already dismissed), so both bulk affordances disappear.
+    await user.selectOptions(screen.getByLabelText('Filter by status'), 'dismissed');
+    expect(screen.queryByRole('button', { name: /Requeue all/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Drop all/ })).not.toBeInTheDocument();
   });
 });

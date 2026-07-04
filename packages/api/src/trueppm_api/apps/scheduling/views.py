@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
 from typing import Any, cast
 
-from celery import current_app
 from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
@@ -59,6 +59,8 @@ from trueppm_api.apps.scheduling.models import (
     VelocitySuggestion,
 )
 from trueppm_api.apps.scheduling.serializers import (
+    FailedTaskDropSerializer,
+    FailedTaskRequeueSerializer,
     FailedTaskSerializer,
     MonteCarloRunSerializer,
     MonteCarloWhatIfRequestSerializer,
@@ -72,6 +74,21 @@ from trueppm_api.apps.scheduling.services import (
     forecast_diagnostic,
     record_monte_carlo_run,
 )
+from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME as REQUEUE_WORKFLOW
+from trueppm_api.workflows.services import start_workflow
+
+logger = logging.getLogger(__name__)
+
+# Upper bound on how many parked tasks a single bulk requeue/drop touches, so a
+# "drop all" / "requeue all" over a large filtered set cannot unbounded-load the
+# DB or storm the broker (ADR-0210 §4). Overridable via settings for large
+# installs; oldest-first slice, with a ``capped`` flag in the response so the
+# operator knows to repeat.
+FAILED_TASK_BULK_ACTION_MAX = getattr(settings, "FAILED_TASK_BULK_ACTION_MAX", 500)
+
+# Statuses an operator can act on: a task that is already dismissed or retried is
+# terminal and is skipped by bulk actions / rejected by single actions.
+_ACTIONABLE_FAILED_STATUSES = (FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY)
 
 
 @extend_schema(
@@ -1183,9 +1200,10 @@ class FailedTaskPagination(PageNumberPagination):
 class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
     """Admin endpoint for dead-lettered Celery tasks.
 
-    List/detail/retry/dismiss: admin users only. The serializer exposes
-    tracebacks, args, and kwargs which may contain internal paths or partial
-    secrets and must not be visible to unprivileged members.
+    List/detail/requeue/drop and the bulk ``requeue_all``/``drop_all``: admin users
+    only. The serializer exposes tracebacks, args, and kwargs which may contain
+    internal paths or partial secrets and must not be visible to unprivileged
+    members.
 
     The list endpoint backs the dead-letter inspector (#694, ADR-0172) and
     accepts read-only filters: ``?status=`` (one of the FailedTaskStatus
@@ -1193,6 +1211,16 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
     ``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on
     ``last_failed_at``). Results keep the model default ordering
     (``-last_failed_at``, newest failure first).
+
+    Write actions (#695, ADR-0210):
+      - ``requeue`` re-enqueues a parked task with an operator-chosen backoff,
+        round-tripping through the durable workflow backend (ADR-0080) rather than
+        the old raw ``send_task`` side channel.
+      - ``drop`` soft-removes a parked task (→ DISMISSED) with an optional audit
+        note; the row is retained so the audit survives (ADR-0084 "no silent
+        discards").
+      - ``requeue_all`` / ``drop_all`` apply the same action across the *current
+        filter set*, bounded to ``FAILED_TASK_BULK_ACTION_MAX``.
     """
 
     serializer_class = FailedTaskSerializer
@@ -1206,8 +1234,13 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
         Invalid filter values are ignored rather than raising, so a malformed
         bookmarked URL degrades to "no filter" instead of a 400 — an operator
         diagnosing an incident should never be blocked by a bad query string.
+
+        ``select_related('resolved_by')`` avoids an N+1 on the resolved-status list
+        views (``?status=retried``/``dismissed``): the ``resolved_by_display``
+        serializer field reads the operator FK, which would otherwise lazy-load
+        once per row (ADR-0210 audit fields).
         """
-        qs = FailedTask.objects.all()
+        qs = FailedTask.objects.select_related("resolved_by")
 
         status_filter = self.request.query_params.get("status")
         if status_filter in FailedTaskStatus.values:
@@ -1227,27 +1260,200 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 
         return qs
 
+    def _start_requeue_workflow(self, failed: FailedTask, backoff_seconds: int) -> str:
+        """Start the durable requeue workflow for one task (ADR-0210 §1).
+
+        Routes the re-enqueue through the #652 outbox-composing workflow backend
+        (``start_workflow``) rather than a raw ``send_task`` side channel, so a
+        broker outage cannot silently drop the requeue. The idempotency key ties one
+        requeue to one *observed failure* (``id`` + ``failure_count``): a
+        double-clicked or replayed requeue collides on the key and returns the
+        existing workflow instead of double-enqueuing.
+        """
+        return start_workflow(
+            REQUEUE_WORKFLOW,
+            {
+                "failed_task_id": str(failed.id),
+                "task_name": failed.task_name,
+                "args": failed.args,
+                "kwargs": failed.kwargs,
+                "backoff_seconds": backoff_seconds,
+            },
+            idempotency_key=f"requeue:{failed.id}:{failed.failure_count}",
+        )
+
+    @extend_schema(
+        request=FailedTaskRequeueSerializer,
+        responses={200: FailedTaskSerializer},
+        summary="Requeue a dead-lettered task with an operator-chosen backoff",
+    )
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
-    def retry(self, request: Request, pk: str | None = None) -> Response:
-        """Re-enqueue the original task with stored args/kwargs."""
+    def requeue(self, request: Request, pk: str | None = None) -> Response:
+        """Re-enqueue a parked task via the durable workflow backend (ADR-0210).
+
+        Only ``dead``/``pending_retry`` tasks are requeueable; a terminal task is a
+        400. The re-enqueue is durable (workflow outbox); the ``backoff_seconds`` is
+        a best-effort Celery countdown on the re-dispatched task.
+        """
         failed = self.get_object()
-        if failed.status not in (FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY):
+        if failed.status not in _ACTIONABLE_FAILED_STATUSES:
             return Response(
-                {"detail": f"Cannot retry a task with status '{failed.status}'."},
+                {"detail": f"Cannot requeue a task with status '{failed.status}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        current_app.send_task(failed.task_name, args=failed.args, kwargs=failed.kwargs)
-        failed.status = FailedTaskStatus.RETRIED
-        failed.save(update_fields=["status", "last_failed_at"])
+        payload = FailedTaskRequeueSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        backoff_seconds = payload.validated_data["backoff_seconds"]
+
+        # Start the durable workflow first, then stamp the row: the side effect is the
+        # durable part, so if the status update failed the workflow still ran and a
+        # re-run dedupes on the idempotency key. Both commit together under
+        # ATOMIC_REQUESTS, so a mid-action error rolls the whole thing back.
+        workflow_id = self._start_requeue_workflow(failed, backoff_seconds)
+        FailedTask.objects.filter(pk=failed.pk).update(
+            status=FailedTaskStatus.RETRIED,
+            resolved_by=request.user,
+            resolved_at=timezone.now(),
+        )
+        failed.refresh_from_db()
+        logger.info(
+            "dead-letter requeue: task %s (%s) requeued by user %s, backoff=%ss, workflow=%s",
+            failed.id,
+            failed.task_name,
+            getattr(request.user, "pk", None),
+            backoff_seconds,
+            workflow_id,
+        )
+        data = dict(FailedTaskSerializer(failed).data)
+        data["workflow_id"] = workflow_id
+        return Response(data)
+
+    @extend_schema(
+        request=FailedTaskDropSerializer,
+        responses={200: FailedTaskSerializer},
+        summary="Drop (dismiss) a dead-lettered task with an optional audit note",
+    )
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def drop(self, request: Request, pk: str | None = None) -> Response:
+        """Soft-remove a parked task (→ DISMISSED) with an optional audit note.
+
+        The row is retained (not hard-deleted) so the note/operator/timestamp audit
+        survives; it drops out of the operator's default ``dead``/``pending_retry``
+        view. Re-dropping an already-dismissed task is an idempotent no-op.
+        """
+        failed = self.get_object()
+        payload = FailedTaskDropSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        note = payload.validated_data["note"]
+
+        if failed.status == FailedTaskStatus.DISMISSED:
+            return Response(FailedTaskSerializer(failed).data)
+
+        FailedTask.objects.filter(pk=failed.pk).update(
+            status=FailedTaskStatus.DISMISSED,
+            resolution_note=note,
+            resolved_by=request.user,
+            resolved_at=timezone.now(),
+        )
+        failed.refresh_from_db()
+        logger.info(
+            "dead-letter drop: task %s (%s) dropped by user %s%s",
+            failed.id,
+            failed.task_name,
+            getattr(request.user, "pk", None),
+            " with note" if note else "",
+        )
         return Response(FailedTaskSerializer(failed).data)
 
-    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
-    def dismiss(self, request: Request, pk: str | None = None) -> Response:
-        """Mark a dead-lettered task as dismissed (acknowledged, no retry)."""
-        failed = self.get_object()
-        failed.status = FailedTaskStatus.DISMISSED
-        failed.save(update_fields=["status", "last_failed_at"])
-        return Response(FailedTaskSerializer(failed).data)
+    @extend_schema(
+        request=FailedTaskRequeueSerializer,
+        responses={200: OpenApiResponse(description="{processed, matched, capped}")},
+        summary="Requeue every actionable task in the current filter set (bounded)",
+    )
+    @action(
+        detail=False, methods=["post"], url_path="requeue_all", permission_classes=[IsAdminUser]
+    )
+    def requeue_all(self, request: Request) -> Response:
+        """Bulk-requeue the current filter set, bounded (ADR-0210 §4).
+
+        Applies the inspector's ``get_queryset`` filters, restricts to actionable
+        (``dead``/``pending_retry``) tasks, and processes at most
+        ``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first). ``capped`` in the response
+        signals that more remain and the operator should repeat.
+        """
+        payload = FailedTaskRequeueSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        backoff_seconds = payload.validated_data["backoff_seconds"]
+
+        qs = self.get_queryset().filter(status__in=_ACTIONABLE_FAILED_STATUSES)
+        matched = qs.count()
+        batch = list(qs.order_by("last_failed_at")[:FAILED_TASK_BULK_ACTION_MAX])
+        for failed in batch:
+            self._start_requeue_workflow(failed, backoff_seconds)
+        if batch:
+            FailedTask.objects.filter(pk__in=[f.pk for f in batch]).update(
+                status=FailedTaskStatus.RETRIED,
+                resolved_by=request.user,
+                resolved_at=timezone.now(),
+            )
+        logger.info(
+            "dead-letter requeue_all: %d of %d task(s) requeued by user %s, backoff=%ss",
+            len(batch),
+            matched,
+            getattr(request.user, "pk", None),
+            backoff_seconds,
+        )
+        return Response(
+            {
+                "processed": len(batch),
+                "matched": matched,
+                "capped": matched > FAILED_TASK_BULK_ACTION_MAX,
+            }
+        )
+
+    @extend_schema(
+        request=FailedTaskDropSerializer,
+        responses={200: OpenApiResponse(description="{processed, matched, capped}")},
+        summary="Drop every task in the current filter set (bounded)",
+    )
+    @action(detail=False, methods=["post"], url_path="drop_all", permission_classes=[IsAdminUser])
+    def drop_all(self, request: Request) -> Response:
+        """Bulk-drop the current filter set, bounded (ADR-0210 §4).
+
+        Applies the inspector's ``get_queryset`` filters, excludes already-dismissed
+        rows, and dismisses at most ``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first) in
+        a single bounded ``UPDATE`` — no per-row loop. ``capped`` signals more remain.
+        """
+        payload = FailedTaskDropSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        note = payload.validated_data["note"]
+
+        qs = self.get_queryset().exclude(status=FailedTaskStatus.DISMISSED)
+        matched = qs.count()
+        ids = list(
+            qs.order_by("last_failed_at").values_list("pk", flat=True)[:FAILED_TASK_BULK_ACTION_MAX]
+        )
+        processed = 0
+        if ids:
+            processed = FailedTask.objects.filter(pk__in=ids).update(
+                status=FailedTaskStatus.DISMISSED,
+                resolution_note=note,
+                resolved_by=request.user,
+                resolved_at=timezone.now(),
+            )
+        logger.info(
+            "dead-letter drop_all: %d of %d task(s) dropped by user %s",
+            processed,
+            matched,
+            getattr(request.user, "pk", None),
+        )
+        return Response(
+            {
+                "processed": processed,
+                "matched": matched,
+                "capped": matched > FAILED_TASK_BULK_ACTION_MAX,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------

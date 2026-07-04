@@ -1,22 +1,51 @@
 /**
  * Workspace > System Health > Dead-letter inspector.
  *
- * Read-only split-view: left list of failed tasks with filter controls, right
- * detail pane with exception info and payload viewer. Selected task id lives
- * in the URL as ?selected={id} so links are shareable.
+ * Split-view: left list of failed tasks with filter controls + a bulk action bar,
+ * right detail pane with exception info, payload viewer, and per-task write
+ * actions. Selected task id lives in the URL as ?selected={id} so links are
+ * shareable.
  *
- * NO retry/dismiss/requeue/drop actions — this surface is purely diagnostic.
+ * Write actions (#695, ADR-0210): requeue-with-backoff and drop-with-note, single
+ * and bulk-over-the-current-filter. Requeue round-trips through the durable
+ * workflow backend server-side; drop soft-removes (→ dismissed) but retains the
+ * row for audit. All actions are workspace-admin gated server-side.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { Button } from '@/components/Button';
+import { toast } from '@/components/Toast';
 import {
   useFailedTask,
   useFailedTasks,
   type FailedTaskFilters,
   type FailedTaskStatus,
 } from '@/hooks/useFailedTasks';
+import {
+  useDropAllFailedTasks,
+  useDropFailedTask,
+  useRequeueAllFailedTasks,
+  useRequeueFailedTask,
+} from '@/hooks/useFailedTaskActions';
+import { DeadLetterActionDialog, type DeadLetterActionKind } from './DeadLetterActionDialog';
 import { formatAge } from './formatAge';
+
+/** Statuses an operator can requeue (matches the server's actionable set). */
+const REQUEUEABLE_STATUSES: ReadonlySet<FailedTaskStatus> = new Set<FailedTaskStatus>([
+  'dead',
+  'pending_retry',
+]);
+
+/** Extract a human-readable error message from an axios-style mutation error. */
+function actionErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const resp = (err as { response?: { data?: { detail?: unknown } } }).response;
+    const detail = resp?.data?.detail;
+    if (typeof detail === 'string') return detail;
+  }
+  return 'Action failed — please try again.';
+}
 
 // ---------------------------------------------------------------------------
 // Small inline SVG icons
@@ -242,6 +271,54 @@ function ListSkeleton() {
 
 function DetailPane({ id }: { id: string }) {
   const { data, isLoading, error } = useFailedTask(id);
+  const requeueMut = useRequeueFailedTask();
+  const dropMut = useDropFailedTask();
+  const [action, setAction] = useState<DeadLetterActionKind | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const closeDialog = useCallback(() => {
+    setAction(null);
+    setActionError(null);
+  }, []);
+
+  const handleConfirm = useCallback(
+    ({ backoffSeconds, note }: { backoffSeconds: number; note: string }) => {
+      if (!data) return;
+      setActionError(null);
+      // onError sets the inline dialog alert AND a toast: the inline alert covers
+      // the dialog-open case; the toast is the fallback if the operator dismissed
+      // the dialog while the mutation was still in flight (the alert would be gone).
+      const onError = (err: unknown) => {
+        const message = actionErrorMessage(err);
+        setActionError(message);
+        toast.error(message);
+      };
+      if (action === 'requeue') {
+        requeueMut.mutate(
+          { id: data.id, backoffSeconds },
+          {
+            onSuccess: () => {
+              closeDialog();
+              toast.success(`Requeued ${data.task_name}.`);
+            },
+            onError,
+          },
+        );
+      } else if (action === 'drop') {
+        dropMut.mutate(
+          { id: data.id, note },
+          {
+            onSuccess: () => {
+              closeDialog();
+              toast.success(`Dropped ${data.task_name}.`);
+            },
+            onError,
+          },
+        );
+      }
+    },
+    [action, data, requeueMut, dropMut, closeDialog],
+  );
 
   if (isLoading) {
     return (
@@ -258,6 +335,10 @@ function DetailPane({ id }: { id: string }) {
       </div>
     );
   }
+
+  const canRequeue = REQUEUEABLE_STATUSES.has(data.status);
+  const canDrop = data.status !== 'dismissed';
+  const busy = requeueMut.isPending || dropMut.isPending;
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto p-5 space-y-5">
@@ -276,7 +357,49 @@ function DetailPane({ id }: { id: string }) {
           first {new Date(data.first_failed_at).toLocaleString()} · last{' '}
           {new Date(data.last_failed_at).toLocaleString()}
         </p>
+
+        {/* Per-task write actions (ADR-0210). Hidden once terminal. */}
+        {(canRequeue || canDrop) && (
+          <div className="mt-3 flex items-center gap-2">
+            {canRequeue && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setAction('requeue')}
+                disabled={busy}
+              >
+                Requeue
+              </Button>
+            )}
+            {canDrop && (
+              <Button variant="danger" size="sm" onClick={() => setAction('drop')} disabled={busy}>
+                Drop
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Operator-action audit — shown once resolved. */}
+        {data.resolved_at && (
+          <p className="mt-2 text-[11px] text-neutral-text-secondary">
+            {data.status === 'dismissed' ? 'Dropped' : 'Requeued'}
+            {data.resolved_by_display ? ` by ${data.resolved_by_display}` : ''} ·{' '}
+            {new Date(data.resolved_at).toLocaleString()}
+            {data.resolution_note ? ` — “${data.resolution_note}”` : ''}
+          </p>
+        )}
       </div>
+
+      {action && (
+        <DeadLetterActionDialog
+          kind={action}
+          taskName={data.task_name}
+          busy={busy}
+          error={actionError}
+          onCancel={closeDialog}
+          onConfirm={handleConfirm}
+        />
+      )}
 
       {/* Attempt summary */}
       <div className="rounded-card border border-neutral-border overflow-hidden">
@@ -386,14 +509,81 @@ export function DeadLetterInspectorPage() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('');
   const debouncedTaskName = useDebounce(taskNameInput, 300);
 
-  const filters: FailedTaskFilters = {
-    status: statusFilter || undefined,
-    task_name: debouncedTaskName || undefined,
-    failed_after: windowToIso(timeWindow) || undefined,
-  };
+  // Memoized so the bulk-action callbacks (and the query key) get a stable
+  // reference — otherwise a fresh object every render churns their deps.
+  const filters: FailedTaskFilters = useMemo(
+    () => ({
+      status: statusFilter || undefined,
+      task_name: debouncedTaskName || undefined,
+      failed_after: windowToIso(timeWindow) || undefined,
+    }),
+    [statusFilter, debouncedTaskName, timeWindow],
+  );
 
   const { data, isLoading, error } = useFailedTasks(filters);
   const tasks = data?.results ?? [];
+
+  // Bulk actions over the current filter set (ADR-0210 §4). Bounded server-side.
+  const requeueAllMut = useRequeueAllFailedTasks();
+  const dropAllMut = useDropAllFailedTasks();
+  const [bulkAction, setBulkAction] = useState<DeadLetterActionKind | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const bulkBusy = requeueAllMut.isPending || dropAllMut.isPending;
+
+  // Per-verb bulk-action gating (rule 227): requeue-all can only act on the
+  // actionable statuses, so it is a dead affordance under a terminal-only filter
+  // (dismissed/retried); drop-all is a no-op when everything shown is already
+  // dismissed. "All statuses" ('') keeps both — the server acts on the subset and
+  // the confirm copy + result toast report the true count.
+  const canBulkRequeue = statusFilter === '' || REQUEUEABLE_STATUSES.has(statusFilter);
+  const canBulkDrop = statusFilter !== 'dismissed';
+
+  const closeBulk = useCallback(() => {
+    setBulkAction(null);
+    setBulkError(null);
+  }, []);
+
+  const bulkResultToast = useCallback((verb: string, result: { processed: number; capped: boolean }) => {
+    const suffix = result.capped ? ' (batch capped — repeat to continue)' : '';
+    toast.success(`${verb} ${result.processed} task${result.processed === 1 ? '' : 's'}.${suffix}`);
+  }, []);
+
+  const handleBulkConfirm = useCallback(
+    ({ backoffSeconds, note }: { backoffSeconds: number; note: string }) => {
+      setBulkError(null);
+      // Inline alert + toast fallback, as with the single actions — an Escape
+      // mid-flight would otherwise swallow a bulk error silently.
+      const onError = (err: unknown) => {
+        const message = actionErrorMessage(err);
+        setBulkError(message);
+        toast.error(message);
+      };
+      if (bulkAction === 'requeue') {
+        requeueAllMut.mutate(
+          { filters, backoffSeconds },
+          {
+            onSuccess: (result) => {
+              closeBulk();
+              bulkResultToast('Requeued', result);
+            },
+            onError,
+          },
+        );
+      } else if (bulkAction === 'drop') {
+        dropAllMut.mutate(
+          { filters, note },
+          {
+            onSuccess: (result) => {
+              closeBulk();
+              bulkResultToast('Dropped', result);
+            },
+            onError,
+          },
+        );
+      }
+    },
+    [bulkAction, filters, requeueAllMut, dropAllMut, closeBulk, bulkResultToast],
+  );
 
   const handleSelectTask = useCallback(
     (id: string) => {
@@ -508,11 +698,48 @@ export function DeadLetterInspectorPage() {
         </select>
 
         {data && (
-          <span className="ml-auto text-[11px] text-neutral-text-secondary">
-            {data.count} task{data.count !== 1 ? 's' : ''}
-          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[11px] text-neutral-text-secondary">
+              {data.count} task{data.count !== 1 ? 's' : ''}
+            </span>
+            {/* Each bulk button is gated to the statuses it can actually act on
+                (web-rule 218): requeue only touches dead/pending_retry, drop skips
+                already-dismissed. Hiding the no-op affordance on a terminal-only
+                filter keeps the (N) honest rather than promising N and doing 0. */}
+            {data.count > 0 && canBulkRequeue && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setBulkAction('requeue')}
+                disabled={bulkBusy}
+              >
+                Requeue all ({data.count})
+              </Button>
+            )}
+            {data.count > 0 && canBulkDrop && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setBulkAction('drop')}
+                disabled={bulkBusy}
+              >
+                Drop all ({data.count})
+              </Button>
+            )}
+          </div>
         )}
       </div>
+
+      {bulkAction && data && (
+        <DeadLetterActionDialog
+          kind={bulkAction}
+          bulkCount={data.count}
+          busy={bulkBusy}
+          error={bulkError}
+          onCancel={closeBulk}
+          onConfirm={handleBulkConfirm}
+        />
+      )}
 
       {/* Split-view body */}
       <div className="flex flex-1 min-h-0">

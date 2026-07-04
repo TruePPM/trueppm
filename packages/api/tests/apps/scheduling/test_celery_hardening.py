@@ -4,7 +4,7 @@ Covers:
   - FailedTask model CRUD
   - Dead-letter recording on task failure
   - Task lifecycle signals emission
-  - Admin failed-tasks API (list, detail, retry, dismiss)
+  - Admin failed-tasks API (list, detail; write actions in test_failed_task_actions.py)
   - Retry policy configuration on task decorators
   - Re-queue loop cap in recalculate_schedule
 """
@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -297,43 +296,7 @@ class TestFailedTaskAPI:
         assert resp.status_code == 200
         assert resp.data["task_name"] == "test.task"
 
-    def test_retry_requires_admin(self) -> None:
-        ft = self._create_failed()
-        client = _regular_client()
-        resp = client.post(f"/api/v1/admin/failed-tasks/{ft.pk}/retry/")
-        assert resp.status_code == 403
-
-    @patch("trueppm_api.apps.scheduling.views.current_app")
-    def test_retry_as_admin(self, mock_app: object) -> None:
-        ft = self._create_failed()
-        client = _staff_client()
-        resp = client.post(f"/api/v1/admin/failed-tasks/{ft.pk}/retry/")
-        assert resp.status_code == 200
-        ft.refresh_from_db()
-        assert ft.status == FailedTaskStatus.RETRIED
-        # Flipping status to RETRIED is only half the contract — the row must
-        # actually be re-dispatched with its original name/args/kwargs. Without
-        # this the endpoint could mark a task retried and enqueue nothing.
-        mock_app.send_task.assert_called_once_with("test.task", args=["a"], kwargs={})
-
-    def test_dismiss_requires_admin(self) -> None:
-        ft = self._create_failed()
-        client = _regular_client()
-        resp = client.post(f"/api/v1/admin/failed-tasks/{ft.pk}/dismiss/")
-        assert resp.status_code == 403
-
-    def test_dismiss_as_admin(self) -> None:
-        ft = self._create_failed()
-        client = _staff_client()
-        resp = client.post(f"/api/v1/admin/failed-tasks/{ft.pk}/dismiss/")
-        assert resp.status_code == 200
-        ft.refresh_from_db()
-        assert ft.status == FailedTaskStatus.DISMISSED
-
-    def test_retry_dismissed_task_rejected(self) -> None:
-        ft = self._create_failed()
-        ft.status = FailedTaskStatus.DISMISSED
-        ft.save(update_fields=["status"])
-        client = _staff_client()
-        resp = client.post(f"/api/v1/admin/failed-tasks/{ft.pk}/retry/")
-        assert resp.status_code == 400
+    # The write actions (formerly retry/dismiss, now requeue/drop with backoff,
+    # audit note, and bulk variants) moved to test_failed_task_actions.py when
+    # #695/ADR-0210 rerouted requeue through the durable workflow backend. This
+    # class keeps only the list/detail read coverage.
