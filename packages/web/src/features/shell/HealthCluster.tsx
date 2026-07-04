@@ -355,8 +355,11 @@ function Segment({
 }
 
 // ---------------------------------------------------------------------------
-// Collapsed (< lg) menu — rule 109. One "Health ▾" button expanding the same
+// Collapsed (< md) menu — rule 109. One "Health ▾" button expanding the same
 // segments as read rows; at-risk / critical rows expose their tasks as menuitems.
+// The expanded cluster now holds from the tablet breakpoint up (md, ≥ 768px) so
+// Janet's P80/health reads stay inline on a tablet (issue 1562); this dropdown is
+// the phone-only (< 768px) fallback.
 // ---------------------------------------------------------------------------
 
 interface CollapsedProps {
@@ -417,7 +420,7 @@ function CollapsedHealth({
   }, [open]);
 
   return (
-    <div ref={wrapperRef} className="lg:hidden relative">
+    <div ref={wrapperRef} className="md:hidden relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -523,12 +526,13 @@ export function HealthCluster({ onTaskNavigate }: Props) {
 
   return (
     <>
-      {/* Full cluster — lg+ */}
+      {/* Full cluster — md+ (tablet 768–1024px keeps it expanded with the P80
+          forecast inline, issue 1562; only phones < 768px collapse to "Health ▾"). */}
       <div
         role="group"
         aria-label="Project health"
         data-testid="health-cluster"
-        className="hidden lg:flex items-stretch h-7 rounded-control border border-neutral-border overflow-hidden"
+        className="hidden md:flex items-stretch h-7 rounded-control border border-neutral-border overflow-hidden"
       >
         {segments.map((segment, i) => (
           <div key={`${segment.kind}-${i}`} className="flex items-stretch">
@@ -545,7 +549,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         ))}
       </div>
 
-      {/* Collapsed dropdown — below lg (rule 109) */}
+      {/* Collapsed dropdown — phones below md (rule 109; tablet keeps it expanded, issue 1562) */}
       <CollapsedHealth
         segments={segments}
         iterationSingular={iteration.singular}
