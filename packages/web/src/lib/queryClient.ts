@@ -1,7 +1,16 @@
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
+import { useSyncStatusStore } from '@/stores/syncStatusStore';
 
 export const queryClient = new QueryClient({
+  // Every successful write stamps the session "last synced" time that powers the
+  // SyncStatusBadge (ADR-0203). Reading the store lazily via getState() keeps this
+  // module free of React and avoids a hook dependency at client-construction time.
+  mutationCache: new MutationCache({
+    onSuccess: () => {
+      useSyncStatusStore.getState().markSynced();
+    },
+  }),
   defaultOptions: {
     queries: {
       // 1-minute stale time: P3M data changes infrequently, avoid aggressive refetches

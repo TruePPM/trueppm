@@ -284,8 +284,9 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await expect(page.getByText('No epic', { exact: true })).toBeVisible();
 
     // ADR-0183 D5: the polite live region is mounted for the drop announcements (sr-only,
-    // so assert it is attached rather than visible).
-    await expect(page.locator('span.sr-only[aria-live="polite"]')).toBeAttached();
+    // so assert it is attached rather than visible). Scope to the backlog announcer by
+    // test id — the app shell now also mounts a global sync-status live region.
+    await expect(page.getByTestId('backlog-drop-announcer')).toBeAttached();
   });
 
   test('renders the empty state with the quick-add affordance', async ({ page }) => {

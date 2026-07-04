@@ -194,7 +194,7 @@ test.describe('Workspace General page', () => {
     // Flipping the toggle arms the save bar and the PATCH carries the new value.
     await keepToggle.click();
     await expect(keepToggle).toHaveAttribute('aria-checked', 'false');
-    await page.getByRole('button', { name: /save/i }).click();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await expect.poll(() => patchBody).toMatchObject({ mc_history_enabled: false });
   });
 
@@ -225,7 +225,7 @@ test.describe('Workspace General page', () => {
     // must fail here rather than silently skip past the save-then-PATCH
     // path (issue 1574). Capture and assert the PATCH body like the
     // sibling forecast-history and fiscal-year tests above.
-    await page.getByRole('button', { name: /save/i }).click();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
     await expect.poll(() => patchBody).toMatchObject({ name: 'Updated Corp' });
   });
 
@@ -264,7 +264,7 @@ test.describe('Workspace General page', () => {
       'aria-pressed',
       'true',
     );
-    await page.getByRole('button', { name: /save/i }).click();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
 
     await expect
       .poll(() => patchBody)
@@ -304,7 +304,7 @@ test.describe('Workspace General page', () => {
       'aria-pressed',
       'true',
     );
-    await page.getByRole('button', { name: /save/i }).click();
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click();
 
     await expect
       .poll(() => patchBody)
