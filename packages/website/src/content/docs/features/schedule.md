@@ -22,6 +22,10 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 
 Split-pane: a virtualized task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronized in both directions.
 
+:::tip[Build the plan from the keyboard]
+To lay out the WBS quickly — type a task, `Tab` to indent, `Space` to complete, `F2` to edit — turn on [Schedule build mode](/features/schedule-build-mode/), a keyboard-first construction surface for the task list. It builds the schedule; sprint planning still lives on the [Board](/features/board/).
+:::
+
 ## Task detail drawer
 
 Clicking a task row opens a right-side drawer (a bottom sheet on mobile). The

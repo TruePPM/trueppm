@@ -7,6 +7,19 @@ Schedule build mode turns the Schedule list into a keyboard-first surface for la
 
 The goal is to collapse the round-trip cost of structuring a plan from "open modal → fill form → save → repeat" to "type, Tab, type, Enter."
 
+## What build mode is — and what it isn't
+
+Build mode is a **schedule-construction** tool. It is the fastest way to lay down and structure the work breakdown structure (WBS) of a project: type a task name, `Tab` to indent it under the row above (which becomes a phase), `Space` to mark it complete, `F2` to edit it. Everything happens on the **Schedule view**, in the task list, with the keyboard.
+
+Build mode is **not** sprint planning. It does not create sprints, move cards, set velocity, or triage a backlog — that work lives on the [Board](/features/board/), the [Sprint planning](/features/plan-sprint/) surface, and the [Product backlog](/features/product-backlog/). If you are an agile team deciding *what goes in the next sprint*, build mode is the wrong surface; if you are laying out *the shape of the plan itself* — phases, tasks, durations, and dependencies — build mode is exactly it.
+
+| Build mode is for… | …not for |
+|---|---|
+| Structuring the WBS: phases, tasks, indent / outdent | Deciding sprint scope or moving cards |
+| Setting durations and % complete inline | Estimating story points (that's [estimation poker](/features/estimation-poker/)) |
+| Wiring predecessor / successor dependencies | Board triage or backlog refinement |
+| Keyboard-first plan entry on the Schedule view | Any mobile workflow — build mode is desktop-only |
+
 ## Enabling the flag
 
 Build mode is **off by default in production builds**. Three ways to turn it on:
@@ -49,6 +62,9 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Tab | Indent under the previous sibling row (forms an emergent phase) |
 | Shift + Tab | Outdent one level |
 | ↑ ↓ | Move focus to the next / previous row |
+| Alt + ↑ / ↓ | Reorder the row among its same-indent siblings |
+| Space | Mark the focused row complete / un-complete |
+| ⌘ D / Ctrl + D | Duplicate the focused row |
 | Right-click | Open the row context menu (Edit / Indent / Outdent / Convert to milestone / Delete) |
 | Delete / Backspace | Delete the row (no confirm — undo via re-adding) |
 | Esc | Clear selection |
@@ -70,6 +86,13 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Shift + Tab | Save and move to the previous editable cell |
 
 The editable cells in v1 are **Task name**, **Duration**, and **% complete**. Start and Finish are computed from CPM and remain read-only — change a Planned Start to override.
+
+### Dependencies
+
+| Action | Result |
+|---|---|
+| Hover a row | Reveals its dependency chain — predecessors highlight blue, successors highlight green |
+| Right-click | Opens the row menu, where **Add predecessor** / **Add successor** open a task picker |
 
 ## Indenting and emergent phases
 
