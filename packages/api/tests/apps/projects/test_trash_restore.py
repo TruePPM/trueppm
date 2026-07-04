@@ -1,4 +1,4 @@
-"""Tests for Trash + restore of soft-deleted projects (#1113, ADR-0199).
+"""Tests for Trash + restore of soft-deleted projects (#1113, ADR-0202).
 
 Covers:
 - GET  /projects/trash/        — membership-scoped list, retention-window filter,
@@ -239,7 +239,7 @@ def test_restore_is_atomic_on_child_failure(owner: Any, populated_project: Proje
 
     Risks are restored per-row LAST (after tasks/sprints/baselines are bulk-restored).
     Forcing Risk.restore to raise proves the earlier bulk restores are rolled back too —
-    the project and every child stay tombstoned, never a half-restored state (ADR-0199).
+    the project and every child stay tombstoned, never a half-restored state (ADR-0202).
     """
     client = _client(owner)
     _soft_delete(client, populated_project)
@@ -273,7 +273,7 @@ def test_restore_leaves_cross_project_edge_tombstoned_when_other_side_deleted(
     """A cross-project edge stays tombstoned if its other endpoint is still deleted.
 
     Restoring project A must not resurrect an edge A→B while B's task is still a
-    tombstone — that would be a live edge to a dead task (ADR-0199 §2).
+    tombstone — that would be a live edge to a dead task (ADR-0202 §2).
     """
     proj_a = _make_project(owner, calendar, name="A")
     proj_b = _make_project(owner, calendar, name="B")

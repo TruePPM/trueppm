@@ -1312,7 +1312,7 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         and every currently-tombstoned child (tasks, dependency edges, sprints,
         baselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:
         a failure part-way through rolls the whole restore back rather than leave a
-        half-restored project (ADR-0199). Every restored row's ``server_version`` is
+        half-restored project (ADR-0202). Every restored row's ``server_version`` is
         bumped so offline sync clients re-materialize it on their next delta.
 
         The child restore is itself idempotent (a re-run touches only still-tombstoned

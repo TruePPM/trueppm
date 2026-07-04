@@ -10,7 +10,10 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -19,7 +22,11 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectMember
-from trueppm_api.apps.history.serializers import HistoryRecordSerializer
+from trueppm_api.apps.history import changelog
+from trueppm_api.apps.history.serializers import (
+    ChangelogResponseSerializer,
+    HistoryRecordSerializer,
+)
 from trueppm_api.apps.projects.models import Dependency, Project, Task
 
 logger = logging.getLogger(__name__)
@@ -355,3 +362,165 @@ class ProjectHistorySummaryView(APIView):
 
         cache.set(cache_key, payload, self._CACHE_TTL)
         return Response(payload)
+
+
+class ProjectChangelogView(APIView):
+    """Unified newest-first "what changed" stream for a whole project (ADR-0201).
+
+    GET /api/v1/projects/{project_pk}/changelog/
+        ?since=&object_type=&change_type=&user=&cursor=&page_size=
+
+    Aggregates every project-scoped ``django-simple-history`` table (Task, Sprint,
+    Risk, Project, Dependency, TaskRecurrenceRule, and the three policy singletons)
+    into one stream with a **stable keyset cursor** — pass the response's
+    ``next_cursor`` back as ``cursor`` to page. The cursor is opaque and safe to
+    persist; a malformed cursor returns 400.
+
+    Permissions: any project member (Viewer+) may read (see ADR-0201 — every
+    source's live GET is Viewer+, so membership is a sufficient row gate).
+    ``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the
+    ``user=`` filter is likewise honored only for those callers, so the feed can
+    never be turned into a per-person activity tracker by a lower-privilege reader.
+
+    Query params:
+        since        ISO-8601 datetime; inclusive lower bound on the change time.
+        object_type  Comma-separated source keys (task, sprint, risk, dependency,
+                     project, task_recurrence, guardrail_policy,
+                     signal_privacy_policy, decisions_policy). Default: all.
+        change_type  Comma-separated: created, updated, deleted. Default: all.
+        user         A history_user id (Owner/Admin only; ignored otherwise).
+        cursor       Opaque keyset cursor from a prior response's ``next_cursor``.
+        page_size    1..100 (default 50).
+    """
+
+    # IsProjectNotArchived is deliberately omitted: history is a read-only audit
+    # surface that must stay accessible after a project is archived (matching the
+    # per-object history views above).
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    @extend_schema(
+        summary="Unified project changelog (aggregated, filterable, cursor-paginated)",
+        parameters=[
+            OpenApiParameter(
+                "since", str, description="Inclusive ISO-8601 lower bound on the change time."
+            ),
+            OpenApiParameter(
+                "object_type",
+                str,
+                description=(
+                    "Comma-separated source keys: "
+                    f"{', '.join(changelog.object_type_choices())}. Default: all."
+                ),
+            ),
+            OpenApiParameter(
+                "change_type",
+                str,
+                description="Comma-separated change types: created, updated, deleted.",
+            ),
+            OpenApiParameter(
+                "user", str, description="Filter to one history_user id (Owner/Admin only)."
+            ),
+            OpenApiParameter(
+                "cursor",
+                str,
+                description=(
+                    "Opaque keyset cursor from a prior response's next_cursor. "
+                    "Stable across concurrent writes; persistable; 400 if malformed."
+                ),
+            ),
+            OpenApiParameter("page_size", int, description="Page size (1..100, default 50)."),
+        ],
+        responses={200: OpenApiResponse(ChangelogResponseSerializer)},
+    )
+    def get(self, request: Request, project_pk: str) -> Response:
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        since = self._parse_since(request.query_params.get("since"))
+        object_types = self._parse_object_types(request.query_params.get("object_type"))
+        change_types = self._parse_change_types(request.query_params.get("change_type"))
+        page_size = self._parse_page_size(request.query_params.get("page_size"))
+
+        cursor_raw = request.query_params.get("cursor")
+        cursor = changelog.ChangelogCursor.decode(cursor_raw) if cursor_raw else None
+
+        # history_user visibility gates both the field and the user= filter: only
+        # Owner/Admin may see who made a change, so only they may filter by it.
+        hide_user = not _caller_can_see_user(request, project)
+        user_id = None if hide_user else self._parse_user(request.query_params.get("user"))
+
+        entries, next_cursor = changelog.build_project_changelog(
+            project,
+            diff_fn=_compute_diffs,
+            cursor=cursor,
+            since=since,
+            object_types=object_types,
+            change_types=change_types,
+            user_id=user_id,
+            page_size=page_size,
+        )
+
+        serializer = ChangelogResponseSerializer(
+            {
+                "results": entries,
+                "next_cursor": next_cursor.encode() if next_cursor is not None else None,
+            },
+            context={"hide_user": hide_user},
+        )
+        return Response(serializer.data)
+
+    @staticmethod
+    def _parse_user(raw: str | None) -> int | None:
+        # The user model's PK is an integer AutoField, so a non-integer value must
+        # yield a clean 400 rather than a 500 when the ORM casts it at query time.
+        if not raw:
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as err:
+            raise DRFValidationError({"user": "Must be a user id (integer)."}) from err
+
+    @staticmethod
+    def _parse_since(raw: str | None) -> Any:
+        if not raw:
+            return None
+        parsed = parse_datetime(raw)
+        if parsed is None:
+            raise DRFValidationError({"since": f"Invalid datetime '{raw}' (expected ISO 8601)."})
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed
+
+    @staticmethod
+    def _parse_object_types(raw: str | None) -> set[str] | None:
+        if not raw:
+            return None
+        requested = {t.strip() for t in raw.split(",") if t.strip()}
+        valid = set(changelog.object_type_choices())
+        unknown = requested - valid
+        if unknown:
+            raise DRFValidationError(
+                {"object_type": f"Unknown object type(s): {', '.join(sorted(unknown))}."}
+            )
+        return requested
+
+    @staticmethod
+    def _parse_change_types(raw: str | None) -> set[str] | None:
+        if not raw:
+            return None
+        requested = {t.strip() for t in raw.split(",") if t.strip()}
+        unknown = requested - changelog.CHANGE_TYPES
+        if unknown:
+            raise DRFValidationError(
+                {"change_type": f"Unknown change type(s): {', '.join(sorted(unknown))}."}
+            )
+        return requested
+
+    @staticmethod
+    def _parse_page_size(raw: str | None) -> int:
+        if not raw:
+            return changelog.DEFAULT_PAGE_SIZE
+        try:
+            return int(raw)
+        except (TypeError, ValueError) as err:
+            raise DRFValidationError({"page_size": "Must be an integer."}) from err

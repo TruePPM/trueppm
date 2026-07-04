@@ -61,6 +61,11 @@ const RiskRegisterView = lazy(() =>
 const ReportsView = lazy(() =>
   import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })),
 );
+const ProjectActivityPage = lazy(() =>
+  import('@/features/project/activity/ProjectActivityPage').then((m) => ({
+    default: m.ProjectActivityPage,
+  })),
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
@@ -376,6 +381,14 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                path: 'activity',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectActivityPage />
+                  </Suspense>
+                ),
+              },
+              {
                 // Consolidated single scrolling page (ADR-0146, #1248). The shell
                 // renders every section inline on one mounted page (no Outlet).
                 path: 'settings',
@@ -595,7 +608,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          // Trash (issue 1113, ADR-0199) — recoverable soft-deleted projects. Renders its
+          // Trash (issue 1113, ADR-0202) — recoverable soft-deleted projects. Renders its
           // own SettingsShell (like the System Health area). Any member may view; the
           // per-row Restore is Owner-gated by the API.
           {

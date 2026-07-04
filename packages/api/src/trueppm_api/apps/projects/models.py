@@ -233,7 +233,7 @@ class VersionedModel(models.Model):
         the offline sync pull splits rows into 'updated' (live) vs 'deleted' buckets
         purely on the current ``is_deleted`` value, gated by ``server_version__gt=since``
         — so a restored row re-materializes on the client's next delta without any
-        special-casing (ADR-0199). A row being restored was, by definition, loaded from
+        special-casing (ADR-0202). A row being restored was, by definition, loaded from
         the DB, so the UPDATE path is known — skip the exists() probe.
         """
         self.is_deleted = False
@@ -1185,7 +1185,7 @@ class Project(VersionedModel):
 
         Like ``soft_delete``, this method deliberately does NOT cascade to children —
         the restore endpoint calls :func:`cascade_project_children_restore` inside the
-        same atomic transaction so the whole restore is all-or-nothing (ADR-0199).
+        same atomic transaction so the whole restore is all-or-nothing (ADR-0202).
         """
         self.deleted_at = None
         self.deleted_by = None
@@ -1193,14 +1193,14 @@ class Project(VersionedModel):
 
 
 def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None:
-    """Un-tombstone every child of a soft-deleted project (#1113, ADR-0199).
+    """Un-tombstone every child of a soft-deleted project (#1113, ADR-0202).
 
     The inverse of :func:`cascade_project_children_soft_delete`. Restores **all**
     currently-tombstoned children of the project — tasks, dependency edges, sprints,
     baselines, and risks — bumping ``server_version`` on each so sync clients
     re-materialize them.
 
-    Restore-all is deliberate (ADR-0199 §3): ``server_version``/``deleted_version`` are
+    Restore-all is deliberate (ADR-0202 §3): ``server_version``/``deleted_version`` are
     per-row counters, not a global clock, so there is no reliable cross-row marker to
     distinguish "tombstoned by this project's delete cascade" from "individually deleted
     by the user earlier". Once a project is tombstoned it is invisible and write-locked,

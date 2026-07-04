@@ -2,7 +2,7 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * Trash + restore for soft-deleted projects (#1113, ADR-0199).
+ * Trash + restore for soft-deleted projects (#1113, ADR-0202).
  *
  * Golden path: a soft-deleted project appears in Workspace → Trash and can be
  * restored, firing the restore endpoint and a success toast. Plus the empty state.

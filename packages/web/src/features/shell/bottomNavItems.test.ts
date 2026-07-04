@@ -39,6 +39,26 @@ describe('selectMobileNav', () => {
     expect(new Set([...primary, ...overflow])).toEqual(new Set(reachable));
   });
 
+  it('routes the Activity view to overflow rather than dropping it (issue 371)', () => {
+    // Activity is in CANONICAL_VIEW_ORDER so it must never fall out of the mobile
+    // nav — a view absent from that list is silently dropped (the pre-1464 bug).
+    expect(CANONICAL_VIEW_ORDER).toContain('activity');
+    const reachable = [
+      'overview',
+      'today',
+      'board',
+      'schedule',
+      'grid',
+      'risk',
+      'reports',
+      'activity',
+      'settings',
+    ];
+    const { primary, overflow } = selectMobileNav(reachable, 'WATERFALL');
+    expect(new Set([...primary, ...overflow])).toEqual(new Set(reachable));
+    expect(overflow).toContain('activity');
+  });
+
   it('always leads with overview then today (issue 1324 — Today is never buried)', () => {
     const reachable = [
       'overview',
