@@ -54,4 +54,4 @@ A couple of related surfaces are planned for a later release and are not part of
 - **Accepting a proposed cross-project dependency** from the program schedule. For now, accept pending links on the affected project.
 - **Surfacing slip conflicts inside this view** — slip conflicts are detected and acknowledgeable through the API today; drawing them on the program timeline (and a sprint-header badge) is planned for a later release.
 
-See [cross-project dependencies](/features/programs/) for how the underlying links are created and accepted.
+See [Creating a dependency](/features/schedule/#creating-a-dependency) for how the underlying links are created, and "accept pending links on the affected project" above for how a downstream team accepts one.

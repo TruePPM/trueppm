@@ -72,6 +72,7 @@ function renderTab(
   taskId = 'task-b',
   links: TaskLink[] = [],
   tasks: Task[] = [TASK_A, TASK_B],
+  programId: string | null = null,
 ) {
   const task = tasks.find((t) => t.id === taskId) ?? TASK_B;
   return renderWithProviders(
@@ -80,6 +81,7 @@ function renderTab(
       tasks={tasks}
       links={links}
       projectId="proj-1"
+      programId={programId}
     />,
   );
 }
@@ -211,5 +213,52 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
 
     const alert = screen.getByRole('alert');
     expect(alert.textContent).toMatch(/Try again/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-project search link (ADR-0120) — the inline dropdowns only ever list
+// this project's tasks, so a program task is reachable only through the
+// ScheduleDependencyPicker modal opened by this link.
+// ---------------------------------------------------------------------------
+
+describe('cross-project search link', () => {
+  it('is absent for a standalone project (no programId)', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B], null);
+    expect(
+      screen.queryByRole('button', { name: /Search another project in this program/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders once per section when the project belongs to a program', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B], 'prog-1');
+    expect(
+      screen.getAllByRole('button', { name: /Search another project in this program/ }),
+    ).toHaveLength(2);
+  });
+
+  it('opens the ScheduleDependencyPicker landed on Program scope', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B], 'prog-1');
+    const [predLink] = screen.getAllByRole('button', {
+      name: /Search another project in this program/,
+    });
+    fireEvent.click(predLink);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Program', selected: true })).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText('Search tasks in this program…'),
+    ).toBeInTheDocument();
+  });
+
+  it('closes the picker and returns to the inline dropdowns', () => {
+    renderTab('task-b', [], [TASK_A, TASK_B], 'prog-1');
+    const [predLink] = screen.getAllByRole('button', {
+      name: /Search another project in this program/,
+    });
+    fireEvent.click(predLink);
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
