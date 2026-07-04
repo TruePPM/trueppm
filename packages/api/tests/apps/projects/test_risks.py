@@ -931,3 +931,100 @@ class TestRiskShortId:
         # server_version bumped so sync clients re-pull the corrected ids.
         for r in Risk.objects.filter(project=project):
             assert r.server_version == versions_before[r.pk] + 1
+
+
+# ---------------------------------------------------------------------------
+# Risk link/unlink activity events (ADR-0207, #1604)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRiskLinkActivityEvents:
+    """RiskViewSet emits risk_linked / risk_unlinked TaskActivityEvent rows.
+
+    The RiskTask through-table has no timestamp or actor, so link/unlink is
+    captured on each affected task's activity feed with the acting member.
+    """
+
+    def test_create_with_tasks_emits_risk_linked(
+        self,
+        client: APIClient,
+        user: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {"title": "Vendor slip", "probability": 3, "impact": 4, "tasks": [str(task.id)]},
+            format="json",
+        )
+        assert r.status_code == 201
+        ev = TaskActivityEvent.objects.filter(task=task, event_type="risk_linked").first()
+        assert ev is not None
+        assert ev.actor_id == user.pk  # actor is the creator, not null
+        assert ev.detail["risk_id"] == r.data["id"]
+
+    def test_update_diffs_links_into_linked_and_unlinked(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from datetime import date
+
+        from trueppm_api.apps.projects.models import Task as TaskModel
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {"title": "Slip", "probability": 2, "impact": 2, "tasks": [str(task.id)]},
+            format="json",
+        )
+        assert r.status_code == 201
+        risk_id = r.data["id"]
+        other = TaskModel.objects.create(
+            project=project,
+            name="Other work",
+            duration=5,
+            early_start=date(2026, 4, 1),
+            early_finish=date(2026, 4, 6),
+        )
+        # Swap the link: drop `task`, add `other`.
+        u = client.patch(
+            f"/api/v1/projects/{project.pk}/risks/{risk_id}/",
+            {"tasks": [str(other.id)]},
+            format="json",
+        )
+        assert u.status_code == 200
+        assert TaskActivityEvent.objects.filter(task=task, event_type="risk_unlinked").exists()
+        assert TaskActivityEvent.objects.filter(task=other, event_type="risk_linked").count() == 1
+
+    def test_update_without_link_change_emits_nothing(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {"title": "Slip", "probability": 2, "impact": 2, "tasks": [str(task.id)]},
+            format="json",
+        )
+        assert r.status_code == 201
+        risk_id = r.data["id"]
+        count_before = TaskActivityEvent.objects.count()
+        # Title-only PATCH leaves the linked-task set untouched → no new events.
+        u = client.patch(
+            f"/api/v1/projects/{project.pk}/risks/{risk_id}/",
+            {"title": "Slip (revised)"},
+            format="json",
+        )
+        assert u.status_code == 200
+        assert TaskActivityEvent.objects.count() == count_before

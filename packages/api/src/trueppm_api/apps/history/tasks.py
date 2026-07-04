@@ -24,7 +24,7 @@ def _history_purge_counts(
     yields an empty dict. ``override_value`` forces a hypothetical window.
     """
     from trueppm_api.apps.observability.retention import resolve_retention
-    from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskActivityEvent
 
     retention_days = (
         override_value
@@ -39,6 +39,13 @@ def _history_purge_counts(
     for model in (Project, Task, Dependency):
         qs = model.history.filter(history_date__lt=cutoff)
         totals[model.__name__] = qs.count() if dry_run else qs.delete()[0]
+    # TaskActivityEvent (ADR-0207) is an append-only per-task audit source backing
+    # the same activity feed as the diff history, so it ages out on the SAME
+    # HISTORY_RETENTION_DAYS window — keeping the feed's two row sources consistent
+    # and bounding the cpm_recalculated growth that a busy schedule generates. It is
+    # a plain model (no simple-history), so it is keyed on created_at.
+    activity_qs = TaskActivityEvent.objects.filter(created_at__lt=cutoff)
+    totals["TaskActivityEvent"] = activity_qs.count() if dry_run else activity_qs.delete()[0]
     return totals
 
 

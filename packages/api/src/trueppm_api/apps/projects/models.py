@@ -4790,6 +4790,71 @@ class TaskDurationChangeEvent(models.Model):
         )
 
 
+class TaskActivityEventType(models.TextChoices):
+    """Event types persisted in :class:`TaskActivityEvent` (ADR-0207, #1604)."""
+
+    CPM_RECALCULATED = "cpm_recalculated", "CPM Recalculated"
+    BASELINE_DRIFT_DETECTED = "baseline_drift_detected", "Baseline Drift Detected"
+    RISK_LINKED = "risk_linked", "Risk Linked"
+    RISK_UNLINKED = "risk_unlinked", "Risk Unlinked"
+
+
+class TaskActivityEvent(models.Model):
+    """Append-only per-task source for schedule-shift and risk-link events (ADR-0207, #1604).
+
+    Plain ``models.Model`` (not ``VersionedModel``) — like ``TaskDurationChangeEvent``
+    these are audit rows, never synced to mobile. Each row backs one of the three
+    ``?include=`` activity-feed event types (issue #413) that previously had no OSS
+    per-task source and so were deliberately skipped:
+
+    * ``cpm_recalculated`` — CPM writes only the history-excluded ``early_*`` /
+      ``late_*`` fields via ``bulk_update`` (see ``scheduling.tasks``), so a recompute
+      leaves no HistoricalTask row; this model records the shift instead.
+    * ``baseline_drift_detected`` — drift was computed on the fly and never persisted;
+      one row is written the moment a task crosses from within-baseline to drifted.
+    * ``risk_linked`` / ``risk_unlinked`` — the ``RiskTask`` through-table carries no
+      timestamp, actor, or unlink record, so the link/unlink is captured here.
+
+    ``detail`` holds the ``{event_type, actor, timestamp, detail}`` feed row's ``detail``
+    payload verbatim (its shape varies by ``event_type`` — see the emit sites). ``actor``
+    is null for system events (CPM writeback and baseline-drift crossings run in Celery
+    with no request user); it is the acting member for risk link/unlink.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="activity_events")
+    # SET_NULL (not CASCADE): the audit row must outlive the actor's account deletion.
+    # Null for system sources (cpm_recalculated, baseline_drift_detected).
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="The member who caused the event. NULL for system events (CPM/baseline).",
+    )
+    event_type = models.CharField(max_length=32, choices=TaskActivityEventType.choices)
+    detail = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "projects_task_activity_event"
+        ordering = ["-created_at"]
+        indexes = [
+            # Serves the per-task, per-token newest-first read in
+            # views._build_activity_events, which always filters event_type__in for
+            # a token (schedule / risks). event_type sits between task and the sort
+            # key so each token's subset is an index range scan, not a full-task scan
+            # of a table dominated by cpm_recalculated rows.
+            models.Index(
+                fields=["task", "event_type", "-created_at"], name="task_activity_evt_idx"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"TaskActivityEvent(task={self.task_id} {self.event_type})"
+
+
 # ---------------------------------------------------------------------------
 # Task collaboration — ADR-0075
 #   TaskAttachment, TaskComment, CommentAcknowledgement, CommentReaction

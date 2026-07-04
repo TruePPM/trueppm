@@ -62,6 +62,8 @@ that merges non-diff activity into the same feed:
 | `comments` | `comment_added`, `comment_edited`, `comment_deleted` |
 | `time` | `time_logged` (scoped to your own entries) |
 | `attachments` | `attachment_uploaded` |
+| `schedule` | `cpm_recalculated`, `baseline_drift_detected` (system events, `actor` is `null`) |
+| `risks` | `risk_linked`, `risk_unlinked` |
 | `all` | all of the above |
 
 Without `?include`, the response is unchanged. With it, every entry — including
@@ -69,6 +71,13 @@ field-diff changes — carries a consistent `{event_type, actor, timestamp, deta
 shape, and `actor` is `null` for authorless or system-generated events. Time-log
 events are deliberately limited to the requesting user's own entries, matching the
 privacy boundary of the time-tracking endpoints.
+
+The `schedule` events are written by the CPM engine: a `cpm_recalculated` row is
+recorded whenever a recompute moves a task's early/late dates, and a
+`baseline_drift_detected` row the moment a task first crosses past its active
+baseline finish. Both are system-generated, so their `actor` is `null`. The `risks`
+events record when a risk is linked to or unlinked from the task, with the acting
+member as `actor`.
 
 ## Retention
 

@@ -190,6 +190,25 @@ class TestPurgeTask:
         assert result["status"] == "skipped"
         assert task.history.count() == count_before  # type: ignore[attr-defined]
 
+    def test_purges_task_activity_events_older_than_retention(self, task: Task) -> None:
+        """TaskActivityEvent (ADR-0207) ages out on the same HISTORY window."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        old = TaskActivityEvent.objects.create(task=task, event_type="cpm_recalculated")
+        recent = TaskActivityEvent.objects.create(task=task, event_type="risk_linked")
+        # created_at is auto_now_add — backdate the first past the window via update().
+        TaskActivityEvent.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=91)
+        )
+
+        with patch("django.conf.settings.HISTORY_RETENTION_DAYS", 90):
+            result = purge_old_history_records()
+
+        assert result["status"] == "ok"
+        assert result["deleted"]["TaskActivityEvent"] >= 1
+        assert not TaskActivityEvent.objects.filter(pk=old.pk).exists()
+        assert TaskActivityEvent.objects.filter(pk=recent.pk).exists()
+
 
 # ---------------------------------------------------------------------------
 # Task history API
@@ -782,3 +801,106 @@ class TestTaskActivityInclude:
         results = r.data["results"]
         assert all(e["event_type"] in {"task_created", "fields_changed"} for e in results)
         assert all("event_type" in e and "actor" in e for e in results)
+
+    # --- schedule + risks tokens (ADR-0207, #1604) ---
+
+    def test_schedule_token_surfaces_system_events_with_null_actor(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """?include=schedule surfaces cpm_recalculated + baseline_drift_detected, actor null."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=None,
+            event_type="cpm_recalculated",
+            detail={"early_finish": {"from": "2026-01-01", "to": "2026-01-05"}},
+        )
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=None,
+            event_type="baseline_drift_detected",
+            detail={"drift_days": 4, "baseline_finish": "2026-01-01"},
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=schedule"
+        )
+        assert r.status_code == 200
+        by_type = {e.get("event_type"): e for e in r.data["results"]}
+        assert "cpm_recalculated" in by_type
+        assert "baseline_drift_detected" in by_type
+        # System events carry a null actor and pass detail through verbatim.
+        assert by_type["cpm_recalculated"]["actor"] is None
+        assert by_type["cpm_recalculated"]["detail"]["early_finish"]["to"] == "2026-01-05"
+        assert by_type["baseline_drift_detected"]["detail"]["drift_days"] == 4
+
+    def test_risks_token_surfaces_link_events_with_actor(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """?include=risks surfaces risk_linked / risk_unlinked with the acting member."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=owner,
+            event_type="risk_linked",
+            detail={"risk_id": "r1", "risk_short_id": "R-1", "risk_title": "Vendor slip"},
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=risks"
+        )
+        assert r.status_code == 200
+        linked = [e for e in r.data["results"] if e.get("event_type") == "risk_linked"]
+        assert linked
+        assert linked[0]["actor"]["display_name"] == "Owen"
+        assert linked[0]["detail"]["risk_short_id"] == "R-1"
+
+    def test_schedule_token_excludes_risk_events(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Each token selects only its own event_type subset (no cross-leak)."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(task=task, actor=None, event_type="cpm_recalculated")
+        TaskActivityEvent.objects.create(task=task, actor=owner, event_type="risk_linked")
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=schedule"
+        )
+        assert r.status_code == 200
+        types = {e.get("event_type") for e in r.data["results"]}
+        assert "cpm_recalculated" in types
+        assert "risk_linked" not in types
+
+    def test_new_tokens_are_valid_and_backward_compatible(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """schedule/risks tokens validate; absent-include stays byte-identical."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(task=task, actor=None, event_type="cpm_recalculated")
+        combined = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=schedule,risks"
+        )
+        assert combined.status_code == 200
+        # Without include, the new rows never leak into the legacy diff feed.
+        legacy = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert legacy.status_code == 200
+        assert all("event_type" not in rec for rec in legacy.data["results"])

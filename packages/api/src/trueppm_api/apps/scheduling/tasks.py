@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Any
 
 import redis as redis_lib
@@ -499,6 +499,107 @@ branch is reached whenever a project carries more than ~500 schedulable tasks.
 """
 
 
+# Per-task schedule-shift activity events (ADR-0207, #1604). The CPM writeback
+# persists only the history-excluded early_*/late_* fields via bulk_update, so a
+# recompute leaves no per-task audit row; these helpers emit one instead.
+def _active_baseline_finishes(project_ids: list[Any]) -> dict[str, tuple[str, date]]:
+    """Return ``{task_id: (baseline_id, baseline_finish)}`` for each project's active baseline.
+
+    One entry per snapshotted task with a non-null finish, drawn from the single
+    active baseline per project (enforced by a DB unique constraint). Two indexed
+    queries; empty and cheap when no project in ``project_ids`` has an active
+    baseline, so the drift check adds no cost to the common no-baseline recalc.
+    """
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+    baseline_ids = list(
+        Baseline.objects.filter(
+            project_id__in=project_ids, is_active=True, is_deleted=False
+        ).values_list("id", flat=True)
+    )
+    if not baseline_ids:
+        return {}
+    finishes: dict[str, tuple[str, date]] = {}
+    for row in BaselineTask.objects.filter(
+        baseline_id__in=baseline_ids, finish__isnull=False
+    ).values("task_id", "finish", "baseline_id"):
+        finish = row["finish"]
+        if finish is None:  # narrows the nullable DateField for mypy; excluded by the filter
+            continue
+        finishes[str(row["task_id"])] = (str(row["baseline_id"]), finish)
+    return finishes
+
+
+def _build_schedule_shift_events(
+    tasks_to_update: list[Any],
+    old_dates: dict[str, tuple[Any, Any, Any, Any]],
+    baseline_finishes: dict[str, tuple[str, date]],
+) -> list[Any]:
+    """Build ``TaskActivityEvent`` rows for CPM recomputes and baseline-drift crossings.
+
+    ``old_dates`` maps a task id to its ``(early_start, early_finish, late_start,
+    late_finish)`` captured *before* the writeback loop overwrote the in-memory Task
+    fields, so a move is detected by comparing against the now-mutated values. A
+    ``cpm_recalculated`` row is emitted for every task whose four CPM dates changed;
+    a ``baseline_drift_detected`` row is emitted only on the transition *into* drift
+    (was within baseline, now past it) so a persistently-drifted task does not
+    re-fire every recalc. Actor is null — CPM runs in Celery with no request user.
+    """
+    from trueppm_api.apps.projects.models import TaskActivityEvent
+
+    def _iso(value: Any) -> str | None:
+        return value.isoformat() if value is not None else None
+
+    events: list[Any] = []
+    for t in tasks_to_update:
+        tid = str(t.id)
+        old = old_dates.get(tid)
+        if old is None:
+            continue
+        old_es, old_ef, old_ls, old_lf = old
+        if (
+            old_es != t.early_start
+            or old_ef != t.early_finish
+            or old_ls != t.late_start
+            or old_lf != t.late_finish
+        ):
+            events.append(
+                TaskActivityEvent(
+                    task_id=t.id,
+                    actor=None,
+                    event_type="cpm_recalculated",
+                    detail={
+                        "early_start": {"from": _iso(old_es), "to": _iso(t.early_start)},
+                        "early_finish": {"from": _iso(old_ef), "to": _iso(t.early_finish)},
+                        "late_start": {"from": _iso(old_ls), "to": _iso(t.late_start)},
+                        "late_finish": {"from": _iso(old_lf), "to": _iso(t.late_finish)},
+                        "total_float": t.total_float,
+                        "is_critical": t.is_critical,
+                    },
+                )
+            )
+        baseline = baseline_finishes.get(tid)
+        if baseline is not None:
+            baseline_id, baseline_finish = baseline
+            was_drifted = old_ef is not None and old_ef > baseline_finish
+            is_drifted = t.early_finish is not None and t.early_finish > baseline_finish
+            if is_drifted and not was_drifted:
+                events.append(
+                    TaskActivityEvent(
+                        task_id=t.id,
+                        actor=None,
+                        event_type="baseline_drift_detected",
+                        detail={
+                            "baseline_id": baseline_id,
+                            "baseline_finish": baseline_finish.isoformat(),
+                            "early_finish": t.early_finish.isoformat(),
+                            "drift_days": (t.early_finish - baseline_finish).days,
+                        },
+                    )
+                )
+    return events
+
+
 def _build_children_map(db_tasks: list[Any]) -> dict[str, list[str]]:
     """Map each summary task's id to its direct children's ids via the WBS hierarchy.
 
@@ -556,6 +657,7 @@ def _run_schedule(
         EstimationMode,
         Project,
         Task,
+        TaskActivityEvent,
         TaskType,
     )
     from trueppm_api.apps.scheduling.services import (
@@ -701,10 +803,19 @@ def _run_schedule(
     # deltas on every schedule recalc — including ones triggered by their own
     # edits. Do NOT change this to save() without understanding that consequence.
     tasks_to_update: list[Task] = []
+    # Snapshot each task's CPM dates before the writeback overwrites them, so
+    # _build_schedule_shift_events can tell which tasks actually moved (ADR-0207).
+    old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     for db_task in db_tasks:
         sched = result_map.get(str(db_task.id))
         if sched is None:
             continue
+        old_cpm_dates[str(db_task.id)] = (
+            db_task.early_start,
+            db_task.early_finish,
+            db_task.late_start,
+            db_task.late_finish,
+        )
         db_task.early_start = sched.early_start
         db_task.early_finish = sched.early_finish
         db_task.late_start = sched.late_start
@@ -786,6 +897,13 @@ def _run_schedule(
     if _escalate_to_program(project_id, db_project.program_id):
         return
 
+    # Per-task schedule-shift activity events (ADR-0207, #1604), built from the
+    # mutated in-memory tasks and the project's active baseline. Written inside the
+    # same atomic block as the writeback so they commit or roll back with it.
+    schedule_shift_events = _build_schedule_shift_events(
+        tasks_to_update, old_cpm_dates, _active_baseline_finishes([project_id])
+    )
+
     with transaction.atomic():
         Task.objects.bulk_update(
             tasks_to_update,
@@ -801,6 +919,11 @@ def _run_schedule(
             ],
             batch_size=_WRITEBACK_BATCH_SIZE,
         )
+
+        if schedule_shift_events:
+            TaskActivityEvent.objects.bulk_create(
+                schedule_shift_events, batch_size=_WRITEBACK_BATCH_SIZE
+            )
 
         # Mark the outbox row done so the drain task knows this project is clean.
         # Filter on status=dispatched to avoid racing with the drain during orphan
@@ -978,7 +1101,7 @@ def _run_program_schedule(program_id: str) -> None:
     from django.db import transaction
     from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Program, Project, Task
+    from trueppm_api.apps.projects.models import Program, Project, Task, TaskActivityEvent
     from trueppm_api.apps.projects.program_schedule import gather_program_schedule
     from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
@@ -1012,6 +1135,8 @@ def _run_program_schedule(program_id: str) -> None:
 
     now = timezone.now()
     tasks_to_update: list[Task] = []
+    # Snapshot CPM dates before overwrite, for the schedule-shift events (ADR-0207).
+    old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     if graph.result is not None:
         result_map = graph.result_map
         # Roll summary dates up from leaves through the shared helper (parity with
@@ -1026,6 +1151,12 @@ def _run_program_schedule(program_id: str) -> None:
             sched = result_map.get(str(db_task.id))
             if sched is None:
                 continue
+            old_cpm_dates[str(db_task.id)] = (
+                db_task.early_start,
+                db_task.early_finish,
+                db_task.late_start,
+                db_task.late_finish,
+            )
             db_task.early_start = sched.early_start
             db_task.early_finish = sched.early_finish
             db_task.late_start = sched.late_start
@@ -1049,10 +1180,21 @@ def _run_program_schedule(program_id: str) -> None:
     # project's cpm_complete expect that project's critical ids).
     crit_order = list(graph.result.critical_path) if graph.result is not None else []
 
+    # Per-task schedule-shift activity events across every member project (ADR-0207),
+    # keyed off each project's own active baseline for the drift crossings.
+    schedule_shift_events = _build_schedule_shift_events(
+        tasks_to_update, old_cpm_dates, _active_baseline_finishes(member_ids)
+    )
+
     with transaction.atomic():
         if tasks_to_update:
             Task.objects.bulk_update(
                 tasks_to_update, _PROGRAM_WRITE_FIELDS, batch_size=_WRITEBACK_BATCH_SIZE
+            )
+
+        if schedule_shift_events:
+            TaskActivityEvent.objects.bulk_create(
+                schedule_shift_events, batch_size=_WRITEBACK_BATCH_SIZE
             )
 
         # Coalesce: mark exactly the claimed member outbox rows done (DISPATCHED →
