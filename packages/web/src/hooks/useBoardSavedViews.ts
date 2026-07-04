@@ -1,10 +1,14 @@
 /**
- * Fetches and mutates the per-project board saved views (issue #191).
+ * Fetches and mutates the per-project board saved views (issue issue 191).
  * Translates API snake_case config keys to camelCase for consumers.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { EvmMode } from '@/features/board/BoardCard';
+import {
+  SURFACE_BOARD_SAVED_VIEW,
+  migratePayload,
+} from '@/lib/schemaMigrations';
 
 // Sortable fields available on the board toolbar.
 export type BoardSortKey = 'priority' | 'start_date' | 'percent_complete';
@@ -32,6 +36,8 @@ export interface BoardSavedView {
   id: string;
   name: string;
   config: BoardViewConfig;
+  /** Shape version of config (ADR-0086); upgraded on read via the migration registry. */
+  schemaVersion: number;
   createdBy: string | null;
   serverVersion: number;
   createdAt: string;
@@ -52,6 +58,7 @@ interface ApiSavedView {
   id: string;
   name: string;
   config: ApiViewConfig;
+  schema_version?: number;
   created_by: string | null;
   server_version: number;
   created_at: string;
@@ -59,17 +66,28 @@ interface ApiSavedView {
 }
 
 function fromApi(v: ApiSavedView): BoardSavedView {
+  // Dispatch the incoming config through the forward-migration registry
+  // (ADR-0086). The API already upgrades on read, so this is a no-op in
+  // practice — but it is the single read path per the mirrored-registry
+  // contract and it covers any future web-only persisted board state.
+  const { payload, version } = migratePayload(
+    SURFACE_BOARD_SAVED_VIEW,
+    v.config as unknown as Record<string, unknown>,
+    v.schema_version,
+  );
+  const c = payload as unknown as ApiViewConfig;
   return {
     id: v.id,
     name: v.name,
     config: {
-      sort: v.config.sort,
-      showWip: v.config.show_wip,
-      showColTints: v.config.show_col_tints,
-      evmMode: v.config.evm_mode,
-      showCost: v.config.show_cost,
-      riskLinkedOnly: v.config.risk_linked_only,
+      sort: c.sort,
+      showWip: c.show_wip,
+      showColTints: c.show_col_tints,
+      evmMode: c.evm_mode,
+      showCost: c.show_cost,
+      riskLinkedOnly: c.risk_linked_only,
     },
+    schemaVersion: version,
     createdBy: v.created_by,
     serverVersion: v.server_version,
     createdAt: v.created_at,

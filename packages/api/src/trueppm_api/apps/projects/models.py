@@ -2748,6 +2748,16 @@ class BoardSavedView(models.Model):
         evm_mode:        "off" | "spi" | "cpi" | "both"
         show_cost:       bool
         risk_linked_only: bool
+
+    schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0204). On read,
+    ``BoardSavedViewSerializer`` runs the payload through the forward-migration
+    registry (``schema_migrations.migrate_payload``) keyed on this column, so a
+    stale payload is upgraded to the current shape before any client sees it.
+    Rows created before this field existed are backfilled to ``schema_version=1``
+    by the migration default; they already passed through ``validate_config`` on
+    their last write, so they are at the current 6-key shape and the chain is a
+    no-op. The ``v0`` path is defensive — reserved for payloads that never went
+    through ``validate_config`` (e.g. externally imported state).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -2758,6 +2768,10 @@ class BoardSavedView(models.Model):
     )
     name = models.CharField(max_length=64)
     config = models.JSONField()
+    schema_version = models.IntegerField(
+        default=1,
+        help_text="Config shape version; upgraded on read via the migration registry (ADR-0086).",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -77,6 +77,10 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskStatus,
 )
+from trueppm_api.apps.projects.schema_migrations import (
+    SURFACE_BOARD_SAVED_VIEW,
+    migrate_payload,
+)
 from trueppm_api.apps.resources.models import TaskResource
 
 User = get_user_model()
@@ -4154,6 +4158,13 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     ranges. Unknown keys are dropped silently to allow forward-compatible
     extensions without breaking older clients.
 
+    On read, config is run through the forward-migration registry
+    (``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored
+    payload is upgraded to the current shape before any client sees it, and the
+    resolved ``schema_version`` is returned alongside. New writes are born at the
+    current version (the model column defaults to it), so the upgrade is a no-op
+    for them and only rewrites genuinely older rows.
+
     created_by is set automatically from request.user on create and is
     read-only thereafter.
     """
@@ -4162,6 +4173,30 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
 
     def get_created_by(self, obj: BoardSavedView) -> str | None:
         return str(obj.created_by_id) if obj.created_by_id else None
+
+    def to_representation(self, instance: BoardSavedView) -> dict[str, Any]:
+        """Upgrade the stored config to the current shape on read.
+
+        The stored payload's version is the model's ``schema_version`` column
+        (rows predating the convention carry the migration default of 1 and are
+        already at the current 6-key shape, so the chain is a no-op for them).
+        Passing it explicitly keeps the column as the single source of truth for
+        "which shape is this" rather than sniffing the payload.
+        """
+        data = super().to_representation(instance)
+        config = data.get("config")
+        if isinstance(config, dict):
+            upgraded, version = migrate_payload(
+                SURFACE_BOARD_SAVED_VIEW,
+                config,
+                from_version=instance.schema_version,
+            )
+            # schema_version is exposed as a sibling metadata field, not mixed
+            # into the config settings blob — keep config the clean settings keys.
+            upgraded.pop("schema_version", None)
+            data["config"] = upgraded
+            data["schema_version"] = version
+        return data
 
     def validate_config(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
@@ -4195,6 +4230,7 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
             "id",
             "name",
             "config",
+            "schema_version",
             "created_by",
             "server_version",
             "created_at",
@@ -4202,6 +4238,7 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
         ]
         read_only_fields = [
             "id",
+            "schema_version",
             "server_version",
             "created_by",
             "created_at",

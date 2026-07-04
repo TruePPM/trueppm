@@ -25367,7 +25367,7 @@
             },
             "BoardSavedView": {
                 "type": "object",
-                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\nOn read, config is run through the forward-migration registry\n(``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored\npayload is upgraded to the current shape before any client sees it, and the\nresolved ``schema_version`` is returned alongside. New writes are born at the\ncurrent version (the model column defaults to it), so the upgrade is a no-op\nfor them and only rewrites genuinely older rows.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -25379,6 +25379,11 @@
                         "maxLength": 64
                     },
                     "config": {},
+                    "schema_version": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Config shape version; upgraded on read via the migration registry (ADR-0086)."
+                    },
                     "created_by": {
                         "type": "string",
                         "nullable": true,
@@ -25405,13 +25410,14 @@
                     "created_by",
                     "id",
                     "name",
+                    "schema_version",
                     "server_version",
                     "updated_at"
                 ]
             },
             "BoardSavedViewRequest": {
                 "type": "object",
-                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\nOn read, config is run through the forward-migration registry\n(``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored\npayload is upgraded to the current shape before any client sees it, and the\nresolved ``schema_version`` is returned alongside. New writes are born at the\ncurrent version (the model column defaults to it), so the upgrade is a no-op\nfor them and only rewrites genuinely older rows.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -29587,7 +29593,7 @@
             },
             "PatchedBoardSavedViewRequest": {
                 "type": "object",
-                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
+                "description": "Read/write serializer for BoardSavedView.\n\nconfig is validated on write to enforce the known schema keys and value\nranges. Unknown keys are dropped silently to allow forward-compatible\nextensions without breaking older clients.\n\nOn read, config is run through the forward-migration registry\n(``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored\npayload is upgraded to the current shape before any client sees it, and the\nresolved ``schema_version`` is returned alongside. New writes are born at the\ncurrent version (the model column defaults to it), so the upgrade is a no-op\nfor them and only rewrites genuinely older rows.\n\ncreated_by is set automatically from request.user on create and is\nread-only thereafter.",
                 "properties": {
                     "name": {
                         "type": "string",
