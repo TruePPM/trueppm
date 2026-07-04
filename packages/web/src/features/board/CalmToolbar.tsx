@@ -277,6 +277,12 @@ export interface CalmToolbarProps {
   onDebtOnlyToggle: () => void;
   showCost: boolean;
   onShowCostToggle: () => void;
+  /**
+   * Board facet-filter control (issue 1091) — the trigger pill + its popover.
+   * Rendered as an opaque slot in the quiet-toggle cluster so the toolbar stays a
+   * dumb layout host and the facet state stays in BoardView.
+   */
+  filterControl?: ReactNode;
   // Activity feed panel toggle (ADR-0160, issue 1261)
   activityOpen: boolean;
   onToggleActivity: () => void;
@@ -597,6 +603,10 @@ export function CalmToolbar(props: CalmToolbarProps) {
       />
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+
+      {/* Facet filter control (issue 1091) — always visible; owns its own popover.
+          Sits with the filter-lens cluster (My tasks / At-risk). */}
+      {props.filterControl}
 
       {showQuietTogglesInline && (
         <>
