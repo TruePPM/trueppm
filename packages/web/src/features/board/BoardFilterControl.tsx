@@ -248,7 +248,7 @@ export function BoardFilterControl({
           aria-label="Board filters"
           data-testid="board-filter-panel"
           className="absolute top-full left-0 mt-1 z-30 w-[300px] max-w-[calc(100vw-2rem)]
-            rounded-card border border-neutral-border bg-neutral-surface shadow-lg
+            rounded-card border border-neutral-border bg-neutral-surface shadow-pop
             p-3 flex flex-col gap-3 max-h-[70vh] overflow-y-auto"
         >
           <div className="flex items-center justify-between">
