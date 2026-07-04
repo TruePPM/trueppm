@@ -2750,11 +2750,14 @@ class BoardSavedView(models.Model):
         risk_linked_only: bool
 
     schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0201). On read,
-    ``BoardSavedViewSerializer`` runs stale payloads through the forward-migration
-    registry (``schema_migrations.migrate_payload``) to upgrade them to the
-    current shape before any client sees them. Rows created before this field
-    existed have ``schema_version`` absent in ``config`` and are treated as
-    version 0 by the registry.
+    ``BoardSavedViewSerializer`` runs the payload through the forward-migration
+    registry (``schema_migrations.migrate_payload``) keyed on this column, so a
+    stale payload is upgraded to the current shape before any client sees it.
+    Rows created before this field existed are backfilled to ``schema_version=1``
+    by the migration default; they already passed through ``validate_config`` on
+    their last write, so they are at the current 6-key shape and the chain is a
+    no-op. The ``v0`` path is defensive — reserved for payloads that never went
+    through ``validate_config`` (e.g. externally imported state).
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
