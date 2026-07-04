@@ -97,3 +97,111 @@ def test_msproject_export_declares_xml_content(schema: dict) -> None:
     assert "application/xml" in content, (
         "msproject export must declare an application/xml 200 response body (#1381)."
     )
+
+
+# ---------------------------------------------------------------------------
+# SDK-quality guards (#1333)
+#
+# Operation summaries, meaningful tags, a global security scheme and 429
+# documentation are the facets a generated SDK keys off. They are filled
+# mechanically by the schema post-processing hook + custom AutoSchema
+# (trueppm_api.core.openapi), so these tests are ratchets: if the hook is
+# unwired or a facet regresses, coverage drops below threshold and CI fails.
+# ---------------------------------------------------------------------------
+
+_HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+
+
+def _operations(schema: dict) -> list[tuple[str, str, dict]]:
+    return [
+        (path, method, op)
+        for path, methods in schema["paths"].items()
+        for method, op in methods.items()
+        if method in _HTTP_METHODS
+    ]
+
+
+def test_summary_coverage_above_threshold(schema: dict) -> None:
+    """At least 95% of operations must carry a human `summary` (#1333).
+
+    Without a summary, SDK generators fall back to the raw operationId
+    (`v1_calendars_exceptions_create`) as the method doc, which is unusable. The
+    post-processing hook derives a summary for every operation, so coverage should
+    be ~100%; the 95% floor leaves headroom without letting a whole app regress to
+    bare operationIds.
+    """
+    ops = _operations(schema)
+    assert ops, "schema must expose operations"
+    with_summary = [op for _p, _m, op in ops if op.get("summary")]
+    coverage = len(with_summary) / len(ops)
+    assert coverage >= 0.95, (
+        f"operation summary coverage {coverage:.1%} is below the 95% floor "
+        f"({len(ops) - len(with_summary)} of {len(ops)} operations lack a summary). "
+        "The post-processing hook (trueppm_api.core.openapi.postprocess_openapi) "
+        "should derive one for every operation (#1333)."
+    )
+
+
+def test_no_operation_keeps_the_default_v1_tag(schema: dict) -> None:
+    """No operation may keep the meaningless default `v1` tag (#1333).
+
+    drf-spectacular tags every /api/v1/ path `v1` by default, collapsing a
+    generated client into one API class. The hook must reassign each to a resource
+    tag.
+    """
+    v1_tagged = [
+        f"{method.upper()} {path}"
+        for path, method, op in _operations(schema)
+        if "v1" in op.get("tags", [])
+    ]
+    assert not v1_tagged, "these operations still carry the default `v1` tag: " + ", ".join(
+        v1_tagged[:10]
+    )
+
+
+def test_top_level_tags_block_defines_every_used_tag(schema: dict) -> None:
+    """Every tag used by an operation must be described in the top-level block (#1333)."""
+    defined = {t["name"] for t in schema.get("tags", [])}
+    assert defined, "schema must declare a top-level `tags` block (#1333)."
+    used = {t for _p, _m, op in _operations(schema) for t in op.get("tags", [])}
+    missing = used - defined
+    assert not missing, f"tags used but not defined in the top-level block: {sorted(missing)}"
+
+
+def test_global_security_scheme_declared(schema: dict) -> None:
+    """A document-level `security` default advertises the baseline auth scheme (#1333)."""
+    security = schema.get("security")
+    assert security, "openapi.json must declare a top-level `security` requirement (#1333)."
+    schemes = {name for requirement in security for name in requirement}
+    assert {"jwtAuth", "cookieAuth"} <= schemes
+
+
+def test_public_endpoints_declare_empty_security(schema: dict) -> None:
+    """Unauthenticated endpoints must carry explicit `security: []` (#1333).
+
+    Without it a generated client attaches a (non-existent) credential to a public
+    call, or a consumer cannot tell the endpoint is open.
+    """
+    for path in ("/api/v1/health/", "/api/v1/edition/", "/api/v1/auth/token/"):
+        for _method, op in ((m, o) for m, o in schema["paths"][path].items() if m in _HTTP_METHODS):
+            assert op.get("security") == [], (
+                f"{path} must declare `security: []` (public endpoint, #1333)."
+            )
+
+
+def test_throttled_endpoints_document_429(schema: dict) -> None:
+    """Rate-limited endpoints must document the 429 response (#1333).
+
+    The custom AutoSchema injects a 429 wherever a view declares
+    `throttle_classes`; task-sync and acceptance-results are the canonical
+    integrator-facing throttled write paths.
+    """
+    for path in (
+        "/api/v1/projects/{id}/task-sync/",
+        "/api/v1/projects/{id}/acceptance-results/",
+        "/api/v1/ws/ticket/",
+    ):
+        op = schema["paths"][path]["post"]
+        assert "429" in op["responses"], (
+            f"{path} is throttled and must document a 429 response (#1333)."
+        )

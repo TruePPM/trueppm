@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any, cast
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers, status
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -79,8 +79,20 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
     idempotency_exempt = True
 
     @extend_schema(
+        summary="Issue a WebSocket connection ticket",
         responses={
-            200: OpenApiTypes.OBJECT,
+            200: inline_serializer(
+                name="WebSocketTicketResponse",
+                fields={
+                    "ticket": serializers.CharField(
+                        help_text="Single-use opaque ticket to pass as the "
+                        "`?ticket=` query parameter when opening the socket.",
+                    ),
+                    "expires_in": serializers.IntegerField(
+                        help_text="Seconds until the ticket expires.",
+                    ),
+                },
+            ),
         },
         description="Issue a single-use WebSocket connection ticket (ADR-0141).",
     )

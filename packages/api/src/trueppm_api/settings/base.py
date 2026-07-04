@@ -670,7 +670,9 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Custom AutoSchema documents a 429 response on rate-limited operations (#1333);
+    # throttling is a view attribute invisible to the schema post-processing hooks.
+    "DEFAULT_SCHEMA_CLASS": "trueppm_api.core.openapi.TruePPMAutoSchema",
     # Scoped throttles only. The "login" scope is consumed by the JWT
     # TokenObtainPairView (#770) to bound password-guessing on the auth
     # endpoint. Deliberately NOT a global DEFAULT_THROTTLE_CLASSES /
@@ -970,6 +972,77 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Meaningful top-level tag block (#1333). drf-spectacular defaults every
+    # /api/v1/ operation to the tag "v1", which collapses a generated client into a
+    # single API class. Defining tags here (plus the resource-tag assignment in the
+    # post-processing hook below) splits the SDK into ProjectsApi, SprintsApi,
+    # SchedulingApi, … the way an SDK consumer expects. Kept in lockstep with the
+    # tag-assignment map in trueppm_api.core.openapi (defined inline rather than
+    # imported: settings must not import DRF-dependent app code, which would force
+    # rest_framework's api_settings to cache before REST_FRAMEWORK is defined).
+    "TAGS": [
+        {
+            "name": "auth",
+            "description": "Authentication, login, token issuance and OIDC single sign-on.",
+        },
+        {
+            "name": "me",
+            "description": "The authenticated user's own account, credentials, timers and work.",
+        },
+        {
+            "name": "workspace",
+            "description": "Workspace-level settings, membership, invites and branding.",
+        },
+        {
+            "name": "projects",
+            "description": "Projects and their project-level views (overview, status, history).",
+        },
+        {
+            "name": "programs",
+            "description": "Programs — grouping of related projects managed by one PM.",
+        },
+        {
+            "name": "tasks",
+            "description": "Tasks, dependencies, milestones, acceptance criteria and task runs.",
+        },
+        {
+            "name": "scheduling",
+            "description": "CPM scheduling, baselines, Monte Carlo forecasts and slip analysis.",
+        },
+        {
+            "name": "sprints",
+            "description": "Sprints, backlog, velocity, retrospectives and agile ceremonies.",
+        },
+        {
+            "name": "resources",
+            "description": "Resources, skills, allocation, utilization and assignments.",
+        },
+        {"name": "calendars", "description": "Working calendars, exceptions and recurrence rules."},
+        {"name": "teams", "description": "Teams and team membership."},
+        {"name": "members", "description": "Project and program membership management."},
+        {
+            "name": "integrations",
+            "description": "External task sources, Git automation and personal credentials.",
+        },
+        {"name": "import-export", "description": "MS Project import/export and data exports."},
+        {"name": "webhooks", "description": "Outbound webhook subscriptions."},
+        {
+            "name": "sync",
+            "description": "Offline delta-sync protocol and WebSocket connection tickets.",
+        },
+        {"name": "workshops", "description": "Collaborative planning workshops."},
+        {
+            "name": "meta",
+            "description": "Deployment metadata, health probes and administrative endpoints.",
+        },
+    ],
+    # Fill SDK-quality facets (operation summaries, resource tags, global + public
+    # security) that per-view annotations leave thin. Runs after the built-in enum
+    # post-processor, which must be preserved (drf-spectacular default).
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "trueppm_api.core.openapi.postprocess_openapi",
+    ],
     # Serve the Swagger UI / ReDoc assets from the bundled sidecar package (Django
     # static, same origin) instead of the default jsdelivr CDN. Our strict CSP
     # (script-src / style-src 'self', no CDN host) blocks the CDN-hosted bundles,
