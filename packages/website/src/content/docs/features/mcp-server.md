@@ -45,11 +45,14 @@ credential. It never touches the database or the ORM, so your role-based
 permissions are enforced exactly once, at the API layer. The server can see
 nothing you could not already read in the web client with the same token.
 
-```
-┌────────────────┐   stdio    ┌──────────────┐   HTTPS + Bearer   ┌──────────────┐
-│  AI client     │◀──────────▶│ trueppm-mcp  │◀──────────────────▶│  TruePPM API │
-│ (Claude etc.)  │   (MCP)    │  subprocess  │   GET /api/v1/...  │ (self-hosted)│
-└────────────────┘            └──────────────┘                    └──────────────┘
+```mermaid
+flowchart LR
+    client["AI client<br/>(Claude etc.)"]
+    mcp["trueppm-mcp<br/>subprocess"]
+    api["TruePPM API<br/>(self-hosted)"]
+
+    client <-->|"stdio (MCP)"| mcp
+    mcp <-->|"HTTPS + Bearer<br/>GET /api/v1/…"| api
 ```
 
 ## Quickstart

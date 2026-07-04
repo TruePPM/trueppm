@@ -74,3 +74,28 @@
 .starlight-aside {
   color: var(--sl-color-gray-1);
 }
+
+/* Mermaid diagrams (ADR-0198).
+ *
+ * Diagrams are rendered to a single static inline <svg> at build time
+ * (rehype-mermaid, strategy "inline-svg") using a design-system palette tuned to
+ * read on BOTH the light (#ffffff) and dark (#17181c) page bodies — filled indigo
+ * nodes with white labels and neutral gray-3 edges. Two defensive overrides keep
+ * it correct in dark mode without any client-side JavaScript:
+ *
+ *   1. Mermaid bakes a near-black arrowhead fill (#0b0b0b) that is invisible on
+ *      the dark body. Pin arrow markers to the neutral edge color (gray-3, the
+ *      same hex in both modes) so edge direction stays visible in either theme.
+ *   2. Center the diagram and let it shrink on narrow screens (mobile-first).
+ */
+svg[id^="mermaid-"] {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+}
+svg[id^="mermaid-"] .arrowheadPath,
+svg[id^="mermaid-"] marker path {
+  fill: #8b90a0 !important;
+  stroke: #8b90a0 !important;
+}
