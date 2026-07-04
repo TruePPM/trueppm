@@ -1,4 +1,4 @@
-"""Tests for the unified project changelog endpoint (ADR-0199, #371).
+"""Tests for the unified project changelog endpoint (ADR-0201, #371).
 
 Covers:
 - Aggregation ordering across object types (newest-first).

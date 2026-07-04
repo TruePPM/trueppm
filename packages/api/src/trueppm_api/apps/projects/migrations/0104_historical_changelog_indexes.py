@@ -1,6 +1,6 @@
 """Composite (project_id, history_date) indexes on HistoricalSprint / HistoricalRisk.
 
-The unified project changelog (ADR-0199, #371) scans each project-scoped
+The unified project changelog (ADR-0201, #371) scans each project-scoped
 ``Historical*`` table with ``filter(project_id=X, history_date <= cursor)
 ORDER BY history_date DESC``. ``HistoricalTask`` already has this covering
 composite (migration 0090); ``HistoricalSprint`` and ``HistoricalRisk`` are the

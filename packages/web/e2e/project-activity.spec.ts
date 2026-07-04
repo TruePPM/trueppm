@@ -1,5 +1,5 @@
 /**
- * Project Activity tab (unified changelog) E2E — ADR-0199 / #371.
+ * Project Activity tab (unified changelog) E2E — ADR-0201 / #371.
  *
  * Golden path: deep-link to the Activity tab → aggregated rows render newest-first
  * → toggling an object-type chip re-queries the server with the object_type param

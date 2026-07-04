@@ -1,5 +1,5 @@
 /**
- * Project Activity tab — the unified "what changed" changelog (ADR-0199, #371).
+ * Project Activity tab — the unified "what changed" changelog (ADR-0201, #371).
  *
  * A read-only, project-wide, newest-first stream aggregated across every
  * project-scoped historical table. Filter chips (object type, change type, date

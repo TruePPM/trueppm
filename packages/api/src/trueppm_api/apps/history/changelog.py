@@ -1,4 +1,4 @@
-"""Unified project changelog aggregator (ADR-0199, #371).
+"""Unified project changelog aggregator (ADR-0201, #371).
 
 A read-only aggregator that merges the project-scoped ``django-simple-history``
 tables into one newest-first "what changed" stream. No new model, no data
@@ -24,7 +24,7 @@ disambiguates two rows in the *same* table. This partitions the global stream
 into pages with no gap and no duplicate — the same guarantee
 ``sync/pagination.py`` documents for ``(server_version, id)``.
 
-Permission model (ADR-0199): every source's live GET is ``IsProjectMember``
+Permission model (ADR-0201): every source's live GET is ``IsProjectMember``
 (Viewer+), so membership is a sufficient row-inclusion gate — there is no
 per-user sub-project ACL on any source (TimeEntry and the Retrospective models
 carry per-user / team_visibility gates but have **no** ``HistoricalRecords``, so
@@ -77,7 +77,7 @@ class ChangelogSource:
 
 
 def _sources() -> list[ChangelogSource]:
-    """The ordered project-scoped historical sources (ADR-0199).
+    """The ordered project-scoped historical sources (ADR-0201).
 
     Program and CeremonyTemplate are deliberately excluded (program-scoped, not
     project-scoped); Workspace is a singleton. TimeEntry and the Retrospective
@@ -218,7 +218,7 @@ def build_project_changelog(
     user_id: Any = None,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], ChangelogCursor | None]:
-    """Build one newest-first page of the unified changelog (ADR-0199).
+    """Build one newest-first page of the unified changelog (ADR-0201).
 
     Args:
         project: the project whose history is aggregated.

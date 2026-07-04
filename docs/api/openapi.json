@@ -11426,7 +11426,7 @@
         "/api/v1/projects/{project_pk}/changelog/": {
             "get": {
                 "operationId": "v1_projects_changelog_retrieve",
-                "description": "Unified newest-first \"what changed\" stream for a whole project (ADR-0199).\n\nGET /api/v1/projects/{project_pk}/changelog/\n    ?since=&object_type=&change_type=&user=&cursor=&page_size=\n\nAggregates every project-scoped ``django-simple-history`` table (Task, Sprint,\nRisk, Project, Dependency, TaskRecurrenceRule, and the three policy singletons)\ninto one stream with a **stable keyset cursor** — pass the response's\n``next_cursor`` back as ``cursor`` to page. The cursor is opaque and safe to\npersist; a malformed cursor returns 400.\n\nPermissions: any project member (Viewer+) may read (see ADR-0199 — every\nsource's live GET is Viewer+, so membership is a sufficient row gate).\n``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the\n``user=`` filter is likewise honored only for those callers, so the feed can\nnever be turned into a per-person activity tracker by a lower-privilege reader.\n\nQuery params:\n    since        ISO-8601 datetime; inclusive lower bound on the change time.\n    object_type  Comma-separated source keys (task, sprint, risk, dependency,\n                 project, task_recurrence, guardrail_policy,\n                 signal_privacy_policy, decisions_policy). Default: all.\n    change_type  Comma-separated: created, updated, deleted. Default: all.\n    user         A history_user id (Owner/Admin only; ignored otherwise).\n    cursor       Opaque keyset cursor from a prior response's ``next_cursor``.\n    page_size    1..100 (default 50).",
+                "description": "Unified newest-first \"what changed\" stream for a whole project (ADR-0201).\n\nGET /api/v1/projects/{project_pk}/changelog/\n    ?since=&object_type=&change_type=&user=&cursor=&page_size=\n\nAggregates every project-scoped ``django-simple-history`` table (Task, Sprint,\nRisk, Project, Dependency, TaskRecurrenceRule, and the three policy singletons)\ninto one stream with a **stable keyset cursor** — pass the response's\n``next_cursor`` back as ``cursor`` to page. The cursor is opaque and safe to\npersist; a malformed cursor returns 400.\n\nPermissions: any project member (Viewer+) may read (see ADR-0201 — every\nsource's live GET is Viewer+, so membership is a sufficient row gate).\n``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the\n``user=`` filter is likewise honored only for those callers, so the feed can\nnever be turned into a per-person activity tracker by a lower-privilege reader.\n\nQuery params:\n    since        ISO-8601 datetime; inclusive lower bound on the change time.\n    object_type  Comma-separated source keys (task, sprint, risk, dependency,\n                 project, task_recurrence, guardrail_policy,\n                 signal_privacy_policy, decisions_policy). Default: all.\n    change_type  Comma-separated: created, updated, deleted. Default: all.\n    user         A history_user id (Owner/Admin only; ignored otherwise).\n    cursor       Opaque keyset cursor from a prior response's ``next_cursor``.\n    page_size    1..100 (default 50).",
                 "summary": "Unified project changelog (aggregated, filterable, cursor-paginated)",
                 "parameters": [
                     {
@@ -25755,7 +25755,7 @@
             },
             "ChangelogEntry": {
                 "type": "object",
-                "description": "One row in the unified project changelog (ADR-0199).\n\nThe instance is a plain dict from ``changelog.build_project_changelog`` — the\naggregator already merged, ordered, and diffed across the historical tables,\nso the serializer only renders. ``user`` is exposed only to Owner/Admin\ncallers (``hide_user=True`` in context returns null), reusing the same gate as\n:class:`HistoryRecordSerializer`.",
+                "description": "One row in the unified project changelog (ADR-0201).\n\nThe instance is a plain dict from ``changelog.build_project_changelog`` — the\naggregator already merged, ordered, and diffed across the historical tables,\nso the serializer only renders. ``user`` is exposed only to Owner/Admin\ncallers (``hide_user=True`` in context returns null), reusing the same gate as\n:class:`HistoryRecordSerializer`.",
                 "properties": {
                     "id": {
                         "type": "string"
@@ -25802,7 +25802,7 @@
             },
             "ChangelogResponse": {
                 "type": "object",
-                "description": "Response envelope for the unified project changelog (ADR-0199).",
+                "description": "Response envelope for the unified project changelog (ADR-0201).",
                 "properties": {
                     "results": {
                         "type": "array",

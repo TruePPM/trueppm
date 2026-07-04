@@ -61,7 +61,7 @@ class HistoryRecordSerializer(serializers.Serializer[Any]):
 
 
 class ChangelogEntrySerializer(serializers.Serializer[Any]):
-    """One row in the unified project changelog (ADR-0199).
+    """One row in the unified project changelog (ADR-0201).
 
     The instance is a plain dict from ``changelog.build_project_changelog`` — the
     aggregator already merged, ordered, and diffed across the historical tables,
@@ -89,7 +89,7 @@ class ChangelogEntrySerializer(serializers.Serializer[Any]):
 
 
 class ChangelogResponseSerializer(serializers.Serializer[Any]):
-    """Response envelope for the unified project changelog (ADR-0199)."""
+    """Response envelope for the unified project changelog (ADR-0201)."""
 
     results = ChangelogEntrySerializer(many=True)
     next_cursor = serializers.CharField(allow_null=True)

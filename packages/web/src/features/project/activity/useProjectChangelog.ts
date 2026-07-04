@@ -1,5 +1,5 @@
 /**
- * Data hook + display metadata for the unified project changelog (ADR-0199, #371).
+ * Data hook + display metadata for the unified project changelog (ADR-0201, #371).
  *
  * Consumes GET /projects/{id}/changelog/ — a project-wide, newest-first "what
  * changed" stream aggregated across every project-scoped historical table, with a

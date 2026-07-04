@@ -365,7 +365,7 @@ class ProjectHistorySummaryView(APIView):
 
 
 class ProjectChangelogView(APIView):
-    """Unified newest-first "what changed" stream for a whole project (ADR-0199).
+    """Unified newest-first "what changed" stream for a whole project (ADR-0201).
 
     GET /api/v1/projects/{project_pk}/changelog/
         ?since=&object_type=&change_type=&user=&cursor=&page_size=
@@ -376,7 +376,7 @@ class ProjectChangelogView(APIView):
     ``next_cursor`` back as ``cursor`` to page. The cursor is opaque and safe to
     persist; a malformed cursor returns 400.
 
-    Permissions: any project member (Viewer+) may read (see ADR-0199 — every
+    Permissions: any project member (Viewer+) may read (see ADR-0201 — every
     source's live GET is Viewer+, so membership is a sufficient row gate).
     ``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the
     ``user=`` filter is likewise honored only for those callers, so the feed can
