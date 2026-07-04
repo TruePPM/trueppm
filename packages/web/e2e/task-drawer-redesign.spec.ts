@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * E2E coverage for the redesigned TaskDetailDrawer (#962, "Direction B").
@@ -107,12 +108,123 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
     );
   });
 
+  // Hermetic 401-guard net, registered FIRST so every specific route below wins
+  // (Playwright matches routes LIFO). Any endpoint the app-wide shell reads that
+  // this spec does not mock would otherwise fall through Vite's proxy to a real
+  // backend on :8000, take a genuine 401 for the fixture token, and racily trip
+  // the SessionExpired modal — which then intercepts every click. The 404 keeps
+  // requests hermetic (404 ≠ 401, so no session-expired cascade).
+  await setupCatchAll(page);
+
+  // Boot-time auth endpoints. Without these, an unmocked GET /auth/me/ (and its
+  // failed token refresh) trips the session-expired modal, which then intercepts
+  // pointer events and flakily fails clicks across the whole spec. Stubbing them
+  // makes the drawer specs deterministic locally and in CI.
+  await page.route('**/api/v1/auth/token/refresh/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ access: 'e2e-access' }),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 1,
+        username: 'e2e',
+        email: 'e2e@example.com',
+        workspace_role: opts.role ?? 300,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  // App-wide shell subscriptions mounted on every routed page. Left unmocked
+  // these churn (WS ticket → reconnect loop; edition/active-sprints → retry),
+  // which eats the timing slack and lets an unmocked-endpoint 401 cascade win
+  // the race into the SessionExpired modal that then intercepts clicks.
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_API_PROJECTS }),
     }),
+  );
+  // Project detail — ProjectShell gates the whole route on this query. Under the
+  // 404 net an unmocked object endpoint 404s, retry-remounting the page (and the
+  // Description save bar) mid-interaction. Object shape mirrors schedule.spec.ts.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: FIXTURE_PROJECT_ID,
+        name: 'Alpha Platform Upgrade',
+        description: '',
+        start_date: '2026-01-01',
+        calendar: 'default',
+        estimation_mode: 'OPEN',
+        agile_features: false,
+        methodology: 'WATERFALL',
+        code: '',
+        health: 'AUTO',
+        visibility: 'WORKSPACE',
+        timezone: '',
+        default_view: 'SCHEDULE',
+        lead: null,
+        lead_detail: null,
+        iteration_label: 'Sprint',
+        is_archived: false,
+        archived_at: null,
+        archived_by: null,
+        recalculated_at: null,
+        is_sample: false,
+        program_detail: null,
+        server_version: 1,
+      }),
+    }),
+  );
+  // Schedule-page + shell sub-resources that otherwise 404-churn under the net.
+  await page.route('**/api/v1/projects/*/sprints/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/velocity/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(null) }),
+  );
+  await page.route('**/api/v1/projects/*/visit/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -257,6 +369,14 @@ async function gotoSchedule(page: Page, opts: { role?: number; canEdit?: boolean
       body: JSON.stringify({ has_baseline: false }),
     }),
   );
+  // Accept and hold the project WebSocket open. Without this the socket fails to
+  // connect against the preview server, reconnect-loops, and repeatedly
+  // re-renders the drawer — which detaches the save bar mid-click and fails the
+  // Description interaction specs. Leaving it open makes the client fire `open`
+  // and settle (schedule.spec.ts pattern).
+  await page.routeWebSocket('**/ws/v1/projects/**', () => {
+    /* accept and hold the connection open */
+  });
 
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
@@ -403,6 +523,9 @@ test.describe('TaskDetailDrawer redesign — Description save bar', () => {
 
   test('typing in Description reveals the save bar; Discard reverts it', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
+    // Issue 1048: the Description is a Markdown read/edit swap — click the
+    // rendered block to reveal the textarea.
+    await drawer.getByRole('button', { name: 'Description' }).click();
     const description = drawer.getByRole('textbox', { name: 'Description' });
     await expect(description).toBeVisible();
 
@@ -419,10 +542,32 @@ test.describe('TaskDetailDrawer redesign — Description save bar', () => {
 
   test('Save changes button persists the edit and clears the bar', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('button', { name: 'Description' }).click();
     const description = drawer.getByRole('textbox', { name: 'Description' });
     await description.fill('A new description.');
     await drawer.getByRole('button', { name: 'Save changes' }).click();
     await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0, { timeout: 5_000 });
+  });
+
+  test('Description renders Markdown formatting in read mode after editing (issue 1048)', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('button', { name: 'Description' }).click();
+    const description = drawer.getByRole('textbox', { name: 'Description' });
+    await description.fill('**Bold AC** and\n\n- first item\n- second item\n\nUse `token`.');
+
+    // Blur the editor by focusing the task-name input — flushes the deferred
+    // save and returns the Description to its rendered read mode.
+    await drawer.getByRole('textbox', { name: 'Task name' }).click();
+
+    // Read mode now renders formatted Markdown (safe React nodes, not raw text).
+    const readBlock = drawer.getByRole('button', { name: 'Description' });
+    await expect(readBlock.locator('strong', { hasText: 'Bold AC' })).toBeVisible();
+    await expect(readBlock.locator('li', { hasText: 'first item' })).toBeVisible();
+    await expect(readBlock.locator('code', { hasText: 'token' })).toBeVisible();
+    // The raw Markdown source is not shown verbatim in read mode.
+    await expect(readBlock).not.toContainText('**Bold AC**');
   });
 });
 
