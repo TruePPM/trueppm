@@ -52,11 +52,16 @@ import { CSS } from '@dnd-kit/utilities';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useSprintsByState } from '@/hooks/useSprints';
 import type { Task } from '@/types';
 import type { ReorderEntry } from './api';
+import { countStories, filterBacklog, matchesFilters } from './filter';
+import { GroomingFilterBar } from './components/GroomingFilterBar';
+import { useGroomingFilters } from './hooks/useGroomingFilters';
+import { MobileGroomingPage } from './components/mobile/MobileGroomingPage';
 import {
   UNGROUPED_KEY,
   buildGroupKeyIndex,
@@ -170,6 +175,7 @@ function StoryRow({
   story,
   hasScore,
   view,
+  sortable = true,
   rank,
   epicName,
   selected,
@@ -183,6 +189,9 @@ function StoryRow({
   hasScore: boolean;
   /** 'epic' = draggable group view; 'ranked' = flat read-only score-ordered view. */
   view: BacklogView;
+  /** Epic-view drag toggle. `false` while a filter is active — dragging a filtered
+   *  subset would persist a partial order and corrupt server-side ranks (ADR-0110). */
+  sortable?: boolean;
   /** 1-based position shown in the leading cell in ranked view (replaces the drag handle). */
   rank?: number;
   /** Parent-epic name, shown as a breadcrumb under the title in ranked view only (the ID
@@ -197,9 +206,11 @@ function StoryRow({
   plannedSprint: PlannedSprintRef | null;
   canManage: boolean;
 }) {
-  const draggable = view === 'epic';
+  const draggable = view === 'epic' && sortable;
   // useSortable is called unconditionally (rules of hooks); its node ref + listeners are
   // only wired in the draggable epic view, where the row sits inside a SortableContext.
+  // (The ranked view and the filtered read-only epic view already call it outside any
+  // DndContext — dnd-kit falls back to a no-op context, so this is safe.)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: story.id,
   });
@@ -245,12 +256,21 @@ function StoryRow({
         >
           ⠿
         </button>
-      ) : (
+      ) : view === 'ranked' ? (
         <span
           className="flex min-h-[44px] items-center justify-center font-mono text-xs tabular-nums text-neutral-text-secondary"
           aria-hidden
         >
           {rank}
+        </span>
+      ) : (
+        // Filtered epic view: static, inert grip so the columns stay aligned and the
+        // row height doesn't jump when drag is suspended.
+        <span
+          className="flex min-h-[44px] items-center justify-center text-neutral-text-disabled"
+          aria-hidden
+        >
+          ⠿
         </span>
       )}
       <span className="font-mono text-xs text-neutral-text-secondary">{story.shortId}</span>
@@ -436,7 +456,19 @@ function toEntries(d: ProductBacklog): ReorderEntry[] {
   return flat.map((s) => ({ id: s.id, server_version: s.serverVersion ?? 0 }));
 }
 
+/**
+ * Grooming view entry point — picks the layout by viewport (issue 1044). The
+ * distinct mobile shell (< md) renders a card stack; desktop keeps the dense
+ * draggable table. Each layout owns its own thin hook calls against the shared
+ * TanStack Query cache (keyed by projectId), so there is no double-fetch and no
+ * controller to extract — the shared cache dedupes.
+ */
 export function ProductBacklogPage() {
+  const breakpoint = useBreakpoint();
+  return breakpoint === 'sm' ? <MobileGroomingPage /> : <DesktopGroomingView />;
+}
+
+function DesktopGroomingView() {
   const projectId = useProjectId();
   const navigate = useNavigate();
   const itl = useIterationLabel(projectId);
@@ -451,6 +483,11 @@ export function ProductBacklogPage() {
   // The sprint currently being planned (issue 1291) — drives the planning rail and
   // the per-row commit toggle. Deduped against the board's ['sprints'] query.
   const plannedSprint = useSprintsByState(projectId).planned[0] ?? null;
+
+  // Grooming filter (issue 1044): search + DoR facet + unestimated toggle. While
+  // any filter is active, drag-reorder is suspended (a filtered subset persisted
+  // through the ADR-0110 reorder path would corrupt server-side ranks).
+  const filterCtl = useGroomingFilters();
 
   // "By epic / Ranked" view, persisted across visits (web-rule 180). Default to the
   // epic-grouped draggable view; ranked is the flat, read-only score-ordered preview.
@@ -597,6 +634,18 @@ export function ProductBacklogPage() {
   const rankedStories = hasScore
     ? [...allStories].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))
     : allStories;
+
+  // Grooming filter (issue 1044). When inactive, the display data is the raw
+  // backlog and the drag path renders byte-identical to before. When active, the
+  // epic groups + ranked list are narrowed (remove semantics, ADR-0199) and drag
+  // is suspended.
+  const filterActive = filterCtl.active;
+  const totalCount = countStories(backlog);
+  const filtered = filterBacklog(backlog, filterCtl.filters);
+  const filteredMatchCount = filterActive ? filtered.matchCount : totalCount;
+  const filteredRanked = filterActive
+    ? rankedStories.filter((s) => matchesFilters(s, filterCtl.filters))
+    : rankedStories;
 
   function commitReorder(optimistic: ProductBacklog) {
     setConflict(false);
@@ -760,6 +809,27 @@ export function ProductBacklogPage() {
     ));
   }
 
+  // Filtered epic view (issue 1044): keep the grouping + headers, but render rows
+  // read-only (no drag, no ready line — the ready line marks cumulative ready points
+  // in true priority order, which a filtered subset misrepresents).
+  function readOnlyRows(stories: Task[]): ReactNode {
+    return stories.map((s) => (
+      <StoryRow
+        key={s.id}
+        story={s}
+        hasScore={hasScore}
+        view="epic"
+        sortable={false}
+        selected={s.id === selectedId}
+        onToggleDor={toggleDor}
+        onOpen={(st) => setSelectedId(st.id)}
+        projectId={projectId as string}
+        plannedSprint={plannedSprint}
+        canManage={canManageBacklog}
+      />
+    ));
+  }
+
   return (
     <div className="relative flex h-full flex-row bg-app-canvas">
       {/* Drag/reparent announcer (ADR-0183 D5) — written via DOM ref, not React state
@@ -819,6 +889,15 @@ export function ProductBacklogPage() {
         <HealthStrip health={health} iterationLower={itl.lower} />
         <LegendStrip />
 
+        {/* Filter bar (issue 1044) — pinned left, outside the horizontal-scroll table. */}
+        {!allEmpty && (
+          <GroomingFilterBar
+            controls={filterCtl}
+            matchCount={filteredMatchCount}
+            totalCount={totalCount}
+          />
+        )}
+
         {conflict && (
           <div
             role="status"
@@ -860,10 +939,60 @@ export function ProductBacklogPage() {
               </div>
             )}
 
-            {view === 'epic' ? (
+            {/* No-results state when a filter is active but nothing matches (issue 1044).
+                Distinct from the all-empty state above, which stays reachable. */}
+            {!allEmpty && filterActive && filteredMatchCount === 0 && (
+              <div className="flex flex-col items-center gap-3 p-8 text-center">
+                <p className="text-sm text-neutral-text-secondary">
+                  No stories match your filters.
+                </p>
+                <Button variant="secondary" size="sm" onClick={filterCtl.reset}>
+                  Clear filters
+                </Button>
+              </div>
+            )}
+
+            {/* Filtered epic view (issue 1044): read-only groups, drag suspended. A hint
+                explains why the grip is inert. Empty groups are already dropped by
+                filterBacklog, so every rendered header carries at least one match. */}
+            {!allEmpty && filterActive && filteredMatchCount > 0 && view === 'epic' && (
+              <div>
+                <p className="px-2 pb-2 text-xs text-neutral-text-secondary">
+                  Filtered — drag to reorder is disabled. Clear filters to reorder.
+                </p>
+                {filtered.epics.map((group) => (
+                  <div
+                    key={group.epic.id}
+                    className="mb-3.5 rounded-card border border-transparent"
+                  >
+                    <EpicHeader
+                      group={group}
+                      projectId={projectId as string}
+                      selected={group.epic.id === selectedId}
+                      onOpen={(epic) => setSelectedId(epic.id)}
+                      armed={false}
+                    />
+                    {readOnlyRows(group.stories)}
+                  </div>
+                ))}
+                {filtered.ungrouped.length > 0 && (
+                  <div className="mb-3.5 rounded-card border border-transparent">
+                    <div className="flex items-center gap-2.5 rounded-card bg-neutral-surface-sunken px-2 py-2">
+                      <span className="text-xs font-bold uppercase tracking-wide text-neutral-text-secondary">
+                        No epic
+                      </span>
+                    </div>
+                    {readOnlyRows(filtered.ungrouped)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!filterActive && view === 'epic' && (
               // One DndContext spans every epic group + the ungrouped bucket (ADR-0183 D1),
               // so a story can be dragged across regions. Within a group rows stay sortable
-              // (rank-only reorder); a drop onto a different group reparents (D2).
+              // (rank-only reorder); a drop onto a different group reparents (D2). Renders
+              // even when the backlog is empty so the inline "+ Add epic" input is reachable.
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -979,12 +1108,16 @@ export function ProductBacklogPage() {
                   {activeStory ? <StoryDragGhost story={activeStory} /> : null}
                 </DragOverlay>
               </DndContext>
-            ) : (
-              // Ranked: flat, read-only score order — no epic headers, no drag, no ready line
-              // (the ready line marks cumulative ready points in priority order, which the
-              // score sort reorders, so it would mislead here).
+            )}
+
+            {/* Ranked: flat, read-only score order — no epic headers, no drag, no ready line
+                (the ready line marks cumulative ready points in priority order, which the
+                score sort reorders, so it would mislead here). Filtered when a filter is
+                active (filteredRanked === rankedStories otherwise). Suppressed only when a
+                filter is active and nothing matches (the no-results block shows instead). */}
+            {view === 'ranked' && !(filterActive && filteredMatchCount === 0) && (
               <div className="mb-3.5">
-                {rankedStories.map((s, i) => (
+                {filteredRanked.map((s, i) => (
                   <StoryRow
                     key={s.id}
                     story={s}
