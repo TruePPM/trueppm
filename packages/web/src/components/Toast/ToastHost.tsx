@@ -41,8 +41,16 @@ function ToastPill({ toast }: { toast: ToastItem }) {
     };
   }, [toast.id, toast.durationMs, dismiss]);
 
+  const dismissNow = () => dismiss(toast.id);
   return (
-    <div className="pointer-events-auto flex items-center gap-2.5 rounded-[11px] bg-neutral-text-primary px-[18px] py-3 text-[13.5px] font-medium text-neutral-text-inverse shadow-pop motion-safe:animate-toast-rise">
+    <div
+      className={[
+        'pointer-events-auto flex items-center gap-2.5 rounded-[11px] bg-neutral-text-primary py-3 text-[13.5px] font-medium text-neutral-text-inverse shadow-pop motion-safe:animate-toast-rise',
+        // Action toasts trim the right padding to seat the button; plain toasts
+        // keep the original symmetric 18px so their layout is pixel-identical.
+        toast.action ? 'pl-[18px] pr-3' : 'px-[18px]',
+      ].join(' ')}
+    >
       {/* Decorative sage check on success/info; the message text carries the
           announcement (aria-hidden). Sage flips with the pill: the pill is the
           inverse of the canvas, so light sage on the light-mode navy pill,
@@ -52,7 +60,24 @@ function ToastPill({ toast }: { toast: ToastItem }) {
           ✓
         </span>
       )}
-      <span>{toast.message}</span>
+      <span className={toast.action ? 'pr-1' : undefined}>{toast.message}</span>
+      {toast.action ? (
+        // Inline action (#1113 "Undo"). A real focusable button — the host region is
+        // aria-live=polite (announces without stealing focus), so keyboard/SR users
+        // reach the action via Tab. Runs the action then auto-dismisses the pill; the
+        // action's own onClick decides any follow-up confirmation toast.
+        <button
+          type="button"
+          aria-label={toast.action.ariaLabel ?? toast.action.label}
+          onClick={() => {
+            toast.action?.onClick();
+            dismissNow();
+          }}
+          className="ml-1 min-h-[40px] shrink-0 rounded-[8px] border-l border-neutral-text-inverse/25 pl-3 pr-1.5 font-semibold text-neutral-text-inverse hover:text-sage-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/70 focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-text-primary dark:hover:text-sage-700"
+        >
+          {toast.action.label}
+        </button>
+      ) : null}
     </div>
   );
 }

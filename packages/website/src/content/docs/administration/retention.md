@@ -93,7 +93,8 @@ is the 0.4 addition.
 Deleting a project is a **soft delete**: the project drops out of every list, board, and
 report immediately, but its row and all its child data (tasks, dependencies, sprints,
 risks, baselines) are retained so the deletion can be reviewed and — until it is purged —
-reversed with a `?force=true` hard delete or restored by an operator.
+recovered. The **Trash** (below) is the recovery surface; a `?force=true` delete is the
+manual *permanent* removal.
 
 `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` (default `30`) will bound that grace period.
 Once a project has been in the trash longer than the window, the retention coordinator will
@@ -110,6 +111,36 @@ auto-purged — the safe default is to keep it. Such a legacy trashed project ca
 removed manually with a `?force=true` delete; only projects deleted after the feature ships
 carry a timestamp and age out automatically.
 :::
+
+### Restoring a project from Trash
+
+:::note[Ships in 0.4]
+The Trash list, the **Restore** action, and the inline "Deleted — Undo" toast ship in
+**TruePPM 0.4** (the first beta).
+:::
+
+A soft-deleted project is recoverable for the whole retention window. There are two ways
+back:
+
+- **Undo, immediately.** Right after a delete, an inline **"Deleted — Undo"** toast lets
+  the person who deleted it put it straight back — the fat-finger safety net, reachable on
+  a phone.
+- **Trash, later.** **Settings → Workspace → Trash** lists every soft-deleted project still
+  inside the retention window, showing who deleted it, how long ago, and how many days
+  remain before it is permanently purged. Any project member sees the list; only a project
+  **Owner** can restore, so a project is never quietly resurrected by someone without the
+  authority to have deleted it.
+
+Restore is **atomic and complete**: the project and all its children (tasks, dependency
+edges, sprints, baselines, risks) come back in one transaction — a failure part-way
+through rolls the whole thing back rather than leaving a half-restored project — and every
+restored record's sync version is bumped so offline and MCP clients re-materialize it on
+their next pull. Cross-project dependency edges are re-linked only when both ends are live
+again, so an edge to a task in a still-deleted project stays dormant until that project is
+also restored.
+
+Once a project has been in the trash past the window it is purged and no longer restorable;
+recover it before the countdown reaches zero.
 
 ## Purge schedule
 

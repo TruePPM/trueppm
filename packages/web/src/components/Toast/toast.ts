@@ -1,5 +1,5 @@
-import { useToastStore } from './toastStore';
-import type { ToastVariant } from './toastStore';
+import { useToastStore, TOAST_ACTION_DURATION_MS } from './toastStore';
+import type { ToastAction, ToastVariant } from './toastStore';
 
 /**
  * Imperative toast API (v2 fluidity, ADR-0126; issue 1225). Callable from
@@ -20,5 +20,21 @@ export const toast = {
   error: (message: string, durationMs?: number) => show(message, 'error', durationMs),
   /** A success-toned toast with celebratory copy (e.g. the task-complete moment). */
   warm: (message: string, durationMs?: number) => show(message, 'success', durationMs),
+  /**
+   * A toast carrying a single inline action button (#1113) — the "Deleted — Undo"
+   * affordance. Dwells longer (`TOAST_ACTION_DURATION_MS`) so the user can reach the
+   * button on a phone. Defaults to the neutral `info` tone; pass `variant` to override.
+   */
+  action: (
+    message: string,
+    action: ToastAction,
+    opts?: { variant?: ToastVariant; durationMs?: number },
+  ) =>
+    useToastStore.getState().push({
+      message,
+      action,
+      variant: opts?.variant ?? 'info',
+      durationMs: opts?.durationMs ?? TOAST_ACTION_DURATION_MS,
+    }),
   dismiss: (id: string) => useToastStore.getState().dismiss(id),
 };

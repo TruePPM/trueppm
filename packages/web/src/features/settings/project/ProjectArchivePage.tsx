@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { apiClient } from '@/api/client';
+import { queryClient } from '@/lib/queryClient';
+import { toast } from '@/components/Toast';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
@@ -150,6 +153,45 @@ export function ProjectArchivePage() {
     run();
   };
 
+  // Move to Trash — the recoverable soft-delete (#1113). Distinct from the permanent
+  // delete below: no type-to-confirm (reversibility is the safety net), fires an
+  // inline "Undo" toast, and navigates home. The Undo closure calls the restore
+  // endpoint directly via the stable queryClient/apiClient — this page unmounts on
+  // navigate, so it must not depend on a component-scoped mutation observer.
+  const onMoveToTrash = () => {
+    const name = project?.name ?? 'Project';
+    const id = projectId;
+    remove.mutate(
+      { force: false },
+      {
+        onSuccess: () => {
+          toast.action(
+            `"${name}" moved to Trash`,
+            {
+              label: 'Undo',
+              ariaLabel: `Undo — restore ${name}`,
+              onClick: () => {
+                apiClient
+                  .post(`/projects/${id}/restore/`)
+                  .then(() => {
+                    void queryClient.invalidateQueries({ queryKey: ['projects'] });
+                    void queryClient.invalidateQueries({ queryKey: ['projects-trash'] });
+                    void queryClient.invalidateQueries({ queryKey: ['project', id] });
+                    toast.success(`"${name}" restored`);
+                    void navigate(`/projects/${id}`);
+                  })
+                  .catch(() => {
+                    toast.error('Could not restore — open Trash to try again');
+                  });
+              },
+            },
+          );
+          void navigate('/', { replace: true });
+        },
+      },
+    );
+  };
+
   return (
     <div>
       <SettingsPageTitle
@@ -206,6 +248,19 @@ export function ProjectArchivePage() {
           onClick={() => exportSeed.mutate({ projectId, code: project?.code })}
           busy={exportSeed.isPending}
           error={exportError}
+        />
+
+        <LifecycleCard
+          title="Move to Trash"
+          tone="warning"
+          description="Removes this project and its tasks, sprints, and baselines from active views. It stays recoverable in Trash during the retention window, then is permanently deleted."
+          actionLabel="Move to Trash…"
+          notes={[
+            'Reversible — restore any time before the window closes (Workspace → Trash).',
+            'Cross-project dependencies are re-linked on restore.',
+          ]}
+          onClick={onMoveToTrash}
+          busy={remove.isPending}
         />
 
         {/* Delete — critical zone */}

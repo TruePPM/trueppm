@@ -168,6 +168,11 @@ const RetentionPurgePage = lazy(() =>
     default: m.RetentionPurgePage,
   })),
 );
+const WorkspaceTrashPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceTrashPage').then((m) => ({
+    default: m.WorkspaceTrashPage,
+  })),
+);
 const InviteAcceptPage = lazy(() =>
   import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
@@ -586,6 +591,17 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <IntegrationsRedirect />
+              </Suspense>
+            ),
+          },
+          // Trash (#1113, ADR-0199) — recoverable soft-deleted projects. Renders its
+          // own SettingsShell (like the System Health area). Any member may view; the
+          // per-row Restore is Owner-gated by the API.
+          {
+            path: 'settings/trash',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <WorkspaceTrashPage />
               </Suspense>
             ),
           },
