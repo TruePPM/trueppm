@@ -40,6 +40,19 @@ export default defineConfig({
           strategy: "inline-svg",
           mermaidConfig: {
             theme: "base",
+            // Render node/edge labels as HTML (foreignObject) rather than SVG
+            // <text>. SVG text labels ignore `<br/>` (collapsing multi-line
+            // labels to their first line) and depend on Mermaid's own font-metric
+            // measurement, which mis-sizes `system-ui` in the headless Chromium
+            // renderer and clips the text at the box edge. HTML labels are laid
+            // out by the real browser at build time, so boxes auto-size to their
+            // content and `<br/>` works. Mermaid only honors htmlLabels when
+            // securityLevel is not "strict" (rehype-mermaid's default); "loose"
+            // is safe here because the diagram source is trusted repo markdown
+            // rendered at build time, never user input at runtime.
+            securityLevel: "loose",
+            htmlLabels: true,
+            flowchart: { htmlLabels: true, useMaxWidth: true },
             themeVariables: {
               fontFamily:
                 "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
@@ -93,6 +106,11 @@ export default defineConfig({
       },
       lastUpdated: true,
       disable404Route: true,
+      // Trim the right-hand "On This Page" table of contents to h2 only. The
+      // default (h2 + h3) produces a deep, indented column that eats horizontal
+      // real estate on wide-content pages; h2-only keeps it a thin scan strip
+      // without losing top-level in-page navigation.
+      tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 2 },
       plugins: versionPlugins,
       customCss: ["./src/styles/custom.css"],
       sidebar: [
@@ -238,6 +256,7 @@ export default defineConfig({
                 { slug: "features/task-collaboration" },
                 { slug: "features/decisions" },
                 { slug: "features/change-history" },
+                { slug: "features/project-activity" },
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },

@@ -254,6 +254,61 @@ export function useDeleteProject(projectId: string | null | undefined) {
         void queryClient.removeQueries({ queryKey: ['project', projectId] });
       }
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects-trash'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Trash + restore (issue 1113, ADR-0202)
+// ---------------------------------------------------------------------------
+
+/** One soft-deleted project as returned by GET /api/v1/projects/trash/. */
+export interface TrashProject {
+  id: string;
+  name: string;
+  code: string;
+  /** ISO timestamp of the soft delete, or null for a legacy tombstone (retained indefinitely). */
+  deleted_at: string | null;
+  deleted_by: string | null;
+  deleted_by_name: string | null;
+  /** Days left before the retention purge; null when deleted_at is null or retention is disabled. */
+  days_remaining: number | null;
+  /** Effective retention window in days, or null when purging is disabled. */
+  retention_days: number | null;
+  /** Caller's role ordinal on the project (Role enum). */
+  my_role: number | null;
+  /** True only when the caller is the Owner — the web disables Restore otherwise. */
+  can_restore: boolean;
+}
+
+/** GET /api/v1/projects/trash/ — the caller's soft-deleted projects within the retention window. */
+export function useTrashedProjects() {
+  return useQuery({
+    queryKey: ['projects-trash'],
+    queryFn: async () => {
+      const res = await apiClient.get<TrashProject[]>('/projects/trash/');
+      return res.data;
+    },
+  });
+}
+
+/**
+ * POST /api/v1/projects/:id/restore/ — un-tombstone a soft-deleted project and its
+ * children atomically. Owner only. Not bound to a fixed projectId because the caller
+ * (Trash list, Undo toast) restores an id chosen at call time.
+ */
+export function useRestoreProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      const res = await apiClient.post<ApiProject>(`/projects/${projectId}/restore/`);
+      return res.data;
+    },
+    onSuccess: (_data, projectId) => {
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      void queryClient.invalidateQueries({ queryKey: ['projects-trash'] });
     },
   });
 }

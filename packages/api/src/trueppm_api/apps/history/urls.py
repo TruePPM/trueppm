@@ -5,11 +5,17 @@ from __future__ import annotations
 from django.urls import path
 
 from trueppm_api.apps.history.views import (
+    ProjectChangelogView,
     ProjectHistoryListView,
     ProjectHistorySummaryView,
 )
 
 urlpatterns = [
+    path(
+        "projects/<project_pk>/changelog/",
+        ProjectChangelogView.as_view(),
+        name="project-changelog",
+    ),
     path(
         "projects/<project_pk>/history/",
         ProjectHistoryListView.as_view(),

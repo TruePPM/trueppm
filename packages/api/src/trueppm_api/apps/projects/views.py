@@ -457,8 +457,13 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         # Lifecycle actions (archive/unarchive/destroy/transfer) bypass the
         # IsProjectNotArchived gate via its _ARCHIVE_BYPASS_ACTIONS set —
         # otherwise an Owner could never unarchive or delete an archived row.
-        if self.action in ("destroy", "archive", "unarchive", "transfer"):
+        if self.action in ("destroy", "archive", "unarchive", "transfer", "restore"):
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
+        # Trash listing (#1113) is any-member: it lists the caller's own
+        # soft-deleted projects (the queryset is membership-scoped). Restore itself
+        # is Owner-gated above; a non-Owner member sees the row but cannot restore.
+        if self.action == "trash":
+            return [IsAuthenticated(), IsProjectMember()]
         # Editing a project requires Scheduler+ at the gate — this closes the
         # #769 blocker (update/partial_update used to fall through to
         # IsProjectMember, which passes for Viewer (role 0) and Member). The
@@ -735,6 +740,9 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         # offload the child cascade (#1112). Overview/retrieve/list all filter
         # is_deleted=False, so the project reads as gone the moment this commits,
         # even while the enqueued cascade is still draining its children.
+        # Record who deleted it (#1113) so the Trash list can show "Deleted by X";
+        # set before soft_delete() so it lands in the same UPDATE as is_deleted.
+        instance.deleted_by = actor
         instance.soft_delete()
         _record_project_audit_event(
             event_type="project_deleted",
@@ -1188,6 +1196,154 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "project_unarchived", {"id": project_id})
             )
+        serializer = self.get_serializer(project)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def _trashed_queryset(self) -> QuerySet[Project]:
+        """Membership-scoped queryset of the caller's soft-deleted projects (#1113).
+
+        Deliberately bypasses ``ProjectScopedViewSet.get_queryset()``'s
+        ``is_deleted=False`` filter — the Trash list and Restore need the tombstoned
+        rows the normal project surface hides. Still membership-scoped (only projects
+        the caller is an active member of) so it never leaks another team's trash; the
+        Owner-only gate on ``restore`` is enforced separately by ``IsProjectOwner``.
+        """
+        user = self.request.user
+        if user is None or not user.is_authenticated:
+            return Project.objects.none()
+        member_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "project_id", flat=True
+        )
+        return Project.objects.filter(pk__in=member_ids, is_deleted=True).select_related(
+            "deleted_by"
+        )
+
+    @extend_schema(
+        summary="List soft-deleted projects in Trash (recoverable within the retention window)",
+        responses={
+            200: inline_serializer(
+                name="TrashProjectList",
+                many=True,
+                fields={
+                    "id": serializers.UUIDField(),
+                    "name": serializers.CharField(),
+                    "code": serializers.CharField(),
+                    "deleted_at": serializers.DateTimeField(allow_null=True),
+                    "deleted_by": serializers.UUIDField(allow_null=True),
+                    "deleted_by_name": serializers.CharField(allow_null=True),
+                    "days_remaining": serializers.IntegerField(allow_null=True),
+                    "retention_days": serializers.IntegerField(allow_null=True),
+                    "my_role": serializers.IntegerField(allow_null=True),
+                    "can_restore": serializers.BooleanField(),
+                },
+            )
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="trash")
+    def trash(self, request: Request) -> Response:
+        """List the caller's soft-deleted projects still inside the retention window (#1113).
+
+        Any member sees their own team's trashed projects (the queryset is
+        membership-scoped); ``can_restore`` is true only for the Owner, so the web can
+        disable Restore for non-Owners. The retention window comes from the #1114
+        resolver: rows past ``now - window`` are omitted (they are eligible for the
+        background purge and may already be gone); a NULL ``deleted_at`` (legacy delete,
+        never auto-purged) is always shown with an indefinite retention.
+        """
+        from datetime import timedelta
+
+        from trueppm_api.apps.observability.retention import resolve_retention
+
+        retention_days = resolve_retention("TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS")
+        now = timezone.now()
+        qs = self._trashed_queryset().order_by("-deleted_at")
+        if retention_days is not None:
+            cutoff = now - timedelta(days=retention_days)
+            qs = qs.filter(Q(deleted_at__isnull=True) | Q(deleted_at__gt=cutoff))
+        projects = list(qs)
+        # Caller's role per project in one query (no N+1) so the web can gate Restore.
+        role_by_project = {
+            pid: role
+            for pid, role in ProjectMembership.objects.filter(
+                user=request.user.pk, is_deleted=False, project__in=projects
+            ).values_list("project_id", "role")
+        }
+        rows = []
+        for p in projects:
+            days_remaining: int | None = None
+            if retention_days is not None and p.deleted_at is not None:
+                elapsed = (now - p.deleted_at).days
+                days_remaining = max(0, retention_days - elapsed)
+            role = role_by_project.get(p.pk)
+            deleter = p.deleted_by
+            rows.append(
+                {
+                    "id": str(p.pk),
+                    "name": p.name,
+                    "code": p.code,
+                    "deleted_at": p.deleted_at,
+                    "deleted_by": str(p.deleted_by_id) if p.deleted_by_id else None,
+                    "deleted_by_name": (
+                        (deleter.get_full_name() or deleter.get_username()).strip()
+                        if deleter is not None
+                        else None
+                    ),
+                    "days_remaining": days_remaining,
+                    "retention_days": retention_days,
+                    "my_role": role,
+                    "can_restore": role == Role.OWNER,
+                }
+            )
+        return Response(rows, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Restore a soft-deleted project from Trash",
+        request=None,
+        responses={
+            200: ProjectSerializer,
+            404: OpenApiResponse(description="No soft-deleted project with that id in your Trash."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request: Request, pk: str | None = None) -> Response:
+        """Un-tombstone a soft-deleted project and all its children atomically (#1113).
+
+        Owner-only (``IsProjectOwner``), scoped to the caller's Trash. The project row
+        and every currently-tombstoned child (tasks, dependency edges, sprints,
+        baselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:
+        a failure part-way through rolls the whole restore back rather than leave a
+        half-restored project (ADR-0202). Every restored row's ``server_version`` is
+        bumped so offline sync clients re-materialize it on their next delta.
+
+        The child restore is itself idempotent (a re-run touches only still-tombstoned
+        rows), but a *second HTTP restore* of an already-live project returns **404**:
+        once restored it is no longer in the caller's Trash, so ``_trashed_queryset`` no
+        longer resolves it. The action therefore fails closed on a double-submit rather
+        than re-applying — clients must not rely on a 200 for an already-restored id.
+        """
+        from trueppm_api.apps.projects.models import cascade_project_children_restore
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Look up the tombstoned row directly — self.get_object() would 404 because the
+        # normal queryset filters is_deleted=False. check_object_permissions still runs
+        # IsProjectOwner (and the archive-bypass) against it.
+        project = get_object_or_404(self._trashed_queryset(), pk=pk)
+        self.check_object_permissions(request, project)
+
+        with transaction.atomic():
+            project.restore()
+            cascade_project_children_restore(project)
+            _record_project_audit_event(
+                event_type="project_restored",
+                actor=request.user,
+                project=project,
+                metadata={"mode": "restore"},
+            )
+
+        project_id = str(project.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_restored", {"id": project_id})
+        )
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 

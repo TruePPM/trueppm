@@ -270,6 +270,26 @@ export function TodayIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Activity — a pulse/waveform line, the "what changed" feed */
+export function ActivityIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M1.5 8h3l2-4.5L9.5 12l2-4h3" />
+    </svg>
+  );
+}
+
 /** Settings — cog with centre circle */
 export function SettingsIcon({ className, ...rest }: IconProps) {
   return (
