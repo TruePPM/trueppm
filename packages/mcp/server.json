@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.trueppm/mcp-server",
+  "title": "TruePPM (read-only)",
+  "description": "Read-only Model Context Protocol server for self-hosted TruePPM. Query the live schedule, board, risks, Monte Carlo forecast, sprints, and My Work from any MCP client. Every answer is computed server-side by TruePPM's own CPM/Monte Carlo engine under your existing role-based permissions — never guessed by a model, never leaving your instance.",
+  "version": "0.4.0-alpha.0",
+  "websiteUrl": "https://docs.trueppm.com/features/mcp-connect",
+  "repository": {
+    "url": "https://gitlab.com/trueppm/trueppm",
+    "source": "gitlab",
+    "subfolder": "packages/mcp"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "trueppm-mcp",
+      "version": "0.4.0a0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TRUEPPM_API_URL",
+          "description": "Base URL of your self-hosted TruePPM instance, e.g. https://ppm.example.com (the /api/v1 suffix is appended automatically if omitted).",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "TRUEPPM_API_TOKEN",
+          "description": "A project or program API token (tppm_<64-hex>) with the mcp:read scope, minted from Settings -> Integrations -> API Tokens.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
