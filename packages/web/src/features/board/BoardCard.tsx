@@ -64,6 +64,14 @@ interface BoardCardProps {
   isKeyboardFocused?: boolean;
   /** True when card should dim because it's not in the active dep highlight set (issue 182). */
   isDimmed?: boolean;
+  /**
+   * True when the card does not match the active board facet filters (issue 1091).
+   * Distinct from {@link isDimmed}: a filtered-out card is dimmed harder (30%) and
+   * removed from the tab order + hidden from assistive tech (aria-hidden +
+   * tabIndex -1 + pointer-events-none) so faceting never strands keyboard focus
+   * or screen-reader focus on a card the user has filtered away.
+   */
+  isFilteredOut?: boolean;
   /** Click handlers for chain / risk icons (issue 182, issue 188). Task-aware so
    *  the parent passes one stable reference per grid, not a per-card closure. */
   onShowDeps?: (task: Task) => void;
@@ -196,6 +204,7 @@ function BoardCardImpl({
   overallocByResource,
   isKeyboardFocused = false,
   isDimmed = false,
+  isFilteredOut = false,
   onShowDeps,
   onShowRisks,
   onChainHover,
@@ -610,10 +619,12 @@ function BoardCardImpl({
     isKeyboardFocused
       ? 'ring-2 ring-brand-primary ring-offset-1 ring-offset-neutral-surface-sunken'
       : '',
-    isDimmed ? 'opacity-40' : '',
+    // A facet-filtered-out card dims harder than a dep/search dim and wins over
+    // both (issue 1091) — it's the strongest "not part of your current view" cue.
+    isFilteredOut ? 'opacity-30 pointer-events-none' : isDimmed ? 'opacity-40' : '',
     // Pending injections are de-emphasized (ADR-0102 §6) — but not as faint as
     // a dimmed/dep-highlight card, so the chip + accept tick stay legible.
-    isPending && !isDimmed ? 'opacity-70' : '',
+    isPending && !isDimmed && !isFilteredOut ? 'opacity-70' : '',
   ].join(' ');
 
   // Overlay card — the floating drag copy (rule 102)
@@ -668,7 +679,8 @@ function BoardCardImpl({
         }}
         className={containerClass}
         role="button"
-        tabIndex={0}
+        tabIndex={isFilteredOut ? -1 : 0}
+        aria-hidden={isFilteredOut || undefined}
         aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
       >
         <div
@@ -749,7 +761,8 @@ function BoardCardImpl({
       }}
       className={containerClass}
       role="button"
-      tabIndex={0}
+      tabIndex={isFilteredOut ? -1 : 0}
+      aria-hidden={isFilteredOut || undefined}
       aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
     >
       {/* Left accent bar — rounded-l-card matches card's border-radius so the bar

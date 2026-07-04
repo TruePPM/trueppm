@@ -91,6 +91,21 @@ import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
+import { BoardFilterControl, BoardFilterChips } from './BoardFilterControl';
+import {
+  EMPTY_FACETS,
+  matchesFacets,
+  activeFacetCount,
+  isFacetsActive,
+  collectAssigneeOptions,
+  parseFacetsFromParams,
+  writeFacetsToParams,
+  paramsHaveFacets,
+  facetsStorageKey,
+  serializeFacets,
+  deserializeFacets,
+  type FacetFilters,
+} from './boardFacets';
 import { SprintPanel } from './SprintPanel';
 import { BoardActivityPanel } from './activity/BoardActivityPanel';
 import { StandupMode } from './standup/StandupMode';
@@ -505,6 +520,12 @@ interface BoardCellProps {
   columns: { status: TaskStatus; label: string; slaDays?: number }[];
   focusedCardId: string | null;
   highlightedTaskIds: Set<string> | null;
+  /**
+   * Set of task ids matching the active board facet filters (issue 1091), or
+   * null when no facet is active. A card not in the set is filtered out (dimmed
+   * to 30% + aria-hidden). Distinct from `highlightedTaskIds` (search / dep-hover).
+   */
+  facetMatchIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
   onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
   onShowDeps: (task: Task) => void;
@@ -613,6 +634,7 @@ function BoardCellImpl({
   showCost,
   scopeActions,
   readOnly = false,
+  facetMatchIds,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -676,6 +698,7 @@ function BoardCellImpl({
             columns={columns}
             isKeyboardFocused={focusedCardId === task.id}
             isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
+            isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
             overallocByResource={overallocByResourcePerTask.get(task.id)}
             onShowDeps={onShowDeps}
             onShowRisks={onShowRisks}
@@ -745,6 +768,8 @@ interface PhaseLaneProps {
   onAddTask?: (phaseId: string, phaseName: string, isSynthetic?: boolean) => void;
   focusedCardId: string | null;
   highlightedTaskIds: Set<string> | null;
+  /** Facet-filter match set (issue 1091) — null when no facet active. */
+  facetMatchIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
   onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
   onShowDeps: (task: Task) => void;
@@ -798,6 +823,7 @@ function PhaseLaneImpl({
   workshop = false,
   onPhaseRename,
   dragHandleListeners,
+  facetMatchIds,
 }: PhaseLaneProps) {
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
@@ -989,6 +1015,7 @@ function PhaseLaneImpl({
               columns={columns}
               focusedCardId={focusedCardId}
               highlightedTaskIds={highlightedTaskIds}
+              facetMatchIds={facetMatchIds}
               overallocByResourcePerTask={overallocByResourcePerTask}
               onCardFocus={onCardFocus}
               onShowDeps={onShowDeps}
@@ -1247,6 +1274,8 @@ interface MobileBoardProps {
   showCost: boolean;
   scopeActions: BoardCardScopeActions;
   readOnly: boolean;
+  /** Facet-filter match set (issue 1091) — null when no facet active. */
+  facetMatchIds: Set<string> | null;
   /** Per-status CFD daily-count series for the WIP-creep trend arrow (issue 1213). */
   wipTrendSeriesByStatus: Partial<Record<TaskStatus, number[]>>;
   /** Reports the status column currently snapped into view (issue 605, FAB target). */
@@ -1289,6 +1318,7 @@ function MobileBoard({
   readOnly,
   wipTrendSeriesByStatus,
   onActiveStatusChange,
+  facetMatchIds,
 }: MobileBoardProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const columnRefs = useRef<(HTMLElement | null)[]>([]);
@@ -1429,6 +1459,7 @@ function MobileBoard({
                       onMenuMove={onMenuMove}
                       columns={columns}
                       isKeyboardFocused={focusedCardId === task.id}
+                      isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
                       onShowDeps={onShowDeps}
                       onShowRisks={onShowRisks}
                       onCardClick={onCardClick}
@@ -1746,6 +1777,66 @@ export function BoardView() {
   const searchActive = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
   const effectiveHighlightIds = searchActive ? searchMatchIds : highlightedTaskIds;
 
+  // Board facet filters (issue 1091, ADR-0199). URL params (fa/fp/fd) are the
+  // shareable source of truth; localStorage per project seeds them once on first
+  // mount when the URL carries no facet params (a shared link is authoritative).
+  const [facetFilters, setFacetFilters] = useState<FacetFilters>(() =>
+    parseFacetsFromParams(searchParams),
+  );
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
+  const facetSeededRef = useRef(false);
+  useEffect(() => {
+    if (facetSeededRef.current) return;
+    if (!projectId) return;
+    facetSeededRef.current = true;
+    // A URL that already carries facets wins — never override a shared link.
+    if (paramsHaveFacets(searchParams)) return;
+    let stored: FacetFilters = EMPTY_FACETS;
+    try {
+      stored = deserializeFacets(localStorage.getItem(facetsStorageKey(projectId)));
+    } catch {
+      /* localStorage unavailable — start empty */
+    }
+    if (isFacetsActive(stored)) {
+      setFacetFilters(stored);
+      setSearchParams(
+        (prev: URLSearchParams) => {
+          const next = new URLSearchParams(prev);
+          writeFacetsToParams(next, stored);
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [projectId, searchParams, setSearchParams]);
+
+  // Single writer for facet changes: pushes to both the URL (shareable) and
+  // per-project localStorage (persistence). One path so the two never diverge.
+  const onFacetsChange = useCallback(
+    (next: FacetFilters) => {
+      setFacetFilters(next);
+      setSearchParams(
+        (prev: URLSearchParams) => {
+          const params = new URLSearchParams(prev);
+          writeFacetsToParams(params, next);
+          return params;
+        },
+        { replace: true },
+      );
+      if (projectId) {
+        try {
+          localStorage.setItem(facetsStorageKey(projectId), serializeFacets(next));
+        } catch {
+          /* best-effort persistence */
+        }
+      }
+    },
+    [setSearchParams, projectId],
+  );
+  const onClearAllFacets = useCallback(() => onFacetsChange(EMPTY_FACETS), [onFacetsChange]);
+  const toggleFilterPanel = useCallback(() => setFilterPanelOpen((v) => !v), []);
+
   // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
   const currentViewConfig: BoardViewConfig = useMemo(
     () => ({
@@ -1919,6 +2010,52 @@ export function BoardView() {
     }
     return { committedTasks: committed, backlogTasks: backlog };
   }, [tasks, selectedSprintId]);
+
+  // Facet-filter derivation (issue 1091). Pure client-side over the already-loaded
+  // committed cards. `facetMatchIds` is null when no facet is active (nothing
+  // dimmed); otherwise it is the set of card ids matching the active facets, and
+  // any card not in it is dimmed (30% + aria-hidden). "Now" is captured once per
+  // render so overdue/this-week are stable across the pass.
+  const facetsActive = isFacetsActive(facetFilters);
+  const assigneeOptions = useMemo(() => collectAssigneeOptions(committedTasks), [committedTasks]);
+  const assigneeNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const opt of assigneeOptions) m.set(opt.resourceId, opt.name);
+    return m;
+  }, [assigneeOptions]);
+  const facetMatchIds = useMemo(() => {
+    if (!facetsActive) return null;
+    const now = new Date();
+    const ids = new Set<string>();
+    for (const t of committedTasks) {
+      if (t.isSummary) continue;
+      if (matchesFacets(t, facetFilters, now)) ids.add(t.id);
+    }
+    return ids;
+  }, [facetsActive, committedTasks, facetFilters]);
+  const facetMatchCount = facetMatchIds?.size ?? 0;
+  const facetCount = activeFacetCount(facetFilters);
+  // Zero-match: facets are active but no committed card matches. Drives the
+  // dedicated banner (the board would otherwise show every card dimmed to 30%).
+  const facetZeroMatch = facetsActive && facetMatchCount === 0;
+
+  // Announce filter changes to assistive tech (issue 1091 AC; the issue 1033 aria
+  // omission this explicitly guards against). Skips the initial mount so a plain
+  // page load stays silent; a shared link with facets announces on first change.
+  const facetAnnounceRef = useRef(false);
+  useEffect(() => {
+    if (!facetAnnounceRef.current) {
+      facetAnnounceRef.current = true;
+      return;
+    }
+    const node = ariaLiveRef.current;
+    if (!node) return;
+    node.textContent = facetsActive
+      ? `${facetCount} filter${facetCount === 1 ? '' : 's'} active, ${facetMatchCount} card${
+          facetMatchCount === 1 ? '' : 's'
+        } match`
+      : 'Filters cleared';
+  }, [facetsActive, facetCount, facetMatchCount]);
 
   // Epic id → display name (364), built from the full task set: an epic story's
   // parent epic may sit outside the committed/in-sprint slice, so deriving names
@@ -2662,6 +2799,7 @@ export function BoardView() {
       onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
       onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
       onFocusSearch: b3OverlayOpen ? undefined : () => searchInputRef.current?.focus(),
+      onOpenFilter: b3OverlayOpen ? undefined : toggleFilterPanel,
       onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
     },
     addTaskPhase === null,
@@ -2727,6 +2865,17 @@ export function BoardView() {
             onDebtOnlyToggle={() => setDebtOnly((v) => !v)}
             showCost={showCost}
             onShowCostToggle={() => setShowCost((v) => !v)}
+            filterControl={
+              <BoardFilterControl
+                filters={facetFilters}
+                assigneeOptions={assigneeOptions}
+                onChange={onFacetsChange}
+                onClearAll={onClearAllFacets}
+                open={filterPanelOpen}
+                onOpenChange={setFilterPanelOpen}
+                triggerRef={filterTriggerRef}
+              />
+            }
             activityOpen={activityOpen}
             onToggleActivity={toggleActivity}
             onCollapseAll={() => collapseAll(phases.map((p) => p.id))}
@@ -2753,6 +2902,15 @@ export function BoardView() {
                 });
               }
             }}
+          />
+          {/* Active-filter chip bar (issue 1091) — keeps the facet lens
+              inescapable when the popover is closed; each chip removes its facet. */}
+          <BoardFilterChips
+            filters={facetFilters}
+            assigneeNameById={assigneeNameById}
+            matchCount={facetMatchCount}
+            onChange={onFacetsChange}
+            onClearAll={onClearAllFacets}
           />
           {/* Off-screen board-export print surface (issue 326). Mounted only
               while an export is in flight so its duplicate projection of the
@@ -2993,11 +3151,34 @@ export function BoardView() {
               );
             })()}
 
+          {/* Zero-match state (issue 1091) — facets are active but no card
+              matches. Supersedes the board body (which would otherwise be every
+              card dimmed to 30%); offers a one-click clear. */}
+          {facetZeroMatch && (
+            <div
+              className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
+              role="status"
+              data-testid="board-zero-match"
+            >
+              <p>No cards match these filters.</p>
+              <button
+                type="button"
+                onClick={onClearAllFacets}
+                data-testid="board-zero-match-clear"
+                className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
+                  text-brand-primary font-medium hover:bg-brand-primary/10
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
+
           {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
               grid. The rail sits left of the grid (flex-row); the drawer sits
               above it (flex-col, full width); the queue replaces both.
               Layout is persisted via `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
-          {effectiveLayout === 'queue' && (
+          {!facetZeroMatch && effectiveLayout === 'queue' && (
             <QueueLayout
               tasks={queueTasks}
               phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
@@ -3037,7 +3218,7 @@ export function BoardView() {
               is suppressed here — the FAB + card menus cover capture/move on a
               phone, and the strip owns the horizontal axis. Queue layout keeps
               its own (already mobile-friendly) flat list above. */}
-          {effectiveLayout !== 'queue' && isMobile && (
+          {!facetZeroMatch && effectiveLayout !== 'queue' && isMobile && (
             <MobileBoard
               columns={COLUMNS}
               tasksByStatus={mobileTasksByStatus}
@@ -3054,9 +3235,10 @@ export function BoardView() {
               readOnly={readOnly}
               wipTrendSeriesByStatus={wipTrendSeriesByStatus}
               onActiveStatusChange={setMobileActiveStatus}
+              facetMatchIds={facetMatchIds}
             />
           )}
-          {effectiveLayout !== 'queue' && !isMobile && (
+          {!facetZeroMatch && effectiveLayout !== 'queue' && !isMobile && (
             <div className="flex-1 flex flex-row min-h-0">
               {effectiveLayout === 'rail' && (
                 <BacklogBand
@@ -3296,6 +3478,7 @@ export function BoardView() {
                     // Search match set (when active) overrides the issue-182 dep-hover
                     // dim set — see effectiveHighlightIds (issue 323).
                     highlightedTaskIds: effectiveHighlightIds,
+                    facetMatchIds,
                     overallocByResourcePerTask,
                     onCardFocus: handleCardFocus,
                     onShowDeps: handleShowDeps,
