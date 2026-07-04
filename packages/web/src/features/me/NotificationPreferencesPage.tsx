@@ -60,6 +60,12 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a project you belong to is deleted',
     example: '“Gemini” was deleted — restore it from Trash within the retention window',
   },
+  // Stale-task daily nudge (ADR-0200). A daily scan reminds you about your own tasks
+  // that have sat in one status past the project's threshold (default 7 days).
+  'task.stale': {
+    title: 'When a task you own goes stale',
+    example: '“Foundation pour” has sat in Review for over a week',
+  },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

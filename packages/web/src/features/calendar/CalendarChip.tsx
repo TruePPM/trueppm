@@ -39,11 +39,15 @@ function roundedClass(chip: CalendarChipData): string {
 }
 
 export function CalendarChip({ chip, onClick }: CalendarChipProps) {
+  // The finish fragment carries the "due" marker (issue 1230) — the day the task
+  // is due. Milestones already read as a single dated diamond, so they opt out.
+  const showDue = chip.isEnd && !chip.isMilestone;
   const ariaLabel = [
     chip.isMilestone ? 'Milestone:' : null,
     chip.taskName,
     chip.isCritical ? ', on critical path' : null,
     chip.isComplete ? ', complete' : null,
+    showDue ? ', due' : null,
   ]
     .filter(Boolean)
     .join('');
@@ -68,6 +72,12 @@ export function CalendarChip({ chip, onClick }: CalendarChipProps) {
         </span>
       )}
       {chip.isStart && <span className="truncate">{chip.taskName}</span>}
+      {showDue && (
+        <span
+          aria-hidden="true"
+          className="ml-auto flex-shrink-0 w-1.5 h-1.5 rounded-full bg-neutral-text-secondary"
+        />
+      )}
     </button>
   );
 }

@@ -306,6 +306,45 @@ test.describe('Risk register — segment filter', () => {
   });
 });
 
+test.describe('Risk register — v2 fidelity polish (issue 1230)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test('shows the "N in register · X high · Y unmitigated" header sub-line', async ({ page }) => {
+    // Single <p>: match the whole line so it can't collide with the matrix
+    // "N unmitigated need action" callout.
+    await expect(page.getByText(/3 in register.*1 high.*2 unmitigated/)).toBeVisible();
+  });
+
+  test('renders live per-facet counts on the segment chips', async ({ page }) => {
+    const group = page.getByRole('radiogroup', { name: 'Filter risks' });
+    await expect(group.getByRole('radio', { name: 'All' })).toContainText('3');
+    await expect(group.getByRole('radio', { name: 'High' })).toContainText('1');
+    await expect(group.getByRole('radio', { name: 'Unmitigated' })).toContainText('2');
+    await expect(group.getByRole('radio', { name: 'Mine' })).toContainText('1');
+  });
+
+  test('Newest sort orders the table by created_at descending', async ({ page }) => {
+    const newest = page.getByRole('button', { name: 'Newest' });
+    await expect(newest).toHaveAttribute('aria-pressed', 'false');
+    await newest.click();
+    await expect(newest).toHaveAttribute('aria-pressed', 'true');
+
+    // Fixture created_at: R1 2026-01-01, R2 2026-01-05, R3 2026-01-10 → newest first is R3.
+    const rows = page.getByRole('button', { name: /Open risk:/ });
+    await expect(rows.first()).toHaveAttribute('aria-label', /Open risk: Scope creep/);
+  });
+
+  test('matrix shows the "N unmitigated need action" callout', async ({ page }) => {
+    await expect(page.getByText('2 unmitigated need action')).toBeVisible();
+  });
+});
+
 test.describe('Risk register — severity sort & empty state', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);

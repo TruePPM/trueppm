@@ -10,6 +10,8 @@ export interface BoardKeyboardHandlers {
   onShowComments?: () => void;
   onShowCheatsheet?: () => void;
   onFocusSearch?: () => void;
+  /** Open (or toggle) the board filter panel — `f` (issue 1091). */
+  onOpenFilter?: () => void;
   onCloseOverlay?: () => void;
 }
 
@@ -111,6 +113,15 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
           // fields, so `/` typed inside a form never steals focus to search.
           if (handlers.onFocusSearch) {
             handlers.onFocusSearch();
+            e.preventDefault();
+          }
+          break;
+        case 'f':
+          // Open/toggle the board filter panel (issue 1091). isTypingInInput
+          // already exempts fields, so `f` typed in the search box or an
+          // add/edit form never opens the panel.
+          if (handlers.onOpenFilter) {
+            handlers.onOpenFilter();
             e.preventDefault();
           }
           break;

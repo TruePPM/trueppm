@@ -35,8 +35,13 @@ _RISK_INDEX = "hrisk_proj_hist_date_idx"
 class Migration(migrations.Migration):
     atomic = False
 
+    # Depends on both 0104 leaves that landed on main (stale-task #646 and
+    # trash/restore #1113) so the projects migration graph collapses to a single
+    # leaf. This migration only creates DB-side indexes via RunSQL and is
+    # independent of what either 0104 did, so ordering after both is safe.
     dependencies = [
-        ("projects", "0103_taskdurationchangeevent_task_dur_evt_sprint_idx"),
+        ("projects", "0104_historicalproject_stale_task_threshold_days_and_more"),
+        ("projects", "0104_trash_restore_1113"),
     ]
 
     operations = [

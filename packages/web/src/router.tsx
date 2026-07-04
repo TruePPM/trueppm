@@ -173,6 +173,11 @@ const RetentionPurgePage = lazy(() =>
     default: m.RetentionPurgePage,
   })),
 );
+const WorkspaceTrashPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceTrashPage').then((m) => ({
+    default: m.WorkspaceTrashPage,
+  })),
+);
 const InviteAcceptPage = lazy(() =>
   import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
@@ -581,6 +586,7 @@ export const router = createBrowserRouter([
           { path: 'settings/groups', element: <SectionRedirect base="/settings" anchor="groups" /> },
           { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
           { path: 'settings/methodology', element: <SectionRedirect base="/settings" anchor="methodology" /> },
+          { path: 'settings/schedule', element: <SectionRedirect base="/settings" anchor="schedule" /> },
           { path: 'settings/programs', element: <SectionRedirect base="/settings" anchor="programs" /> },
           { path: 'settings/attachments', element: <SectionRedirect base="/settings" anchor="attachments" /> },
           { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
@@ -599,6 +605,17 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <IntegrationsRedirect />
+              </Suspense>
+            ),
+          },
+          // Trash (issue 1113, ADR-0199) — recoverable soft-deleted projects. Renders its
+          // own SettingsShell (like the System Health area). Any member may view; the
+          // per-row Restore is Owner-gated by the API.
+          {
+            path: 'settings/trash',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <WorkspaceTrashPage />
               </Suspense>
             ),
           },

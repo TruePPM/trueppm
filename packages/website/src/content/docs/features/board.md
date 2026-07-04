@@ -62,6 +62,7 @@ The board toolbar (top of the board) groups its controls into these clusters:
 - **Search** — a card search box (see below) that leads the toolbar
 - **Primary chips** — **Group**, **Sort**, and **Density** popovers (card density, plus a separate backlog-card density)
 - **Zoom** — a **Small / Normal / Large** stepper that scales the board surface (see below)
+- **Filters** — a **⚑ Filters** button that opens the facet panel (see below); the button carries a badge with the count of active filters
 - **Quiet toggles** — **My tasks** (only tasks assigned to you), **At-risk**, and **Cost**
 - **Layout segmented control** — **Rail · Drawer · Queue** backlog layout variants
 - **More⋯ overflow** — collapse/expand all lanes, **WIP** limit chips, column **Tints**, **EVM** mode, the **Columns** configuration panel, and **Export PDF** (see below)
@@ -76,6 +77,25 @@ The toolbar's search box finds cards by **title and description** across the pro
 - Search respects your project role: results never include cards from projects you are not a member of, and the search response carries no cost or other role-gated fields.
 
 Matching is a case-insensitive substring (searching `foundation` finds *"Foundation pour"*). Title matches rank above description-only matches. Comment search will arrive with threaded comments.
+
+## Filters
+
+The **⚑ Filters** button opens a facet panel that narrows the board to the cards you care about. Press <kbd>f</kbd> anywhere on the board to open it (typing in a form never opens the panel). It offers three facet groups:
+
+- **Assignee** — pick one or more people, plus an explicit **Unassigned** option for cards nobody owns yet.
+- **Priority** — **High**, **Medium**, **Low**, or **Unranked**, bucketed from each card's priority rank.
+- **Due** — **Overdue** or **This week**, derived from the card's finish date. Only *scheduled* cards (a committed start date, or a card pulled into a sprint) are eligible — an uncommitted backlog idea never counts as "due".
+
+Facets combine as you would expect: a card must match **every** group you have narrowed, and **any** of the values you picked within a group. Selecting *Alice* and *Bob* under Assignee plus *High* under Priority shows Alice's and Bob's high-priority cards.
+
+- Cards that don't match dim to the background and drop out of keyboard and screen-reader navigation, so faceting never strands focus on a hidden card — the board never reflows.
+- The **Filters** button shows a badge with the number of active facet values, and an **active-filter bar** below the toolbar lists each one as a removable chip so the lens is always visible. Remove a chip, or press **Clear all**, to widen the board again.
+- If nothing matches, a **No cards match these filters** banner replaces the board with a one-click **Clear filters** action.
+- The active facets are reflected in the URL (`?fa=…&fp=…&fd=…`), so a filtered board is a **shareable link**, and your selection is also remembered per project in this browser.
+
+Filters compose with the **My tasks** and **At-risk** quiet toggles — those remain independent one-tap lenses alongside the facet panel.
+
+The **Label** facet arrives once project-scoped task labels ship.
 
 ## Zoom
 

@@ -102,3 +102,27 @@ describe('RiskSegmentedFilter', () => {
     expect(onChange).toHaveBeenCalledWith('unmitigated');
   });
 });
+
+describe('RiskSegmentedFilter live counts (issue 1230)', () => {
+  it('renders a per-facet count without changing the radio accessible name', () => {
+    render(
+      <RiskSegmentedFilter
+        value="all"
+        onChange={vi.fn()}
+        counts={{ all: 3, high: 1, unmitigated: 2, mine: 1 }}
+      />,
+    );
+    const group = screen.getByRole('radiogroup', { name: 'Filter risks' });
+    // The count is visible text...
+    expect(within(group).getByText('3')).toBeInTheDocument();
+    // ...but aria-hidden, so the radio's accessible name stays the bare label.
+    expect(within(group).getByRole('radio', { name: 'All' })).toBeInTheDocument();
+    expect(within(group).getByRole('radio', { name: 'High' })).toBeInTheDocument();
+  });
+
+  it('renders no counts when the prop is omitted', () => {
+    render(<RiskSegmentedFilter value="all" onChange={vi.fn()} />);
+    const group = screen.getByRole('radiogroup', { name: 'Filter risks' });
+    expect(within(group).queryByText(/^\d+$/)).not.toBeInTheDocument();
+  });
+});

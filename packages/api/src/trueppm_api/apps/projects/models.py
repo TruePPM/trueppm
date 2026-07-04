@@ -12,7 +12,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.db.models.functions import Lower
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
@@ -224,6 +224,21 @@ class VersionedModel(models.Model):
             deleted_version=self.server_version
         )
         self.deleted_version = self.server_version
+
+    def restore(self) -> None:
+        """Un-tombstone the row — the symmetric inverse of :meth:`soft_delete` (#1113).
+
+        Clears ``is_deleted`` and the ``deleted_version`` GC marker and bumps
+        ``server_version`` via ``save()``. The version bump is the load-bearing part:
+        the offline sync pull splits rows into 'updated' (live) vs 'deleted' buckets
+        purely on the current ``is_deleted`` value, gated by ``server_version__gt=since``
+        — so a restored row re-materializes on the client's next delta without any
+        special-casing (ADR-0199). A row being restored was, by definition, loaded from
+        the DB, so the UPDATE path is known — skip the exists() probe.
+        """
+        self.is_deleted = False
+        self.deleted_version = None
+        self.save(known_exists=True)
 
 
 # ---------------------------------------------------------------------------
@@ -937,6 +952,14 @@ class Project(VersionedModel):
         choices=BoardCadence.choices,
         default=BoardCadence.SPRINT,
     )
+    # Stale-task nudge threshold in whole days (ADR-0200, #646). The daily
+    # detect_stale_tasks scan notifies a task's assignee once the task has sat in a
+    # non-terminal status longer than this many days. Board-level config lives as a
+    # discrete Project column (matching board_cadence/agile_features) rather than a
+    # settings side-table — there is no Board model; a board is a view over this
+    # project's tasks. Default 7. Distinct from the 3-day is_stalled board-card chip
+    # (ADR-0115), which is a synchronous visual verdict, not an opt-in notification.
+    stale_task_threshold_days = models.PositiveIntegerField(default=7)
     # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
     # columns on ``Task`` are read for the computed score. Scalar column (matches
     # ``methodology`` / ``estimation_mode``) — no settings side table needed. NONE hides
@@ -1081,6 +1104,20 @@ class Project(VersionedModel):
     # default; an operator can still force-delete them via ?force=true).
     deleted_at = models.DateTimeField(null=True, blank=True)
 
+    # Who soft-deleted the project (#1113). Powers the Trash list's "Deleted by X"
+    # line so a team can see who moved a project to Trash before restoring it. Set
+    # in the soft-delete path, cleared on restore. NULL for legacy projects deleted
+    # before this column existed (and for a hard delete, which removes the row).
+    # SET_NULL so deleting the actor's user account does not break the Trash row.
+    # Mirrors ``archived_by`` / ``closed_by``.
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="projects_deleted",
+    )
+
     history = HistoricalRecords(
         # ``deleted_at`` is tombstone-reap bookkeeping (grouped with
         # ``deleted_version``), not a user-meaningful audit fact — the
@@ -1136,6 +1173,107 @@ class Project(VersionedModel):
         """
         self.deleted_at = timezone.now()
         super().soft_delete()
+
+    def restore(self) -> None:
+        """Restore the project row only — the child cascade runs separately (#1113).
+
+        The inverse of :meth:`soft_delete`: clears ``deleted_at`` (so the retention
+        purge no longer measures a soft-delete age against it) before delegating to
+        ``VersionedModel.restore`` (which clears ``is_deleted``/``deleted_version`` and
+        bumps ``server_version``). ``deleted_at`` is set before the ``super()`` save so
+        it is written in the same UPDATE as ``is_deleted``.
+
+        Like ``soft_delete``, this method deliberately does NOT cascade to children —
+        the restore endpoint calls :func:`cascade_project_children_restore` inside the
+        same atomic transaction so the whole restore is all-or-nothing (ADR-0199).
+        """
+        self.deleted_at = None
+        self.deleted_by = None
+        super().restore()
+
+
+def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None:
+    """Un-tombstone every child of a soft-deleted project (#1113, ADR-0199).
+
+    The inverse of :func:`cascade_project_children_soft_delete`. Restores **all**
+    currently-tombstoned children of the project — tasks, dependency edges, sprints,
+    baselines, and risks — bumping ``server_version`` on each so sync clients
+    re-materialize them.
+
+    Restore-all is deliberate (ADR-0199 §3): ``server_version``/``deleted_version`` are
+    per-row counters, not a global clock, so there is no reliable cross-row marker to
+    distinguish "tombstoned by this project's delete cascade" from "individually deleted
+    by the user earlier". Once a project is tombstoned it is invisible and write-locked,
+    so no child can be independently deleted while it sits in Trash; the tombstoned set
+    at restore time is therefore the cascade set plus at most a pre-delete individual
+    deletion, and erring toward completeness matches the "half-restore is worse than
+    none" requirement.
+
+    Idempotent: every pass filters ``is_deleted=True``, so a re-run (double-click, retry)
+    touches only still-tombstoned rows and is a safe no-op that bumps no versions. Callers
+    MUST run this inside an atomic transaction — a failure part-way through must roll the
+    whole restore back rather than leave a half-restored project.
+
+    Two per-model subtleties mirror the delete cascade in reverse:
+
+    * **dependency edges** — restored only when *both* endpoints are live after this
+      project's own tasks are restored (``predecessor__is_deleted=False`` AND
+      ``successor__is_deleted=False``). A cross-project edge whose other endpoint is still
+      in another trashed project stays tombstoned and resurrects naturally when that
+      project is later restored. Tombstoned edges that would collide with an already-live
+      duplicate on the non-partial ``unique_dependency (predecessor, successor, dep_type)``
+      constraint are excluded to avoid an ``IntegrityError`` — the live row is
+      authoritative. Tasks are therefore restored BEFORE edges.
+    * **risks** — restored per-row via ``Risk.restore`` so ``Risk.save`` re-fires
+      ``risk_changed(action="saved")`` (the OSS extension point for the Enterprise
+      portfolio risk rollup). A bulk update would silently skip the signal, exactly the
+      trap the delete cascade avoids by tombstoning risks per-row.
+    """
+    project_id = project.pk if isinstance(project, Project) else project
+
+    # Tasks first — un-tombstoning a task makes it a live endpoint, which the edge
+    # pass below relies on. Clear deleted_at/deleted_version and bump server_version;
+    # within one UPDATE every F() reads the pre-update column, so server_version and the
+    # cleared markers resolve correctly (mirrors the delete cascade's bulk+F() shape).
+    Task.objects.filter(project_id=project_id, is_deleted=True).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+        deleted_at=None,
+    )
+    # Dependency edges: both endpoints live, and no already-live duplicate on the
+    # non-partial (predecessor, successor, dep_type) unique constraint.
+    live_duplicate = Dependency.objects.filter(
+        is_deleted=False,
+        predecessor=OuterRef("predecessor"),
+        successor=OuterRef("successor"),
+        dep_type=OuterRef("dep_type"),
+    )
+    Dependency.objects.filter(
+        Q(predecessor__project_id=project_id) | Q(successor__project_id=project_id),
+        is_deleted=True,
+        predecessor__is_deleted=False,
+        successor__is_deleted=False,
+    ).exclude(Exists(live_duplicate)).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+        deleted_at=None,
+    )
+    Sprint.objects.filter(project_id=project_id, is_deleted=True).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+    )
+    Baseline.objects.filter(project_id=project_id, is_deleted=True).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+    )
+    # Risks per-row so risk_changed(action="saved") fires (send_robust) for the
+    # Enterprise rollup; a bulk update would bypass Risk.save's signal path.
+    for risk in Risk.objects.filter(project_id=project_id, is_deleted=True):
+        risk.restore()
 
 
 def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> None:
@@ -1812,6 +1950,17 @@ class Task(VersionedModel):
             # enabled by that earlier migration.
             GinIndex(fields=["name"], opclasses=["gin_trgm_ops"], name="task_name_trgm"),
             GinIndex(fields=["notes"], opclasses=["gin_trgm_ops"], name="task_notes_trgm"),
+            # Daily stale-task scan (ADR-0200) runs once per project:
+            # WHERE project_id = X AND NOT is_deleted AND status IN (non-terminal)
+            #   AND status_changed_at < cutoff.
+            # Leading project_id equality confines each per-project query to that
+            # project's rows before the low-selectivity status/time range; the partial
+            # on is_deleted=False keeps it small — soft-deleted rows are never nudged.
+            models.Index(
+                fields=["project", "status", "status_changed_at"],
+                condition=models.Q(is_deleted=False),
+                name="task_status_changed_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

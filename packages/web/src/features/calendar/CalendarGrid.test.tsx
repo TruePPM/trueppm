@@ -32,12 +32,36 @@ describe('CalendarGrid', () => {
     expect(screen.getByText('Sun')).toBeInTheDocument();
   });
 
-  it('renders the CalendarLegend with all 4 entries', () => {
+  it('renders the CalendarLegend with all entries incl. Due + Sprint boundary (issue 1230)', () => {
     render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);
     expect(screen.getByText('Critical path')).toBeInTheDocument();
     expect(screen.getByText('At risk')).toBeInTheDocument();
     expect(screen.getByText('On track')).toBeInTheDocument();
     expect(screen.getByText('Milestone')).toBeInTheDocument();
+    expect(screen.getByText('Due')).toBeInTheDocument();
+    expect(screen.getByText('Sprint boundary')).toBeInTheDocument();
+  });
+
+  it('marks sprint start/finish days with a boundary dot (issue 1230)', () => {
+    const boundaries = new Set(['2026-05-04', '2026-05-15']);
+    render(
+      <CalendarGrid
+        anchorIso={ANCHOR}
+        tasks={[]}
+        onTaskClick={vi.fn()}
+        sprintBoundaries={boundaries}
+      />,
+    );
+    // One dot per boundary day that falls inside the rendered month grid.
+    const dots = screen.getAllByLabelText('Sprint boundary');
+    // Both boundary dates are in May 2026; the legend swatch is aria-hidden, so
+    // only the day-cell dots carry the accessible label.
+    expect(dots.length).toBe(2);
+  });
+
+  it('renders no boundary dots when no sprint boundaries are supplied', () => {
+    render(<CalendarGrid anchorIso={ANCHOR} tasks={[]} onTaskClick={vi.fn()} />);
+    expect(screen.queryByLabelText('Sprint boundary')).not.toBeInTheDocument();
   });
 
   it('renders milestone as a ◆ diamond button, not a chip', () => {
@@ -69,6 +93,14 @@ describe('CalendarGrid', () => {
     // CalendarChip renders a button with the task name
     const chipBtn = screen.getByRole('button', { name: /Integration Test/i });
     expect(chipBtn).toBeInTheDocument();
+  });
+
+  it('appends ", due" to the finish fragment of a task chip (issue 1230)', () => {
+    // A single-week task's fragment contains its finish date → the due marker.
+    render(<CalendarGrid anchorIso={ANCHOR} tasks={[baseTask()]} onTaskClick={vi.fn()} />);
+    expect(
+      screen.getByRole('button', { name: 'Integration Test, due' }),
+    ).toBeInTheDocument();
   });
 
   it('shows +N more overflow badge when too many chips in a week', () => {

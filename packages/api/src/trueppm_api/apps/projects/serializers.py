@@ -297,6 +297,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # _SCHEDULER_WRITABLE_FIELDS, alongside methodology). SPRINT default; not an
             # inheritable override — it's a project-local board setting.
             "board_cadence",
+            # Stale-task nudge threshold in days (ADR-0200, #646). Board-level setting;
+            # Admin-only write by the allowlist default (deliberately NOT in
+            # _SCHEDULER_WRITABLE_FIELDS — it governs notifications, not scheduling).
+            "stale_task_threshold_days",
             # Read-only server-resolved methodology (ADR-0107) — what clients render
             # for tab visibility — and the value inherited if the override were ignored.
             "effective_methodology",
@@ -591,6 +595,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # is an explicit allowlist — any new writable field is Admin-only by default
     # until deliberately added here (#769; ADR-0041 estimation governance).
     _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "board_cadence", "estimation_mode"})
+
+    def validate_stale_task_threshold_days(self, value: int) -> int:
+        """Bound the stale-task nudge threshold to a sane 1–365 day range (ADR-0200).
+
+        Zero would mark every task stale the instant its status is stamped (a nonsense
+        firehose); an unbounded value is an accidental "never nudge" that is better
+        expressed by the per-user toggle. ``PositiveIntegerField`` already blocks
+        negatives at the DB, so this only enforces the lower floor of 1 and an upper
+        ceiling of a year.
+        """
+        if value < 1 or value > 365:
+            raise serializers.ValidationError(
+                "Stale-task threshold must be between 1 and 365 days."
+            )
+        return value
 
     def validate_iteration_label(self, value: str | None) -> str | None:
         """Strip the override, or clear it to inherit (ADR-0111/0116).

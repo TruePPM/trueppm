@@ -24,6 +24,12 @@ paths = [
   '''(^|/)openapi\.json$''',
   # Example env files exist precisely to show placeholder values.
   '''\.env\.example$''',
+  # Vendored Semgrep rule packs (scripts/update-semgrep-rules.sh, #1639). These
+  # are generated third-party rule definitions whose bodies contain secret-SHAPED
+  # example patterns — a placeholder Slack webhook URL, the literal
+  # `-----BEGIN PGP PRIVATE KEY BLOCK-----` a rule matches on, etc. They are rule
+  # source, never real credentials; semgrep itself is the scanner, not the target.
+  '''(^|/)\.semgrep/.*\.yml$''',
   # API docs page whose body shows a literal example Idempotency-Key (a plain
   # UUID), which the generic-api-key rule flags. It is documentation, not a key.
   '''(^|/)idempotency\.md$''',

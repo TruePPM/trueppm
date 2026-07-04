@@ -103,6 +103,22 @@ function CalendarLegend() {
         </svg>
         Milestone
       </span>
+      {/* Due legend (issue 1230) — the dot marking a task bar's finish (due) day. */}
+      <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary">
+        <span
+          aria-hidden="true"
+          className="inline-block w-1.5 h-1.5 rounded-full bg-neutral-text-secondary flex-shrink-0"
+        />
+        Due
+      </span>
+      {/* Sprint-boundary legend (issue 1230) — dots on sprint start/finish days. */}
+      <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary">
+        <span
+          aria-hidden="true"
+          className="inline-block w-1.5 h-1.5 rounded-full bg-brand-accent-dark flex-shrink-0"
+        />
+        Sprint boundary
+      </span>
     </div>
   );
 }
@@ -115,9 +131,19 @@ interface CalendarGridProps {
   anchorIso: string;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
+  /**
+   * ISO dates (YYYY-MM-DD) on which a sprint starts or finishes (issue 1230).
+   * A day cell in this set gets a small boundary dot. Optional/empty → no dots.
+   */
+  sprintBoundaries?: Set<string>;
 }
 
-export function CalendarGrid({ anchorIso, tasks, onTaskClick }: CalendarGridProps) {
+export function CalendarGrid({
+  anchorIso,
+  tasks,
+  onTaskClick,
+  sprintBoundaries,
+}: CalendarGridProps) {
   const anchor = parseUTCDate(anchorIso);
   const today = new Date();
   const weeks = monthWeekStarts(anchor);
@@ -188,6 +214,7 @@ export function CalendarGrid({ anchorIso, tasks, onTaskClick }: CalendarGridProp
                   const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
                   const overflow = overflowByDay.get(dayOffset) ?? 0;
                   const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
+                  const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
 
                   return (
                     <div
@@ -214,6 +241,16 @@ export function CalendarGrid({ anchorIso, tasks, onTaskClick }: CalendarGridProp
                       >
                         {day.getUTCDate()}
                       </span>
+
+                      {/* Sprint-boundary dot (issue 1230) — marks a sprint start/finish day. */}
+                      {isSprintBoundary && (
+                        <span
+                          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-brand-accent-dark"
+                          title="Sprint boundary"
+                          aria-label="Sprint boundary"
+                          role="img"
+                        />
+                      )}
 
                       {/* Milestone diamonds in this day cell */}
                       {dayMarks.map((mark) => (
