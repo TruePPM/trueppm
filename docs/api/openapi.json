@@ -10023,7 +10023,7 @@
         "/api/v1/projects/{id}/restore/": {
             "post": {
                 "operationId": "v1_projects_restore_create",
-                "description": "Un-tombstone a soft-deleted project and all its children atomically (#1113).\n\nOwner-only (``IsProjectOwner``), scoped to the caller's Trash. The project row\nand every currently-tombstoned child (tasks, dependency edges, sprints,\nbaselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:\na failure part-way through rolls the whole restore back rather than leave a\nhalf-restored project (ADR-0199). Every restored row's ``server_version`` is\nbumped so offline sync clients re-materialize it on their next delta.\n\nThe child restore is itself idempotent (a re-run touches only still-tombstoned\nrows), but a *second HTTP restore* of an already-live project returns **404**:\nonce restored it is no longer in the caller's Trash, so ``_trashed_queryset`` no\nlonger resolves it. The action therefore fails closed on a double-submit rather\nthan re-applying — clients must not rely on a 200 for an already-restored id.",
+                "description": "Un-tombstone a soft-deleted project and all its children atomically (#1113).\n\nOwner-only (``IsProjectOwner``), scoped to the caller's Trash. The project row\nand every currently-tombstoned child (tasks, dependency edges, sprints,\nbaselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:\na failure part-way through rolls the whole restore back rather than leave a\nhalf-restored project (ADR-0202). Every restored row's ``server_version`` is\nbumped so offline sync clients re-materialize it on their next delta.\n\nThe child restore is itself idempotent (a re-run touches only still-tombstoned\nrows), but a *second HTTP restore* of an already-live project returns **404**:\nonce restored it is no longer in the caller's Trash, so ``_trashed_queryset`` no\nlonger resolves it. The action therefore fails closed on a double-submit rather\nthan re-applying — clients must not rely on a 200 for an already-restored id.",
                 "summary": "Restore a soft-deleted project from Trash",
                 "parameters": [
                     {
@@ -11873,6 +11873,94 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/BoardActivityResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/changelog/": {
+            "get": {
+                "operationId": "v1_projects_changelog_retrieve",
+                "description": "Unified newest-first \"what changed\" stream for a whole project (ADR-0201).\n\nGET /api/v1/projects/{project_pk}/changelog/\n    ?since=&object_type=&change_type=&user=&cursor=&page_size=\n\nAggregates every project-scoped ``django-simple-history`` table (Task, Sprint,\nRisk, Project, Dependency, TaskRecurrenceRule, and the three policy singletons)\ninto one stream with a **stable keyset cursor** — pass the response's\n``next_cursor`` back as ``cursor`` to page. The cursor is opaque and safe to\npersist; a malformed cursor returns 400.\n\nPermissions: any project member (Viewer+) may read (see ADR-0201 — every\nsource's live GET is Viewer+, so membership is a sufficient row gate).\n``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the\n``user=`` filter is likewise honored only for those callers, so the feed can\nnever be turned into a per-person activity tracker by a lower-privilege reader.\n\nQuery params:\n    since        ISO-8601 datetime; inclusive lower bound on the change time.\n    object_type  Comma-separated source keys (task, sprint, risk, dependency,\n                 project, task_recurrence, guardrail_policy,\n                 signal_privacy_policy, decisions_policy). Default: all.\n    change_type  Comma-separated: created, updated, deleted. Default: all.\n    user         A history_user id (Owner/Admin only; ignored otherwise).\n    cursor       Opaque keyset cursor from a prior response's ``next_cursor``.\n    page_size    1..100 (default 50).",
+                "summary": "Unified project changelog (aggregated, filterable, cursor-paginated)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "change_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated change types: created, updated, deleted."
+                    },
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "object_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Comma-separated source keys: task, sprint, risk, dependency, project, task_recurrence, guardrail_policy, signal_privacy_policy, decisions_policy. Default: all."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Inclusive ISO-8601 lower bound on the change time."
+                    },
+                    {
+                        "in": "query",
+                        "name": "user",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter to one history_user id (Owner/Admin only)."
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChangelogResponse"
                                 }
                             }
                         },
@@ -26523,6 +26611,82 @@
                     "name"
                 ]
             },
+            "ChangeTypeEnum": {
+                "enum": [
+                    "created",
+                    "updated",
+                    "deleted"
+                ],
+                "type": "string",
+                "description": "* `created` - created\n* `updated` - updated\n* `deleted` - deleted"
+            },
+            "ChangelogEntry": {
+                "type": "object",
+                "description": "One row in the unified project changelog (ADR-0201).\n\nThe instance is a plain dict from ``changelog.build_project_changelog`` — the\naggregator already merged, ordered, and diffed across the historical tables,\nso the serializer only renders. ``user`` is exposed only to Owner/Admin\ncallers (``hide_user=True`` in context returns null), reusing the same gate as\n:class:`HistoryRecordSerializer`.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "object_type": {
+                        "type": "string"
+                    },
+                    "object_id": {
+                        "type": "string"
+                    },
+                    "object_label": {
+                        "type": "string"
+                    },
+                    "change_type": {
+                        "$ref": "#/components/schemas/ChangeTypeEnum"
+                    },
+                    "history_date": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "user": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldDiff"
+                        }
+                    }
+                },
+                "required": [
+                    "change_type",
+                    "changes",
+                    "history_date",
+                    "id",
+                    "object_id",
+                    "object_label",
+                    "object_type",
+                    "user"
+                ]
+            },
+            "ChangelogResponse": {
+                "type": "object",
+                "description": "Response envelope for the unified project changelog (ADR-0201).",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChangelogEntry"
+                        }
+                    },
+                    "next_cursor": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "next_cursor",
+                    "results"
+                ]
+            },
             "ChoiceEnum": {
                 "enum": [
                     "approve",
@@ -27343,6 +27507,26 @@
                 ],
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+            },
+            "FieldDiff": {
+                "type": "object",
+                "description": "A single field change within a history record.",
+                "properties": {
+                    "field": {
+                        "type": "string"
+                    },
+                    "old": {
+                        "nullable": true
+                    },
+                    "new": {
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "field",
+                    "new",
+                    "old"
+                ]
             },
             "FieldTypeEnum": {
                 "enum": [
