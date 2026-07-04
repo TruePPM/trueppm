@@ -282,7 +282,12 @@ export default defineConfig({
         // --- API ---
         {
           label: "API",
-          items: [{ slug: "api/reference" }, { slug: "api/websockets" }, { slug: "api/idempotency" }],
+          items: [
+            { slug: "api/reference" },
+            { slug: "api/stability" },
+            { slug: "api/websockets" },
+            { slug: "api/idempotency" },
+          ],
         },
         // --- Scheduler Library (standalone PyPI package + platform integration) ---
         {

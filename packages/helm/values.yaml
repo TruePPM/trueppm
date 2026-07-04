@@ -100,6 +100,19 @@ env:
   # live value from Workspace → Settings → System Health. Set to an empty string to
   # disable auto-purge (trashed projects retained unbounded).
   TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS: "30"
+  # General API rate limits (#1080). The default throttle applies to every
+  # endpoint that does NOT declare its own scoped throttle; the /api/v1/health/
+  # and /api/v1/edition/ Kubernetes probe endpoints are always exempt. Format is
+  # DRF "<count>/<period>" where period is sec|min|hour|day. TRUEPPM_THROTTLE_ANON_RATE
+  # bounds unauthenticated traffic per client IP; TRUEPPM_THROTTLE_USER_RATE bounds
+  # an authenticated account. Raise or lower to fit your deployment.
+  TRUEPPM_THROTTLE_ANON_RATE: "60/min"
+  TRUEPPM_THROTTLE_USER_RATE: "1000/min"
+  # Trusted reverse-proxy depth for real-client-IP extraction behind the anon
+  # rate limit. Default 1 matches this chart's single ingress; set to your actual
+  # proxy depth (0 = direct, use REMOTE_ADDR). A wrong value lets clients spoof
+  # X-Forwarded-For and evade the anon limit.
+  TRUEPPM_NUM_PROXIES: "1"
   # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
   # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
   # so the Beat-driven notification drain has the same transport everywhere.

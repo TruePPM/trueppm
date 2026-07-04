@@ -516,6 +516,41 @@ Default page size: 50. Response envelope:
 {"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
 
+## Rate limiting
+
+Every endpoint is rate limited. A **general default** applies to any endpoint
+that does not declare a stricter, endpoint-specific limit:
+
+| Caller | Default limit | Bucketed by |
+|--------|---------------|-------------|
+| Unauthenticated | 60 requests / minute | Client IP |
+| Authenticated | 1000 requests / minute | Account |
+
+Both defaults are operator-configurable (`TRUEPPM_THROTTLE_ANON_RATE` and
+`TRUEPPM_THROTTLE_USER_RATE`; see
+[Configuration](/administration/configuration/#general-api-rate-limiting)).
+
+- **Probe endpoints are exempt.** `/api/v1/health/` and `/api/v1/edition/` are
+  never rate limited, so Kubernetes liveness/readiness loops are not throttled.
+- **Scoped endpoints replace the default.** Endpoints with their own limit —
+  login (`10/min`), token refresh (`60/min`), the resource catalog list
+  (`60/min` per user), Monte Carlo run (`10/min`), and others — carry only that
+  specific limit. Scoped limits do **not** stack on top of the general default.
+
+When a caller exceeds a limit the API responds with `429 Too Many Requests` and
+a `Retry-After` header giving the number of seconds to wait before retrying:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 42
+Content-Type: application/json
+
+{"detail": "Request was throttled. Expected available in 42 seconds."}
+```
+
+Clients should honor `Retry-After` and back off; retrying before it elapses
+consumes no additional quota but continues to return `429`.
+
 ## Status codes
 
 | Code | Meaning |
@@ -528,4 +563,4 @@ Default page size: 50. Response envelope:
 | 403 | Insufficient role |
 | 404 | Not found or soft-deleted |
 | 409 | Conflict (e.g. duplicate membership, sync id collision) |
-| 429 | Rate limit exceeded (e.g. resource catalog throttle) |
+| 429 | Rate limit exceeded — general default or a scoped throttle; includes a `Retry-After` header |
