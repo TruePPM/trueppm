@@ -15,7 +15,7 @@ import {
 import { SettingsShell, SettingsPageTitle, type SettingsNavGroup } from '../SettingsShell';
 
 /**
- * Workspace > Trash (issue 1113, ADR-0199).
+ * Workspace > Trash (issue 1113, ADR-0202).
  *
  * Lists the caller's soft-deleted projects still inside the retention window, each with
  * a Restore action. Any member sees their team's trashed projects; Restore is enabled
