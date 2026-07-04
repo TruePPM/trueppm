@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { toast } from '@/components/Toast/toast';
 import type { TaskStatus } from '@/types';
 
 /** PATCH /api/v1/tasks/{id}/ — update task status and optionally reparent (used by Kanban board drag-and-drop and keyboard move). */
@@ -35,6 +36,12 @@ export function useUpdateTaskStatus() {
       void queryClient.invalidateQueries({
         queryKey: ['tasks', variables.projectId],
       });
+    },
+    // The card position is driven by the ['tasks'] cache, which is only
+    // invalidated on success — so a failed move reverts the card silently. Fire
+    // an explicit error toast so the user knows the move did not stick (#1631).
+    onError: () => {
+      toast.error("Couldn't move the card — try again.");
     },
   });
 }

@@ -659,5 +659,42 @@ test.describe('ResourceAssignmentSection — remove resource flow', () => {
     await expect.poll(() => deleteAttempts).toBeGreaterThan(0);
     await expect(section.getByText('Alice Nguyen')).toBeVisible();
     await expect(section.getByText('None')).toHaveCount(0);
+    // And the user gets an explicit error toast — the rollback is signalled (#1631).
+    await expect(page.getByText("Couldn't remove the resource — try again.")).toBeVisible();
+  });
+
+  test('a failed add surfaces an error toast (#1631)', async ({ page }) => {
+    let postAttempts = 0;
+    // The POST 500s and the GET keeps returning [] (server-side nothing was
+    // created). ResourceAssignmentSection closes the combobox in onSettled
+    // regardless, so without a toast the failed add vanishes with no signal —
+    // useAddAssignment.onError fires the toast (#1631).
+    await page.route('**/api/v1/task-resources/**', async (route) => {
+      if (route.request().method() === 'POST') {
+        postAttempts += 1;
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: '{"detail":"boom"}',
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      });
+    });
+
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
+    await drawer.getByRole('button', { name: /Add resource/i }).click();
+    await drawer.getByRole('option', { name: 'Alice Nguyen' }).click();
+
+    // The POST fired and failed; no row was added and the section stays "None",
+    // but the user gets an explicit error toast rather than a silent close.
+    await expect.poll(() => postAttempts).toBeGreaterThan(0);
+    await expect(page.getByText("Couldn't add the resource — try again.")).toBeVisible();
+    const section = drawer.getByRole('region', { name: 'Assignees' });
+    await expect(section.getByText('None')).toBeVisible();
   });
 });

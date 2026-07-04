@@ -196,6 +196,8 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     await expect.poll(() => patchAttempts).toBeGreaterThan(0);
     await expect(page.getByText('In the sprint', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Sprint view: Atlas 4/i })).toBeVisible();
+    // And the user gets an explicit error toast — the silent revert is signalled (#1631).
+    await expect(page.getByText("Couldn't move the card — try again.")).toBeVisible();
   });
 
   test('shows the read-only banner on a closed sprint (#1141)', async ({ page }) => {
