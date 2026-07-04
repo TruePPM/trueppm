@@ -764,7 +764,12 @@ export function ProductBacklogPage() {
     <div className="relative flex h-full flex-row bg-app-canvas">
       {/* Drag/reparent announcer (ADR-0183 D5) — written via DOM ref, not React state
           (rule 30 / ADR-0056), so a mid-drag update never re-renders the dragging tree. */}
-      <span ref={liveRef} aria-live="polite" className="sr-only" />
+      <span
+        ref={liveRef}
+        data-testid="backlog-drop-announcer"
+        aria-live="polite"
+        className="sr-only"
+      />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto">
         <header className="flex flex-wrap items-center gap-3 border-b border-neutral-border px-6 py-4">
           <div className="flex min-w-0 flex-col">
