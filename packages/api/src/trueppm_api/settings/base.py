@@ -342,6 +342,15 @@ CELERY_BEAT_SCHEDULE = {
         # 03:15 UTC — after other nightly purge/archive jobs.
         "schedule": crontab(hour=3, minute=15),
     },
+    # Daily stale-task detection (ADR-0199): nudge assignees of non-terminal tasks
+    # that have sat in their status past the project's stale_task_threshold_days
+    # (default 7). Dedupes against existing unread task.stale notifications.
+    "detect-stale-tasks": {
+        "task": "notifications.detect_stale_tasks",
+        # 05:30 UTC — after the nightly purges/archive, so the scan reads settled
+        # state and lands a fresh nudge before the working day starts.
+        "schedule": crontab(hour=5, minute=30),
+    },
     # Beat liveness heartbeat: a single worker writes BeatHeartbeat.last_heartbeat
     # every 30 s. GET /api/v1/health/beat/ reads it to detect a dead Beat (ADR-0081).
     "beat-heartbeat": {

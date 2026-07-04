@@ -975,6 +975,46 @@ test.describe('Task collaboration — notification preferences (#311)', () => {
     await expect(emailToggle).toHaveAttribute('aria-checked', 'true');
   });
 
+  test('stale-task nudge toggle (ADR-0199, #646) renders data-driven and saves', async ({
+    page,
+  }) => {
+    // The settings page is data-driven, so the stale-task row appears purely from its
+    // pref rows — extend the shared fixture rather than changing it (keeps the 2-event
+    // test above intact).
+    const withStale = [
+      ...structuredClone(FIXTURE_PREFERENCES),
+      {
+        id: 5,
+        event_type: 'task.stale',
+        channel: 'in_app',
+        enabled: true,
+        updated_at: '2026-05-19T12:00:00Z',
+      },
+      {
+        id: 6,
+        event_type: 'task.stale',
+        channel: 'email',
+        enabled: false,
+        updated_at: '2026-05-19T12:00:00Z',
+      },
+    ];
+    await bootProjectPage(page, { preferences: withStale });
+    await page.goto('/me/settings/notifications');
+
+    await expect(page.getByRole('heading', { name: 'Notification preferences' })).toBeVisible();
+    // Three event rows now: two mentions + the stale-task nudge.
+    await expect(page.getByRole('rowheader')).toHaveCount(3);
+
+    // Opt into email for the stale-task nudge (off → on).
+    const emailToggle = page.getByRole('switch', {
+      name: /Email notifications for When a task you own goes stale/,
+    });
+    await expect(emailToggle).toHaveAttribute('aria-checked', 'false');
+    await emailToggle.click();
+    await expect(page.getByText('Saved.')).toBeVisible({ timeout: 5_000 });
+    await expect(emailToggle).toHaveAttribute('aria-checked', 'true');
+  });
+
   test('mobile viewport (375px) shows the stacked card layout instead of the table', async ({
     page,
   }) => {

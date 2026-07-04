@@ -937,6 +937,14 @@ class Project(VersionedModel):
         choices=BoardCadence.choices,
         default=BoardCadence.SPRINT,
     )
+    # Stale-task nudge threshold in whole days (ADR-0199, #646). The daily
+    # detect_stale_tasks scan notifies a task's assignee once the task has sat in a
+    # non-terminal status longer than this many days. Board-level config lives as a
+    # discrete Project column (matching board_cadence/agile_features) rather than a
+    # settings side-table — there is no Board model; a board is a view over this
+    # project's tasks. Default 7. Distinct from the 3-day is_stalled board-card chip
+    # (ADR-0115), which is a synchronous visual verdict, not an opt-in notification.
+    stale_task_threshold_days = models.PositiveIntegerField(default=7)
     # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
     # columns on ``Task`` are read for the computed score. Scalar column (matches
     # ``methodology`` / ``estimation_mode``) — no settings side table needed. NONE hides
@@ -1812,6 +1820,17 @@ class Task(VersionedModel):
             # enabled by that earlier migration.
             GinIndex(fields=["name"], opclasses=["gin_trgm_ops"], name="task_name_trgm"),
             GinIndex(fields=["notes"], opclasses=["gin_trgm_ops"], name="task_notes_trgm"),
+            # Daily stale-task scan (ADR-0199) runs once per project:
+            # WHERE project_id = X AND NOT is_deleted AND status IN (non-terminal)
+            #   AND status_changed_at < cutoff.
+            # Leading project_id equality confines each per-project query to that
+            # project's rows before the low-selectivity status/time range; the partial
+            # on is_deleted=False keeps it small — soft-deleted rows are never nudged.
+            models.Index(
+                fields=["project", "status", "status_changed_at"],
+                condition=models.Q(is_deleted=False),
+                name="task_status_changed_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

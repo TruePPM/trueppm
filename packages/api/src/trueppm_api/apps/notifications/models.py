@@ -95,6 +95,13 @@ class NotificationEventType(models.TextChoices):
     # (Priya's hard-NO on un-opted email); NEVER push — the durable inbox row is the
     # only channel, so the notification can never arrive as an unsolicited interrupt.
     PROJECT_DELETED = "project.deleted", "A project I belong to was deleted"
+    # Stale-task daily nudge (ADR-0199). A daily scan fans this out to the assignee
+    # of a non-terminal task that has sat in its current status past the project's
+    # configurable threshold (default 7 days) — the "task I forgot in Review" slip.
+    # Distinct from the synchronous is_stalled board-card chip (ADR-0115, 3-day dwell):
+    # this is opt-in, configurable, and reaches the owner asynchronously. In-app ON,
+    # email opt-in OFF (Priya's un-opted-email hard-NO).
+    TASK_STALE = "task.stale", "A task I own has gone stale"
 
 
 class NotificationChannel(models.TextChoices):
@@ -411,6 +418,11 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # their project was deleted; email opt-in OFF (Priya's un-opted-email hard-NO).
     (NotificationEventType.PROJECT_DELETED, NotificationChannel.IN_APP, True),
     (NotificationEventType.PROJECT_DELETED, NotificationChannel.EMAIL, False),
+    # ADR-0199 — stale-task daily nudge. In-app ON so the owner sees the reminder in
+    # their inbox; email opt-in OFF (Priya's un-opted-email hard-NO). A daily digest
+    # of forgotten cards must not become un-asked-for email.
+    (NotificationEventType.TASK_STALE, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TASK_STALE, NotificationChannel.EMAIL, False),
 ]
 
 

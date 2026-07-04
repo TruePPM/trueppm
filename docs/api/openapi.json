@@ -29708,6 +29708,11 @@
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
+                    "stale_task_threshold_days": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
                     "task_duration_change_percent_policy": {
                         "nullable": true,
                         "oneOf": [
@@ -31594,6 +31599,11 @@
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
                     },
+                    "stale_task_threshold_days": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
                     "effective_methodology": {
                         "type": "string",
                         "readOnly": true
@@ -32151,6 +32161,11 @@
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
+                    },
+                    "stale_task_threshold_days": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "effective_methodology": {
                         "type": "string",
@@ -32864,6 +32879,11 @@
                     },
                     "board_cadence": {
                         "$ref": "#/components/schemas/BoardCadenceEnum"
+                    },
+                    "stale_task_threshold_days": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
                     },
                     "task_duration_change_percent_policy": {
                         "nullable": true,
