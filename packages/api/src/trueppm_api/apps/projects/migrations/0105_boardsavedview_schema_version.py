@@ -6,6 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("projects", "0104_historicalproject_stale_task_threshold_days_and_more"),
+        ("projects", "0104_trash_restore_1113"),
     ]
 
     operations = [
