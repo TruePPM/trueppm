@@ -40,7 +40,7 @@ def get_purge_specs() -> list[PurgeSpec]:
     from trueppm_api.apps.history.tasks import _do_history_purge
     from trueppm_api.apps.msproject.models import ImportRequest
     from trueppm_api.apps.msproject.tasks import _do_import_purge
-    from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskActivityEvent
     from trueppm_api.apps.projects.tasks import _do_project_purge
     from trueppm_api.apps.sync.models import SyncBatch
     from trueppm_api.apps.sync.tasks import _do_purge as _do_sync_purge
@@ -57,6 +57,8 @@ def get_purge_specs() -> list[PurgeSpec]:
                 Project.history.model._meta.db_table,
                 Task.history.model._meta.db_table,
                 Dependency.history.model._meta.db_table,
+                # ADR-0207: the per-task activity source ages out on the same window.
+                TaskActivityEvent._meta.db_table,
             ),
         ),
         PurgeSpec("TASK_RUN_RETENTION_DAYS", _do_taskrun_purge, (TaskRun._meta.db_table,)),

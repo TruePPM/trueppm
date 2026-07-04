@@ -8,6 +8,7 @@ import functools
 import logging
 import re
 import uuid
+from collections.abc import Iterable
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -108,6 +109,7 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     SprintTaskOutcome,
     Task,
+    TaskActivityEvent,
     TaskAttachment,
     TaskComment,
     TaskNote,
@@ -5929,6 +5931,38 @@ class TaskBulkView(IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+def _record_risk_link_events(
+    risk: Risk,
+    *,
+    added: Iterable[Any],
+    removed: Iterable[Any],
+    actor: Any,
+) -> None:
+    """Record risk_linked / risk_unlinked events on each affected task's feed.
+
+    The ``RiskTask`` through-table carries no timestamp or actor, so a link/unlink
+    is captured as :class:`TaskActivityEvent` rows (ADR-0207, #1604) — one per task
+    added or removed — with the acting member and the risk's identity. Written
+    synchronously inside the request transaction so the rows commit or roll back
+    with the risk change itself (unlike the on_commit board broadcast, these are
+    DB rows, not an external side effect).
+    """
+    detail = {
+        "risk_id": str(risk.pk),
+        "risk_short_id": risk.short_id,
+        "risk_title": risk.title,
+    }
+    rows = [
+        TaskActivityEvent(task_id=tid, actor=actor, event_type="risk_linked", detail=detail)
+        for tid in added
+    ] + [
+        TaskActivityEvent(task_id=tid, actor=actor, event_type="risk_unlinked", detail=detail)
+        for tid in removed
+    ]
+    if rows:
+        TaskActivityEvent.objects.bulk_create(rows)
+
+
 class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
     """CRUD for risks within a project.
 
@@ -6001,6 +6035,14 @@ class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
             project=project,
             created_by=self.request.user,
         )
+        # ADR-0207 (#1604): a new risk links its tasks for the first time, so every
+        # linked task gets a risk_linked activity event (actor = the creator).
+        _record_risk_link_events(
+            instance,
+            added=list(instance.tasks.values_list("id", flat=True)),
+            removed=[],
+            actor=self.request.user,
+        )
         risk_id = str(instance.pk)
         project_id_str = str(project_pk)
         transaction.on_commit(
@@ -6029,7 +6071,19 @@ class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         old_status = old.status
         old_severity = old.probability * old.impact
 
+        # Capture the linked-task set before save so the RiskTask through-rows
+        # (which carry no timestamp/actor) can be diffed into risk_linked /
+        # risk_unlinked activity events (ADR-0207, #1604).
+        old_task_ids = set(old.tasks.values_list("id", flat=True))
+
         instance = serializer.save()
+        new_task_ids = set(instance.tasks.values_list("id", flat=True))
+        _record_risk_link_events(
+            instance,
+            added=new_task_ids - old_task_ids,
+            removed=old_task_ids - new_task_ids,
+            actor=self.request.user,
+        )
         project_id = str(instance.project_id)
         risk_id = str(instance.pk)
         transaction.on_commit(
@@ -7347,11 +7401,12 @@ _MAX_HISTORY_ROWS = 2000
 # (issue 413). Absent/empty ``include`` keeps the response byte-identical to the
 # legacy field-diff feed, so existing consumers are untouched (backward compat).
 # Each token maps to a per-task event stream merged into the unified feed. The
-# set is intentionally small — event types whose OSS source model does not yet
-# exist (cpm_recalculated, baseline_drift_detected, risk_linked/unlinked,
-# time_log_edited) are deliberately absent rather than faked, and can be added
-# here additively when their source lands.
-_ACTIVITY_SOURCES = frozenset({"comments", "time", "attachments"})
+# ``schedule`` and ``risks`` tokens (ADR-0207, #1604) are backed by
+# ``TaskActivityEvent``: ``schedule`` surfaces ``cpm_recalculated`` and
+# ``baseline_drift_detected`` (system events, null actor); ``risks`` surfaces
+# ``risk_linked`` / ``risk_unlinked`` (actor is the acting member). ``time_log_edited``
+# remains deliberately absent rather than faked until its source lands.
+_ACTIVITY_SOURCES = frozenset({"comments", "time", "attachments", "schedule", "risks"})
 
 # Max characters of a comment body surfaced as a timeline preview. The full body
 # is already readable by any project member via the comments thread endpoint, so
@@ -7495,6 +7550,51 @@ def _build_activity_events(
                             "kind": "url" if is_url else "file",
                             "label": a.external_title if is_url else a.file_name,
                         },
+                    },
+                )
+            )
+
+    # schedule + risks share the TaskActivityEvent source (ADR-0207); each token
+    # selects its own event_type subset so the per-source cap semantics match the
+    # other streams. detail is stored verbatim on the row (CPM date deltas cannot
+    # be reconstructed at read time), so it is surfaced as-is. actor is null for
+    # the system events (cpm_recalculated, baseline_drift_detected).
+    if "schedule" in include:
+        rows = list(
+            task.activity_events.select_related("actor")
+            .filter(event_type__in=["cpm_recalculated", "baseline_drift_detected"])
+            .order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(rows) > cap
+        for ev in rows[:cap]:
+            events.append(
+                (
+                    ev.created_at,
+                    {
+                        "event_type": ev.event_type,
+                        "actor": _activity_actor(ev.actor),
+                        "timestamp": ev.created_at.isoformat(),
+                        "detail": ev.detail,
+                    },
+                )
+            )
+
+    if "risks" in include:
+        rows = list(
+            task.activity_events.select_related("actor")
+            .filter(event_type__in=["risk_linked", "risk_unlinked"])
+            .order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(rows) > cap
+        for ev in rows[:cap]:
+            events.append(
+                (
+                    ev.created_at,
+                    {
+                        "event_type": ev.event_type,
+                        "actor": _activity_actor(ev.actor),
+                        "timestamp": ev.created_at.isoformat(),
+                        "detail": ev.detail,
                     },
                 )
             )
