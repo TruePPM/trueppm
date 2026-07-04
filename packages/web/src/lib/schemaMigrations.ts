@@ -1,5 +1,5 @@
 /**
- * Forward-migration registry for user-saved JSON state (ADR-0086 / ADR-0202).
+ * Forward-migration registry for user-saved JSON state (ADR-0086 / ADR-0204).
  *
  * Mirror of the API-side registry
  * (`packages/api/src/trueppm_api/apps/projects/schema_migrations.py`). Every
