@@ -1,5 +1,5 @@
 /**
- * Fetches and mutates the per-project board saved views (issue #191).
+ * Fetches and mutates the per-project board saved views (issue issue 191).
  * Translates API snake_case config keys to camelCase for consumers.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

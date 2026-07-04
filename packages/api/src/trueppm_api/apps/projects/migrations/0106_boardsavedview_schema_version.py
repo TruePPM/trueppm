@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0105_merge_20260704_1450"),
+        ("projects", "0105_historical_changelog_indexes"),
     ]
 
     operations = [

@@ -105,7 +105,7 @@ export function migratePayload(
 }
 
 // ---------------------------------------------------------------------------
-// board_saved_view surface (#191, useBoardSavedViews)
+// board_saved_view surface (issue 191, useBoardSavedViews)
 // ---------------------------------------------------------------------------
 
 /** The six canonical config keys and their defaults — mirror of the API side. */
