@@ -17,6 +17,7 @@ import type { Methodology } from '@/types';
  * | resources       | ✅        | ✅    | ✅     |
  * | risk            | ✅        | ✅    | ✅     |
  * | reports         | ✅        | ✅    | ✅     |
+ * | activity        | ✅        | ✅    | ✅     |
  *
  * `grid` replaces the legacy `wbs` + `list` entries (issue 334). Outline mode
  * inside Grid covers the WBS use case for WATERFALL and HYBRID; Flat mode is
@@ -92,7 +93,9 @@ function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
     {
       id: 'TRACK',
       label: 'Track',
-      views: sprintRuns ? ['today', 'risk', 'reports'] : ['today', 'board', 'risk', 'reports'],
+      views: sprintRuns
+        ? ['today', 'risk', 'reports', 'activity']
+        : ['today', 'board', 'risk', 'reports', 'activity'],
     },
     { id: 'PEOPLE', label: 'People', views: ['resources'] },
   ];

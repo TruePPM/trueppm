@@ -260,7 +260,7 @@ export function useDeleteProject(projectId: string | null | undefined) {
 }
 
 // ---------------------------------------------------------------------------
-// Trash + restore (issue 1113, ADR-0199)
+// Trash + restore (issue 1113, ADR-0202)
 // ---------------------------------------------------------------------------
 
 /** One soft-deleted project as returned by GET /api/v1/projects/trash/. */
