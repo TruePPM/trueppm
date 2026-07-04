@@ -81,33 +81,46 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     expect(new Set(grouped).size).toBe(grouped.length);
   });
 
-  it('HYBRID surfaces PLAN / SPRINT / TRACK / PEOPLE (ADR-0195 methodology-adaptive layout)', () => {
+  it('HYBRID surfaces PLAN / DELIVER / TRACK / PEOPLE (ADR-0195/ADR-0203 methodology-adaptive layout)', () => {
     const groups = groupedVisibleViews('HYBRID');
-    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'SPRINT', 'TRACK', 'PEOPLE']);
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'DELIVER', 'TRACK', 'PEOPLE']);
     const byId = (id: string) => groups.find((g) => g.id === id)?.visibleViews;
     expect(byId('PLAN')).toEqual(['schedule', 'grid', 'calendar']);
-    expect(byId('SPRINT')).toEqual(['product-backlog', 'sprints', 'board']);
+    expect(byId('DELIVER')).toEqual(['product-backlog', 'sprints', 'board']);
     expect(byId('TRACK')).toEqual(['today', 'risk', 'reports', 'activity']);
     expect(byId('PEOPLE')).toEqual(['resources']);
   });
 
-  // The core issue-1466 guarantee: on sprint-running methodologies the daily circuit
+  // The DELIVER group's label is the fixed, terminology-neutral word — never the
+  // configurable iteration term (Sprint/Iteration/Cycle/PI). ADR-0203 §12 invariant #5:
+  // the iteration term lives on the *view*, so the group header can never be "Sprint".
+  it('labels the DELIVER group with the fixed word "Deliver", never an iteration term', () => {
+    const deliver = VIEW_GROUPS.find((g) => g.id === 'DELIVER');
+    expect(deliver?.label).toBe('Deliver');
+    // No group label may be a configurable iteration term.
+    const iterationTerms = ['Sprint', 'Sprints', 'Iteration', 'Iterations', 'Cycle', 'Cycles', 'PI'];
+    for (const g of VIEW_GROUPS) {
+      expect(iterationTerms).not.toContain(g.label);
+    }
+  });
+
+  // The core issue-1466 guarantee: on cadence-running methodologies the daily circuit
   // (Backlog → Sprints → Board) is one contiguous, named group.
   it.each(['AGILE', 'HYBRID'] as const)(
-    '%s co-locates Backlog, Sprints and Board in a dedicated SPRINT group',
+    '%s co-locates Backlog, Sprints and Board in a dedicated DELIVER group',
     (m) => {
-      const sprint = groupedVisibleViews(m).find((g) => g.id === 'SPRINT');
-      expect(sprint?.visibleViews).toEqual(['product-backlog', 'sprints', 'board']);
+      const deliver = groupedVisibleViews(m).find((g) => g.id === 'DELIVER');
+      expect(deliver?.visibleViews).toEqual(['product-backlog', 'sprints', 'board']);
       // Board and Sprints are adjacent (acceptance criterion).
-      const idx = sprint!.visibleViews;
+      const idx = deliver!.visibleViews;
       expect(idx.indexOf('board') - idx.indexOf('sprints')).toBe(1);
     },
   );
 
-  it('WATERFALL has no SPRINT group and keeps Board in TRACK (zero regression from ADR-0128)', () => {
+  it('WATERFALL has no DELIVER group and keeps Board in TRACK (zero regression from ADR-0128)', () => {
     const groups = groupedVisibleViews('WATERFALL');
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
-    expect(groups.find((g) => g.id === 'SPRINT')).toBeUndefined();
+    expect(groups.find((g) => g.id === 'DELIVER')).toBeUndefined();
     const track = groups.find((g) => g.id === 'TRACK');
     expect(track?.visibleViews).toEqual(['today', 'board', 'risk', 'reports', 'activity']);
   });
@@ -166,16 +179,16 @@ describe('groupedVisibleViewsForUser (ADR-0139)', () => {
   it('drops a group whose only views the user hid', () => {
     // PEOPLE has just `resources`; hiding it removes the whole group.
     const groups = groupedVisibleViewsForUser('HYBRID', new Set(['resources']));
-    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'SPRINT', 'TRACK']);
+    expect(groups.map((g) => g.id)).toEqual(['PLAN', 'DELIVER', 'TRACK']);
   });
 
-  it('hiding the whole SPRINT circuit drops the SPRINT group (ADR-0195)', () => {
+  it('hiding the whole DELIVER circuit drops the DELIVER group (ADR-0195/ADR-0203)', () => {
     const groups = groupedVisibleViewsForUser(
       'HYBRID',
       new Set(['product-backlog', 'sprints', 'board']),
     );
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
-    expect(groups.find((g) => g.id === 'SPRINT')).toBeUndefined();
+    expect(groups.find((g) => g.id === 'DELIVER')).toBeUndefined();
   });
 
   it('composes on top of the methodology filter — hiding an already-methodology-hidden view is a no-op', () => {

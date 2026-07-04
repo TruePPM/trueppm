@@ -20,7 +20,7 @@ import type { Methodology } from '@/types';
  * headline-view guarantee).
  *
  * - AGILE/HYBRID lead with Board + Backlog — the sprint circuit's daily pair
- *   (fixes the PO/Scrum-Master blockers; coherent with the desktop SPRINT group,
+ *   (fixes the PO/Scrum-Master blockers; coherent with the desktop DELIVER group,
  *   ADR-0195).
  * - WATERFALL leads with Schedule + Grid — the schedule-first daily pair.
  */

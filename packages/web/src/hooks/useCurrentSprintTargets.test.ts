@@ -61,7 +61,7 @@ describe('useCurrentSprintTargets', () => {
     });
   });
 
-  it('excludes the in-context sprint for a WATERFALL project (no SPRINT group, ADR-0195)', () => {
+  it('excludes the in-context sprint for a WATERFALL project (no DELIVER group, ADR-0195/0203)', () => {
     const { result } = renderHook(() => useCurrentSprintTargets('p2'));
     expect(result.current).toEqual([]);
   });

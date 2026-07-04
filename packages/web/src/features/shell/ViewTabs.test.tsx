@@ -167,20 +167,20 @@ describe('ViewTabs', () => {
     expect(scheduleLink).toHaveAttribute('href', '/projects/proj-abc/schedule');
   });
 
-  // ADR-0128 §A / ADR-0195 — grouped PLAN / SPRINT / TRACK / PEOPLE structure (HYBRID)
-  it('renders PLAN / SPRINT / TRACK / PEOPLE groups with accessible names', () => {
+  // ADR-0128 §A / ADR-0195 / ADR-0203 — grouped PLAN / DELIVER / TRACK / PEOPLE structure (HYBRID)
+  it('renders PLAN / DELIVER / TRACK / PEOPLE groups with accessible names', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Sprint views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Deliver views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
   });
 
-  it('co-locates Backlog · Sprints · Board in the SPRINT group on HYBRID (ADR-0195, issue 1466)', () => {
+  it('co-locates Backlog · Sprints · Board in the DELIVER group on HYBRID (ADR-0195/0203, issue 1466)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
-    const sprint = screen.getByRole('group', { name: 'Sprint views' });
+    const sprint = screen.getByRole('group', { name: 'Deliver views' });
     expect(within(sprint).getByRole('link', { name: /Backlog/i })).toBeInTheDocument();
     expect(within(sprint).getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
     expect(within(sprint).getByRole('link', { name: 'Board' })).toBeInTheDocument();
@@ -189,7 +189,7 @@ describe('ViewTabs', () => {
     expect(within(track).queryByRole('link', { name: 'Board' })).not.toBeInTheDocument();
   });
 
-  it('WATERFALL keeps Board in TRACK and shows no SPRINT group (zero regression, ADR-0195)', () => {
+  it('WATERFALL keeps Board in TRACK and shows no DELIVER group (zero regression, ADR-0195/0203)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseProject.mockReturnValueOnce({
       data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
@@ -197,7 +197,7 @@ describe('ViewTabs', () => {
       error: null,
     });
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
-    expect(screen.queryByRole('group', { name: 'Sprint views' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Deliver views' })).not.toBeInTheDocument();
     const track = screen.getByRole('group', { name: 'Track views' });
     expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });

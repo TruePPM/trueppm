@@ -261,16 +261,17 @@ test.describe('View switching', () => {
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Overview leads the grouped view bar; the sprint circuit co-locates in SPRINT (ADR-0030/0128/0195)', async ({
+  test('Overview leads the grouped view bar; the sprint circuit co-locates in DELIVER (ADR-0030/0128/0195/0203)', async ({
     page,
   }) => {
-    // v2 groups the tabs into PLAN / SPRINT / TRACK / PEOPLE on HYBRID (the fixture
-    // default) — ADR-0195. Overview stays the standalone leading tab; Board now lives
-    // in the SPRINT group next to Sprints and Backlog (the #1466 co-location fix).
+    // v2 groups the tabs into PLAN / DELIVER / TRACK / PEOPLE on HYBRID (the fixture
+    // default) — ADR-0195, group renamed SPRINT → DELIVER in ADR-0203. Overview stays the
+    // standalone leading tab; Board lives in the DELIVER group next to Sprints and Backlog
+    // (the #1466 co-location fix).
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
     await expect(links.nth(0)).toHaveText('Overview');
-    const sprint = nav.getByRole('group', { name: 'Sprint views' });
+    const sprint = nav.getByRole('group', { name: 'Deliver views' });
     await expect(sprint.getByRole('link', { name: 'Board' })).toBeVisible();
     await expect(sprint.getByRole('link', { name: 'Sprints' })).toBeVisible();
     await expect(sprint.getByRole('link', { name: 'Backlog' })).toBeVisible();

@@ -93,13 +93,13 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(links[0]).toHaveTextContent('Overview');
   });
 
-  it('groups views into PLAN / SPRINT / TRACK / PEOPLE with Board co-located in SPRINT (ADR-0128 §A / ADR-0195)', () => {
+  it('groups views into PLAN / DELIVER / TRACK / PEOPLE with Board co-located in DELIVER (ADR-0128 §A / ADR-0195 / ADR-0203)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('group', { name: /plan views/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /sprint views/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /deliver views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /track views/i })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: /people views/i })).toBeInTheDocument();
-    const sprint = screen.getByRole('group', { name: /sprint views/i });
+    const sprint = screen.getByRole('group', { name: /deliver views/i });
     expect(within(sprint).getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 
