@@ -222,6 +222,41 @@ test.describe('Product backlog epic management (#1339)', () => {
     });
   });
 
+  test('closing the drawer with unsaved edits guards, then Discard closes it (web-rule 217)', async ({
+    page,
+  }) => {
+    const { patched } = await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+
+    await expect(page.getByText('Telemetry')).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: 'Edit epic Telemetry' }).click();
+
+    const drawer = page.getByRole('dialog', { name: 'Telemetry' });
+    await expect(drawer).toBeVisible();
+
+    // Make the form dirty, then try to dismiss via the close button.
+    await drawer.getByLabel('Epic description').fill('Half-typed edit that must not vanish.');
+    await drawer.getByRole('button', { name: 'Close epic detail' }).click();
+
+    // The unsaved-changes guard interrupts instead of silently committing/discarding.
+    const guard = page.getByRole('alertdialog');
+    await expect(guard).toBeVisible();
+    await expect(guard).toContainText('Discard unsaved changes?');
+
+    // Keep editing returns to the drawer with the edit intact.
+    await guard.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(drawer.getByLabel('Epic description')).toHaveValue(
+      'Half-typed edit that must not vanish.',
+    );
+
+    // Close again and Discard — the drawer closes and nothing was PATCHed.
+    await drawer.getByRole('button', { name: 'Close epic detail' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page.getByRole('dialog', { name: 'Telemetry' })).toHaveCount(0);
+    expect(patched.length).toBe(0);
+  });
+
   test('delete shows a confirmation stating the ungroup outcome, then deletes', async ({ page }) => {
     const { isDeleted } = await setup(page);
     await page.goto(`${BASE_URL}/product-backlog`);

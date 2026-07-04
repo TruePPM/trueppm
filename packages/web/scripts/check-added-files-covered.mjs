@@ -35,6 +35,7 @@ const EXEMPT_PATTERNS = [
   /^src\/test\//,
   /^src\/api\/types\.ts$/, // openapi-typescript generated
   /^src\/features\/schedule\/engine\/GanttEngineStub\.ts$/, // test double
+  /^src\/components\/dialog\/index\.ts$/, // pure re-export barrel (no coverable statements)
 ];
 
 const ELIGIBLE_EXT = /\.[cm]?[jt]sx?$/;
