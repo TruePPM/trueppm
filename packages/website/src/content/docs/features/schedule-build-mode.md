@@ -20,17 +20,25 @@ Build mode is **not** sprint planning. It does not create sprints, move cards, s
 | Wiring predecessor / successor dependencies | Board triage or backlog refinement |
 | Keyboard-first plan entry on the Schedule view | Any mobile workflow — build mode is desktop-only |
 
-## Enabling the flag
+## Enabling build mode
 
-Build mode is **off by default in production builds**. Three ways to turn it on:
+Build mode is **off by default** and opt-in per browser. The recommended way to turn it on needs no developer tooling; the remaining methods exist for URL sharing, scripting, and self-hoster defaults.
+
+### From Settings (recommended)
+
+Open **Settings → Schedule** and switch **Build mode (beta)** on. The setting is per-user and applies to the browser you toggle it in — it takes effect on the Schedule view immediately, with no page reload. Turn it off again from the same place.
+
+Once build mode is on, a **View keyboard shortcuts** link appears beside the toggle; it opens the same cheatsheet you get by pressing `?` on the Schedule view, so you can learn the hotkeys before you start.
+
+### Other ways to enable it
 
 | How | Where | Notes |
 |---|---|---|
-| URL parameter | Append `?ff=schedule_build_mode_v1` to any TruePPM URL once. | The flag is stored in `localStorage` and persists across navigations and page reloads. The `ff` query string is stripped from the URL after it's applied. |
+| URL parameter | Append `?ff=schedule_build_mode_v1` to any TruePPM URL once. | The flag is stored in `localStorage` and persists across navigations and page reloads. The `ff` query string is stripped from the URL after it's applied. Handy for sharing an enable link. |
 | Browser devtools | `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: true}))` | Same persistence as the URL form. |
-| Build-time default | Set `VITE_FEATURE_FLAGS='{"schedule_build_mode_v1":true}'` in `packages/web/.env` (or `.env.development`) before `npm run build` / `npm run dev`. | Useful for self-hosters who want to enable build mode for all users by default. Per-user `localStorage` overrides win over the build-time default. |
+| Build-time default | Set `VITE_FEATURE_FLAGS='{"schedule_build_mode_v1":true}'` in `packages/web/.env` (or `.env.development`) before `npm run build` / `npm run dev`. | Useful for self-hosters who want to enable build mode for all users by default. Per-user `localStorage` overrides (including the Settings toggle) win over the build-time default. |
 
-To turn it off in your browser, run `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: false}))` or clear the `trueppm.featureFlags` key entirely.
+To turn it off in your browser, switch the Settings toggle off, run `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: false}))`, or clear the `trueppm.featureFlags` key entirely.
 
 ## What changes when build mode is on
 

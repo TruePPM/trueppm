@@ -568,6 +568,7 @@ export const router = createBrowserRouter([
           { path: 'settings/groups', element: <SectionRedirect base="/settings" anchor="groups" /> },
           { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
           { path: 'settings/methodology', element: <SectionRedirect base="/settings" anchor="methodology" /> },
+          { path: 'settings/schedule', element: <SectionRedirect base="/settings" anchor="schedule" /> },
           { path: 'settings/programs', element: <SectionRedirect base="/settings" anchor="programs" /> },
           { path: 'settings/attachments', element: <SectionRedirect base="/settings" anchor="attachments" /> },
           { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
