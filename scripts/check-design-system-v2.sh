@@ -15,6 +15,9 @@
 #   3. off-token box-shadow — named `shadow-{sm,md,lg,...}` utilities AND arbitrary
 #      `shadow-[...]` values. The v2 standard is borders-over-shadows; `shadow-card`
 #      / `shadow-pop` (the reserved pop-surface tokens) are NOT matched here. RATCHET.
+#   3b. inline `rgba(0,0,0,α)` color values — the "black on blue" antipattern
+#      (issue 1638): a fixed black value that renders invisible on the dark navy
+#      surfaces. The #-hex ratchet (check 2) does not see these. RATCHET.
 #   4. dark-chrome-on-light — a hardcoded dark navy SURFACE on the shell chrome that
 #      is not `dark:`-gated, i.e. the "dark sidebar on a light app" antipattern
 #      (ADR-0126 §4). ZERO TOLERANCE: any occurrence fails. Chrome must use the
@@ -37,6 +40,14 @@ SHELL_SRC="packages/web/src/features/shell"
 BASELINE_HEX=1197
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
+# Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
+# hex ratchet (check 2 only matches #-hex) and are the "black on blue" antipattern
+# when they land on a dark surface without a mode-aware counterpart (issue 1638 —
+# the BurnChart grid stroke was one). RATCHET: the surviving occurrences are
+# light-palette values with a COLOR_DARK counterpart, or textures on a *colored*
+# bar/swatch that darken in both modes. New code must use a mode-aware token, so
+# the count may not exceed the baseline.
+BASELINE_BLACK=8
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
@@ -62,6 +73,12 @@ shadow_count() {
   g -rIE "\bshadow-(sm|md|lg|xl|2xl|inner)\b|shadow-\[" \
     "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
+# Inline rgba(0,0,0,α) color VALUES (numeric alpha, so prose comments that write
+# `rgba(0,0,0,…)` with an ellipsis are not counted). See BASELINE_BLACK.
+black_rgba_count() {
+  g -rIE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
+    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | g -vE "$EXCLUDE" | wc -l | tr -d ' '
+}
 # Lines in the shell that apply a raw dark navy SURFACE not gated by `dark:`.
 # (bg-black scrims are intentionally NOT matched — only navy chrome surfaces.)
 dark_chrome_offenders() {
@@ -75,9 +92,10 @@ fail=0
 hex=$(hex_count)
 arb=$(arbitrary_count)
 shadow=$(shadow_count)
+black=$(black_rgba_count)
 dark_chrome=$(dark_chrome_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · dark-chrome=$dark_chrome (=0)"
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · dark-chrome=$dark_chrome (=0)"
 
 if (( arb > BASELINE_ARBITRARY )); then
   echo "::error:: $arb arbitrary Tailwind color value classes (baseline $BASELINE_ARBITRARY)."
@@ -105,6 +123,16 @@ if (( shadow > BASELINE_SHADOW )); then
   fail=1
 elif (( shadow < BASELINE_SHADOW )); then
   echo "::notice:: off-token shadows dropped to $shadow — lower BASELINE_SHADOW in $(basename "$0") to $shadow."
+fi
+
+if (( black > BASELINE_BLACK )); then
+  echo "::error:: $black inline rgba(0,0,0,α) color values (baseline $BASELINE_BLACK) — the black-on-blue antipattern (issue 1638)."
+  echo "  A fixed black value renders invisible on the dark navy surfaces. Use a mode-aware token (var(--color-*) / a COLOR_DARK palette entry). Offenders:"
+  grep -rInE "rgba\(0, ?0, ?0, ?[0-9]?\.[0-9]" \
+    "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null | grep -vE "$EXCLUDE" | sed 's/^/    /'
+  fail=1
+elif (( black < BASELINE_BLACK )); then
+  echo "::notice:: black-rgba values dropped to $black — lower BASELINE_BLACK in $(basename "$0") to $black to lock the gain."
 fi
 
 if (( dark_chrome > 0 )); then

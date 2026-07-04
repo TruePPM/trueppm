@@ -50,10 +50,20 @@ function makeCtxSpy() {
     fillText: record('fillText'),
     measureText: vi.fn(() => ({ width: 20 })),
     setLineDash: record('setLineDash'),
-    set fillStyle(v: string) { _fillStyle = v; calls.push({ name: 'fillStyle', args: [v] }); },
-    get fillStyle() { return _fillStyle; },
-    set strokeStyle(v: string) { _strokeStyle = v; calls.push({ name: 'strokeStyle', args: [v] }); },
-    get strokeStyle() { return _strokeStyle; },
+    set fillStyle(v: string) {
+      _fillStyle = v;
+      calls.push({ name: 'fillStyle', args: [v] });
+    },
+    get fillStyle() {
+      return _fillStyle;
+    },
+    set strokeStyle(v: string) {
+      _strokeStyle = v;
+      calls.push({ name: 'strokeStyle', args: [v] });
+    },
+    get strokeStyle() {
+      return _strokeStyle;
+    },
     set lineWidth(_v: number) {},
     set lineCap(_v: string) {},
     set textBaseline(_v: string) {},
@@ -435,9 +445,7 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
     const { ctx, calls } = makeCtxSpy();
     const task = makeBarTask({ isCritical: false, progress: 50 });
     drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W);
-    const chipFill = calls.find(
-      (c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)',
-    );
+    const chipFill = calls.find((c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)');
     expect(chipFill).toBeDefined();
   });
 
@@ -447,7 +455,8 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
     drawTaskBar(ctx, newTask, 0, scales, 0, false, VIEWPORT_W);
     // No translucent fill calls (chip suppressed)
     const chipFill = calls.find(
-      (c) => c.name === 'fillStyle' &&
+      (c) =>
+        c.name === 'fillStyle' &&
         (c.args[0] === 'rgba(255,255,255,0.22)' || c.args[0] === 'rgba(0,0,0,0.18)'),
     );
     expect(chipFill).toBeUndefined();
@@ -660,12 +669,16 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // the user is actually working in (reverted after P1-3 misjudgment).
     // The summary still acts as an obstacle in the routing layer.
     const { ctx, calls } = makeArrowCtxSpy();
-    const tasks: Task[] = [
-      phase('phase-1', null),
-      leafTask('leaf-1', '2026-04-12'),
-    ];
+    const tasks: Task[] = [phase('phase-1', null), leafTask('leaf-1', '2026-04-12')];
     const links = [
-      { id: 'l1', sourceId: 'phase-1', targetId: 'leaf-1', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'phase-1',
+        targetId: 'leaf-1',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'lineTo').length).toBeGreaterThan(0);
@@ -678,7 +691,14 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       leafTask('leaf-uncommitted', null),
     ];
     const links = [
-      { id: 'l1', sourceId: 'leaf-source', targetId: 'leaf-uncommitted', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'leaf-source',
+        targetId: 'leaf-uncommitted',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'lineTo')).toHaveLength(0);
@@ -706,11 +726,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // 3 path lineTos (exit, V drop, run-in) + 2 arrowhead-triangle lineTos = 5.
     const { ctx, calls } = makeArrowCtxSpy();
     const tasks: Task[] = [
-      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
-      schedLeaf('tgt', '2026-04-14', '2026-04-21'),  // row 1
+      schedLeaf('src', '2026-04-06', '2026-04-10'), // row 0
+      schedLeaf('tgt', '2026-04-14', '2026-04-21'), // row 1
     ];
     const links = [
-      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'src',
+        targetId: 'tgt',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
@@ -721,12 +748,19 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // Simple L is independent of intervening rows when none are obstacles.
     const { ctx, calls } = makeArrowCtxSpy();
     const tasks: Task[] = [
-      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
-      schedLeaf('mid', '2026-04-06', '2026-04-10'),  // row 1 (not in link)
-      schedLeaf('tgt', '2026-04-14', '2026-04-21'),  // row 2
+      schedLeaf('src', '2026-04-06', '2026-04-10'), // row 0
+      schedLeaf('mid', '2026-04-06', '2026-04-10'), // row 1 (not in link)
+      schedLeaf('tgt', '2026-04-14', '2026-04-21'), // row 2
     ];
     const links = [
-      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'src',
+        targetId: 'tgt',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
@@ -748,20 +782,34 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
   // straddles that column while clearing the exit stub at x125.
   it('milestones are obstacles — right-sweep diverts the V drop around a diamond in the drop column', () => {
     const milestoneTask: Task = {
-      id: 'm1', wbs: 'm1', name: 'Mid milestone',
-      start: '2026-04-17', finish: '2026-04-17',
+      id: 'm1',
+      wbs: 'm1',
+      name: 'Mid milestone',
+      start: '2026-04-17',
+      finish: '2026-04-17',
       plannedStart: '2026-04-17',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
 
     const tasks: Task[] = [
-      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
-      milestoneTask,                                  // row 1 — obstacle on the drop column
-      schedLeaf('tgt', '2026-04-24', '2026-04-30'),  // row 2 — target (wide gap)
+      schedLeaf('src', '2026-04-06', '2026-04-10'), // row 0
+      milestoneTask, // row 1 — obstacle on the drop column
+      schedLeaf('tgt', '2026-04-24', '2026-04-30'), // row 2 — target (wide gap)
     ];
     const links = [
-      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'src',
+        targetId: 'tgt',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
 
     // Compare paths with vs without the obstacle milestone.
@@ -770,8 +818,11 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     const withoutMs = makeArrowCtxSpy();
     drawDependencyArrows(
       withoutMs.ctx,
-      [tasks[0], tasks[2]],  // remove the milestone
-      links, scales, 0, 0,
+      [tasks[0], tasks[2]], // remove the milestone
+      links,
+      scales,
+      0,
+      0,
     );
 
     const linePts = (calls: Array<{ name: string; args: unknown[] }>) =>
@@ -779,12 +830,12 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
         .filter((c) => c.name === 'moveTo' || c.name === 'lineTo')
         .map((c) => ({ x: c.args[0] as number, y: c.args[1] as number }));
 
-    const ptsWith    = linePts(withMs.calls);
+    const ptsWith = linePts(withMs.calls);
     const ptsWithout = linePts(withoutMs.calls);
 
     // The drop column (X of the V segment) is the X of the third stroked point.
     // (moveTo + lineTo exit + lineTo sweepH — sweepH X is the drop column.)
-    const dropX_with    = ptsWith[2].x;
+    const dropX_with = ptsWith[2].x;
     const dropX_without = ptsWithout[2].x;
 
     // Without the milestone the drop column sits at the midpoint; with it, the
@@ -805,20 +856,34 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // NOT shift the drop column: the right-sweep only fires for obstacles that
     // actually straddle the chosen V column.
     const milestoneTask: Task = {
-      id: 'm1', wbs: 'm1', name: 'Approach-zone milestone',
-      start: '2026-04-24', finish: '2026-04-24',
+      id: 'm1',
+      wbs: 'm1',
+      name: 'Approach-zone milestone',
+      start: '2026-04-24',
+      finish: '2026-04-24',
       plannedStart: '2026-04-24',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
 
     const tasks: Task[] = [
-      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
-      milestoneTask,                                  // row 1 — off the drop column
-      schedLeaf('tgt', '2026-04-24', '2026-04-30'),  // row 2 — target
+      schedLeaf('src', '2026-04-06', '2026-04-10'), // row 0
+      milestoneTask, // row 1 — off the drop column
+      schedLeaf('tgt', '2026-04-24', '2026-04-30'), // row 2 — target
     ];
     const links = [
-      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+      {
+        id: 'l1',
+        sourceId: 'src',
+        targetId: 'tgt',
+        type: 'FS' as const,
+        lag: 0,
+        isCritical: false,
+      },
     ];
 
     const withMs = makeArrowCtxSpy();
@@ -843,10 +908,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // (multi-predecessor milestone) requires a junction dot + single trunk
     // arrow rather than two separate arrowheads landing on the diamond.
     const milestone: Task = {
-      id: 'gate', wbs: 'gate', name: 'Gate',
-      start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      id: 'gate',
+      wbs: 'gate',
+      name: 'Gate',
+      start: '2026-04-20',
+      finish: '2026-04-20',
+      plannedStart: '2026-04-20',
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
     const tasks: Task[] = [
       schedLeaf('a', '2026-04-06', '2026-04-10'),
@@ -866,9 +939,9 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     expect(arcs.length).toBeGreaterThanOrEqual(2);
     // The last two arcs should be the junction (halo, then dot — same X, Y).
     const junctionHalo = arcs[arcs.length - 2];
-    const junctionDot  = arcs[arcs.length - 1];
-    expect(junctionDot.args[0]).toBe(junctionHalo.args[0]);   // same X
-    expect(junctionDot.args[1]).toBe(junctionHalo.args[1]);   // same Y
+    const junctionDot = arcs[arcs.length - 1];
+    expect(junctionDot.args[0]).toBe(junctionHalo.args[0]); // same X
+    expect(junctionDot.args[1]).toBe(junctionHalo.args[1]); // same Y
     expect(junctionHalo.args[2]).toBe(MERGE_HALO_RADIUS);
     expect(junctionDot.args[2]).toBe(MERGE_DOT_RADIUS);
 
@@ -885,10 +958,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // offset is only used as an upper bound to preserve the ≥ APPROACH_STUB
     // straight trunk shaft before the arrowhead.
     const milestone: Task = {
-      id: 'gate', wbs: 'gate', name: 'Gate',
-      start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      id: 'gate',
+      wbs: 'gate',
+      name: 'Gate',
+      start: '2026-04-20',
+      finish: '2026-04-20',
+      plannedStart: '2026-04-20',
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
     const tasks: Task[] = [
       schedLeaf('a', '2026-04-06', '2026-04-10'),
@@ -915,10 +996,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // in the BAR fill (rule 73), not the connector. A red trunk crossing a
     // red bar visually disappears; charcoal stays distinct on every surface.
     const milestone: Task = {
-      id: 'gate', wbs: 'gate', name: 'Gate',
-      start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: true, parentId: null,
+      id: 'gate',
+      wbs: 'gate',
+      name: 'Gate',
+      start: '2026-04-20',
+      finish: '2026-04-20',
+      plannedStart: '2026-04-20',
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: true,
+      parentId: null,
     } as unknown as Task;
     const crit = { ...schedLeaf('a', '2026-04-06', '2026-04-10'), isCritical: true };
     const tasks: Task[] = [crit, schedLeaf('b', '2026-04-06', '2026-04-12'), milestone];
@@ -939,10 +1028,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
 
   it('does NOT merge when a milestone has a single FS predecessor', () => {
     const milestone: Task = {
-      id: 'gate', wbs: 'gate', name: 'Gate',
-      start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      id: 'gate',
+      wbs: 'gate',
+      name: 'Gate',
+      start: '2026-04-20',
+      finish: '2026-04-20',
+      plannedStart: '2026-04-20',
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
     const tasks: Task[] = [schedLeaf('a', '2026-04-06', '2026-04-10'), milestone];
     const links = [
@@ -960,10 +1057,18 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
 
   it('FS arrow into a milestone arrives at its left vertex (cx - halfDiag)', () => {
     const milestone: Task = {
-      id: 'gate', wbs: 'gate', name: 'Gate',
-      start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
-      duration: 0, progress: 0,
-      isSummary: false, isMilestone: true, isCritical: false, parentId: null,
+      id: 'gate',
+      wbs: 'gate',
+      name: 'Gate',
+      start: '2026-04-20',
+      finish: '2026-04-20',
+      plannedStart: '2026-04-20',
+      duration: 0,
+      progress: 0,
+      isSummary: false,
+      isMilestone: true,
+      isCritical: false,
+      parentId: null,
     } as unknown as Task;
     const tasks: Task[] = [schedLeaf('a', '2026-04-06', '2026-04-10'), milestone];
     const links = [
@@ -973,7 +1078,7 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
 
     // The arrowhead tip X is the leftmost vertex of the diamond.
-    const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2);
+    const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2);
     const leftVertexX = dateToLeft(milestone.start, scales) - milestoneHalfDiag;
     // Arrowhead is drawn after the polyline: the FIRST moveTo of the second
     // beginPath sets the tip. Find the last moveTo to get the arrowhead apex.
@@ -1008,7 +1113,7 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: false },
     ];
     const { ctx, calls } = makeArrowCtxSpy();
-    drawDependencyArrows(ctx, tasks, links, scales, 0, 0);   // empty selection
+    drawDependencyArrows(ctx, tasks, links, scales, 0, 0); // empty selection
     const strokeStyles = calls.filter((c) => c.name === 'strokeStyle').map((c) => c.args[0]);
     expect(strokeStyles).not.toContain(COLOR.selectionRing);
   });
@@ -1072,6 +1177,28 @@ describe('drawTaskBar — in-bar label contrast (#1032)', () => {
     expect(fills).toContain(COLOR_DARK.chipTextOnSurface);
     expect(fills).not.toContain('#FFFFFF');
   });
+
+  // The chip pill must flip with the chip text: a fixed rgba(0,0,0,…) pill would
+  // darken the area behind the ink text on the light dark-mode bars, reducing
+  // contrast (issue 1638). In dark mode the non-critical pill is light, never black.
+  it('uses a light chip pill on the dark surface, never a black rgba', () => {
+    setRendererColorMode(true);
+    const { ctx, calls } = makeCtxSpy();
+    // A non-critical bar exercises the chipPillOnSurface branch.
+    drawTaskBar(
+      ctx,
+      makeBarTask({ isCritical: false, progress: 50 }),
+      0,
+      scales,
+      0,
+      false,
+      VIEWPORT_W,
+    );
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    expect(COLOR_DARK.chipPillOnSurface).toBe('rgba(255,255,255,0.18)');
+    expect(fills).toContain(COLOR_DARK.chipPillOnSurface);
+    expect(fills).not.toContain('rgba(0,0,0,0.18)');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1093,8 +1220,12 @@ describe('dependency arrows — cached layout + scroll re-projection (#1000)', (
     const { ctx, calls } = makeCtxSpy();
     const augmented = ctx as unknown as Record<string, unknown>;
     augmented.canvas = { width: 800, height: 600 };
-    augmented.bezierCurveTo = vi.fn((...args: unknown[]) => calls.push({ name: 'bezierCurveTo', args }));
-    augmented.quadraticCurveTo = vi.fn((...args: unknown[]) => calls.push({ name: 'quadraticCurveTo', args }));
+    augmented.bezierCurveTo = vi.fn((...args: unknown[]) =>
+      calls.push({ name: 'bezierCurveTo', args }),
+    );
+    augmented.quadraticCurveTo = vi.fn((...args: unknown[]) =>
+      calls.push({ name: 'quadraticCurveTo', args }),
+    );
     augmented.closePath = vi.fn(() => calls.push({ name: 'closePath', args: [] }));
     augmented.arc = vi.fn((...args: unknown[]) => calls.push({ name: 'arc', args }));
     return { ctx, calls };
@@ -1190,7 +1321,13 @@ describe('dependency arrows — cached layout + scroll re-projection (#1000)', (
     // The engine caches this layout and only re-runs prepare on data/zoom change.
     // Simulate the per-frame scroll path: one prepared layout, many paints.
     const layout = prepareDependencyLayout(tasks, links, scales);
-    for (const [sl, st] of [[0, 0], [25, 10], [80, 30], [140, 0], [5, 18]]) {
+    for (const [sl, st] of [
+      [0, 0],
+      [25, 10],
+      [80, 30],
+      [140, 0],
+      [5, 18],
+    ]) {
       const { ctx, calls } = makeArrowCtxSpy();
       expect(() => paintDependencyLayout(ctx, layout, sl, st)).not.toThrow();
       expect(pointsFrom(calls).length).toBeGreaterThan(0);
