@@ -1,6 +1,6 @@
 /**
  * Pure URL <-> filter-state mapping and click-through routing for the project
- * Activity tab (ADR-0201, #371). Kept separate from the component so the
+ * Activity tab (ADR-0201, issue 371). Kept separate from the component so the
  * deep-link round-trip and the per-object-type navigation are unit-testable.
  *
  * The URL search params ARE the filter source of truth, so the current view is
