@@ -169,6 +169,7 @@ export default defineConfig({
             { slug: "administration/management-commands" },
             { slug: "administration/data-export" },
             { slug: "administration/durability" },
+            { slug: "administration/redis-ha" },
             { slug: "administration/dead-letter-alerting" },
             { slug: "administration/system-health" },
             { slug: "administration/retention" },
