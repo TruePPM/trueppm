@@ -103,6 +103,11 @@ export default defineConfig({
         // measured and then discarded (issue 1510). The stale CanvasGanttTimeline.tsx
         // entry was dropped: that file no longer exists.
         'src/features/schedule/engine/GanttEngineStub.ts', // test double — not production code
+        // Pure re-export barrel (web-rule 217 dialog primitives): it has no
+        // executable statements, so v8 never records it in lcov even when
+        // imported, and check-added-files-covered.mjs would flag it forever.
+        // Its re-exports are validated by tsc; the underlying modules are tested.
+        'src/components/dialog/index.ts',
       ],
       // No per-process thresholds: web:test is sharded (vitest --shard), so each
       // process only loads ~1/3 of the suite and would measure a partial coverage
