@@ -130,6 +130,8 @@ PostgreSQL is the only stateful service. Back up the `trueppm` database on your 
 
 Valkey is a broker and cache — it does not store persistent data. Losing Valkey state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
 
+TruePPM ships tested backup and restore scripts (`scripts/backup.sh` / `scripts/restore.sh`) and an opt-in Helm backup CronJob. See [Backup & Restore](/administration/backup-restore/) for the full runbook: manual backups on Compose and Helm, restoring onto a fresh stack, what is and isn't captured, and the restore-drill cadence.
+
 ## Database migrations & rollback
 
 Schema migrations run automatically on container start (`manage.py migrate`). The
