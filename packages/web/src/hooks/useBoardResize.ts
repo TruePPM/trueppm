@@ -1,5 +1,5 @@
 /**
- * useBoardResize — persisted board column widths and phase-lane heights (#285).
+ * useBoardResize — persisted board column widths and phase-lane heights (issue 285).
  *
  * The board's Visiban parity gap: a user can drag the right edge of a column
  * header to widen a column, and the bottom edge of a phase lane to make a phase
@@ -20,9 +20,9 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 
-/** Minimum column width (px). Below this a card's content clips (#285). */
+/** Minimum column width (px). Below this a card's content clips (issue 285). */
 export const MIN_BOARD_COLUMN_WIDTH = 200;
-/** Minimum phase-lane height (px) — enough to show two stacked cards (#285). */
+/** Minimum phase-lane height (px) — enough to show two stacked cards (issue 285). */
 export const MIN_BOARD_PHASE_HEIGHT = 120;
 
 const COLUMN_WIDTHS_KEY = 'trueppm.board.columnWidths.v1';
@@ -107,7 +107,7 @@ export interface BoardColumnWidths {
   setWidth: (status: string, px: number) => void;
 }
 
-/** Persist and expose per-column board widths (#285). */
+/** Persist and expose per-column board widths (issue 285). */
 export function useBoardColumnWidths(): BoardColumnWidths {
   const { sizes, setSize } = useSizeMap(COLUMN_WIDTHS_KEY, clampBoardColumnWidth);
   return { widths: sizes, setWidth: setSize };
@@ -120,7 +120,7 @@ export interface BoardPhaseHeights {
   setHeight: (phaseId: string, px: number) => void;
 }
 
-/** Persist and expose per-phase board lane heights (#285). */
+/** Persist and expose per-phase board lane heights (issue 285). */
 export function useBoardPhaseHeights(): BoardPhaseHeights {
   const { sizes, setSize } = useSizeMap(PHASE_HEIGHTS_KEY, clampBoardPhaseHeight);
   return { heights: sizes, setHeight: setSize };

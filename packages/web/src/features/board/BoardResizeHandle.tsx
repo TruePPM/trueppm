@@ -32,7 +32,7 @@ interface ColumnResizeHandleProps {
 }
 
 /**
- * Vertical drag handle on the right edge of a board column header (#285).
+ * Vertical drag handle on the right edge of a board column header (issue 285).
  *
  * A 2px grip inside an 8px hit strip that bleeds into the column gap. Pointer
  * drag measures the header cell's current width, then applies the horizontal
@@ -118,7 +118,7 @@ interface PhaseResizeHandleProps {
 }
 
 /**
- * Horizontal drag handle on the bottom edge of a phase lane (#285).
+ * Horizontal drag handle on the bottom edge of a phase lane (issue 285).
  *
  * A 2px grip inside an 8px hit strip spanning the lane content width. Pointer
  * drag measures the lane's current height, then applies the vertical delta;

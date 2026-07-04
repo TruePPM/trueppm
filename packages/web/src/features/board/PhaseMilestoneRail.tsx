@@ -12,7 +12,7 @@ interface PhaseMilestoneRailProps {
    * header and the lane grids below it (ADR-0192 Part 1/2).
    */
   collapsedColumns?: Set<TaskStatus>;
-  /** Per-status explicit column widths (#285) — keeps the rail aligned with the
+  /** Per-status explicit column widths (issue 285) — keeps the rail aligned with the
    *  header and lane grids when a column is resized. */
   columnWidths?: Record<string, number>;
   onOpenTask?: (task: Task) => void;

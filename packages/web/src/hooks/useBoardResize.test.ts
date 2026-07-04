@@ -1,5 +1,5 @@
 /**
- * useBoardResize unit tests (#285).
+ * useBoardResize unit tests (issue 285).
  *
  * Covers the two persisted board-resize hooks: per-column widths and per-phase
  * heights. Exercises the clamp-on-read (stale/hand-edited localStorage), the

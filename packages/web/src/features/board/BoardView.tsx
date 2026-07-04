@@ -789,11 +789,11 @@ interface PhaseLaneProps {
   workshop?: boolean;
   onPhaseRename?: (phaseId: string, newName: string) => void;
   dragHandleListeners?: Record<string, unknown>;
-  /** Per-status explicit column widths (#285), keyed by status. */
+  /** Per-status explicit column widths (issue 285), keyed by status. */
   columnWidths?: Record<string, number>;
-  /** Explicit lane height in px (#285), or undefined for the natural height. */
+  /** Explicit lane height in px (issue 285), or undefined for the natural height. */
   phaseHeight?: number;
-  /** Persist a new clamped lane height (#285). */
+  /** Persist a new clamped lane height (issue 285). */
   onResizeHeight: (phaseId: string, px: number) => void;
 }
 
@@ -940,7 +940,7 @@ function PhaseLaneImpl({
         className="relative grid gap-[var(--board-col-gap,0.5rem)] p-2 w-max min-w-full"
         style={{
           gridTemplateColumns: boardGridTemplate(columns, collapsedColumns, columnWidths),
-          // Explicit lane height (#285): a min-height so the lane grows to the
+          // Explicit lane height (issue 285): a min-height so the lane grows to the
           // dragged size but a card is never forced below its own minimum.
           minHeight: !collapsed && phaseHeight ? `${phaseHeight}px` : undefined,
         }}
@@ -1044,7 +1044,7 @@ function PhaseLaneImpl({
             />
           );
         })}
-        {/* Drag the bottom edge to resize this lane's height (#285). Expanded
+        {/* Drag the bottom edge to resize this lane's height (issue 285). Expanded
             lanes only — a collapsed lane has no resizable body. */}
         {!collapsed && (
           <PhaseResizeHandle
@@ -1532,7 +1532,7 @@ export function BoardView() {
     [rawColumns],
   );
 
-  // Board resize (#285). Per-column widths (keyed by status) override the
+  // Board resize (issue 285). Per-column widths (keyed by status) override the
   // zoom-driven --board-col-w track; per-phase heights (keyed by phase id) set a
   // lane min-height. Both persist to localStorage and clamp on write.
   const { widths: columnWidths, setWidth: setColumnWidth } = useBoardColumnWidths();
@@ -3444,7 +3444,7 @@ export function BoardView() {
                             </svg>
                           </button>
                         </span>
-                        {/* Drag the right edge to resize this column (#285). */}
+                        {/* Drag the right edge to resize this column (issue 285). */}
                         <ColumnResizeHandle
                           label={col.label}
                           onResize={(px) => setColumnWidth(col.status, px)}
@@ -3527,7 +3527,7 @@ export function BoardView() {
                     readOnly,
                     workshop: workshopMode,
                     onPhaseRename: workshopMode ? handlePhaseRename : undefined,
-                    // Board resize (#285): per-column widths + this lane's height.
+                    // Board resize (issue 285): per-column widths + this lane's height.
                     columnWidths,
                     phaseHeight: phaseHeights[phase.id],
                     onResizeHeight: setPhaseHeight,

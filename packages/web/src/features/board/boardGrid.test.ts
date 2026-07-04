@@ -48,7 +48,7 @@ describe('boardGridTemplate (#1458/#1459)', () => {
     expect(boardGridTemplate([], new Set())).toBe('var(--board-phase-col,188px) ');
   });
 
-  describe('explicit column widths (#285)', () => {
+  describe('explicit column widths (issue 285)', () => {
     it('emits a fixed px track for a column with a stored width, default otherwise', () => {
       const tpl = boardGridTemplate(COLS, new Set(), { IN_PROGRESS: 320 });
       const colTracks = tpl.replace('var(--board-phase-col,188px) ', '').split(' ');
