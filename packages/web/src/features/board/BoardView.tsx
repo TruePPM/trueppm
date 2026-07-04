@@ -61,6 +61,8 @@ import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import { wipState, wipTrend, type WipState, type WipTrend } from './wip';
 import { boardGridTemplate } from './boardGrid';
+import { ColumnResizeHandle, PhaseResizeHandle } from './BoardResizeHandle';
+import { useBoardColumnWidths, useBoardPhaseHeights } from '@/hooks/useBoardResize';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
@@ -787,6 +789,12 @@ interface PhaseLaneProps {
   workshop?: boolean;
   onPhaseRename?: (phaseId: string, newName: string) => void;
   dragHandleListeners?: Record<string, unknown>;
+  /** Per-status explicit column widths (issue 285), keyed by status. */
+  columnWidths?: Record<string, number>;
+  /** Explicit lane height in px (issue 285), or undefined for the natural height. */
+  phaseHeight?: number;
+  /** Persist a new clamped lane height (issue 285). */
+  onResizeHeight: (phaseId: string, px: number) => void;
 }
 
 function PhaseLaneImpl({
@@ -824,6 +832,9 @@ function PhaseLaneImpl({
   onPhaseRename,
   dragHandleListeners,
   facetMatchIds,
+  columnWidths,
+  phaseHeight,
+  onResizeHeight,
 }: PhaseLaneProps) {
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
@@ -913,21 +924,25 @@ function PhaseLaneImpl({
     <div
       role="group"
       aria-label={`${phase.name} swimlane`}
-      className="border-b border-neutral-border/60 last:border-b-0"
+      className="relative border-b border-neutral-border/60 last:border-b-0"
     >
       {!collapsed && milestones.length > 0 && (
         <PhaseMilestoneRail
           milestones={milestones}
           columns={columns}
           collapsedColumns={collapsedColumns}
+          columnWidths={columnWidths}
           onOpenTask={onOpenMilestone}
         />
       )}
       <div
         id={`phase-${phase.id}-content`}
-        className="grid gap-[var(--board-col-gap,0.5rem)] p-2 w-max min-w-full"
+        className="relative grid gap-[var(--board-col-gap,0.5rem)] p-2 w-max min-w-full"
         style={{
-          gridTemplateColumns: boardGridTemplate(columns, collapsedColumns),
+          gridTemplateColumns: boardGridTemplate(columns, collapsedColumns, columnWidths),
+          // Explicit lane height (issue 285): a min-height so the lane grows to the
+          // dragged size but a card is never forced below its own minimum.
+          minHeight: !collapsed && phaseHeight ? `${phaseHeight}px` : undefined,
         }}
       >
         {/* Phase meta — LaneMeta atom (issue 208). The outer wrapper is the
@@ -1029,6 +1044,14 @@ function PhaseLaneImpl({
             />
           );
         })}
+        {/* Drag the bottom edge to resize this lane's height (issue 285). Expanded
+            lanes only — a collapsed lane has no resizable body. */}
+        {!collapsed && (
+          <PhaseResizeHandle
+            label={phase.name}
+            onResize={(px) => onResizeHeight(phase.id, px)}
+          />
+        )}
       </div>
     </div>
   );
@@ -1508,6 +1531,13 @@ export function BoardView() {
     () => rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG'),
     [rawColumns],
   );
+
+  // Board resize (issue 285). Per-column widths (keyed by status) override the
+  // zoom-driven --board-col-w track; per-phase heights (keyed by phase id) set a
+  // lane min-height. Both persist to localStorage and clamp on write.
+  const { widths: columnWidths, setWidth: setColumnWidth } = useBoardColumnWidths();
+  const { heights: phaseHeights, setHeight: setPhaseHeight } = useBoardPhaseHeights();
+
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Board sprint view (#429). The selected sprint scopes the phase columns to a
@@ -3309,7 +3339,7 @@ export function BoardView() {
                 <div
                   className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
                   style={{
-                    gridTemplateColumns: boardGridTemplate(COLUMNS, collapsedColumns),
+                    gridTemplateColumns: boardGridTemplate(COLUMNS, collapsedColumns, columnWidths),
                   }}
                 >
                   <div className="sticky left-0 z-20 bg-neutral-surface text-xs uppercase tracking-wide text-neutral-text-disabled px-2 flex items-center">
@@ -3355,7 +3385,7 @@ export function BoardView() {
                     return (
                       <div
                         key={col.status}
-                        className={`flex items-center gap-2 px-2 ${headerTint}`}
+                        className={`relative flex items-center gap-2 px-2 ${headerTint}`}
                         data-wip-state={state}
                       >
                         <span
@@ -3414,6 +3444,11 @@ export function BoardView() {
                             </svg>
                           </button>
                         </span>
+                        {/* Drag the right edge to resize this column (issue 285). */}
+                        <ColumnResizeHandle
+                          label={col.label}
+                          onResize={(px) => setColumnWidth(col.status, px)}
+                        />
                       </div>
                     );
                   })}
@@ -3492,6 +3527,10 @@ export function BoardView() {
                     readOnly,
                     workshop: workshopMode,
                     onPhaseRename: workshopMode ? handlePhaseRename : undefined,
+                    // Board resize (issue 285): per-column widths + this lane's height.
+                    columnWidths,
+                    phaseHeight: phaseHeights[phase.id],
+                    onResizeHeight: setPhaseHeight,
                   });
 
                   if (workshopMode) {

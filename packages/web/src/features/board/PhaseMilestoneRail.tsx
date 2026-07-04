@@ -12,6 +12,9 @@ interface PhaseMilestoneRailProps {
    * header and the lane grids below it (ADR-0192 Part 1/2).
    */
   collapsedColumns?: Set<TaskStatus>;
+  /** Per-status explicit column widths (issue 285) — keeps the rail aligned with the
+   *  header and lane grids when a column is resized. */
+  columnWidths?: Record<string, number>;
   onOpenTask?: (task: Task) => void;
 }
 
@@ -120,6 +123,7 @@ export function PhaseMilestoneRail({
   milestones,
   columns,
   collapsedColumns,
+  columnWidths,
   onOpenTask,
 }: PhaseMilestoneRailProps) {
   const collapsed = collapsedColumns ?? new Set<TaskStatus>();
@@ -143,7 +147,7 @@ export function PhaseMilestoneRail({
       // Board zoom (issue 379): inherits --board-phase-col / --board-col-w / --board-col-gap
       // from the board grid container so the rail stays column-aligned with the lanes.
       style={{
-        gridTemplateColumns: boardGridTemplate(columns, collapsed),
+        gridTemplateColumns: boardGridTemplate(columns, collapsed, columnWidths),
       }}
     >
       {/* Lane meta filler — sticky-left so it stays pinned under horizontal
