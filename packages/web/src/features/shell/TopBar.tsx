@@ -192,7 +192,9 @@ export function TopBar({ onHamburgerClick }: Props) {
         <MethodWorkspaceLabel />
 
         {/* v2 methodology-adaptive health cluster (ADR-0128) — project routes only;
-            collapses to "Health ▾" below lg. Stays pinned, never behind a tab scroll. */}
+            stays expanded from the tablet breakpoint up (md, ≥ 768px) with P80 inline
+            (issue 1562), collapsing to "Health ▾" only on phones below md. Stays
+            pinned, never behind a tab scroll. */}
         <HealthCluster onTaskNavigate={handleTaskNavigate} />
 
         {/* Context-aware "+ New" (ADR-0131) — self-gates by route + RBAC. */}

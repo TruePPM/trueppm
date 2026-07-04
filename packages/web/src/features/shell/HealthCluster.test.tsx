@@ -242,9 +242,25 @@ describe('HealthCluster', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
   });
 
-  it('renders the < lg collapsed Health dropdown', () => {
+  it('renders the phone-only (< md) collapsed Health dropdown', () => {
     render();
     expect(screen.getByRole('button', { name: /project health summary/i })).toBeInTheDocument();
+  });
+
+  it('tablet breakpoint (issue 1562): expanded cluster shows from md, dropdown hides from md', () => {
+    // jsdom does not evaluate media queries, so assert the responsive contract on
+    // the Tailwind classes: the expanded cluster is visible from the tablet
+    // breakpoint up (md, ≥ 768px) and the collapsed "Health ▾" dropdown is the
+    // phone-only fallback (md:hidden) — not lg-gated any more.
+    render();
+    const cluster = screen.getByRole('group', { name: 'Project health' });
+    expect(cluster).toHaveClass('hidden', 'md:flex');
+    expect(cluster.className).not.toContain('lg:flex');
+
+    const collapsedBtn = screen.getByRole('button', { name: /project health summary/i });
+    // The dropdown wrapper (button's parent) carries the md:hidden visibility toggle.
+    expect(collapsedBtn.parentElement).toHaveClass('md:hidden');
+    expect(collapsedBtn.parentElement?.className).not.toContain('lg:hidden');
   });
 
   it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {

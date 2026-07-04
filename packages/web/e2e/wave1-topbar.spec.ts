@@ -242,6 +242,33 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
   });
 });
 
+test.describe('TopBar health cluster (tablet, 768–1024px — issue #1562)', () => {
+  // Janet reads P80/health on a tablet before board meetings; the 768–1024px range
+  // must keep the cluster expanded with the P80 forecast inline, not buried behind
+  // the "Health ▾" dropdown. Width 900px sits squarely in the tablet band.
+  test.use({ viewport: { width: 900, height: 1200 } });
+
+  test.beforeEach(async ({ page }) => {
+    await setupBase(page, HEALTH_STATUS_SUMMARY);
+    await page.goto(`${BASE_URL}/overview`);
+  });
+
+  test('expanded cluster is visible at tablet width', async ({ page }) => {
+    await expect(page.getByTestId('health-cluster')).toBeVisible();
+  });
+
+  test('P80 forecast is inline (not collapsed to the Health dropdown)', async ({ page }) => {
+    const forecastBtn = page.getByRole('button', { name: /monte carlo forecast/i });
+    await expect(forecastBtn).toBeVisible();
+    await expect(forecastBtn).toContainText('P80');
+    await expect(forecastBtn).toContainText('Nov'); // P80 = 2026-11-03
+    // The phone-only collapsed dropdown must NOT be shown in the tablet band.
+    await expect(
+      page.getByRole('button', { name: /project health summary/i }),
+    ).not.toBeVisible();
+  });
+});
+
 test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdown)', () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
