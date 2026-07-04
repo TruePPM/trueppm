@@ -37,6 +37,15 @@ postgresql:
     database: trueppm
 
 valkey:
+  # Redis-compatible cache. NOTE: this bundled Valkey pod is SINGLE-NODE — no
+  # replication, no failover. It is load-bearing for THREE subsystems at once
+  # (Django Channels real-time layer, Celery broker, and Django cache backend),
+  # so its loss degrades real-time, async, and caching together. For production
+  # on-prem, HA Redis (Sentinel, Cluster, or a managed service such as AWS
+  # ElastiCache / Azure Cache for Redis) is effectively mandatory: set
+  # `enabled: false` and point `env.REDIS_URL` at your external endpoint.
+  # See docs → Administration → Redis (Valkey) High Availability
+  # (packages/website/src/content/docs/administration/redis-ha.md).
   # Auth is ON by default. Leave password empty to have the chart generate and
   # persist a strong random password (same pattern as postgresql.auth.password).
   enabled: true
