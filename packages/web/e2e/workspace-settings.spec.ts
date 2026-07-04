@@ -765,7 +765,12 @@ test.describe('Workspace Danger page', () => {
     await expect(deleteBtn).toBeEnabled();
     await deleteBtn.click();
 
-    await page.waitForURL('**/login');
+    // Post-delete we bounce to /login. clearTokens() flips isAuthenticated,
+    // so RequireAuth (still mounted on /settings) may win a race with the
+    // page's own navigate('/login') and append a `?next=%2Fsettings` capture.
+    // Both outcomes are correct — assert with the /login regex the auth specs
+    // use rather than an exact glob that rejects the query (#1646 flake).
+    await page.waitForURL(/\/login/);
     expect(confirmHeader).toBe('TrueScope Aerospace');
   });
 
