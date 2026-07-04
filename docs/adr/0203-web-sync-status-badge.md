@@ -1,4 +1,4 @@
-# ADR-0201: Web SyncStatusBadge — calm offline state from the client write queue
+# ADR-0203: Web SyncStatusBadge — calm offline state from the client write queue
 
 ## Status
 Accepted

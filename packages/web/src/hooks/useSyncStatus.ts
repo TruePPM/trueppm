@@ -62,7 +62,7 @@ export interface SyncStatusView {
 }
 
 /**
- * Derive the SyncStatusBadge view from live client state (ADR-0201): browser
+ * Derive the SyncStatusBadge view from live client state (ADR-0203): browser
  * connectivity, the TanStack Query mutation cache, and the session sync store.
  * No backend call — the pending-write queue is inherently client-side.
  */
@@ -119,7 +119,7 @@ export function useSyncStatus(): SyncStatusView {
 /**
  * Manually drain the write queue: resume any offline-paused mutations and re-run
  * any that errored. Idempotent — resuming with nothing paused is a no-op and an
- * already-running mutation is not re-enqueued (ADR-0201).
+ * already-running mutation is not re-enqueued (ADR-0203).
  */
 export function useRetrySync(): () => Promise<void> {
   const queryClient = useQueryClient();

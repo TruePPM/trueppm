@@ -1,5 +1,5 @@
 /**
- * Pure sync-status state machine (ADR-0201).
+ * Pure sync-status state machine (ADR-0203).
  *
  * The SyncStatusBadge state is a projection of three client-side facts: browser
  * connectivity, the TanStack Query mutation cache (in-flight / paused / errored
