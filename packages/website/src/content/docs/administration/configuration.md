@@ -39,6 +39,9 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. |
 | `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
+| `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
+| `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
+| `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
@@ -65,6 +68,36 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `IDEMPOTENCY_RETENTION_HOURS` | `24` | Hours to retain stored `Idempotency-Key` responses, purged hourly by the Celery beat task. After expiry, a retry with the same key re-runs the mutation. Set the Django setting to `None` to disable automatic purging. |
 | `IDEMPOTENCY_MAX_BODY_BYTES` | `1048576` | Maximum stored response body size, in bytes (1 MiB default). Responses larger than this are not stored — the claim row is dropped so a retry re-runs the mutation. Single-object mutation responses effectively never approach this limit. |
 | `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / … | _(Django default)_ | SMTP settings for notification and invite email. **Currently must be set via a Django settings override — dedicated env-var / Helm bindings are not yet wired**, so setting bare `EMAIL_HOST` env vars has no effect. See [Outbound email](/administration/email/). |
+
+## General API rate limiting
+
+TruePPM applies a **general default rate limit** to every API endpoint that does
+not declare its own throttle, so a self-hosted instance has baseline protection
+against runaway clients and resource-starvation abuse. Two tunable rates control
+it:
+
+| Variable | Default | Applies to |
+|----------|---------|------------|
+| `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | Unauthenticated requests, bucketed per client IP |
+| `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | Authenticated requests, bucketed per account |
+
+Both use Django REST Framework's `<count>/<period>` syntax, where `period` is
+`sec`, `min`, `hour`, or `day` (for example `120/min` or `5000/hour`).
+
+A few behaviors are worth knowing:
+
+- **The Kubernetes probe endpoints are exempt.** `/api/v1/health/` (liveness /
+  readiness) and `/api/v1/edition/` (the shell's startup edition read) are never
+  counted, so an orchestrator's tight probe loop cannot exhaust the shared limit
+  and trigger spurious pod restarts.
+- **Scoped endpoints replace, not stack.** Endpoints with their own stricter
+  limit — login, token refresh, Monte Carlo, and the other scoped throttles —
+  keep only that specific limit; the general default does not add to it.
+- **Exceeding a limit returns `429 Too Many Requests`** with a standard
+  `Retry-After` header telling the client how many seconds to wait.
+
+The throttle count lives in the configured cache (Valkey/Redis in production),
+so the limit is shared across all API replicas rather than per-process.
 
 ## MS Project import limit
 

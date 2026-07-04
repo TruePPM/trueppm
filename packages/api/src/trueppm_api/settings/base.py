@@ -673,13 +673,39 @@ REST_FRAMEWORK = {
     # Custom AutoSchema documents a 429 response on rate-limited operations (#1333);
     # throttling is a view attribute invisible to the schema post-processing hooks.
     "DEFAULT_SCHEMA_CLASS": "trueppm_api.core.openapi.TruePPMAutoSchema",
-    # Scoped throttles only. The "login" scope is consumed by the JWT
-    # TokenObtainPairView (#770) to bound password-guessing on the auth
-    # endpoint. Deliberately NOT a global DEFAULT_THROTTLE_CLASSES /
-    # AnonRateThrottle — that would also throttle the unauthenticated
-    # /health/ and /edition/ probe endpoints that Kubernetes hits on a
-    # tight liveness/readiness loop.
+    # General default throttle (#1080). Every endpoint that does NOT declare its
+    # own throttle_classes gets the baseline "anon"/"user" rate below — the
+    # general DoS / resource-starvation protection a self-hoster expects. The
+    # ProbeExempt* classes are the stock DRF anon/user throttles with one
+    # override: they never count the unauthenticated /api/v1/health/ and
+    # /api/v1/edition/ probe endpoints, which Kubernetes hits on a tight
+    # liveness/readiness loop (the reason a bare AnonRateThrottle was previously
+    # avoided — now solved by the exemption). A view that sets its own
+    # throttle_classes (login, refresh, monte_carlo, etc. below) REPLACES this
+    # default rather than stacking on top of it, so those endpoints keep only
+    # their specific, stricter scope.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "trueppm_api.core.throttling.ProbeExemptAnonRateThrottle",
+        "trueppm_api.core.throttling.ProbeExemptUserRateThrottle",
+    ],
+    # Trusted-proxy depth for client-IP extraction (#1080). Without this DRF keys
+    # the anon throttle on the client-supplied X-Forwarded-For header verbatim, so
+    # an attacker could rotate XFF to mint a fresh anon identity per request and
+    # bypass the anon limit entirely. NUM_PROXIES tells DRF how many trusted proxies
+    # sit in front of the app (the standard Helm chart has a single ingress → 1), so
+    # it reads the real client IP from a trusted position and ignores attacker-
+    # prepended entries. Set to the deployment's actual proxy depth via env; 0 means
+    # "no proxy, use REMOTE_ADDR". The authenticated "user" scope keys on the account
+    # id and is unaffected.
+    "NUM_PROXIES": env.int("TRUEPPM_NUM_PROXIES", default=1),
     "DEFAULT_THROTTLE_RATES": {
+        # General default rates for the ProbeExempt* classes above. Env-tunable
+        # so operators can tighten or loosen the baseline without a rebuild.
+        # "anon" bounds unauthenticated traffic per client IP; "user" bounds an
+        # authenticated account. Both are generous enough that a normal
+        # interactive client never trips them.
+        "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default="60/min"),
+        "user": env("TRUEPPM_THROTTLE_USER_RATE", default="1000/min"),
         "login": "10/min",
         # JWT refresh (#814). 60/min is loose enough that any realistic
         # web/mobile client (5-minute access-token TTL → ~12 refreshes/hour)

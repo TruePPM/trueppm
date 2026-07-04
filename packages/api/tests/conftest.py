@@ -3,6 +3,26 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _reset_throttle_cache() -> Iterator[None]:
+    """Clear the throttle counter cache after every test (#1080).
+
+    The global ``DEFAULT_THROTTLE_CLASSES`` (probe-exempt anon/user) is active under
+    the dev settings pytest uses, backed by ``LocMemCache``, so one test's request
+    counts would otherwise persist into the next within the same worker — the anon
+    scope shares a single ``127.0.0.1`` bucket, which would surface as an
+    order-dependent 429 flake. Clearing at teardown resets the counters between tests
+    without ever wiping a test's own setup (the clear runs after the test body).
+    """
+    yield
+    from django.core.cache import cache
+
+    cache.clear()
 
 
 def pytest_configure(config: object) -> None:
