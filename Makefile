@@ -5,7 +5,7 @@
         migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
         pre-push-behind-warn pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
-        release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
+        release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -263,6 +263,14 @@ pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typech
 # ─── Build ────────────────────────────────────────────────────────────────────
 build: ## Build the web bundle
 	cd packages/web && npm run build
+
+# ─── Marketing screenshots ────────────────────────────────────────────────────
+screenshots: ## Regenerate the marketing product shots to ~/Downloads (needs `npm run dev` on :5173)
+	@# Deterministic mocked/clock-pinned shots for the marketing site + deck (#380).
+	@# NOT part of `web:e2e` — runs via its own Playwright config. The web dev
+	@# server must already be serving on :5173 (make up, or `npm run dev`).
+	@# Full procedure: packages/web/e2e/README.md.
+	cd packages/web && npm run screenshots
 
 # ─── Dev ──────────────────────────────────────────────────────────────────────
 up: ## Start the dev stack — web HMR :5173, API :8000, DB :5432

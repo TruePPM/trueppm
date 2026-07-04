@@ -1,12 +1,26 @@
 /**
- * Marketing product snapshots — captures 4 deterministic product views to
- * ~/Downloads for use on the marketing site / pitch deck. Not part of the
- * regular e2e regression — opt in with:
+ * Marketing product snapshots — a maintained surface (issue #380).
  *
- *   npx playwright test e2e/marketing-shots.spec.ts --project=chromium
+ * Regenerates a deterministic set of product views to ~/Downloads for the
+ * marketing site / pitch deck / README. NOT part of the regular `web:e2e`
+ * regression — it runs only via its own config (see playwright.marketing.config.ts
+ * and e2e/README.md), so a broken shot never blocks a normal MR.
  *
- * Targets the dev server at :5173 (run `npm run dev` first). All API calls
- * are mocked to seeded fixture data so shots are reproducible.
+ *   npm run screenshots            # from packages/web
+ *   # or from repo root:  make screenshots
+ *
+ * Prerequisites: the dev server must already be serving the app on :5173
+ * (`npm run dev`). All API calls are mocked to seeded fixture data and the
+ * wall-clock is pinned (see CLOCK) so every run produces byte-stable content.
+ *
+ * Coverage — the full canonical view-tab order (web-rule 108):
+ *   Overview · Board · Schedule · WBS · Table · Calendar · Team · Risks
+ * WBS and Table shipped then consolidated into the unified Grid view
+ * (ADR-0053: /wbs and /list redirect to /grid), so they are represented by the
+ * single Grid shot and kept visible here as annotated `test.skip()` placeholders
+ * rather than deleted — that keeps all eight canonical positions documented and
+ * gives a future un-consolidation a ready slot. "Team" is the Resources view
+ * (issue #22). A mobile-viewport hero shot rounds out the set.
  */
 import { test, expect } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -14,6 +28,14 @@ import os from 'node:os';
 import path from 'node:path';
 
 const PROJECT_ID = 'mkt-00000000-0000-0000-0000-000000000777';
+
+/**
+ * Wall-clock is pinned so every date-relative surface is reproducible: the
+ * Schedule "today" line, the Resources rolling ±4-week window (web-rule 93),
+ * and any "N days ago" copy all resolve identically on every run, on any
+ * machine, on any calendar day. Set via page.clock before the first navigation.
+ */
+const CLOCK = new Date('2026-05-07T12:00:00Z');
 
 test.use({
   baseURL: 'http://localhost:5173',
@@ -145,7 +167,79 @@ const MY_TASKS = {
   ],
 };
 
+// -----------------------------------------------------------------------------
+// Resource utilization fixture (issue #22 — "Team" view).
+// The grid renders the rolling ±4-week window around the pinned CLOCK
+// (2026-05-07 → roughly 2026-04-06 … 2026-06-07, web-rule 93). We synthesize a
+// weekday-by-weekday load profile per resource across that window so the heat-map
+// is populated and the on-track / at-risk / over-allocated bands (web-rule 91)
+// all appear. Capacity is 8h/day → 100% at 8h.
+// -----------------------------------------------------------------------------
+const CAPACITY_HOURS = 8;
+
+function loadDay(hours: number, tasks: string[]) {
+  const pct = Math.round((hours / CAPACITY_HOURS) * 100);
+  const band = pct > 100 ? 'critical' : pct >= 85 ? 'at-risk' : 'on-track';
+  return { hours, tasks, load_pct: pct, load_band: band, overallocated: pct > 100 };
+}
+
+/** Build a sparse day map over the utilization window's weekdays. */
+function buildDays(hoursFor: (weekdayIndex: number) => number | null, tasks: string[]) {
+  const days: Record<string, ReturnType<typeof loadDay>> = {};
+  const start = Date.UTC(2026, 3, 6); // Mon Apr 6 2026 (window start)
+  const end = Date.UTC(2026, 5, 5); // Fri Jun 5 2026 (window end)
+  let weekdayIndex = 0;
+  for (let t = start; t <= end; t += 86_400_000) {
+    const dt = new Date(t);
+    const dow = dt.getUTCDay();
+    if (dow === 0 || dow === 6) continue; // weekdays only
+    const iso = dt.toISOString().slice(0, 10);
+    const hours = hoursFor(weekdayIndex);
+    weekdayIndex += 1;
+    if (hours == null) continue;
+    days[iso] = loadDay(hours, tasks);
+  }
+  return days;
+}
+
+const UTILIZATION = {
+  project_id: PROJECT_ID,
+  window: { start: '2026-04-06', end: '2026-06-07' },
+  unassigned_task_count: 1,
+  resources: [
+    {
+      resource_id: 'u5', resource_name: 'Diego Ortiz', max_units: '1.00', hours_per_day: 8,
+      calendar_id: null, calendar_differs_from_project: false, overallocated: false,
+      days: buildDays((i) => (i % 5 < 3 ? 4 : 6), ['t9']),
+    },
+    {
+      resource_id: 'u4', resource_name: 'Jordan Bell', max_units: '1.00', hours_per_day: 8,
+      calendar_id: null, calendar_differs_from_project: false, overallocated: false,
+      days: buildDays((i) => [6, 7, 8, 5, 6][i % 5], ['t6', 't11']),
+    },
+    {
+      resource_id: 'u2', resource_name: 'Marcus Reid', max_units: '0.75', hours_per_day: 6,
+      calendar_id: 'cal-pt', calendar_differs_from_project: true, overallocated: false,
+      days: buildDays((i) => (i % 5 < 2 ? 4 : null), ['t3']),
+    },
+    {
+      // Over-allocated on the critical procurement path — the amber/red story.
+      resource_id: 'u3', resource_name: 'Priya Patel', max_units: '1.00', hours_per_day: 8,
+      calendar_id: null, calendar_differs_from_project: false, overallocated: true,
+      days: buildDays((i) => [10, 8, 9, 7, 8][i % 5], ['t5', 't7']),
+    },
+    {
+      resource_id: 'u1', resource_name: 'Sarah Chen', max_units: '1.00', hours_per_day: 8,
+      calendar_id: null, calendar_differs_from_project: false, overallocated: false,
+      days: buildDays((i) => [5, 6, 4, 7, 5][i % 5], ['t2', 't13']),
+    },
+  ],
+};
+
 async function setup(page: import('@playwright/test').Page) {
+  // Pin the wall-clock before any navigation so every date-relative surface is
+  // reproducible (Schedule today-line, Resources rolling window, relative copy).
+  await page.clock.setFixedTime(CLOCK);
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -164,6 +258,10 @@ async function setup(page: import('@playwright/test').Page) {
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MY_TASKS) }),
+  );
+  // Resources "Team" view (issue #22) — the utilization heat-map endpoint.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/utilization/**`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(UTILIZATION) }),
   );
   // Tasks/dependencies — last-registered wins; overrides setupApiMocks defaults.
   await page.route('**/api/v1/tasks/**', (route) => {
@@ -185,20 +283,22 @@ async function setup(page: import('@playwright/test').Page) {
 
 const OUT = path.join(os.homedir(), 'Downloads');
 
-test.describe('Marketing snapshots', () => {
+// -----------------------------------------------------------------------------
+// Desktop shots — 1440×900 @2x, in canonical view-tab order (web-rule 108).
+// -----------------------------------------------------------------------------
+test.describe('Marketing snapshots — desktop', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
   });
 
   test('01 — Overview', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/overview`);
-    await expect(page.getByRole('region', { name: /project kpis/i })).toBeVisible({ timeout: 15_000 });
+    // "More metrics" is the unique KPI region heading (avoids the two "Needs
+    // attention" headings — main panel + my-tasks side panel — colliding).
+    await expect(page.getByRole('heading', { name: 'More metrics' })).toBeVisible({ timeout: 15_000 });
     // Let charts/badges settle.
     await page.waitForTimeout(600);
-    await page.screenshot({
-      path: path.join(OUT, 'trueppm-01-overview.png'),
-      fullPage: false,
-    });
+    await page.screenshot({ path: path.join(OUT, 'trueppm-01-overview.png'), fullPage: false });
   });
 
   test('02 — Board', async ({ page }) => {
@@ -206,10 +306,7 @@ test.describe('Marketing snapshots', () => {
     await expect(page.getByText('In Progress').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Procurement').first()).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(600);
-    await page.screenshot({
-      path: path.join(OUT, 'trueppm-02-board.png'),
-      fullPage: false,
-    });
+    await page.screenshot({ path: path.join(OUT, 'trueppm-02-board.png'), fullPage: false });
   });
 
   test('03 — Schedule (Gantt)', async ({ page }) => {
@@ -218,19 +315,85 @@ test.describe('Marketing snapshots', () => {
     await expect(page.getByText('Procurement').first()).toBeVisible({ timeout: 15_000 });
     // Canvas paint settle.
     await page.waitForTimeout(900);
-    await page.screenshot({
-      path: path.join(OUT, 'trueppm-03-schedule.png'),
-      fullPage: false,
-    });
+    await page.screenshot({ path: path.join(OUT, 'trueppm-03-schedule.png'), fullPage: false });
   });
 
-  test('04 — Risk register', async ({ page }) => {
+  // WBS (canonical slot 4) and Table (slot 5) shipped then consolidated into the
+  // unified Grid view (ADR-0053: /wbs and /list redirect to /grid). They are no
+  // longer separate tabs, so the single Grid shot below (04) represents both.
+  // Kept as annotated placeholders per the #380 "skip, don't delete" convention
+  // so all eight canonical positions stay visible in this file.
+  test.skip('04a — WBS (consolidated into Grid — ADR-0053; see shot 04)', async () => {});
+  test.skip('04b — Table (consolidated into Grid — ADR-0053; see shot 04)', async () => {});
+
+  test('04 — Grid (WBS/Table successor, Outline mode)', async ({ page }) => {
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    // WATERFALL projects default Grid to Outline mode — the WBS use-case.
+    await expect(page.getByRole('group', { name: 'Display mode' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Procurement').first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(OUT, 'trueppm-04-grid.png'), fullPage: false });
+  });
+
+  test('05 — Calendar', async ({ page }) => {
+    // Anchor to May 2026 so the in-progress procurement tasks are on-screen.
+    await page.goto(`/projects/${PROJECT_ID}/calendar?calAnchor=2026-05-01`);
+    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: path.join(OUT, 'trueppm-05-calendar.png'), fullPage: false });
+  });
+
+  test('06 — Team (Resource utilization, issue #22)', async ({ page }) => {
+    // The Team view splits into Roster / Allocation / Heatmap sub-pages; the
+    // Allocation sub-page (ResourceView) hosts the utilization heat-map (issue
+    // #22), which defaults to Timeline mode — force utilization via localStorage.
+    // Set before the first navigation.
+    await page.addInitScript(() => {
+      localStorage.setItem('trueppm.resources.viewMode', 'utilization');
+    });
+    await page.goto(`/projects/${PROJECT_ID}/resources/allocation`);
+    await expect(page.getByRole('group', { name: 'Resource view mode' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Priya Patel').first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: path.join(OUT, 'trueppm-06-team.png'), fullPage: false });
+  });
+
+  test('07 — Risk register', async ({ page }) => {
     await page.goto(`/projects/${PROJECT_ID}/risk`);
     await expect(page.getByText('Long-lead 138kV breaker').first()).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(500);
-    await page.screenshot({
-      path: path.join(OUT, 'trueppm-04-risks.png'),
-      fullPage: false,
+    await page.screenshot({ path: path.join(OUT, 'trueppm-07-risks.png'), fullPage: false });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Mobile hero — 375×812 @3x. Mobile-first is a core product promise, so the
+// hero shows the Board reflowed into full-width snap-scroll status columns with
+// the dot-strip map (web-rule 193, ADR-0196).
+// -----------------------------------------------------------------------------
+test.describe('Marketing snapshots — mobile', () => {
+  test.use({
+    viewport: { width: 375, height: 812 },
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+  });
+
+  test('08 — Mobile hero (Board reflow)', async ({ page }) => {
+    // On a phone the board auto-defaults to the flat Queue layout (issue 605);
+    // the snap-scroll reflow (web-rule 193) needs an explicit non-queue layout.
+    // Seed an explicit 'rail' choice so MobileBoard + its dot-strip render.
+    await page.addInitScript(() => {
+      localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ layout: 'rail' }));
     });
+    await page.goto(`/projects/${PROJECT_ID}/board`);
+    // The mobile board renders the column dot-strip map above the snap columns.
+    await expect(page.getByRole('group', { name: 'Board columns' })).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: path.join(OUT, 'trueppm-08-mobile-board.png'), fullPage: false });
   });
 });
