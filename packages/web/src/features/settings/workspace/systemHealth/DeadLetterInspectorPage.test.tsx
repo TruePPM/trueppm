@@ -160,7 +160,7 @@ describe('DeadLetterInspectorPage', () => {
     expect(screen.getByRole('button', { name: /Drop all \(1\)/ })).toBeInTheDocument();
   });
 
-  it('hides both bulk actions under a Dismissed-only filter (rule 218 — no dead affordance)', async () => {
+  it('hides both bulk actions under a Dismissed-only filter (rule 219 — no dead affordance)', async () => {
     const user = userEvent.setup();
     useFailedTasks.mockReturnValue(listResult({ data: makeList([makeTask({ status: 'dismissed' })]) }));
     renderPage();

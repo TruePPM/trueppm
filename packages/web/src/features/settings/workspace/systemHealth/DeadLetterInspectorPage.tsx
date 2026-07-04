@@ -703,7 +703,7 @@ export function DeadLetterInspectorPage() {
               {data.count} task{data.count !== 1 ? 's' : ''}
             </span>
             {/* Each bulk button is gated to the statuses it can actually act on
-                (web-rule 218): requeue only touches dead/pending_retry, drop skips
+                (web-rule 219): requeue only touches dead/pending_retry, drop skips
                 already-dismissed. Hiding the no-op affordance on a terminal-only
                 filter keeps the (N) honest rather than promising N and doing 0. */}
             {data.count > 0 && canBulkRequeue && (
