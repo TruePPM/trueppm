@@ -58,3 +58,38 @@ class HistoryRecordSerializer(serializers.Serializer[Any]):
     def get_diff(self, obj: Any) -> list[dict[str, Any]]:
         diffs: dict[int, list[dict[str, Any]]] = self.context.get("diffs", {})
         return diffs.get(obj.history_id, [])
+
+
+class ChangelogEntrySerializer(serializers.Serializer[Any]):
+    """One row in the unified project changelog (ADR-0199).
+
+    The instance is a plain dict from ``changelog.build_project_changelog`` — the
+    aggregator already merged, ordered, and diffed across the historical tables,
+    so the serializer only renders. ``user`` is exposed only to Owner/Admin
+    callers (``hide_user=True`` in context returns null), reusing the same gate as
+    :class:`HistoryRecordSerializer`.
+    """
+
+    id = serializers.CharField()
+    object_type = serializers.CharField()
+    object_id = serializers.CharField()
+    object_label = serializers.CharField()
+    change_type = serializers.ChoiceField(choices=["created", "updated", "deleted"])
+    history_date = serializers.DateTimeField()
+    user = serializers.SerializerMethodField()
+    changes = FieldDiffSerializer(many=True)
+
+    def get_user(self, obj: dict[str, Any]) -> dict[str, Any] | None:
+        if self.context.get("hide_user"):
+            return None
+        user = obj.get("history_user")
+        if user is None:
+            return None
+        return HistoryUserSerializer(user).data
+
+
+class ChangelogResponseSerializer(serializers.Serializer[Any]):
+    """Response envelope for the unified project changelog (ADR-0199)."""
+
+    results = ChangelogEntrySerializer(many=True)
+    next_cursor = serializers.CharField(allow_null=True)

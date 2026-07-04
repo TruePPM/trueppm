@@ -12,6 +12,7 @@ import {
   WbsIcon,
   OverviewIcon,
   TodayIcon,
+  ActivityIcon,
 } from '@/components/Icons';
 
 export type ViewIconType = ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
@@ -42,6 +43,8 @@ export const VIEW_TAB_META: Record<string, ViewMeta> = {
   board: { label: 'Board', Icon: BoardIcon },
   risk: { label: 'Risks', Icon: RiskIcon },
   reports: { label: 'Reports', Icon: BarChartIcon },
+  // Unified project changelog — the "what changed" feed (ADR-0199).
+  activity: { label: 'Activity', Icon: ActivityIcon },
   resources: { label: 'Team', Icon: ResourcesIcon },
   // Settings — visible to all members (Viewer+); write controls are OWNER-gated
   // inside the page.

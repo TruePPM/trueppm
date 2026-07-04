@@ -238,6 +238,7 @@ export default defineConfig({
                 { slug: "features/task-collaboration" },
                 { slug: "features/decisions" },
                 { slug: "features/change-history" },
+                { slug: "features/project-activity" },
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },

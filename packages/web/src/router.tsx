@@ -61,6 +61,11 @@ const RiskRegisterView = lazy(() =>
 const ReportsView = lazy(() =>
   import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })),
 );
+const ProjectActivityPage = lazy(() =>
+  import('@/features/project/activity/ProjectActivityPage').then((m) => ({
+    default: m.ProjectActivityPage,
+  })),
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
@@ -367,6 +372,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ReportsView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'activity',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectActivityPage />
                   </Suspense>
                 ),
               },
