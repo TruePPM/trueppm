@@ -9639,6 +9639,54 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/restore/": {
+            "post": {
+                "operationId": "v1_projects_restore_create",
+                "description": "Un-tombstone a soft-deleted project and all its children atomically (#1113).\n\nOwner-only (``IsProjectOwner``), scoped to the caller's Trash. The project row\nand every currently-tombstoned child (tasks, dependency edges, sprints,\nbaselines, risks) are un-tombstoned in a single ``transaction.atomic()`` block:\na failure part-way through rolls the whole restore back rather than leave a\nhalf-restored project (ADR-0199). Every restored row's ``server_version`` is\nbumped so offline sync clients re-materialize it on their next delta.\n\nThe child restore is itself idempotent (a re-run touches only still-tombstoned\nrows), but a *second HTTP restore* of an already-live project returns **404**:\nonce restored it is no longer in the caller's Trash, so ``_trashed_queryset`` no\nlonger resolves it. The action therefore fails closed on a double-submit rather\nthan re-applying — clients must not rely on a 200 for an already-restored id.",
+                "summary": "Restore a soft-deleted project from Trash",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No soft-deleted project with that id in your Trash."
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/retrospective/carryover/": {
             "get": {
                 "operationId": "v1_projects_retrospective_carryover_retrieve",
@@ -16644,6 +16692,68 @@
                     },
                     "400": {
                         "description": "Missing/invalid upload, or program-admin gate failed."
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/trash/": {
+            "get": {
+                "operationId": "v1_projects_trash_list",
+                "description": "List the caller's soft-deleted projects still inside the retention window (#1113).\n\nAny member sees their own team's trashed projects (the queryset is\nmembership-scoped); ``can_restore`` is true only for the Owner, so the web can\ndisable Restore for non-Owners. The retention window comes from the #1114\nresolver: rows past ``now - window`` are omitted (they are eligible for the\nbackground purge and may already be gone); a NULL ``deleted_at`` (legacy delete,\nnever auto-purged) is always shown with an indefinite retention.",
+                "summary": "List soft-deleted projects in Trash (recoverable within the retention window)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTrashProjectListList"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -29037,6 +29147,37 @@
                     }
                 }
             },
+            "PaginatedTrashProjectListList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TrashProjectList"
+                        }
+                    }
+                }
+            },
             "PaginatedVelocitySuggestionList": {
                 "type": "object",
                 "required": [
@@ -37315,6 +37456,62 @@
                 },
                 "required": [
                     "new_owner_user_id"
+                ]
+            },
+            "TrashProjectList": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "deleted_by": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "deleted_by_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "days_remaining": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "retention_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "my_role": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "can_restore": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_restore",
+                    "code",
+                    "days_remaining",
+                    "deleted_at",
+                    "deleted_by",
+                    "deleted_by_name",
+                    "id",
+                    "my_role",
+                    "name",
+                    "retention_days"
                 ]
             },
             "TriggeredByEnum": {

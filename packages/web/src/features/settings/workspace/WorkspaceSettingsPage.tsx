@@ -79,6 +79,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     items: [
       { id: 'health', label: 'System health', to: '/settings/health', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
       { id: 'retention', label: 'Retention & purge', to: '/settings/health/retention', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
+      { id: 'trash', label: 'Trash', to: '/settings/trash', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
     ],
   },
   {

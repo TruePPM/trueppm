@@ -65,4 +65,36 @@ describe('ToastHost', () => {
     expect(screen.queryByText('✓')).not.toBeInTheDocument();
     expect(screen.getByText('Failed to save')).toBeInTheDocument();
   });
+
+  it('renders an action button (#1113 Undo): clicking runs onClick then dismisses', () => {
+    const onUndo = vi.fn();
+    render(<ToastHost />);
+    act(() => {
+      toast.action('"Downtown Retrofit" moved to Trash', {
+        label: 'Undo',
+        ariaLabel: 'Undo — restore Downtown Retrofit',
+        onClick: onUndo,
+      });
+    });
+    const btn = screen.getByRole('button', { name: 'Undo — restore Downtown Retrofit' });
+    expect(btn).toBeInTheDocument();
+    act(() => {
+      btn.click();
+    });
+    expect(onUndo).toHaveBeenCalledOnce();
+    // The pill is dismissed after the action fires.
+    expect(screen.queryByText('"Downtown Retrofit" moved to Trash')).not.toBeInTheDocument();
+  });
+
+  it('action toasts dwell longer than the default so a phone user can react', () => {
+    render(<ToastHost />);
+    act(() => {
+      toast.action('Moved to Trash', { label: 'Undo', onClick: vi.fn() });
+    });
+    // Still visible after the 2.6s default dwell — the action variant uses ~8s.
+    act(() => {
+      vi.advanceTimersByTime(2600);
+    });
+    expect(screen.getByText('Moved to Trash')).toBeInTheDocument();
+  });
 });

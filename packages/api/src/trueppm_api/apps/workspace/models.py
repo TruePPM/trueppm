@@ -660,6 +660,7 @@ class AuditEventType(models.TextChoices):
     OWNERSHIP_TRANSFERRED = "ownership_transferred", "Ownership transferred"
     PROJECT_CREATED = "project_created", "Project created"
     PROJECT_DELETED = "project_deleted", "Project deleted"
+    PROJECT_RESTORED = "project_restored", "Project restored"
     SETTINGS_CHANGED = "workspace_settings_changed", "Workspace settings changed"
     EXPORT_TRIGGERED = "workspace_export_triggered", "Workspace export triggered"
 
