@@ -23,6 +23,13 @@ description: >
 - API reference: auto-generated from OpenAPI schema + manual narrative
 - Screenshots: only for UI documentation, stored under the website's assets
 - Every page has: title, brief description, prerequisites (if tutorial/how-to)
+- Diagrams = Mermaid code fences (```mermaid), never hand-drawn ASCII box/arrow art (ADR-0198).
+  The Starlight build renders each fence to a static inline `<svg>` at build time (rehype-mermaid,
+  no client JS); source ADRs under `docs/adr/` render Mermaid natively on GitLab. Use the type that
+  fits — `flowchart`/`graph`, `sequenceDiagram`, `stateDiagram-v2`, `erDiagram`. Do NOT force
+  annotated field listings or comparison tables into a diagram — keep those as prose/tables. Never
+  use Mermaid's `gantt` type for the product schedule (the in-app Gantt is a canvas/WASM renderer,
+  ADR-0015).
 
 ## Output
 When asked to write documentation:
