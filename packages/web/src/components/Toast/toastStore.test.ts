@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useToastStore, TOAST_DEFAULT_DURATION_MS } from './toastStore';
 
 describe('toastStore', () => {
@@ -43,5 +43,17 @@ describe('toastStore', () => {
     useToastStore.getState().push({ message: 'B' });
     useToastStore.getState().clear();
     expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
+  it('carries an optional action through push (#1113 Undo)', () => {
+    const onClick = vi.fn();
+    useToastStore.getState().push({
+      message: '"Downtown Retrofit" moved to Trash',
+      action: { label: 'Undo', onClick, ariaLabel: 'Undo — restore Downtown Retrofit' },
+    });
+    const stored = useToastStore.getState().toasts[0];
+    expect(stored.action?.label).toBe('Undo');
+    stored.action?.onClick();
+    expect(onClick).toHaveBeenCalledOnce();
   });
 });

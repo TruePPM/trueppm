@@ -846,8 +846,15 @@ class IsProjectNotArchived(BasePermission):
     message = "This project is archived and cannot be modified. Unarchive it first."
 
     # Action names on ProjectViewSet that must bypass the archived check —
-    # otherwise an Owner could never unarchive (catch-22) or delete the row.
-    _ARCHIVE_BYPASS_ACTIONS: frozenset[str] = frozenset({"unarchive", "destroy", "archive"})
+    # otherwise an Owner could never unarchive (catch-22), delete, or restore the row.
+    # NOTE: this is matched on the action *name* only, not the viewset class. It is safe
+    # today because only ProjectViewSet applies IsProjectNotArchived to these actions;
+    # a same-named action (e.g. ResourceViewSet.restore) is unaffected because that
+    # viewset never includes IsProjectNotArchived. If a future viewset both applies this
+    # permission AND names an action in this set, scope the check by viewset before then.
+    _ARCHIVE_BYPASS_ACTIONS: frozenset[str] = frozenset(
+        {"unarchive", "destroy", "archive", "restore"}
+    )
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         if request.method in ("GET", "HEAD", "OPTIONS"):

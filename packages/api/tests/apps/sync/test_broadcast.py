@@ -173,6 +173,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "project_custom_fields_updated",
         "project_deleted",
         "project_hard_deleted",
+        "project_restored",
         "project_transferred",
         "project_unarchived",
         "project_updated",

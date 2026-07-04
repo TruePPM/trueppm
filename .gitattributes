@@ -21,6 +21,10 @@
 *.html  text eol=lf
 *.sql   text eol=lf
 
+# Vendored Semgrep rule packs — fetched by scripts/update-semgrep-rules.sh, not
+# hand-edited. Mark generated so diffs collapse and they're excluded from language stats.
+.semgrep/*.yml linguist-generated=true
+
 # Lock files — union merge to reduce conflicts
 package-lock.json merge=union
 yarn.lock         merge=union
