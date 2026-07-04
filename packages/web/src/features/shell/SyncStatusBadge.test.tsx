@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SyncStatusView } from '@/hooks/useSyncStatus';
 import { SyncStatusBadge } from './SyncStatusBadge';
 
-// The badge is a pure projection of useSyncStatus (ADR-0203); mock the hook so
+// The badge is a pure projection of useSyncStatus (ADR-0205); mock the hook so
 // each state can be driven deterministically without a QueryClient.
 const mockRetry = vi.fn().mockResolvedValue(undefined);
 let mockView: SyncStatusView;
