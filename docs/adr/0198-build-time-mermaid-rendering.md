@@ -64,6 +64,23 @@ Supporting decisions:
 4. **Keep ASCII diagrams.** The status quo — unmaintainable, non-responsive,
    inaccessible. Rejected.
 
+## Scope and rollout
+
+- **Website content pages** (`packages/website/src/content/docs/`) render via the
+  build-time `rehype-mermaid` pass described above. **Source ADRs** under
+  `docs/adr/*.md` are not built by Astro — the same ```mermaid fences render
+  natively in GitLab's markdown viewer, so no extra tooling is needed there.
+- Pilot on high-value diagrams (this change converts the ASGI system diagram in
+  `architecture/overview.md` and the MCP topology in `features/mcp-server.md`),
+  then sweep the remaining ASCII opportunistically. Convert only where a diagram
+  maps cleanly to a graph, sequence, state machine, or ER type. **Do not force**
+  annotated field listings or comparison tables into a diagram — keep those as
+  prose/tables (e.g. the faceted Task model in `features/unified-data-model.md`
+  stays a field listing). The `docs-writer` skill records this convention.
+- **Out of scope — the in-product schedule.** Mermaid's static `gantt` type must
+  never be used for the product Gantt, which is a custom canvas renderer backed by
+  the Rust/WASM CPM engine (ADR-0015). This decision is documentation-only.
+
 ## Consequences
 
 - Diagrams are authored as text, diffable and reviewable, and render to
