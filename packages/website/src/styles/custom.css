@@ -99,3 +99,32 @@ svg[id^="mermaid-"] marker path {
   fill: #8b90a0 !important;
   stroke: #8b90a0 !important;
 }
+
+/* "On this page" (right TOC) footprint.
+ *
+ * Starlight sizes the right-sidebar container as
+ *   sidebar-width + (100% - content-width - sidebar-width) / 2
+ * (see @astrojs/starlight TwoColumnContent.astro). On wide screens that half-
+ * of-the-leftover-margin term balloons the column into a mostly-empty band —
+ * the wasted whitespace beside the TOC links. We pin the container to a thin
+ * fixed width at the lg breakpoint, hand the reclaimed space to the content
+ * pane, and widen the prose column so it fills the gain. custom.css is
+ * unlayered, so these rules win over Starlight's @layer styles without
+ * !important. Below 72rem Starlight already collapses the TOC into an inline
+ * dropdown, so this only affects the two-column desktop layout.
+ */
+:root {
+  --toc-column-width: 16rem;
+  --sl-content-width: 52rem;
+}
+@media (min-width: 72rem) {
+  .right-sidebar-container {
+    width: var(--toc-column-width);
+  }
+  [data-has-sidebar][data-has-toc] .main-pane {
+    width: calc(100% - var(--toc-column-width));
+    /* Center the prose in the widened pane rather than hugging the TOC edge
+     * (Starlight's default is `auto 0`, which pushes content to the right). */
+    --sl-content-margin-inline: auto;
+  }
+}
