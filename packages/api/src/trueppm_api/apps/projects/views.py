@@ -4464,6 +4464,16 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                     str(project_pk), "baseline_created", {"id": baseline_id}
                 )
             )
+            # ADR-0206: emit the baseline.captured webhook (first-party domain
+            # event). Payload is built now inside the transaction (task_count is
+            # known from the snapshot) and captured by value.
+            project_id_str = str(project_pk)
+            captured_payload = _baseline_webhook_payload(
+                baseline, task_count=len(live_tasks), source="api"
+            )
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id_str, "baseline.captured", captured_payload)
+            )
 
     def perform_destroy(self, instance: Baseline) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -5992,12 +6002,32 @@ class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
             created_by=self.request.user,
         )
         risk_id = str(instance.pk)
+        project_id_str = str(project_pk)
         transaction.on_commit(
             lambda: broadcast_board_event(str(project_pk), "risk_created", {"id": risk_id})
         )
+        # ADR-0206: emit risk.opened only when the risk is actually created OPEN.
+        # status is client-writable, so a risk POSTed straight to CLOSED/RESOLVED
+        # must not emit an "opened" it will never balance with a "closed" (which
+        # only fires on a transition in perform_update). Payload built now (row
+        # loaded in the transaction) and captured by value for the on_commit.
+        if instance.status == RiskStatus.OPEN:
+            opened_payload = _risk_webhook_payload(instance, source="api")
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id_str, "risk.opened", opened_payload)
+            )
 
     def perform_update(self, serializer: BaseSerializer[Risk]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Capture the pre-save scoring/status so we can tell what transition this
+        # update represents (ADR-0206): risk.escalated fires when computed severity
+        # (probability × impact) increases; risk.closed on the transition into
+        # CLOSED. Both are read off the loaded instance before serializer.save()
+        # overwrites it.
+        old = cast(Risk, serializer.instance)
+        old_status = old.status
+        old_severity = old.probability * old.impact
 
         instance = serializer.save()
         project_id = str(instance.project_id)
@@ -6005,6 +6035,21 @@ class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_updated", {"id": risk_id})
         )
+
+        # ADR-0206: emit domain events for the transitions this update represents.
+        # A single update may emit both (severity up *and* moved to CLOSED) — each
+        # payload is built now and captured by value.
+        new_severity = instance.probability * instance.impact
+        if new_severity > old_severity:
+            escalated_payload = _risk_webhook_payload(instance, source="api")
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id, "risk.escalated", escalated_payload)
+            )
+        if old_status != RiskStatus.CLOSED and instance.status == RiskStatus.CLOSED:
+            closed_payload = _risk_webhook_payload(instance, source="api")
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id, "risk.closed", closed_payload)
+            )
 
     def perform_destroy(self, instance: Risk) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -6394,6 +6439,93 @@ def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, sou
         # so the event carries the injection time rather than a synthetic one.
         "added_at": scope_change.added_at.isoformat() if scope_change.added_at else None,
         "source": source,
+    }
+
+
+def _risk_webhook_payload(risk: Risk, *, source: str) -> dict:  # type: ignore[type-arg]
+    """Build a webhook payload for a risk event (ADR-0206).
+
+    Used by ``risk.opened`` / ``risk.escalated`` / ``risk.closed``. ``severity`` is
+    the computed ``probability * impact`` (the model stores neither; it is derived
+    at read time), included so an external consumer does not have to recompute it.
+    None of these fields is a team-performance (velocity/pulse) signal, so no
+    ADR-0104 privacy gate applies.
+
+    Args:
+        risk: The risk row, loaded inside the request transaction.
+        source: Originating surface for consumer correlation (e.g. ``"api"``).
+
+    Returns:
+        A JSON-serializable dict describing the risk at emit time.
+    """
+    return {
+        "id": str(risk.pk),
+        "project": str(risk.project_id),
+        "short_id": risk.short_id,
+        "title": risk.title,
+        "status": risk.status,
+        "probability": risk.probability,
+        "impact": risk.impact,
+        "severity": risk.probability * risk.impact,
+        "category": risk.category,
+        "owner": str(risk.owner_id) if risk.owner_id else None,
+        "source": source,
+    }
+
+
+def _baseline_webhook_payload(baseline: Baseline, *, task_count: int, source: str) -> dict:  # type: ignore[type-arg]
+    """Build a webhook payload for the ``baseline.captured`` event (ADR-0206).
+
+    ``task_count`` is passed in rather than read off the instance because
+    ``perform_create`` snapshots the tasks and knows the count without an extra
+    query (the ``task_count`` annotation only exists on list/retrieve querysets).
+    Baseline name and dates are plan facts, not performance signals, so no ADR-0104
+    gate applies.
+
+    Args:
+        baseline: The baseline row, loaded inside the request transaction.
+        task_count: Number of tasks captured in this baseline snapshot.
+        source: Originating surface for consumer correlation (e.g. ``"api"``).
+
+    Returns:
+        A JSON-serializable dict describing the captured baseline.
+    """
+    return {
+        "id": str(baseline.pk),
+        "project": str(baseline.project_id),
+        "name": baseline.name,
+        "has_cpm_dates": baseline.has_cpm_dates,
+        "task_count": task_count,
+        "created_by": str(baseline.created_by_id) if baseline.created_by_id else None,
+        "source": source,
+    }
+
+
+def _comment_created_webhook_payload(task: Task, comment: TaskComment, *, source: str) -> dict:  # type: ignore[type-arg]
+    """Build a webhook payload for the ``comment.created`` event (ADR-0206).
+
+    Spreads the task payload (so consumers get task context) and adds comment
+    metadata. The comment **body is deliberately excluded** — the event carries
+    only that a comment was created and by whom, not its content, which keeps the
+    payload privacy-conservative (a webhook consumer is external to the team).
+    Distinct from ``task.mentioned``, which fires only when a comment @mentions
+    someone; ``comment.created`` fires for every comment.
+
+    Args:
+        task: The commented-on task, loaded inside the request transaction.
+        comment: The newly created comment row.
+        source: Originating surface for consumer correlation (e.g. ``"api"``).
+
+    Returns:
+        A JSON-serializable dict with task context plus comment metadata (no body).
+    """
+    author = comment.author
+    return {
+        **_task_webhook_payload(task, source=source),
+        "comment_id": str(comment.pk),
+        "author": str(comment.author_id) if comment.author_id else None,
+        "author_display": (author.get_full_name() or author.username) if author else None,
+        "created_at": comment.created_at.isoformat() if comment.created_at else None,
     }
 
 
@@ -11921,6 +12053,16 @@ class TaskCommentViewSet(
                     "parent_id": parent_id,
                 },
             )
+        )
+
+        # ADR-0206: comment.created fires for *every* comment (distinct from
+        # task.mentioned above, which fires only when a comment mentions someone).
+        # The payload carries no body text (privacy-conservative) — see
+        # _comment_created_webhook_payload. Built now inside the transaction and
+        # captured by value so the on_commit callback does no DB work.
+        comment_payload = _comment_created_webhook_payload(task, comment, source="api")
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id_str, "comment.created", comment_payload)
         )
 
     def perform_update(self, serializer: BaseSerializer[TaskComment]) -> None:

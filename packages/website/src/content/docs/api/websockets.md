@@ -271,15 +271,22 @@ configured webhook endpoints:
 | `sprint.activated` | No WS broadcast. First-party agile domain event (ADR-0147). |
 | `sprint.closed` | No WS broadcast. Completion snapshot (velocity) is privacy-gated in its payload per ADR-0104. |
 | `sprint.scope_changed` | No WS broadcast. Fires on post-activation scope injection (ADR-0102). |
+| `risk.opened` | No WS broadcast under this name (a generic `risk_created` WS event exists). First-party domain event (ADR-0206). |
+| `risk.escalated` | No WS broadcast under this name. Fires when computed severity (probability × impact) increases (ADR-0206). |
+| `risk.closed` | No WS broadcast under this name. Fires on the transition into CLOSED (ADR-0206). |
+| `baseline.captured` | No WS broadcast under this name (a generic `baseline_created` WS event exists). First-party domain event (ADR-0206). |
+| `comment.created` | No WS broadcast under this name (a generic `task_comment_created` WS event exists). Carries no comment body (ADR-0206). |
 
-The OSS webhook event set is capped at 14 events: `task.created`,
+The OSS webhook event set is capped at 19 events: `task.created`,
 `task.updated`, `task.deleted`, `dependency.created`, `dependency.deleted`,
 `schedule.recalculated`, `project.created`, `task.assigned`,
 `task.assignee_changed`, `task.mentioned`, `task.due_date_changed`,
-`sprint.activated`, `sprint.closed`, and `sprint.scope_changed`. The agile trio
-(`sprint.*`) was added in ADR-0147, raising the cap from 11. Adding a 15th event
-requires its own ADR — the cap is the gate against per-customer event
-proliferation, which is the Enterprise upsell line.
+`sprint.activated`, `sprint.closed`, `sprint.scope_changed`, `risk.opened`,
+`risk.escalated`, `risk.closed`, `baseline.captured`, and `comment.created`. The
+agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
+risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
+19. Adding a 20th event requires its own ADR — the cap is the gate against
+per-customer event proliferation, which is the Enterprise upsell line.
 
 ## Workshop channel
 
