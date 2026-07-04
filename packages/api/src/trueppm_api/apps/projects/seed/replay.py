@@ -35,9 +35,11 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
     EstimateStatus,
+    RetroActionItem,
     Risk,
     ScopeChangeStatus,
     Sprint,
+    SprintRetro,
     SprintScopeChange,
     SprintState,
     Task,
@@ -494,6 +496,11 @@ def _apply_scope_inject(beat: _Beat, ctx: ReplayContext) -> None:
         goal_impact=bool(beat.data.get("goal_impact", False)),
         status=ScopeChangeStatus.PENDING,
     )
+    # added_at is auto_now_add (stamped now() on insert); backdate it to the beat
+    # so the scope-injection audit reads chronologically and — for a still-PENDING
+    # injection — the exporter can reconstruct a deterministic scope_inject event
+    # from this row (the round-trip fixpoint depends on a stable timestamp).
+    SprintScopeChange.objects.filter(pk=scope.pk).update(added_at=beat.when)
     ctx.open_scope[task.pk] = scope
     task.sprint_pending = True
     _save(task, beat.when, beat.actor, ["sprint_pending"])
@@ -558,7 +565,87 @@ def _apply_baseline_capture(beat: _Beat, ctx: ReplayContext) -> None:
     BaselineTask.objects.bulk_create(rows)
 
 
+def _apply_retro_action(beat: _Beat, ctx: ReplayContext) -> None:
+    """Create a RetroActionItem on the target sprint's retro (ADR-0114 §7).
+
+    The parent ``SprintRetro`` is created lazily the first time an action item
+    attaches to the sprint (mirroring the live ``_get_or_create_retro`` path),
+    so a seed authors retro outcomes without a separate "open retro" event.
+    """
+    sprint = _resolve_sprint(ctx, beat.target)
+    body = beat.data.get("body")
+    if sprint is None or not body:
+        return
+    retro, created = SprintRetro.objects.get_or_create(
+        sprint=sprint, defaults={"created_by": beat.actor}
+    )
+    if created:
+        # created_at is auto_now_add; backdate the retro to its first action so
+        # the demo's retro is dated to the ceremony, not import time.
+        SprintRetro.objects.filter(pk=retro.pk).update(created_at=beat.when)
+    assignee = ctx.users.get(beat.data["assignee"]) if beat.data.get("assignee") else None
+    item = RetroActionItem.objects.create(
+        retro=retro,
+        text=body,
+        assignee=assignee,
+        story_points=beat.data.get("points"),
+    )
+    RetroActionItem.objects.filter(pk=item.pk).update(created_at=beat.when)
+
+
+def _apply_retro_promote(beat: _Beat, ctx: ReplayContext) -> None:
+    """Promote a retro action item (matched by ``body``) to a backlog task.
+
+    Mirrors ``promote_retro_action_item`` but writes directly (no on_commit
+    broadcast / recalc enqueue) because replay is side-effect-suppressed — the
+    importer enqueues a single per-project recalc after commit. The resulting
+    Task is a project-backlog item (``status=BACKLOG``, ``sprint=None``) exactly
+    as the live promote path produces, so the demo shows the retro→task loop
+    closed with a real ``T-XXX`` link.
+    """
+    sprint = _resolve_sprint(ctx, beat.target)
+    body = beat.data.get("body")
+    if sprint is None or not body:
+        return
+    retro = SprintRetro.objects.filter(sprint=sprint).first()
+    if retro is None:
+        return
+    item = (
+        RetroActionItem.objects.filter(retro=retro, text=body, promoted_task_id__isnull=True)
+        .order_by("created_at")
+        .first()
+    )
+    if item is None:
+        return  # nothing (left) to promote for this text
+    short_id = sprint.short_id or str(sprint.pk)[:8]
+    task = Task(
+        project=sprint.project,
+        name=body[:255],
+        duration=1,
+        status=TaskStatus.BACKLOG,
+        sprint=None,
+        assignee=item.assignee,
+        story_points=item.story_points,
+        notes=f'source: "retrospective" (from Sprint {short_id} retro)',
+    )
+    _save_new_backdated(task, beat.when, beat.actor)
+    item.promoted_task_id = task.pk
+    item.save(update_fields=["promoted_task_id"])
+
+
 # --- helpers -----------------------------------------------------------------
+
+
+def _save_new_backdated(instance: Any, when: datetime, user: Any) -> None:
+    """Insert a brand-new instance, dating its creation history row to ``when``.
+
+    Unlike ``_save`` (which uses ``update_fields`` for a narrow update), this is
+    for a first insert: simple-history honors ``_history_date`` / ``_history_user``
+    on the create so the row is attributed and backdated in one write.
+    """
+    instance._history_date = when
+    instance._history_user = user
+    instance.save()
 
 
 def _save(instance: Any, when: datetime, user: Any, fields: list[str]) -> None:
@@ -603,4 +690,6 @@ _HANDLERS = {
     "sprint.scope_resolve": _apply_scope_resolve,
     "risk.status": _apply_risk_status,
     "baseline.capture": _apply_baseline_capture,
+    "retro.action": _apply_retro_action,
+    "retro.promote": _apply_retro_promote,
 }

@@ -117,8 +117,9 @@ def validate_seed(payload: Any) -> None:
         raise SeedValidationError(errors)
 
 
-# Which target kind each event action addresses, and whether a target is
-# required. retro.* events are program/team-level and may omit a target.
+# Which target kind each event action addresses. Every replayed action carries a
+# target; an unknown action (should never reach here — the schema enum gates it)
+# is treated as target-optional so validation degrades gracefully.
 _EVENT_TARGET_KIND = {
     "task.status": "task",
     "task.assign": "task",
@@ -134,6 +135,11 @@ _EVENT_TARGET_KIND = {
     "sprint.scope_resolve": "task",
     "baseline.capture": "project",
     "risk.status": "risk",
+    # retro.action creates an action item on the sprint's retro; retro.promote
+    # promotes one (matched by `body`) to a backlog task. Both are per-sprint —
+    # SprintRetro is 1:1 with Sprint — so the target is the sprint (ADR-0114 §7).
+    "retro.action": "sprint",
+    "retro.promote": "sprint",
 }
 
 
@@ -168,7 +174,7 @@ def _event_errors(payload: dict[str, Any]) -> list[str]:
         kind = _EVENT_TARGET_KIND.get(action)
         target = event.get("target")
         if kind is None:
-            continue  # program-level event (retro.action), target optional
+            continue  # unknown action (schema enum should have rejected it)
         if target is None:
             errors.append(f"{base}.target: action {action!r} requires a target")
             continue

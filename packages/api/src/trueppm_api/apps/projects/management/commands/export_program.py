@@ -24,6 +24,15 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("slug", help="Program slug (Program.code).")
         parser.add_argument("--out", help="Output file path. Defaults to stdout.")
+        parser.add_argument(
+            "--with-events",
+            action="store_true",
+            help=(
+                "Emit a v2 seed (ADR-0114 §7 / #1109): anchor-relative dates plus a "
+                "reconstructed events timeline, so the export re-imports as the program's "
+                "dated life. Default is v1 final-state (byte-identical round-trip, #616)."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         slug = options["slug"]
@@ -31,7 +40,7 @@ class Command(BaseCommand):
         if program is None:
             raise CommandError(f"No live program with slug {slug!r}.")
 
-        body = dump_seed(export_program(program))
+        body = dump_seed(export_program(program, with_events=bool(options.get("with_events"))))
         out = options.get("out")
         if out:
             with open(out, "w", encoding="utf-8") as fh:

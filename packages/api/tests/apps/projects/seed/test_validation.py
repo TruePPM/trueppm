@@ -275,6 +275,59 @@ def test_v2_event_wrong_target_kind_rejected() -> None:
     _expect_error(seed, "expects a 'risk' target")
 
 
+def test_v2_retro_actions_accepted() -> None:
+    # #1109 re-adds retro.action / retro.promote to the enum + validator; both
+    # target the sprint (SprintRetro is 1:1 with Sprint).
+    seed = _valid_v2_seed()
+    seed["events"].append(
+        {
+            "at": "A-6T17:30",
+            "actor": "alex",
+            "action": "retro.action",
+            "target": "sprint:core:s1",
+            "body": "Add integration tests",
+        }
+    )
+    seed["events"].append(
+        {
+            "at": "A-5T09:00",
+            "actor": "alex",
+            "action": "retro.promote",
+            "target": "sprint:core:s1",
+            "body": "Add integration tests",
+        }
+    )
+    validate_seed(seed)  # does not raise
+
+
+def test_v2_retro_action_wrong_target_kind_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"].append(
+        {
+            "at": "A-6T17:30",
+            "actor": "alex",
+            "action": "retro.action",
+            "target": "task:core:1",  # retro.* expects a sprint target
+            "body": "x",
+        }
+    )
+    _expect_error(seed, "expects a 'sprint' target")
+
+
+def test_v2_retro_action_dangling_sprint_target_rejected() -> None:
+    seed = _valid_v2_seed()
+    seed["events"].append(
+        {
+            "at": "A-6T17:30",
+            "actor": "alex",
+            "action": "retro.action",
+            "target": "sprint:core:ghost",
+            "body": "x",
+        }
+    )
+    _expect_error(seed, "no sprint 'ghost'")
+
+
 def test_unknown_top_level_field_rejected() -> None:
     seed = _valid_seed()
     seed["portfolio"] = {}

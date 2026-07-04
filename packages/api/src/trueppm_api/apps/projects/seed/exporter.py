@@ -6,13 +6,27 @@ a seed document that re-validates and re-imports. The exporter is deterministic
 slugs — so the round-trip ``export(import(export(p)))`` is identical to
 ``export(import(p))`` (the #616 guarantee). It strips every derived field
 (server_version, CPM outputs, short_id) by simply never emitting them.
+
+By default it emits **v1** (``schema_version: "1.0"``, final-state) so the #616
+byte-identical round-trip is preserved unchanged. Passing ``with_events=True``
+emits **v2** (ADR-0114 §7 / #1109): dates are rewritten as ``anchor``-relative
+offsets and an ordered ``events`` timeline is reconstructed from the history
+tables so a shared program re-imports as the *life* it lived, not a snapshot.
+The v2 path is a self-consistent fixpoint — ``export→import→export`` is
+byte-identical — because every reconstructed event replays to a state that
+reconstructs to the same event, and the importer's synthesizer is naturally
+suppressed (every task with history already carries authored status events).
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
 from trueppm_api.apps.projects.models import (
@@ -21,11 +35,43 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     Program,
     Project,
+    RetroActionItem,
     Risk,
+    ScopeChangeStatus,
     Sprint,
+    SprintRetro,
+    SprintScopeChange,
     Task,
+    TaskComment,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
+
+_UTC = ZoneInfo("UTC")
+
+
+@dataclass(order=True)
+class _RawEvent:
+    """A reconstructed event before serialization, sortable into replay order.
+
+    Sort key is ``(when, target, action, seq)``: chronological, with a fully
+    deterministic tiebreak so re-export is byte-identical. ``data`` (actor +
+    action-specific keys) is excluded from the ordering.
+    """
+
+    when: datetime
+    target: str
+    action: str
+    seq: int
+    data: dict[str, Any] = field(compare=False, default_factory=dict)
+
+
+# Signature of the ``emit`` callback the reconstruction helpers are handed.
+_Emit = Callable[[datetime, str, str, dict[str, Any]], None]
+
+# seedDate / seedTimestamp cap a relative offset at 4 digits (~27 years); a date
+# further from the anchor than this falls back to an ISO literal (still a valid
+# seedDate/seedTimestamp) so a very long-lived program still exports cleanly.
+_MAX_REL_OFFSET_DAYS = 9999
 
 _ROLE_NAME: dict[int, str] = {
     Role.VIEWER: "VIEWER",
@@ -74,12 +120,21 @@ def _put(target: dict[str, Any], key: str, value: Any) -> None:
     target[key] = value
 
 
-def export_program(program: Program) -> dict[str, Any]:
-    """Serialize ``program`` to a canonical seed document (a ``dict``)."""
+def export_program(program: Program, *, with_events: bool = False) -> dict[str, Any]:
+    """Serialize ``program`` to a canonical seed document (a ``dict``).
+
+    Args:
+        program: the program to export.
+        with_events: when ``False`` (default) emit a v1 final-state document,
+            preserving the #616 byte-identical round-trip. When ``True`` emit a
+            v2 document (ADR-0114 §7 / #1109) with ``anchor``-relative dates and
+            a reconstructed ``events`` timeline, so the export re-imports through
+            the replay engine as the program's dated life rather than a snapshot.
+    """
     projects = list(
         Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
     )
-    return _Exporter(program=program, projects=projects).build()
+    return _Exporter(program=program, projects=projects, with_events=with_events).build()
 
 
 def export_project(project: Project) -> dict[str, Any]:
@@ -105,6 +160,7 @@ class _Exporter:
         program: Program | None,
         projects: list[Project],
         synthetic_program: Project | None = None,
+        with_events: bool = False,
     ) -> None:
         # ``program`` is the live parent program for a program export, or None
         # for a single-project export (#967), in which case ``synthetic_program``
@@ -112,6 +168,20 @@ class _Exporter:
         self.program = program
         self.synthetic_program = synthetic_program
         self.projects = projects
+        # v2 event-timeline export (#1109). When on, dates become anchor-relative
+        # and an ``events`` array is reconstructed from the history tables.
+        self.with_events = with_events
+        # The reference date for relative offsets (v2 only). The earliest project
+        # start is a deterministic, always-present choice (projects require a
+        # start_date), and it round-trips: re-import resolves the same absolute
+        # dates, so re-export recomputes the same anchor.
+        self.anchor: date = min(
+            (p.start_date for p in projects if p.start_date is not None), default=date.today()
+        )
+        # Account identity, captured once accounts are built, so an event actor
+        # always resolves to a real account slug (never a dangling ref).
+        self._account_user_pks: set[Any] = set()
+        self._fallback_actor_slug: str = ""
         self.project_slug = _SlugAllocator()
         self.account_slug = _SlugAllocator()
         self.calendar_slug = _SlugAllocator()
@@ -143,9 +213,17 @@ class _Exporter:
         for project in self.projects:
             self._index_project(project)
 
-        doc: dict[str, Any] = {"schema_version": "1.0"}
+        doc: dict[str, Any] = {"schema_version": "2.0" if self.with_events else "1.0"}
+        if self.with_events:
+            # An explicit anchor pins the offsets so re-import resolves the exact
+            # same absolute dates (round-trip determinism), rather than drifting
+            # to the next import day.
+            doc["anchor"] = self.anchor.isoformat()
         doc["program"] = self._program_block()
         accounts = self._accounts_block()
+        # Capture account identity before events so an event actor resolves to a
+        # real account slug and the deterministic fallback (OWNER) is known.
+        self._capture_account_identity(accounts)
         calendars = self._calendars_block()
         resources = self._resources_block()
         if accounts:
@@ -155,6 +233,10 @@ class _Exporter:
         if resources:
             doc["resources"] = resources
         doc["projects"] = [self._project_block(p) for p in self.projects]
+        if self.with_events:
+            events = self._events_block()
+            if events:
+                doc["events"] = events
         return doc
 
     # --- top-level blocks --------------------------------------------------
@@ -262,8 +344,14 @@ class _Exporter:
     def _index_project(self, project: Project) -> None:
         """Populate global task/sprint slug maps for one project (pre-pass)."""
         pslug = self.project_slugs[project.pk]
+        # A task with no wbs_path (e.g. a promoted retro-action backlog item) has
+        # no WBS identity and cannot be represented in a seed — the schema requires
+        # a wbs_path. Exclude it from both tasks[] and the ref map so refs to it are
+        # dropped rather than emitting an invalid "None" path.
         tasks = list(
-            Task.objects.filter(project=project, is_deleted=False).order_by("wbs_path", "pk")
+            Task.objects.filter(project=project, is_deleted=False, wbs_path__isnull=False).order_by(
+                "wbs_path", "pk"
+            )
         )
         self._project_tasks[project.pk] = tasks
         for task in tasks:
@@ -286,7 +374,7 @@ class _Exporter:
             "slug": pslug,
             "name": project.name,
             "methodology": project.methodology,
-            "start_date": project.start_date.isoformat() if project.start_date else None,
+            "start_date": self._date_str(project.start_date) if project.start_date else None,
         }
         _put(block, "description", project.description)
         _put(block, "code", project.code)
@@ -327,7 +415,7 @@ class _Exporter:
         if task.duration:
             block["duration"] = task.duration
         if task.planned_start is not None:
-            block["planned_start"] = task.planned_start.isoformat()
+            block["planned_start"] = self._date_str(task.planned_start)
         if task.percent_complete:
             block["percent_complete"] = task.percent_complete
         _put(block, "notes", task.notes)
@@ -366,8 +454,8 @@ class _Exporter:
             "slug": self.sprint_slugs[sprint.pk],
             "name": sprint.name,
             "state": sprint.state,
-            "start_date": sprint.start_date.isoformat() if sprint.start_date else None,
-            "finish_date": sprint.finish_date.isoformat() if sprint.finish_date else None,
+            "start_date": self._date_str(sprint.start_date) if sprint.start_date else None,
+            "finish_date": self._date_str(sprint.finish_date) if sprint.finish_date else None,
         }
         _put(block, "goal", sprint.goal)
         _put(block, "notes", sprint.notes)
@@ -411,9 +499,9 @@ class _Exporter:
                     continue
                 row: dict[str, Any] = {"task": ref[1]}
                 if bt.start is not None:
-                    row["start"] = bt.start.isoformat()
+                    row["start"] = self._date_str(bt.start)
                 if bt.finish is not None:
-                    row["finish"] = bt.finish.isoformat()
+                    row["finish"] = self._date_str(bt.finish)
                 _put(row, "duration", bt.duration)
                 _put(row, "story_points", bt.story_points)
                 task_rows.append(row)
@@ -439,7 +527,7 @@ class _Exporter:
             _put(block, "category", risk.category)
             _put(block, "response", risk.response)
             if risk.mitigation_due_date is not None:
-                block["mitigation_due_date"] = risk.mitigation_due_date.isoformat()
+                block["mitigation_due_date"] = self._date_str(risk.mitigation_due_date)
             _put(block, "trigger", risk.trigger)
             _put(block, "contingency", risk.contingency)
             _put(block, "notes", risk.notes)
@@ -455,6 +543,246 @@ class _Exporter:
                 block["tasks"] = sorted(refs)
             blocks.append(block)
         return blocks
+
+    # --- v2 date + event reconstruction ------------------------------------
+
+    def _date_str(self, d: date) -> str:
+        """Emit a date: ISO literal (v1) or an ``anchor``-relative offset (v2)."""
+        return self._rel_date(d) if self.with_events else d.isoformat()
+
+    def _rel_date(self, d: date) -> str:
+        """A ``seedDate`` anchor offset that lands exactly (``!`` = no snap).
+
+        The ``!`` suffix opts out of weekend-snapping so the resolved date is
+        exactly ``anchor + offset`` — essential for round-trip determinism, since
+        a snapped date would drift on re-import.
+        """
+        offset = (d - self.anchor).days
+        if abs(offset) > _MAX_REL_OFFSET_DAYS:
+            return d.isoformat()
+        return f"A{offset:+d}!"
+
+    def _rel_ts(self, dt: datetime) -> str:
+        """A ``seedTimestamp`` anchor offset (event time; never weekend-snapped).
+
+        Replay builds authored event datetimes in UTC (``resolve_timestamp``
+        defaults to UTC), so we normalize to UTC and emit UTC components; a
+        re-import rebuilds the identical instant, closing the round-trip.
+        """
+        u = dt.astimezone(_UTC)
+        offset = (u.date() - self.anchor).days
+        if abs(offset) > _MAX_REL_OFFSET_DAYS:
+            return u.replace(second=0, microsecond=0, tzinfo=None).isoformat()
+        return f"A{offset:+d}T{u.hour:02d}:{u.minute:02d}"
+
+    def _capture_account_identity(self, accounts: list[dict[str, Any]]) -> None:
+        """Record which users are accounts + the deterministic fallback actor.
+
+        Every user emitted into ``accounts[]`` has a slug in ``self.user_slugs``
+        by the time this runs. The fallback actor — used when a history row is
+        attributed to a user who is not (or is no longer) an account — is the
+        lexically-first OWNER account, else the first account. Resolving every
+        event actor to a real account keeps the emitted ``actor`` from dangling
+        and makes it round-trip (replay re-attributes it, re-export reads it).
+        """
+        self._account_user_pks = set(self.user_slugs.keys())
+        if not accounts:
+            return
+        owners = sorted(a["slug"] for a in accounts if a.get("role") == "OWNER")
+        self._fallback_actor_slug = owners[0] if owners else accounts[0]["slug"]
+
+    def _actor_slug(self, user: Any) -> str:
+        """Resolve a history/audit user to an account slug (fallback if not one)."""
+        if user is not None and user.pk in self._account_user_pks:
+            return self._user_slug(user)
+        return self._fallback_actor_slug
+
+    def _events_block(self) -> list[dict[str, Any]]:
+        """Reconstruct the ordered ``events`` timeline from the history tables.
+
+        Emitted event kinds (each a clean export→import→export fixpoint):
+        ``task.status`` (Task history transitions), ``task.points`` (mid-sprint
+        remaining-point changes — the importer births a progressing task's
+        ``remaining_points`` at ``story_points``, so a burned-down value only
+        survives as an event), ``task.comment`` (``TaskComment`` rows),
+        ``sprint.activate`` / ``sprint.close`` (sprint lifecycle timestamps),
+        ``sprint.scope_inject`` (still-PENDING scope rows), and ``retro.action``
+        (retro action items).
+
+        Deliberately *not* reconstructed (documented fidelity gaps, not
+        determinism breaks): ``task.assign`` / ``task.estimate`` / ``task.ac_met``
+        (their end value is already carried by the task's final-state fields set
+        at creation, so re-emitting them as events would double-apply and break
+        the fixpoint); ``risk.status`` (the importer births risks at their final
+        status, so a status event would be a no-op that does not survive a
+        round-trip); ``sprint.scope_resolve`` and ``retro.promote`` (their target
+        row's final state — task dropped from the sprint, or a wbs-less promoted
+        task — cannot replay from the exported snapshot). The task's/sprint's
+        *final* state is always preserved via its fields; only the intermediate
+        audit rows for those specific transitions are not round-tripped.
+        """
+        collected: list[_RawEvent] = []
+        seq = 0
+
+        def emit(when: datetime, action: str, target: str, data: dict[str, Any]) -> None:
+            nonlocal seq
+            collected.append(_RawEvent(when=when, target=target, action=action, seq=seq, data=data))
+            seq += 1
+
+        for project in self.projects:
+            pslug = self.project_slugs[project.pk]
+            for task in self._project_tasks[project.pk]:
+                self._emit_task_history(task, pslug, emit)
+                self._emit_task_comments(task, pslug, emit)
+            for sprint in self._project_sprints[project.pk]:
+                self._emit_sprint_lifecycle(sprint, pslug, emit)
+                self._emit_retro_actions(sprint, pslug, emit)
+            self._emit_scope_injections(project, emit)
+
+        # Chronological order; ties broken deterministically so re-export is
+        # byte-identical. The array index is the replay tiebreak for same-instant
+        # events (matching the importer's `_resolve_authored` order semantics).
+        collected.sort(key=lambda e: (e.when, e.target, e.action, e.seq))
+        out: list[dict[str, Any]] = []
+        for e in collected:
+            event: dict[str, Any] = {"at": self._rel_ts(e.when), "action": e.action}
+            event.update(e.data)
+            event["target"] = e.target
+            out.append(event)
+        return out
+
+    def _emit_task_history(self, task: Task, pslug: str, emit: _Emit) -> None:
+        """Emit ``task.status`` + ``task.points`` events from Task history.
+
+        The earliest (creation) row establishes the base status/remaining; each
+        later row is inspected for two independent changes:
+
+        - **status** changed → ``task.status`` (from/to). Replay re-creates the
+          task at NOT_STARTED and walks it forward, reproducing the same rows.
+        - **remaining_points** changed *without* a status change → ``task.points``.
+          A remaining change that coincides with a status change is the COMPLETE
+          handler zeroing remaining_points (``_apply_task_status``), which replay
+          re-applies on its own, so emitting a ``task.points`` for it would be a
+          redundant, non-round-tripping write — hence the ``not status_changed``
+          guard.
+        """
+        target = f"task:{pslug}:{task.wbs_path}"
+        prev_status: str | None = None
+        prev_remaining: int | None = None
+        rows = task.history.select_related("history_user").order_by("history_date", "history_id")
+        for row in rows:
+            if prev_status is None:
+                prev_status = row.status
+                prev_remaining = row.remaining_points
+                continue
+            status_changed = row.status != prev_status
+            if status_changed:
+                emit(
+                    row.history_date,
+                    "task.status",
+                    target,
+                    {
+                        "actor": self._actor_slug(row.history_user),
+                        "from": prev_status,
+                        "to": row.status,
+                    },
+                )
+                prev_status = row.status
+            if (
+                not status_changed
+                and row.remaining_points is not None
+                and row.remaining_points != prev_remaining
+            ):
+                emit(
+                    row.history_date,
+                    "task.points",
+                    target,
+                    {
+                        "actor": self._actor_slug(row.history_user),
+                        "remaining_points": row.remaining_points,
+                    },
+                )
+            prev_remaining = row.remaining_points
+
+    def _emit_task_comments(self, task: Task, pslug: str, emit: _Emit) -> None:
+        target = f"task:{pslug}:{task.wbs_path}"
+        for c in (
+            TaskComment.objects.filter(task=task)
+            .select_related("author")
+            .order_by("created_at", "pk")
+        ):
+            emit(
+                c.created_at,
+                "task.comment",
+                target,
+                {"actor": self._actor_slug(c.author), "body": c.body},
+            )
+
+    def _emit_sprint_lifecycle(self, sprint: Sprint, pslug: str, emit: _Emit) -> None:
+        """Emit activate/close from the sprint's lifecycle timestamps.
+
+        ``activated_at`` / ``closed_at`` carry the beat time; the actor is not
+        persisted on the sprint, so the deterministic fallback (OWNER) is used —
+        the sprint's committed/completed points ride their fields (snapshotted at
+        activate/close on replay), and ``goal_outcome`` rides the close event.
+        """
+        target = f"sprint:{pslug}:{self.sprint_slugs[sprint.pk]}"
+        if sprint.activated_at is not None:
+            emit(
+                sprint.activated_at,
+                "sprint.activate",
+                target,
+                {"actor": self._fallback_actor_slug},
+            )
+        if sprint.closed_at is not None:
+            data: dict[str, Any] = {"actor": self._fallback_actor_slug}
+            if sprint.goal_outcome:
+                data["goal_outcome"] = sprint.goal_outcome
+            emit(sprint.closed_at, "sprint.close", target, data)
+
+    def _emit_scope_injections(self, project: Project, emit: _Emit) -> None:
+        """Emit ``sprint.scope_inject`` for still-PENDING scope-change rows.
+
+        Only PENDING rows round-trip cleanly: the injected task is still in its
+        sprint (so replay's ``_apply_scope_inject`` re-creates the audit row), and
+        ``added_at`` is backdated by replay so the timestamp is stable. ACCEPTED /
+        REJECTED rows are skipped — the resolve timestamp is not persisted and a
+        rejected injection removed the task from its sprint.
+        """
+        rows = (
+            SprintScopeChange.objects.filter(
+                sprint__project=project, status=ScopeChangeStatus.PENDING
+            )
+            .select_related("task", "added_by")
+            .order_by("added_at", "pk")
+        )
+        for sc in rows:
+            ref = self.task_ref.get(sc.task_id)
+            if ref is None:
+                continue  # task excluded from export (e.g. no wbs_path)
+            data: dict[str, Any] = {"actor": self._actor_slug(sc.added_by)}
+            if sc.goal_impact:
+                data["goal_impact"] = True
+            emit(sc.added_at, "sprint.scope_inject", f"task:{ref[0]}:{ref[1]}", data)
+
+    def _emit_retro_actions(self, sprint: Sprint, pslug: str, emit: _Emit) -> None:
+        """Emit a ``retro.action`` per retro action item on the sprint's retro."""
+        retro = SprintRetro.objects.filter(sprint=sprint).first()
+        if retro is None:
+            return
+        target = f"sprint:{pslug}:{self.sprint_slugs[sprint.pk]}"
+        actor = self._actor_slug(retro.created_by)
+        for item in (
+            RetroActionItem.objects.filter(retro=retro)
+            .select_related("assignee")
+            .order_by("created_at", "pk")
+        ):
+            data: dict[str, Any] = {"actor": actor, "body": item.text}
+            if item.assignee_id is not None and item.assignee_id in self._account_user_pks:
+                data["assignee"] = self._user_slug(item.assignee)
+            if item.story_points is not None:
+                data["points"] = item.story_points
+            emit(item.created_at, "retro.action", target, data)
 
     # --- slug helpers ------------------------------------------------------
 
