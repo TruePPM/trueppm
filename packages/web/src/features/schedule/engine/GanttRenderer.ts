@@ -67,43 +67,50 @@ const HEADER_MINOR_HEIGHT = 14;
 // ---------------------------------------------------------------------------
 
 export const COLOR = {
-  surface:        '#FFFFFF',
-  rowBandAlt:     'rgba(0,0,0,0.02)',
-  weekend:        'rgba(0,0,0,0.03)',
-  gridLine:       'rgba(0,0,0,0.08)',
-  todayLine:      '#3E8C6D',   // sage-600 — the "now" on the path (ADR-0103)
-  text:           '#1A1917',   // neutral-text-primary — dark text on light surface
-  textSecondary:  '#6B6965',   // neutral-text-secondary
-  barNormal:      '#3B82F6',   // blue-500 — non-CP task
-  barCritical:    '#B91C1C',   // semantic-critical — dark red, WCAG on light surface
-  barComplete:    '#3E8C6D',   // semantic on-track = sage-600 (brand v1.0, ADR-0103)
-  barSummary:     '#374151',   // gray-700 — visible on white
-  milestone:      '#E8A020',   // brand-accent
+  surface: '#FFFFFF',
+  rowBandAlt: 'rgba(0,0,0,0.02)',
+  weekend: 'rgba(0,0,0,0.03)',
+  gridLine: 'rgba(0,0,0,0.08)',
+  todayLine: '#3E8C6D', // sage-600 — the "now" on the path (ADR-0103)
+  text: '#1A1917', // neutral-text-primary — dark text on light surface
+  textSecondary: '#6B6965', // neutral-text-secondary
+  barNormal: '#3B82F6', // blue-500 — non-CP task
+  barCritical: '#B91C1C', // semantic-critical — dark red, WCAG on light surface
+  barComplete: '#3E8C6D', // semantic on-track = sage-600 (brand v1.0, ADR-0103)
+  barSummary: '#374151', // gray-700 — visible on white
+  milestone: '#E8A020', // brand-accent
   // Dependency arrows are charcoal regardless of critical-path state.
   // Critical path is conveyed by red bar fill (rule 73), not by arrow color.
   // The previous "critical = red arrow" rule made arrows visually merge with
   // bars where they crossed (issue #466 gap analysis P0-1).
-  arrowNormal:    '#444441',
-  arrowCritical:  '#444441',
+  arrowNormal: '#444441',
+  arrowCritical: '#444441',
   // Selection ring is navy INK (not sage) so it stays visible on a sage
   // complete bar — distinguishability triad (ADR-0103 D4): complete=sage fill,
   // selected=navy ring, today=sage line. navy/white = 12.6:1.
-  selectionRing:  '#1B2A4A',   // navy-700
-  ghostFill:      'rgba(100,116,139,0.12)',
-  ghostBorder:    'rgba(100,116,139,0.55)',
+  selectionRing: '#1B2A4A', // navy-700
+  ghostFill: 'rgba(100,116,139,0.12)',
+  ghostBorder: 'rgba(100,116,139,0.55)',
   // Chip text tokens (ADR-0040 #212): named so a future high-contrast theme
   // can override them without touching draw call sites.
   // Light mode uses the darker 500/600 bar stops, where white in-bar text reads
   // (the dark palette flips these to ink — see COLOR_DARK, issue #1032).
-  chipTextOnCritical: '#FFFFFF',  // semantic-on-critical
-  chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface
+  chipTextOnCritical: '#FFFFFF', // semantic-on-critical
+  chipTextOnSurface: '#FFFFFF', // semantic-on-surface
+  // The % chip's translucent backing pill. It flips with the chip TEXT (issue
+  // 1032): a dark pill sits behind white text on the light surface. In dark
+  // mode the pill flips to light (COLOR_DARK) so it never darkens the area
+  // behind the ink chip text — a fixed rgba(0,0,0,…) pill would reduce contrast
+  // on the light 400-stop dark-mode bars (issue 1638).
+  chipPillOnCritical: 'rgba(255,255,255,0.22)',
+  chipPillOnSurface: 'rgba(0,0,0,0.18)',
   // External-link worst-status dot (issue 767, ADR-0155). Only the two hues the
   // bar palette lacks live here; closed/merged/unknown reuse the bar stops
   // (barCritical/barComplete/textSecondary) via LINK_DOT_FILL — same hue mapping
   // as the DOM badge. Darker 600/700 stops so the solid fill reads on the white
   // surface (brand §15 — strong fill, never white-on-color; the dot carries no text).
-  linkDraft:      '#C2410C',   // semantic-at-risk (orange-700)
-  linkOpen:       '#15803D',   // semantic-on-track (green-700)
+  linkDraft: '#C2410C', // semantic-at-risk (orange-700)
+  linkOpen: '#15803D', // semantic-on-track (green-700)
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -111,24 +118,24 @@ export type ColorPalette = Record<keyof typeof COLOR, string>;
 
 /** Dark-surface palette — light tokens for readability on neutral-surface dark (#12141E). */
 export const COLOR_DARK: ColorPalette = {
-  surface:        '#15223C',   // neutral-surface dark — navy-800 (brand v1.0, ADR-0103)
-  rowBandAlt:     'rgba(255,255,255,0.025)',
-  weekend:        'rgba(255,255,255,0.03)',
-  gridLine:       'rgba(255,255,255,0.08)',
-  todayLine:      '#66B998',   // sage-400 — the "now" on the path, holds on dark (ADR-0103)
-  text:           '#E8E8E8',   // neutral-text-primary dark
-  textSecondary:  '#94A3B8',   // Slate-400 — neutral-text-secondary dark
-  barNormal:      '#60A5FA',   // Blue-400 — readable on dark surface
-  barCritical:    '#F87171',   // Red-400 — semantic-critical dark, 4.87:1 on #12141E
-  barComplete:    '#66B998',   // sage-400 — semantic on-track, holds on dark (ADR-0103)
-  barSummary:     '#94A3B8',   // Slate-400
-  milestone:      '#E8A020',   // brand-accent — unchanged
+  surface: '#15223C', // neutral-surface dark — navy-800 (brand v1.0, ADR-0103)
+  rowBandAlt: 'rgba(255,255,255,0.025)',
+  weekend: 'rgba(255,255,255,0.03)',
+  gridLine: 'rgba(255,255,255,0.08)',
+  todayLine: '#66B998', // sage-400 — the "now" on the path, holds on dark (ADR-0103)
+  text: '#E8E8E8', // neutral-text-primary dark
+  textSecondary: '#94A3B8', // Slate-400 — neutral-text-secondary dark
+  barNormal: '#60A5FA', // Blue-400 — readable on dark surface
+  barCritical: '#F87171', // Red-400 — semantic-critical dark, 4.87:1 on #12141E
+  barComplete: '#66B998', // sage-400 — semantic on-track, holds on dark (ADR-0103)
+  barSummary: '#94A3B8', // Slate-400
+  milestone: '#E8A020', // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
-  arrowNormal:    '#B8B5AE',
-  arrowCritical:  '#B8B5AE',
-  selectionRing:  '#E9EDF3',   // reversed ink — pale ring, distinct from sage bars on dark (ADR-0103)
-  ghostFill:      'rgba(100,116,139,0.12)',
-  ghostBorder:    'rgba(100,116,139,0.55)',
+  arrowNormal: '#B8B5AE',
+  arrowCritical: '#B8B5AE',
+  selectionRing: '#E9EDF3', // reversed ink — pale ring, distinct from sage bars on dark (ADR-0103)
+  ghostFill: 'rgba(100,116,139,0.12)',
+  ghostBorder: 'rgba(100,116,139,0.55)',
   // In dark mode the bar fills are the 400 stops (sage-400 #66B998, blue-400,
   // red-400) — light enough that white in-bar text fails WCAG 1.4.3 (white on
   // sage-400 ≈ 2.27:1). Near-black reads on every 400 fill (≈15.5:1 on sage-400),
@@ -136,11 +143,16 @@ export const COLOR_DARK: ColorPalette = {
   // issue #1032). Light mode keeps white because its fills are the darker
   // 500/600 stops.
   chipTextOnCritical: '#1A1917',
-  chipTextOnSurface:  '#1A1917',
+  chipTextOnSurface: '#1A1917',
+  // Pill flips to light on the dark surface so it lightens (never darkens) the
+  // area behind the ink chip text — the mode-aware counterpart to the light
+  // palette's dark pill (issue 1638; mirrors the chipText white↔ink flip, 1032).
+  chipPillOnCritical: 'rgba(255,255,255,0.22)',
+  chipPillOnSurface: 'rgba(255,255,255,0.18)',
   // Link worst-status dot on the dark surface — the lighter 400 stops read on
   // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0155).
-  linkDraft:      '#FB923C',   // orange-400
-  linkOpen:       '#4ADE80',   // green-400
+  linkDraft: '#FB923C', // orange-400
+  linkOpen: '#4ADE80', // green-400
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
@@ -184,7 +196,12 @@ export function drawRowBands(
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
       ctx.fillStyle = _palette.rowBandAlt;
-      ctx.fillRect(0, i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, ROW_HEIGHT);
+      ctx.fillRect(
+        0,
+        i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop,
+        canvasWidth + scrollLeft,
+        ROW_HEIGHT,
+      );
     }
   }
 }
@@ -489,7 +506,10 @@ export function drawTimelineHeader(
   const pxPerDayPx = dayMs * scales.pxPerMs;
   const firstVisibleMs =
     pxPerDayPx > 0
-      ? Math.min(endMs, Math.max(startMs, startMs + Math.floor((scrollLeft - 1) / pxPerDayPx) * dayMs))
+      ? Math.min(
+          endMs,
+          Math.max(startMs, startMs + Math.floor((scrollLeft - 1) / pxPerDayPx) * dayMs),
+        )
       : startMs;
 
   // Opaque background covers any row bands that reached the header area
@@ -635,9 +655,11 @@ function drawTaskBarChip(
   ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
   ctx.clip();
 
-  // Translucent white pill on critical bars; translucent dark pill on others
+  // Translucent pill behind the % text. Mode-aware via the palette so it flips
+  // with the chip text (dark pill/light surface, light pill/dark surface) and
+  // never renders a fixed black wash behind ink text in dark mode (issue 1638).
   const isCritical = task.isCritical && !task.isComplete;
-  ctx.fillStyle = isCritical ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+  ctx.fillStyle = isCritical ? _palette.chipPillOnCritical : _palette.chipPillOnSurface;
   ctx.beginPath();
   ctx.roundRect(chipX, chipY, chipW, chipH, 3);
   ctx.fill();
@@ -814,7 +836,13 @@ export function drawTaskBar(
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = '#000000';
     ctx.beginPath();
-    ctx.roundRect(barLeft + progressWidth, barTop, barWidth - progressWidth, BAR_HEIGHT, [0, 3, 3, 0]);
+    ctx.roundRect(
+      barLeft + progressWidth,
+      barTop,
+      barWidth - progressWidth,
+      BAR_HEIGHT,
+      [0, 3, 3, 0],
+    );
     ctx.fill();
     ctx.globalAlpha = 1;
   }
@@ -946,11 +974,11 @@ export function drawActualDateBar(
   const variance = task.scheduleVarianceDays ?? null;
   let color: string;
   if (variance !== null && variance > 0) {
-    color = _palette.barCritical;   // late — semantic-critical
+    color = _palette.barCritical; // late — semantic-critical
   } else if (variance !== null && variance < 0) {
-    color = _palette.barComplete;   // early — semantic-on-track
+    color = _palette.barComplete; // early — semantic-on-track
   } else {
-    color = _palette.ghostBorder;   // in-progress or no variance info
+    color = _palette.ghostBorder; // in-progress or no variance info
   }
 
   ctx.save();
@@ -1177,12 +1205,12 @@ export function calculateDependencyPath(
   sourceBox: RoutingBox,
   targetBox: RoutingBox,
   obstacles: RoutingBox[],
-  _viewportHeight: number,  // retained for API compat; unused
+  _viewportHeight: number, // retained for API compat; unused
   targetEntryX?: number,
   isMergePredecessor: boolean = false,
 ): Array<{ x: number; y: number }> {
-  const startX  = sourceBox.x + sourceBox.width;
-  const startY  = sourceBox.y + sourceBox.height / 2;
+  const startX = sourceBox.x + sourceBox.width;
+  const startY = sourceBox.y + sourceBox.height / 2;
   const targetX = targetEntryX ?? targetBox.x;
   const targetY = targetBox.y + targetBox.height / 2;
   const exitX = startX + EXIT_STUB;
@@ -1190,7 +1218,7 @@ export function calculateDependencyPath(
 
   const waypoints: Array<{ x: number; y: number }> = [];
   waypoints.push({ x: startX, y: startY });
-  waypoints.push({ x: exitX,  y: startY });
+  waypoints.push({ x: exitX, y: startY });
 
   if (sameRow) {
     waypoints.push({ x: targetX, y: targetY });
@@ -1217,7 +1245,14 @@ export function calculateDependencyPath(
       // edge + ROUTING_PADDING so the V skirts the diamond instead of piercing
       // it. If no clear column fits inside the L gap, fall through to the
       // 5-segment gutter path below, which routes the V through the row gutter.
-      const dropBlocker = findBlockingBar(vColumn, startY, targetY, obstacles, sourceBox, targetBox);
+      const dropBlocker = findBlockingBar(
+        vColumn,
+        startY,
+        targetY,
+        obstacles,
+        sourceBox,
+        targetBox,
+      );
       let safeColumn: number | null = dropBlocker ? null : vColumn;
       if (dropBlocker) {
         const swept = dropBlocker.x + dropBlocker.width + ROUTING_PADDING;
@@ -1250,9 +1285,7 @@ export function calculateDependencyPath(
   const gutterOffset = spanRows >= 4 ? ROW_HEIGHT * 1.5 : ROW_HEIGHT * 0.5;
   const gutterY = targetY - direction * gutterOffset;
 
-  const vColumn = blockerAtExit
-    ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
-    : exitX;
+  const vColumn = blockerAtExit ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB : exitX;
 
   // 5-segment canonical path:
   //   1. exit stub: (source.right, source.Y) → (vColumn, source.Y)
@@ -1271,7 +1304,14 @@ export function calculateDependencyPath(
   // Wall-avoidance for the approach V drop: if V at approachX from gutterY to
   // target.Y would cross a non-source/non-target bar, push approachX LEFT past
   // the blocker's left edge so the V drops through clear space.
-  const approachBlocker = findBlockingBar(approachX, gutterY, targetY, obstacles, sourceBox, targetBox);
+  const approachBlocker = findBlockingBar(
+    approachX,
+    gutterY,
+    targetY,
+    obstacles,
+    sourceBox,
+    targetBox,
+  );
   if (approachBlocker) {
     approachX = approachBlocker.x - EXIT_STUB;
   }
@@ -1281,7 +1321,7 @@ export function calculateDependencyPath(
   if (vColumn !== exitX) {
     waypoints.push({ x: vColumn, y: startY });
   }
-  waypoints.push({ x: vColumn,   y: gutterY });
+  waypoints.push({ x: vColumn, y: gutterY });
   waypoints.push({ x: approachX, y: gutterY });
   waypoints.push({ x: approachX, y: targetY });
   if (approachX !== targetX) {
@@ -1302,7 +1342,7 @@ function findBlockingBar(
   srcBox: RoutingBox,
   tgtBox: RoutingBox,
 ): RoutingBox | null {
-  const top    = Math.min(y1, y2);
+  const top = Math.min(y1, y2);
   const bottom = Math.max(y1, y2);
   for (const obs of obstacles) {
     if (obs.x === srcBox.x && obs.y === srcBox.y && obs.width === srcBox.width) continue;
@@ -1379,8 +1419,10 @@ function segHorizontal(a: { x: number; y: number }, b: { x: number; y: number })
  *  for parallel segments, or when the intersection sits on a segment endpoint
  *  (which would mean it's a corner on the same path, not a true crossing). */
 function orthCrossing(
-  a1: { x: number; y: number }, a2: { x: number; y: number },
-  b1: { x: number; y: number }, b2: { x: number; y: number },
+  a1: { x: number; y: number },
+  a2: { x: number; y: number },
+  b1: { x: number; y: number },
+  b2: { x: number; y: number },
 ): { x: number; y: number } | null {
   const aH = segHorizontal(a1, a2);
   const bH = segHorizontal(b1, b2);
@@ -1410,9 +1452,15 @@ function detectHops(paths: PendingPath[]): Map<number, Map<number, number[]>> {
   const hops = new Map<number, Map<number, number[]>>();
   const record = (pi: number, si: number, x: number) => {
     let m = hops.get(pi);
-    if (!m) { m = new Map(); hops.set(pi, m); }
+    if (!m) {
+      m = new Map();
+      hops.set(pi, m);
+    }
     let arr = m.get(si);
-    if (!arr) { arr = []; m.set(si, arr); }
+    if (!arr) {
+      arr = [];
+      m.set(si, arr);
+    }
     arr.push(x);
   };
   for (let i = 0; i < paths.length; i++) {
@@ -1685,14 +1733,16 @@ export function prepareDependencyLayout(
     const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
     let boxLeft: number, boxRight: number, halfH: number;
     if (t.isMilestone) {
-      boxLeft = rectLeft; boxRight = rectRight;
+      boxLeft = rectLeft;
+      boxRight = rectRight;
       halfH = milestoneHalfDiag;
     } else if (t.isSummary) {
       boxLeft = rectLeft - milestoneHalfDiag;
       boxRight = rectRight + milestoneHalfDiag;
       halfH = milestoneHalfDiag;
     } else {
-      boxLeft = rectLeft; boxRight = rectRight;
+      boxLeft = rectLeft;
+      boxRight = rectRight;
       halfH = BAR_HEIGHT / 2;
     }
     barByRow[i] = {
@@ -1786,7 +1836,7 @@ export function paintDependencyLayout(
   const { nodes, barByRow, fsByTarget, nonFSLinks } = layout;
   const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2); // = 9px
 
-  const cpWidth  = ctx.canvas.width  / (window.devicePixelRatio || 1);
+  const cpWidth = ctx.canvas.width / (window.devicePixelRatio || 1);
   const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
 
   // Project a cached canvas-origin node into screen space. Called only for tasks
@@ -1823,7 +1873,12 @@ export function paintDependencyLayout(
       if (!bar) continue;
       if (bar.id === srcId || bar.id === tgtId) continue;
       if (depIsAncestor(nodes, bar.id, tgtId)) continue;
-      out.push({ x: bar.x - scrollLeft, y: bar.y - scrollTop, width: bar.width, height: bar.height });
+      out.push({
+        x: bar.x - scrollLeft,
+        y: bar.y - scrollTop,
+        width: bar.width,
+        height: bar.height,
+      });
     }
     return out;
   };
@@ -1838,7 +1893,12 @@ export function paintDependencyLayout(
     for (let r = lo; r <= hi; r++) {
       const bar = barByRow[r];
       if (!bar) continue;
-      out.push({ x: bar.x - scrollLeft, y: bar.y - scrollTop, width: bar.width, height: bar.height });
+      out.push({
+        x: bar.x - scrollLeft,
+        y: bar.y - scrollTop,
+        width: bar.width,
+        height: bar.height,
+      });
     }
     return out;
   };
@@ -1875,7 +1935,10 @@ export function paintDependencyLayout(
       alpha,
       lineDash,
       arrowhead: { tipX, tipY: tgtY, angle: 0 },
-      rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
+      rows: {
+        min: Math.min(src.rowIndex, tgt.rowIndex),
+        max: Math.max(src.rowIndex, tgt.rowIndex),
+      },
     });
   };
 
@@ -1911,8 +1974,8 @@ export function paintDependencyLayout(
 
     // Merge junction. Junction sits at the rightmost predecessor exit X,
     // bounded so the trunk shaft preceding the arrowhead stays ≥ APPROACH_STUB.
-    const arrowSize  = 9;
-    const tipX       = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
+    const arrowSize = 9;
+    const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
     const trunkLimit = tipX - arrowSize - APPROACH_STUB;
     let maxExitX = -Infinity;
     for (const { src } of validPreds) {
@@ -1935,15 +1998,30 @@ export function paintDependencyLayout(
       const srcBox = boxFor(src, srcY, milestoneHalfDiag);
       const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
       if (offScreen(src.barRight, junctionX, srcY, junctionY, cpWidth, cpHeight)) continue;
-      const obstaclesForLink = obstaclesFor(link.sourceId, link.targetId, src.rowIndex, tgt.rowIndex);
-      const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesForLink, cpHeight, junctionX, true);
+      const obstaclesForLink = obstaclesFor(
+        link.sourceId,
+        link.targetId,
+        src.rowIndex,
+        tgt.rowIndex,
+      );
+      const pts = calculateDependencyPath(
+        srcBox,
+        tgtBox,
+        obstaclesForLink,
+        cpHeight,
+        junctionX,
+        true,
+      );
       pendingPaths.push({
         pts,
         stroke,
         lineWidth,
         alpha,
         lineDash,
-        rows: { min: Math.min(src.rowIndex, tgt.rowIndex), max: Math.max(src.rowIndex, tgt.rowIndex) },
+        rows: {
+          min: Math.min(src.rowIndex, tgt.rowIndex),
+          max: Math.max(src.rowIndex, tgt.rowIndex),
+        },
       });
     }
 
@@ -1951,10 +2029,16 @@ export function paintDependencyLayout(
     // The trunk's chain role is derived from the merge target — every
     // predecessor edge into the same target shares its role on a merge.
     const trunkRole = arrowRole(targetId, targetId, hoverChain);
-    const { stroke: trunkStroke, lineWidth: trunkLineWidth, alpha: trunkAlpha } =
-      arrowPen(selectedGroup, trunkRole);
+    const {
+      stroke: trunkStroke,
+      lineWidth: trunkLineWidth,
+      alpha: trunkAlpha,
+    } = arrowPen(selectedGroup, trunkRole);
     pendingPaths.push({
-      pts: [{ x: junctionX, y: junctionY }, { x: tipX - arrowSize, y: junctionY }],
+      pts: [
+        { x: junctionX, y: junctionY },
+        { x: tipX - arrowSize, y: junctionY },
+      ],
       stroke: trunkStroke,
       lineWidth: trunkLineWidth,
       alpha: trunkAlpha,
@@ -1979,9 +2063,23 @@ export function paintDependencyLayout(
     const tgtY = rowY(tgt.rowIndex);
     let x1: number, x2: number, cx1: number, cx2: number;
     switch (link.type) {
-      case 'SS': x1 = src.barLeft;  x2 = tgt.barLeft;  cx1 = x1 - 40; cx2 = x2 - 40; break;
-      case 'FF': x1 = src.barRight; x2 = tgt.barRight; cx1 = x1 + 40; cx2 = x2 + 40; break;
-      default:   x1 = src.barLeft;  x2 = tgt.barRight; cx1 = x1 - 40; cx2 = x2 + 40;
+      case 'SS':
+        x1 = src.barLeft;
+        x2 = tgt.barLeft;
+        cx1 = x1 - 40;
+        cx2 = x2 - 40;
+        break;
+      case 'FF':
+        x1 = src.barRight;
+        x2 = tgt.barRight;
+        cx1 = x1 + 40;
+        cx2 = x2 + 40;
+        break;
+      default:
+        x1 = src.barLeft;
+        x2 = tgt.barRight;
+        cx1 = x1 - 40;
+        cx2 = x2 + 40;
     }
     if (offScreen(x1, x2, srcY, tgtY, cpWidth, cpHeight)) continue;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
@@ -1990,7 +2088,10 @@ export function paintDependencyLayout(
     const lineDash = linkDash(link);
     const angle = Math.atan2(0, x2 - cx2);
     pendingPaths.push({
-      pts: [{ x: x1, y: srcY }, { x: x2, y: tgtY }],
+      pts: [
+        { x: x1, y: srcY },
+        { x: x2, y: tgtY },
+      ],
       stroke,
       lineWidth,
       alpha,
@@ -2116,10 +2217,8 @@ function arrowPen(
   role: ArrowRole = 'normal',
 ): { stroke: string; lineWidth: number; alpha: number } {
   if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5, alpha: 1 };
-  if (role === 'predecessor')
-    return { stroke: CHAIN_ARROW_PREDECESSOR, lineWidth: 2, alpha: 1 };
-  if (role === 'successor')
-    return { stroke: CHAIN_ARROW_SUCCESSOR, lineWidth: 2, alpha: 1 };
+  if (role === 'predecessor') return { stroke: CHAIN_ARROW_PREDECESSOR, lineWidth: 2, alpha: 1 };
+  if (role === 'successor') return { stroke: CHAIN_ARROW_SUCCESSOR, lineWidth: 2, alpha: 1 };
   if (role === 'dim')
     return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: CHAIN_ARROW_DIM_ALPHA };
   return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: 1 };
@@ -2149,17 +2248,21 @@ function boxFor(
 ): RoutingBox {
   const halfH = entry.isMilestone ? milestoneHalfDiag : BAR_HEIGHT / 2;
   return {
-    x:      entry.barLeft,
-    y:      rowCenterY - halfH,
-    width:  entry.barRight - entry.barLeft,
+    x: entry.barLeft,
+    y: rowCenterY - halfH,
+    width: entry.barRight - entry.barLeft,
     height: halfH * 2,
   };
 }
 
 /** Off-screen cull for a single arrow span. */
 function offScreen(
-  x1: number, x2: number, y1: number, y2: number,
-  cpWidth: number, cpHeight: number,
+  x1: number,
+  x2: number,
+  y1: number,
+  y2: number,
+  cpWidth: number,
+  cpHeight: number,
 ): boolean {
   return (
     (x1 < -10 && x2 < -10) ||
