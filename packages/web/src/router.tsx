@@ -594,7 +594,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          // Trash (#1113, ADR-0199) — recoverable soft-deleted projects. Renders its
+          // Trash (issue 1113, ADR-0199) — recoverable soft-deleted projects. Renders its
           // own SettingsShell (like the System Health area). Any member may view; the
           // per-row Restore is Owner-gated by the API.
           {

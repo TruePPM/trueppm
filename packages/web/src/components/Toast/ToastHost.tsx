@@ -62,7 +62,7 @@ function ToastPill({ toast }: { toast: ToastItem }) {
       )}
       <span className={toast.action ? 'pr-1' : undefined}>{toast.message}</span>
       {toast.action ? (
-        // Inline action (#1113 "Undo"). A real focusable button — the host region is
+        // Inline action (issue 1113 "Undo"). A real focusable button — the host region is
         // aria-live=polite (announces without stealing focus), so keyboard/SR users
         // reach the action via Tab. Runs the action then auto-dismisses the pill; the
         // action's own onClick decides any follow-up confirmation toast.

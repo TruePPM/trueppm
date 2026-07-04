@@ -21,7 +21,7 @@ export const toast = {
   /** A success-toned toast with celebratory copy (e.g. the task-complete moment). */
   warm: (message: string, durationMs?: number) => show(message, 'success', durationMs),
   /**
-   * A toast carrying a single inline action button (#1113) — the "Deleted — Undo"
+   * A toast carrying a single inline action button (issue 1113) — the "Deleted — Undo"
    * affordance. Dwells longer (`TOAST_ACTION_DURATION_MS`) so the user can reach the
    * button on a phone. Defaults to the neutral `info` tone; pass `variant` to override.
    */

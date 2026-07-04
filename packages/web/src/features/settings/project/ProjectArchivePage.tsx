@@ -153,7 +153,7 @@ export function ProjectArchivePage() {
     run();
   };
 
-  // Move to Trash — the recoverable soft-delete (#1113). Distinct from the permanent
+  // Move to Trash — the recoverable soft-delete (issue 1113). Distinct from the permanent
   // delete below: no type-to-confirm (reversibility is the safety net), fires an
   // inline "Undo" toast, and navigates home. The Undo closure calls the restore
   // endpoint directly via the stable queryClient/apiClient — this page unmounts on

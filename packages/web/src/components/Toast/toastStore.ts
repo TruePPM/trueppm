@@ -13,7 +13,7 @@ import { create } from 'zustand';
 export type ToastVariant = 'success' | 'info' | 'error';
 
 /**
- * An optional inline action button rendered inside the toast pill (#1113). Used
+ * An optional inline action button rendered inside the toast pill (issue 1113). Used
  * for the "Deleted — Undo" affordance: `onClick` performs the action (e.g. restore)
  * and typically dismisses the toast. Kept to a single action to preserve the pill's
  * one-line ink-pill shape and mobile reachability.
@@ -45,7 +45,7 @@ export interface ToastInput {
 export const TOAST_DEFAULT_DURATION_MS = 2600;
 
 /**
- * Longer dwell for actionable toasts (#1113) — an Undo the user must have time to
+ * Longer dwell for actionable toasts (issue 1113) — an Undo the user must have time to
  * read and reach on a phone. 8s balances "long enough to react" against "not a
  * standing modal".
  */
