@@ -58,3 +58,30 @@ describe('RiskMatrix', () => {
     expect(minimalCell).toHaveClass('bg-risk-zone-minimal');
   });
 });
+
+describe('RiskMatrix unmitigated callout (issue 1230)', () => {
+  it('shows "N unmitigated need action" for OPEN/MITIGATING risks', () => {
+    render(
+      <RiskMatrix
+        risks={[
+          { ...BASE_RISK, id: 'a', status: 'OPEN' },
+          { ...BASE_RISK, id: 'b', status: 'MITIGATING' },
+          { ...BASE_RISK, id: 'c', status: 'RESOLVED' },
+        ]}
+      />,
+    );
+    expect(screen.getByText('2 unmitigated need action')).toBeInTheDocument();
+  });
+
+  it('suppresses the callout when every risk is handled', () => {
+    render(
+      <RiskMatrix
+        risks={[
+          { ...BASE_RISK, id: 'a', status: 'RESOLVED' },
+          { ...BASE_RISK, id: 'b', status: 'ACCEPTED' },
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/unmitigated need action/)).not.toBeInTheDocument();
+  });
+});

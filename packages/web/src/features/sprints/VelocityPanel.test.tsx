@@ -209,3 +209,63 @@ describe('VelocityPanel', () => {
     ).not.toMatch(/rolling average/i);
   });
 });
+
+describe('VelocityPanel v2 fidelity (issue 1230)', () => {
+  it('stacks a committed envelope behind each completed bar', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [makeSprint({ id: 'a', name: 'S1', committed_points: 30, completed_points: 24 })],
+        })}
+      />,
+    );
+    // One counted sprint → two rects: the committed envelope + the completed
+    // fill (excluded sprints render a single hatched envelope only).
+    const rects = container.querySelectorAll('svg[role="img"] g rect');
+    expect(rects.length).toBe(2);
+    // The envelope carries the committed/completed title.
+    const title = container.querySelector('title');
+    expect(title?.textContent).toContain('24/30 pts');
+  });
+
+  it('renders only the hatched envelope for an excluded sprint (no completed fill)', () => {
+    const { container } = render(
+      <VelocityPanel
+        velocity={makeVelocity({
+          sprints: [makeSprint({ id: 'a', name: 'Sprint 0', exclude_from_velocity: true })],
+          excluded_count: 1,
+        })}
+      />,
+    );
+    const rects = container.querySelectorAll('svg[role="img"] g rect');
+    expect(rects.length).toBe(1);
+  });
+
+  it('shows the "this sprint N/M" in-flight stat from the active sprint', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({ sprints: [makeSprint({})] })}
+        currentSprint={{ name: 'Sprint 7', completed_points: 12, committed_points: 26 }}
+      />,
+    );
+    expect(screen.getByText(/This sprint 12\/26/)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/This sprint: 12 of 26 points completed/),
+    ).toBeInTheDocument();
+  });
+
+  it('suppresses the in-flight stat when the active sprint is not point-sized', () => {
+    render(
+      <VelocityPanel
+        velocity={makeVelocity({ sprints: [makeSprint({})] })}
+        currentSprint={{ name: 'Sprint 7', completed_points: null, committed_points: null }}
+      />,
+    );
+    expect(screen.queryByText(/This sprint/)).not.toBeInTheDocument();
+  });
+
+  it('omits the in-flight stat entirely when there is no active sprint', () => {
+    render(<VelocityPanel velocity={makeVelocity({ sprints: [makeSprint({})] })} />);
+    expect(screen.queryByText(/This sprint/)).not.toBeInTheDocument();
+  });
+});

@@ -78,3 +78,74 @@ test.describe('Calendar task-detail banner', () => {
     await expect(banner).toHaveCount(0);
   });
 });
+
+/**
+ * Calendar v2 fidelity polish (issue 1230): sprint-boundary dots and the "Due"
+ * legend entry. Reuses the same fixtures + a sprint whose window lands in the
+ * anchored month.
+ */
+test.describe('Calendar v2 fidelity polish (issue 1230)', () => {
+  const SPRINT = {
+    id: 'cal-sprint-1',
+    server_version: 1,
+    short_id: '1',
+    short_id_display: 'SP-1',
+    name: 'Sprint 1',
+    goal: '',
+    notes: '',
+    start_date: '2026-03-09',
+    finish_date: '2026-03-20',
+    state: 'ACTIVE',
+    target_milestone: null,
+    target_milestone_detail: null,
+    capacity_points: null,
+    wip_limit: null,
+    committed_points: 20,
+    committed_task_count: 5,
+    completed_points: 8,
+    completed_task_count: 2,
+    completion_ratio_points: 0.4,
+    completion_ratio_tasks: 0.4,
+    activated_at: '2026-03-09T00:00:00Z',
+    closed_at: null,
+    created_at: '2026-03-01T00:00:00Z',
+    updated_at: '2026-03-09T00:00:00Z',
+  };
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projectId: PROJECT_ID,
+      projects: [{ id: PROJECT_ID, name: 'Calendar Project', start_date: '2026-03-01' }],
+      tasks: FIXTURE_TASKS,
+    });
+    // Last-registered wins: override the empty sprints stub with one real sprint.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [SPRINT] }),
+      }),
+    );
+    await page.goto(CALENDAR_URL);
+    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test('marks sprint start/finish days with boundary dots', async ({ page }) => {
+    // Sprint 03-09 → 03-20; both boundary days fall in the March grid.
+    await expect(page.getByLabel('Sprint boundary').first()).toBeVisible();
+    await expect(page.getByLabel('Sprint boundary')).toHaveCount(2);
+  });
+
+  test('legend includes the Due and Sprint boundary entries', async ({ page }) => {
+    await expect(page.getByText('Due', { exact: true })).toBeVisible();
+    await expect(page.getByText('Sprint boundary', { exact: true })).toBeVisible();
+  });
+
+  test('a task chip carries the ", due" finish marker in its accessible name', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Foundation Pour, due' })).toBeVisible();
+  });
+});

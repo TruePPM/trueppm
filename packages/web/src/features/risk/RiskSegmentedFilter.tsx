@@ -14,9 +14,17 @@ import { RISK_FILTERS, type RiskFilter } from './riskFilters';
 export function RiskSegmentedFilter({
   value,
   onChange,
+  counts,
 }: {
   value: RiskFilter;
   onChange: (value: RiskFilter) => void;
+  /**
+   * Live per-facet counts (issue 1230) rendered beside each segment label. The
+   * count is decorative (aria-hidden) so the radio's accessible name stays the
+   * bare label; the narrowed-table total is announced separately via the
+   * register's aria-live status line. Absent → no counts shown.
+   */
+  counts?: Partial<Record<RiskFilter, number>>;
 }) {
   const btnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const selectedIdx = RISK_FILTERS.findIndex((f) => f.value === value);
@@ -67,6 +75,7 @@ export function RiskSegmentedFilter({
     >
       {RISK_FILTERS.map(({ value: optionValue, label }, i) => {
         const active = value === optionValue;
+        const count = counts?.[optionValue];
         return (
           <button
             key={optionValue}
@@ -80,7 +89,7 @@ export function RiskSegmentedFilter({
             tabIndex={i === focusIdx ? 0 : -1}
             onClick={() => onChange(optionValue)}
             className={[
-              'inline-flex min-h-[44px] items-center justify-center rounded-chip px-3 md:min-h-[32px]',
+              'inline-flex min-h-[44px] items-center justify-center gap-1 rounded-chip px-3 md:min-h-[32px]',
               'text-xs font-medium transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
               'focus-visible:ring-offset-1',
@@ -90,6 +99,17 @@ export function RiskSegmentedFilter({
             ].join(' ')}
           >
             {label}
+            {count !== undefined && (
+              <span
+                aria-hidden="true"
+                className={[
+                  'tppm-mono tabular-nums',
+                  active ? 'text-neutral-text-inverse/80' : 'text-neutral-text-disabled',
+                ].join(' ')}
+              >
+                {count}
+              </span>
+            )}
           </button>
         );
       })}

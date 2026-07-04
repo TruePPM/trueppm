@@ -16,13 +16,16 @@ import { RiskDrawer } from './RiskDrawer';
 import { RiskSegmentedFilter } from './RiskSegmentedFilter';
 import { exportRisksToCSV } from './riskExport';
 import {
+  HIGH_SEVERITY_THRESHOLD,
   RISK_FILTERS,
   type RiskFilter,
   type SeveritySort,
   isUnmitigated,
   matchesRiskFilter,
   nextSeveritySort,
+  riskFilterCounts,
   severityAriaSort,
+  sortRisksByNewest,
   sortRisksBySeverity,
 } from './riskFilters';
 
@@ -105,6 +108,10 @@ export function RiskRegisterView() {
   // facet below via AND.
   const [filter, setFilter] = useState<RiskFilter>('all');
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
+  // "Newest" sort (issue 1230) — created_at descending. Mutually exclusive with
+  // the severity column sort: turning one on resets the other, so the table is
+  // never governed by two competing orderings.
+  const [newestSort, setNewestSort] = useState(false);
   // Client-side severity-band visibility — seeded from localStorage so the
   // preference survives a remount. Persisted on every change. Composes with
   // the segment + matrix-cell facets below (AND): a hidden band drops its
@@ -158,13 +165,19 @@ export function RiskRegisterView() {
   const isDrawerOpen = selectedRisk !== null;
   const criticalCount = risks.filter((r) => r.severity >= 20).length;
   const highCount = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
+  // Header sub-line + segment-chip preview counts (issue 1230), derived over the
+  // full loaded register (not the narrowed table). "High" here is high-and-above
+  // (>= threshold), matching the High segment filter.
+  const currentUserId = user?.id ?? null;
+  const filterCounts = riskFilterCounts(risks, currentUserId);
+  const highAndAboveCount = risks.filter((r) => r.severity >= HIGH_SEVERITY_THRESHOLD).length;
+  const unmitigatedCount = filterCounts.unmitigated;
 
   // Two orthogonal facets compose with AND: the segment filter, then the matrix
   // cell coordinate, then the severity sort applied last. The heatmap matrix and
   // the count chips above always reflect the *full* set — only the table
   // consumes the facets (dimming the matrix to its own selection would be
   // circular).
-  const currentUserId = user?.id ?? null;
   const segmentRisks = risks
     .filter((r) => matchesRiskFilter(r, filter, currentUserId))
     // Severity-band visibility: drop rows in any hidden band (client-side,
@@ -175,7 +188,11 @@ export function RiskRegisterView() {
         (r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact,
       )
     : segmentRisks;
-  const displayRisks = sortRisksBySeverity(cellRisks, severitySort);
+  // One ordering wins at a time: Newest (created_at desc) overrides the severity
+  // column sort when active; otherwise the severity sort applies.
+  const displayRisks = newestSort
+    ? sortRisksByNewest(cellRisks)
+    : sortRisksBySeverity(cellRisks, severitySort);
 
   const isFiltered = filter !== 'all' || selectedCell !== null;
   function clearAllFilters() {
@@ -229,6 +246,17 @@ export function RiskRegisterView() {
           <h1 className="text-2xl font-semibold text-neutral-text-primary leading-tight">
             Risk register
           </h1>
+          {/* At-a-glance register summary (issue 1230): total logged, high-and-above,
+              and unmitigated. Suppressed while loading / on error / empty. */}
+          {!isLoading && !error && risks.length > 0 && (
+            <p className="text-xs text-neutral-text-secondary">
+              {risks.length} in register
+              <span aria-hidden="true"> · </span>
+              {highAndAboveCount} high
+              <span aria-hidden="true"> · </span>
+              {unmitigatedCount} unmitigated
+            </p>
+          )}
         </div>
 
         {/* Desktop toolbar — count chips + heatmap toggle + new risk */}
@@ -269,6 +297,31 @@ export function RiskRegisterView() {
             />
             Hide low severity
           </label>
+
+          {/* Newest sort (issue 1230) — created_at descending. A toggle, not a
+              cycle: turning it on resets the severity column sort so only one
+              ordering governs the table. */}
+          <button
+            type="button"
+            onClick={() =>
+              setNewestSort((v) => {
+                const next = !v;
+                if (next) setSeveritySort('none');
+                return next;
+              })
+            }
+            aria-pressed={newestSort}
+            className={[
+              'inline-flex items-center gap-1 h-8 px-3 rounded-control text-xs font-medium',
+              'border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+              'focus-visible:ring-offset-1',
+              newestSort
+                ? 'border-brand-primary/40 bg-brand-primary/10 text-brand-primary'
+                : 'border-neutral-border text-neutral-text-primary bg-neutral-surface hover:bg-neutral-surface-raised',
+            ].join(' ')}
+          >
+            Newest
+          </button>
 
           <button
             type="button"
@@ -504,7 +557,7 @@ export function RiskRegisterView() {
               {/* Segment filter — single-select facet (All/High/Unmitigated/Mine).
                   A radiogroup (pick exactly one) with roving-tabindex keyboard
                   nav, not a tablist (it filters one list, doesn't swap panels). */}
-              <RiskSegmentedFilter value={filter} onChange={setFilter} />
+              <RiskSegmentedFilter value={filter} onChange={setFilter} counts={filterCounts} />
 
               {/* Active-facet status chip — renders a removable token per active
                   facet (segment and/or matrix cell), each independently
@@ -624,12 +677,16 @@ export function RiskRegisterView() {
                         </th>
                         <th
                           scope="col"
-                          aria-sort={severityAriaSort(severitySort)}
+                          aria-sort={newestSort ? 'none' : severityAriaSort(severitySort)}
                           className="px-4 py-3 w-[148px]"
                         >
                           <button
                             type="button"
-                            onClick={() => setSeveritySort((s) => nextSeveritySort(s))}
+                            onClick={() => {
+                              // Column sort and Newest are mutually exclusive.
+                              setNewestSort(false);
+                              setSeveritySort((s) => nextSeveritySort(s));
+                            }}
                             className="inline-flex items-center gap-1 font-medium text-neutral-text-secondary
                             hover:text-neutral-text-primary text-xs uppercase tracking-wide
                             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary

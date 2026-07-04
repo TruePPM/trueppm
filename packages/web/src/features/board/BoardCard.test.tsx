@@ -1091,3 +1091,37 @@ describe('BoardCard', () => {
     });
   });
 });
+
+describe('BoardCard v2 identity meta (issue 1230)', () => {
+  it('renders the visible short id on the card face', () => {
+    renderCard({ task: { ...baseTask, shortId: 'a1b2c3d4' } });
+    expect(screen.getByText('a1b2c3d4')).toBeInTheDocument();
+  });
+
+  it('renders a story-points pill with an accessible label', () => {
+    renderCard({ task: { ...baseTask, storyPoints: 8 } });
+    expect(screen.getByText('8 pts')).toBeInTheDocument();
+    expect(screen.getByLabelText('8 story points')).toBeInTheDocument();
+  });
+
+  it('singularizes the points pill label at one point', () => {
+    renderCard({ task: { ...baseTask, storyPoints: 1 } });
+    expect(screen.getByLabelText('1 story point')).toBeInTheDocument();
+  });
+
+  it('renders a stream color tag keyed to the epic when present', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, parentEpic: 'epic-1', shortId: 'aa11bb22' },
+    });
+    // The stream dot is a decorative colored node with a "Stream" title.
+    const dot = container.querySelector('span[title="Stream"]');
+    expect(dot).not.toBeNull();
+    expect((dot as HTMLElement).style.backgroundColor).not.toBe('');
+  });
+
+  it('omits the identity meta row when the card has none of the data', () => {
+    const { container } = renderCard({ task: baseTask });
+    expect(container.querySelector('span[title="Stream"]')).toBeNull();
+    expect(screen.queryByText(/pts$/)).not.toBeInTheDocument();
+  });
+});

@@ -623,7 +623,7 @@ export function SprintsView() {
                       <ChartSkeleton label="Capacity Preflight" />
                     )}
                     {velocity.data ? (
-                      <VelocityPanel velocity={velocity.data} />
+                      <VelocityPanel velocity={velocity.data} currentSprint={activeSprint} />
                     ) : (
                       <ChartSkeleton label="Velocity" />
                     )}

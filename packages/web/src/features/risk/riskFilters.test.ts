@@ -5,7 +5,9 @@ import {
   isUnmitigated,
   matchesRiskFilter,
   nextSeveritySort,
+  riskFilterCounts,
   severityAriaSort,
+  sortRisksByNewest,
   sortRisksBySeverity,
 } from './riskFilters';
 
@@ -120,5 +122,40 @@ describe('sortRisksBySeverity', () => {
 
   it('sorts ascending', () => {
     expect(sortRisksBySeverity([b, a, c], 'asc').map((r) => r.id)).toEqual(['a', 'c', 'b']);
+  });
+});
+
+describe('sortRisksByNewest', () => {
+  const older = makeRisk({ id: 'older', created_at: '2026-01-01T00:00:00Z' });
+  const newer = makeRisk({ id: 'newer', created_at: '2026-03-15T00:00:00Z' });
+  const mid = makeRisk({ id: 'mid', created_at: '2026-02-01T00:00:00Z' });
+
+  it('orders most-recently-created first without mutating the input', () => {
+    const input = [older, newer, mid];
+    const out = sortRisksByNewest(input);
+    expect(out.map((r) => r.id)).toEqual(['newer', 'mid', 'older']);
+    expect(input.map((r) => r.id)).toEqual(['older', 'newer', 'mid']);
+  });
+});
+
+describe('riskFilterCounts', () => {
+  // R1: critical (sev 25), OPEN, owned by me → all, high, unmitigated, mine
+  // R2: sev 9, MITIGATING, someone else      → all, unmitigated
+  // R3: sev 4, RESOLVED, someone else         → all
+  const r1 = makeRisk({ id: 'r1', severity: 25, status: 'OPEN', owner: 'me' });
+  const r2 = makeRisk({ id: 'r2', severity: 9, status: 'MITIGATING', owner: 'other' });
+  const r3 = makeRisk({ id: 'r3', severity: 4, status: 'RESOLVED', owner: 'other' });
+
+  it('counts each facet over the full list', () => {
+    expect(riskFilterCounts([r1, r2, r3], 'me')).toEqual({
+      all: 3,
+      high: 1,
+      unmitigated: 2,
+      mine: 1,
+    });
+  });
+
+  it('mine is zero when the current user id is null', () => {
+    expect(riskFilterCounts([r1, r2, r3], null).mine).toBe(0);
   });
 });
