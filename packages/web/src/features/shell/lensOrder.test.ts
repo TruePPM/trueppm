@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { applyRoleContextLensOrder, lensDefaultView } from './lensOrder';
 import type { VisibleViewGroup } from './methodologyTabs';
 
-/** A HYBRID-shaped bar (every view visible) to exercise the ordering — ADR-0195 layout:
- *  the sprint circuit (Backlog · Sprints · Board) lives in the dedicated SPRINT group. */
+/** A HYBRID-shaped bar (every view visible) to exercise the ordering — ADR-0195/0203 layout:
+ *  the sprint circuit (Backlog · Sprints · Board) lives in the dedicated DELIVER group. */
 function groups(): VisibleViewGroup[] {
   return [
     {
@@ -13,8 +13,8 @@ function groups(): VisibleViewGroup[] {
       visibleViews: ['schedule', 'grid', 'calendar'],
     },
     {
-      id: 'SPRINT',
-      label: 'Sprint',
+      id: 'DELIVER',
+      label: 'Deliver',
       views: ['product-backlog', 'sprints', 'board'],
       visibleViews: ['product-backlog', 'sprints', 'board'],
     },
@@ -42,8 +42,8 @@ describe('applyRoleContextLensOrder', () => {
     const out = applyRoleContextLensOrder(groups(), 'pm');
     const plan = out.find((g) => g.id === 'PLAN')!;
     expect(plan.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
-    // SPRINT / TRACK / PEOPLE unaffected — no PM-priority views there.
-    expect(out.find((g) => g.id === 'SPRINT')!.visibleViews).toEqual([
+    // DELIVER / TRACK / PEOPLE unaffected — no PM-priority views there.
+    expect(out.find((g) => g.id === 'DELIVER')!.visibleViews).toEqual([
       'product-backlog',
       'sprints',
       'board',
@@ -51,11 +51,11 @@ describe('applyRoleContextLensOrder', () => {
     expect(out.find((g) => g.id === 'TRACK')!.visibleViews).toEqual(['today', 'risk', 'reports']);
   });
 
-  it('Scrum Master promotes Board · Sprints · Backlog within the SPRINT group (ADR-0195)', () => {
+  it('Scrum Master promotes Board · Sprints · Backlog within the DELIVER group (ADR-0195/0203)', () => {
     const out = applyRoleContextLensOrder(groups(), 'scrum_master');
-    // priority order is [board, sprints, product-backlog]; all three now share the SPRINT
+    // priority order is [board, sprints, product-backlog]; all three now share the DELIVER
     // group, so the lens reorders within it (daily-driver Board first for the SM).
-    const sprint = out.find((g) => g.id === 'SPRINT')!;
+    const sprint = out.find((g) => g.id === 'DELIVER')!;
     expect(sprint.visibleViews).toEqual(['board', 'sprints', 'product-backlog']);
     // PLAN / TRACK unaffected — no SM-priority views there.
     expect(out.find((g) => g.id === 'PLAN')!.visibleViews).toEqual(['schedule', 'grid', 'calendar']);
