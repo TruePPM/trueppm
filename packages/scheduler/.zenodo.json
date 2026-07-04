@@ -1,0 +1,38 @@
+{
+  "title": "trueppm-scheduler: A pure-Python critical-path and Monte Carlo schedule-risk engine",
+  "description": "A dependency-light, Apache-2.0 Python library for project scheduling. Computes a full critical-path method (CPM) schedule with all four dependency types (finish-to-start, start-to-start, finish-to-finish, start-to-finish), calendar-aware working-time lag, total and free float, and cycle detection, and forecasts delivery risk with PERT-Beta Monte Carlo simulation producing P50/P80/P95 completion dates. It is the standalone scheduling core of the TruePPM project-management platform.",
+  "upload_type": "software",
+  "license": "Apache-2.0",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Hair, Kelly",
+      "affiliation": "TruePPM, Inc."
+    }
+  ],
+  "keywords": [
+    "scheduling",
+    "critical-path",
+    "cpm",
+    "monte-carlo",
+    "pert",
+    "project-management",
+    "project-scheduling",
+    "schedule-risk",
+    "risk-analysis",
+    "gantt",
+    "python"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://pypi.org/project/trueppm-scheduler/",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    },
+    {
+      "identifier": "https://gitlab.com/trueppm/trueppm",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

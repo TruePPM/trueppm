@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "trueppm-scheduler: A pure-Python critical-path and Monte Carlo schedule-risk engine"
+abstract: >-
+  A dependency-light, Apache-2.0 Python library for project scheduling. Computes
+  a full critical-path method (CPM) schedule with all four dependency types,
+  calendar-aware lag, total and free float, and cycle detection, and forecasts
+  delivery risk with PERT-Beta Monte Carlo simulation producing P50/P80/P95
+  completion dates.
+type: software
+authors:
+  - given-names: Kelly
+    family-names: Hair
+    affiliation: "TruePPM, Inc."
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # <to be assigned before submission>
+version: 0.3.0a3
+date-released: 2026-07-04
+doi: 10.5281/zenodo.0000000  # <Zenodo concept DOI, to be minted on first archived release>
+license: Apache-2.0
+repository-code: "https://gitlab.com/trueppm/trueppm/-/tree/main/packages/scheduler"
+url: "https://pypi.org/project/trueppm-scheduler/"
+keywords:
+  - scheduling
+  - critical-path
+  - cpm
+  - monte-carlo
+  - pert
+  - project-management
+  - schedule-risk
+  - risk-analysis
