@@ -5,10 +5,12 @@ from __future__ import annotations
 from django.urls import path
 
 from .views import (
-    EmailSettingsStatusView,
     NotificationPreferenceViewSet,
     NotificationViewSet,
     ProjectNotificationPreferenceView,
+    WorkspaceEmailHealthView,
+    WorkspaceEmailSettingsView,
+    WorkspaceEmailTestView,
 )
 
 urlpatterns = [
@@ -52,10 +54,21 @@ urlpatterns = [
         ProjectNotificationPreferenceView.as_view(),
         name="project-notification-preferences",
     ),
-    # Workspace Email & SMTP status — read-only (#639, ADR-0085 §5)
+    # Workspace Email & SMTP — writable transport config (#712, ADR-0211),
+    # upgrading the #639 read-only status surface at the same path.
     path(
         "workspace/email-settings/",
-        EmailSettingsStatusView.as_view(),
+        WorkspaceEmailSettingsView.as_view(),
         name="workspace-email-settings",
+    ),
+    path(
+        "workspace/email-settings/send-test/",
+        WorkspaceEmailTestView.as_view(),
+        name="workspace-email-settings-send-test",
+    ),
+    path(
+        "workspace/email-settings/health/",
+        WorkspaceEmailHealthView.as_view(),
+        name="workspace-email-settings-health",
     ),
 ]

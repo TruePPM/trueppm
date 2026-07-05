@@ -30507,7 +30507,7 @@
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
-                "description": "``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.\n\nSurfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is\nconfigured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,\n``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —\nnever the SMTP password or username — for the workspace admin to confirm the\nFrom identity and that a host is configured. Org-admin gated. The writable SMTP\nconfig (transport switch, BYO credentials) is #712.",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
                 "tags": [
                     "workspace"
                 ],
@@ -30541,6 +30541,158 @@
                     }
                 },
                 "summary": "Retrieve email setting"
+            },
+            "put": {
+                "operationId": "v1_workspace_email_settings_update",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update email setting"
+            },
+            "patch": {
+                "operationId": "v1_workspace_email_settings_partial_update",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update email setting"
+            }
+        },
+        "/api/v1/workspace/email-settings/health/": {
+            "get": {
+                "operationId": "v1_workspace_email_settings_health_retrieve",
+                "description": "``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.\n\nLive, bounded DNS TXT lookups on the persisted From-address domain (never a\ndomain from request input). Operator-gated and tightly throttled — the\nlookups are an egress surface (ADR-0211 §4, security review M4/H3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve health"
+            }
+        },
+        "/api/v1/workspace/email-settings/send-test/": {
+            "post": {
+                "operationId": "v1_workspace_email_settings_send_test_create",
+                "description": "``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.\n\nSends a fixed test message to the **requesting operator's own address only**\n(server-derived — never a recipient from the request body, which would make\nthis an authenticated open relay, security review M5) through the resolved\ntransport. Synchronous so the admin gets immediate pass/fail feedback; a\ntransport failure returns 502 with a generic message.",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Send test email settings"
             }
         },
         "/api/v1/workspace/export/": {

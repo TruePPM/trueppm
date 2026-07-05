@@ -588,3 +588,132 @@ class ProjectNotificationPreference(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectNotificationPreference(project={self.project_id}, user={self.user_id})"
+
+
+# ---------------------------------------------------------------------------
+# Workspace SMTP configuration (#712, ADR-0211)
+# ---------------------------------------------------------------------------
+
+
+class EmailTransportMode(models.TextChoices):
+    """Outbound-mail transport for the workspace.
+
+    ``CLOUD`` is the unconfigured default — the send path falls back to the
+    process-global Django ``EMAIL_BACKEND`` (Helm env), so a fresh install
+    behaves exactly as it did before #712. The other three build an SMTP
+    connection from this row; ``SENDGRID`` / ``SES`` are SMTP relays with a
+    provider-fixed host so 0.4 needs no new backend class (ADR-0211 §2).
+    """
+
+    CLOUD = "cloud", "TruePPM cloud (Django settings)"
+    SMTP = "smtp", "Custom SMTP"
+    SENDGRID = "sendgrid", "SendGrid"
+    SES = "ses", "Amazon SES"
+
+
+class EmailSecurity(models.TextChoices):
+    """SMTP connection security."""
+
+    NONE = "none", "None"
+    TLS = "tls", "STARTTLS"
+    SSL = "ssl", "SSL/TLS"
+
+
+class WorkspaceEmailSettings(models.Model):
+    """Singleton writable SMTP configuration for the workspace (#712, ADR-0211).
+
+    Installation config, not a synced/board-scoped resource, so there is no
+    ``server_version``. Single-row is enforced by the unique ``singleton_key``
+    (the ``workspace.Workspace`` / ADR-0081 precedent) and the row is lazily
+    created on first access via :meth:`load` — no seed migration.
+
+    The SMTP password is encrypted at rest with Fernet (``password_ciphertext``)
+    reusing ``apps.integrations.encryption`` and is **never** returned by the
+    API — the serializer exposes only :attr:`password_is_set`. Decryption
+    happens server-side only, at send time, in ``resolve_email_connection``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Always 1 — the unique constraint makes a second row impossible.
+    singleton_key = models.PositiveSmallIntegerField(default=1, editable=False, unique=True)
+
+    transport_mode = models.CharField(
+        max_length=16,
+        choices=EmailTransportMode.choices,
+        default=EmailTransportMode.CLOUD,
+    )
+
+    # SMTP transport parameters (unused when transport_mode == CLOUD).
+    host = models.CharField(max_length=255, blank=True, default="")
+    port = models.PositiveIntegerField(default=587)
+    security = models.CharField(
+        max_length=8,
+        choices=EmailSecurity.choices,
+        default=EmailSecurity.TLS,
+    )
+    username = models.CharField(max_length=255, blank=True, default="")
+    # Fernet-encrypted SMTP password / provider API key. Never serialized out.
+    password_ciphertext = models.BinaryField(blank=True, default=b"")
+
+    # From identity + deliverability.
+    from_name = models.CharField(max_length=255, blank=True, default="")
+    from_email = models.EmailField(blank=True, default="")
+    reply_to = models.EmailField(blank=True, default="")
+    dkim_selector = models.CharField(max_length=63, blank=True, default="")
+
+    # Delivery limits. throttle_per_min == 0 means "no throttle".
+    max_recipients = models.PositiveIntegerField(default=50)
+    throttle_per_min = models.PositiveIntegerField(default=0)
+
+    # Bounce webhook — SSRF-validated at write (ADR-0049 §3 egress chokepoint).
+    bounce_webhook_url = models.URLField(max_length=512, blank=True, default="")
+
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "notifications_workspace_email_settings"
+        verbose_name = "workspace email settings"
+        verbose_name_plural = "workspace email settings"
+
+    def __str__(self) -> str:
+        return f"WorkspaceEmailSettings(transport={self.transport_mode})"
+
+    @classmethod
+    def load(cls) -> WorkspaceEmailSettings:
+        """Return the singleton, creating it on first access (no seed migration)."""
+        obj, _ = cls.objects.get_or_create(singleton_key=1)
+        return obj
+
+    @property
+    def password_is_set(self) -> bool:
+        """Whether an encrypted SMTP password is stored (safe to expose)."""
+        return bool(self.password_ciphertext)
+
+    def set_password(self, plaintext: str) -> None:
+        """Fernet-encrypt and store the SMTP password / provider API key.
+
+        An empty ``plaintext`` clears the stored secret. Callers that want the
+        "blank means keep existing" semantics must guard before calling this —
+        the serializer does (#712 rotate-vs-keep).
+        """
+        from trueppm_api.apps.integrations.encryption import encrypt_secret
+
+        if not plaintext:
+            self.password_ciphertext = b""
+            return
+        self.password_ciphertext = encrypt_secret(plaintext)
+
+    def get_password(self) -> str:
+        """Decrypt and return the stored password, or "" when none is set."""
+        if not self.password_ciphertext:
+            return ""
+        from trueppm_api.apps.integrations.encryption import decrypt_secret
+
+        return decrypt_secret(bytes(self.password_ciphertext))
