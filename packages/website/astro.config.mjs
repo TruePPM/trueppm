@@ -264,6 +264,7 @@ export default defineConfig({
                 { slug: "features/inbound-task-sync" },
                 { slug: "features/connected-accounts" },
                 { slug: "features/mcp-server" },
+                { slug: "features/mcp-connect" },
                 { slug: "features/msproject-import-export" },
               ],
             },
