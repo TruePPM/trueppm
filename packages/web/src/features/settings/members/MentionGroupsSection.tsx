@@ -17,7 +17,7 @@ interface MentionGroupsSectionProps {
 }
 
 /**
- * Project Settings → Members: user-defined @mention group management (#515).
+ * Project Settings → Members: user-defined @mention group management (issue 515).
  *
  * RBAC mirrors the server (ADR-0212 §3): Admin+ curates the set of groups
  * (create/rename/delete/email-default); Scheduler+ edits membership; any member

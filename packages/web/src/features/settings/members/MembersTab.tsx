@@ -87,7 +87,7 @@ export function MembersTab() {
         </section>
       )}
 
-      {/* User-defined @mention groups (#515) */}
+      {/* User-defined @mention groups (issue 515) */}
       <MentionGroupsSection projectId={projectId} myRole={myRole} members={members} />
     </div>
   );

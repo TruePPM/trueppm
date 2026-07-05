@@ -7,7 +7,7 @@ import {
 import { apiClient } from '@/api/client';
 
 /**
- * User-defined @mention group hooks (ADR-0212, #515).
+ * User-defined @mention group hooks (ADR-0212, issue 515).
  *
  * Types are declared locally rather than pulled from the generated
  * `@/api/types` because that file regenerates only against a live schema

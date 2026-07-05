@@ -664,7 +664,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
       }
 
-      // --- User-defined @mention group events (#515) ---
+      // --- User-defined @mention group events (issue 515) ---
       // A peer creating/renaming/deleting a group or editing its roster on the
       // Members tab broadcasts mention_group_changed; invalidate the group list so
       // a second admin viewing the same tab reconciles live (mirrors membership).
