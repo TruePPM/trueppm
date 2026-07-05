@@ -90,6 +90,56 @@ collision. The label name is overridable with `TRUEPPM_WT_LOCK_LABEL`.
 Only issue-numbered branches are locked. A branch with no leading issue number
 (`chore/some-slug`, `docs/0.4-release-notes`) is created without a check-out.
 
+## Reserving ADR and migration numbers
+
+Parallel feature agents hit a subtler collision than shared files: they pick the
+**same next number** for an ADR or a migration. Each agent independently computes
+"next ADR = highest on `main` + 1", so three parallel branches all write
+`docs/adr/0211-*.md`, and the CI `lint:adr-collisions` gate has to bounce the second
+and third MR to renumber at merge time. Migrations collide the same way, per app.
+
+`wt` removes that race by **reserving** numbers atomically. Reservations live in a
+shared ledger in the repo's git *common* directory (so every worktree sees the same
+file), guarded by a lock, and the next number is one past the highest seen across
+the working tree, `origin/main`, **and** outstanding reservations:
+
+```bash
+# Reserve the next free ADR number — prints it, and records the claim so a
+# parallel worktree can't pick the same one.
+$ scripts/wt reserve adr
+wt: reserved ADR-0217 for feat/600-crud-ui — create docs/adr/0217-<slug>.md
+0217
+
+# Reserve the next migration number for a specific Django app.
+$ scripts/wt reserve migration notifications
+0008
+```
+
+The bare number goes to **stdout** and the human note to **stderr**, so it
+composes: `NUM="$(scripts/wt reserve adr)"`.
+
+**Feature branches reserve an ADR automatically.** Because the architect step of a
+new feature almost always produces an ADR, `wt new` reserves one up front for any
+`feat/*` branch and records it in the worktree's `.wt-reservation` marker:
+
+```bash
+$ scripts/wt new 600
+…
+wt: reserved ADR-0217 for this worktree (use it for docs/adr/0217-<slug>.md)
+```
+
+Pass `--no-adr` to skip it (a feature branch that adds no ADR), or `--adr` to force
+a reservation on a `fix/`, `chore/`, or `docs/` branch that does need one.
+
+Reservations are released automatically when the worktree is removed or pruned, so
+a number claimed but never used is freed for reuse. `wt list` shows every
+outstanding reservation.
+
+**The ledger is the local first line, not the whole defense.** It only sees the
+worktrees on *this* machine, so a collision with an open MR from another machine
+still falls to the CI `lint:adr-collisions` gate — the ledger just makes the common
+case (parallel agents on one host) collision-free before the push.
+
 ## What it sets up
 
 For each `wt new`:
@@ -109,6 +159,10 @@ For each `wt new`:
   powers the `wt prune` grace window and the `AGE` column in `wt list`. Like
   `.envrc` and the symlinks, it's excluded from the `wt remove`/`wt prune`
   dirty-checks, so it never counts as "uncommitted work."
+- **`.wt-reservation`** — for `feat/*` branches (and any `--adr` run), the ADR
+  number reserved for this worktree (plus any migration numbers you reserve). Also
+  excluded from the dirty-checks. See [Reserving ADR and migration
+  numbers](#reserving-adr-and-migration-numbers).
 
 If you use [direnv](https://direnv.net/), `cd` into the worktree and run
 `direnv allow` once. Without direnv, run `source .envrc` after each `cd`.
@@ -214,10 +268,11 @@ docker compose down -v && make up   # destroys all local dev data
 
 **Per-worktree:** `scripts/wt remove <issue>` (or `make wt-remove ISSUE=N`)
 is the canonical path. It refuses if your tree has uncommitted tracked
-changes or untracked files beyond the auto-created set (the two symlinks +
-`.envrc`). If you really do want to discard work, pass `--force` as the
-second argument. Removing a worktree also releases its issue check-out (see
-[Issue check-out lock](#issue-check-out-lock)).
+changes or untracked files beyond the auto-created set (the two symlinks,
+`.envrc`, `.wt-owner`, and `.wt-reservation`). If you really do want to discard
+work, pass `--force` as the second argument. Removing a worktree also releases
+its issue check-out (see [Issue check-out lock](#issue-check-out-lock)) and frees
+any ADR/migration numbers it reserved.
 
 **Bulk cleanup after merges:** `scripts/wt prune` (or `make wt-prune`)
 sweeps every worktree whose branch has been merged to `main` and deleted

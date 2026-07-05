@@ -13569,6 +13569,82 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/schedule/derivation/": {
+            "get": {
+                "operationId": "project_schedule_derivation",
+                "description": "The server-computed *why* behind a computed schedule value (ADR-0218, #1058).\n\n``GET /projects/<pk>/schedule/derivation/?task_id=<id>&quantity=<quantity>``\n\nReturns the derivation of a single computed value — the driving predecessor/\nsuccessor chain, the binding constraint, each term's lag and calendar-snap\ncontribution, and which CPM pass (forward/backward/float) set it. The\nderivation is computed server-side from the engine's own pass data by\n:func:`trueppm_scheduler.derive_value`; it is never recomputed in the browser\nand nothing is fabricated (rule 120) — a contribution is emitted only for a\nconstraint the engine actually evaluates.\n\nFor a Monte Carlo percentile quantity (``p50``/``p80``/``p95``) the \"why\" is\nthe deterministic ``cpm_finish``, the signed ``delta_vs_cpm`` risk premium, and\nthe ADR-0140 sensitivity drivers of the latest persisted run (#987) — the\nexisting engine output surfaced honestly, not a second recomputation.\n\nRBAC: any project member (Viewer+) may read a derivation; ``McpReadableViewMixin``\nadditionally exposes it to an ``mcp:read`` API token confined to safe methods,\nso an AI/MCP agent can cite the *why* alongside the value.",
+                "summary": "Derivation (the why) of a computed schedule value",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "quantity",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Which computed value to explain: a CPM quantity (early_start, early_finish, late_start, late_finish, total_float, free_float) or a Monte Carlo percentile (p50, p80, p95). CPM quantities return {task_id, task_name, quantity, value, pass, is_critical, binding, contributions[]}, each contribution carrying its source task, dep_type, lag_days, imposed_date, calendar_days_added, slack_days, and is_binding. Percentiles return {quantity, value, cpm_finish, delta_vs_cpm_days, drivers[]} from the latest simulation.",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "task_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "The task whose computed value is being explained.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The derivation of the requested value."
+                    },
+                    "400": {
+                        "description": "Missing/unknown quantity, or invalid schedule input."
+                    },
+                    "404": {
+                        "description": "Unknown project or task, or no simulation available."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/sprint-forecast/": {
             "get": {
                 "operationId": "v1_projects_sprint_forecast_retrieve",

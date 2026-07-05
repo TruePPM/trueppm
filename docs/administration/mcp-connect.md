@@ -121,7 +121,8 @@ endpoint and returning only what your role permits:
   `get_program_health` (single-program only; cross-program rollups are Enterprise).
 - **Tasks & work** — `list_tasks`, `get_task`, `get_board_state`, `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
-  (latest persisted run; read-only), `list_risks`.
+  (latest persisted run; read-only), `get_schedule_derivation` (the *why* behind a
+  computed CPM value or Monte Carlo percentile), `list_risks`.
 - **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only).
 - **Identity** — `whoami`.
 
