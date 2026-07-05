@@ -250,6 +250,8 @@ test.describe('Programs — shell tabs', () => {
     const nav = page.getByRole('navigation', { name: 'Program' });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole('link', { name: /Backlog/i })).toBeVisible();
+    // Assets tab (ADR-0212, #971) is a discoverable top-bar tab too.
+    await expect(nav.getByRole('link', { name: /Assets/i })).toBeVisible();
     await nav.getByRole('link', { name: /Settings/i }).click();
 
     // Lands on the consolidated program settings page (ADR-0146; no per-section
@@ -621,7 +623,11 @@ test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => 
       }),
     );
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROGRAM_PROJECTS),
+      }),
     );
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
 
@@ -646,7 +652,11 @@ test.describe('Programs — Projects-tab rollup surfacing (#560 / #564)', () => 
     // Non-empty program list → only the toolbar "Add existing" renders (the
     // empty-state duplicate would be a strict-mode collision).
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
-      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(PROGRAM_PROJECTS) }),
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROGRAM_PROJECTS),
+      }),
     );
     // The modal reads the global project list (useProjects) for candidates.
     await page.route('**/api/v1/projects/', (r) =>

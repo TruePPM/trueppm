@@ -50,6 +50,7 @@ export const CANONICAL_VIEW_ORDER: readonly string[] = [
   'risk',
   'reports',
   'activity',
+  'assets',
   'settings',
 ];
 

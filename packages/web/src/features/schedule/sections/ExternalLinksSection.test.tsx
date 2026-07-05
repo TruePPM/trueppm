@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ExternalLinksSection, StatusBadge } from './ExternalLinksSection';
+import { ExternalLinksSection } from './ExternalLinksSection';
+// StatusBadge was lifted into a shared module (#971) so the Assets surface reuses it.
+import { StatusBadge } from '@/components/linkPresentation';
 import type { ExternalLinkStatus, TaskExternalLink } from '@/hooks/useTaskLinks';
 import { ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 

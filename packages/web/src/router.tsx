@@ -66,6 +66,12 @@ const ProjectActivityPage = lazy(() =>
     default: m.ProjectActivityPage,
   })),
 );
+const ProjectAssetsPage = lazy(() =>
+  import('@/features/assets/AssetsPage').then((m) => ({ default: m.ProjectAssetsPage })),
+);
+const ProgramAssetsPage = lazy(() =>
+  import('@/features/assets/AssetsPage').then((m) => ({ default: m.ProgramAssetsPage })),
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
@@ -460,6 +466,15 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                // Unified Assets surface — task files + external links (ADR-0212, #971).
+                path: 'assets',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectAssetsPage />
+                  </Suspense>
+                ),
+              },
+              {
                 // Consolidated single scrolling page (ADR-0146, #1248). The shell
                 // renders every section inline on one mounted page (no Outlet).
                 path: 'settings',
@@ -475,20 +490,73 @@ export const router = createBrowserRouter([
               // page at the matching anchor so bookmarks, emails, and old e2e
               // specs keep working. SIBLINGS of `settings` — the consolidated
               // page renders no Outlet, so these can't be nested under it.
-              { path: 'settings/general', element: <SectionRedirect base="/projects/:projectId/settings" anchor="general" /> },
-              { path: 'settings/access', element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" /> },
-              { path: 'settings/methodology', element: <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" /> },
-              { path: 'settings/team', element: <SectionRedirect base="/projects/:projectId/settings" anchor="team" /> },
-              { path: 'settings/signal-privacy', element: <SectionRedirect base="/projects/:projectId/settings" anchor="signal-privacy" /> },
-              { path: 'settings/workflow', element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" /> },
-              { path: 'settings/guardrails', element: <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" /> },
-              { path: 'settings/attachments', element: <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" /> },
-              { path: 'settings/surfaces', element: <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" /> },
-              { path: 'settings/integrations', element: <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" /> },
-              { path: 'settings/notifications', element: <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" /> },
-              { path: 'settings/lifecycle', element: <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" /> },
+              {
+                path: 'settings/general',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="general" />,
+              },
+              {
+                path: 'settings/access',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" />,
+              },
+              {
+                path: 'settings/methodology',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" />
+                ),
+              },
+              {
+                path: 'settings/team',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="team" />,
+              },
+              {
+                path: 'settings/signal-privacy',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="signal-privacy" />
+                ),
+              },
+              {
+                path: 'settings/workflow',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" />,
+              },
+              {
+                path: 'settings/guardrails',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" />
+                ),
+              },
+              {
+                path: 'settings/attachments',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" />
+                ),
+              },
+              {
+                path: 'settings/surfaces',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" />,
+              },
+              {
+                path: 'settings/integrations',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" />
+                ),
+              },
+              {
+                path: 'settings/notifications',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" />
+                ),
+              },
+              {
+                path: 'settings/lifecycle',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" />
+                ),
+              },
               // Pre-0061 alias: /settings/members → Access section.
-              { path: 'settings/members', element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" /> },
+              {
+                path: 'settings/members',
+                element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" />,
+              },
             ],
           },
           // Org-level resource catalog
@@ -615,6 +683,16 @@ export const router = createBrowserRouter([
                 ),
               },
               {
+                // Unified Assets surface across the program's readable member
+                // projects — files + external links (ADR-0212, #971).
+                path: 'assets',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramAssetsPage />
+                  </Suspense>
+                ),
+              },
+              {
                 // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
                 path: 'settings',
                 element: (
@@ -626,15 +704,48 @@ export const router = createBrowserRouter([
                 ),
               },
               // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
-              { path: 'settings/general', element: <SectionRedirect base="/programs/:programId/settings" anchor="general" /> },
-              { path: 'settings/projects', element: <SectionRedirect base="/programs/:programId/settings" anchor="projects" /> },
-              { path: 'settings/access', element: <SectionRedirect base="/programs/:programId/settings" anchor="access" /> },
-              { path: 'settings/rollup', element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" /> },
-              { path: 'settings/cadence', element: <SectionRedirect base="/programs/:programId/settings" anchor="cadence" /> },
-              { path: 'settings/risk', element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" /> },
-              { path: 'settings/attachments', element: <SectionRedirect base="/programs/:programId/settings" anchor="attachments" /> },
-              { path: 'settings/integrations', element: <SectionRedirect base="/programs/:programId/settings" anchor="integrations" /> },
-              { path: 'settings/lifecycle', element: <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" /> },
+              {
+                path: 'settings/general',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="general" />,
+              },
+              {
+                path: 'settings/projects',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="projects" />,
+              },
+              {
+                path: 'settings/access',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="access" />,
+              },
+              {
+                path: 'settings/rollup',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" />,
+              },
+              {
+                path: 'settings/cadence',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="cadence" />,
+              },
+              {
+                path: 'settings/risk',
+                element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" />,
+              },
+              {
+                path: 'settings/attachments',
+                element: (
+                  <SectionRedirect base="/programs/:programId/settings" anchor="attachments" />
+                ),
+              },
+              {
+                path: 'settings/integrations',
+                element: (
+                  <SectionRedirect base="/programs/:programId/settings" anchor="integrations" />
+                ),
+              },
+              {
+                path: 'settings/lifecycle',
+                element: (
+                  <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" />
+                ),
+              },
             ],
           },
           // Workspace settings — ONE consolidated scrolling page (ADR-0146, #1248).
@@ -652,16 +763,40 @@ export const router = createBrowserRouter([
             ),
           },
           // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
-          { path: 'settings/general', element: <SectionRedirect base="/settings" anchor="general" /> },
-          { path: 'settings/members', element: <SectionRedirect base="/settings" anchor="members" /> },
-          { path: 'settings/groups', element: <SectionRedirect base="/settings" anchor="groups" /> },
+          {
+            path: 'settings/general',
+            element: <SectionRedirect base="/settings" anchor="general" />,
+          },
+          {
+            path: 'settings/members',
+            element: <SectionRedirect base="/settings" anchor="members" />,
+          },
+          {
+            path: 'settings/groups',
+            element: <SectionRedirect base="/settings" anchor="groups" />,
+          },
           { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
-          { path: 'settings/methodology', element: <SectionRedirect base="/settings" anchor="methodology" /> },
-          { path: 'settings/schedule', element: <SectionRedirect base="/settings" anchor="schedule" /> },
-          { path: 'settings/programs', element: <SectionRedirect base="/settings" anchor="programs" /> },
-          { path: 'settings/attachments', element: <SectionRedirect base="/settings" anchor="attachments" /> },
+          {
+            path: 'settings/methodology',
+            element: <SectionRedirect base="/settings" anchor="methodology" />,
+          },
+          {
+            path: 'settings/schedule',
+            element: <SectionRedirect base="/settings" anchor="schedule" />,
+          },
+          {
+            path: 'settings/programs',
+            element: <SectionRedirect base="/settings" anchor="programs" />,
+          },
+          {
+            path: 'settings/attachments',
+            element: <SectionRedirect base="/settings" anchor="attachments" />,
+          },
           { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
-          { path: 'settings/danger', element: <SectionRedirect base="/settings" anchor="danger" /> },
+          {
+            path: 'settings/danger',
+            element: <SectionRedirect base="/settings" anchor="danger" />,
+          },
           // OSS-removed Connections routes (ADR-0076) — kept as redirect shims.
           {
             path: 'settings/integrations',

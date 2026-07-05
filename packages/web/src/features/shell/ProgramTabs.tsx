@@ -7,6 +7,7 @@ import {
   ResourcesIcon,
   BarChartIcon,
   SettingsIcon,
+  InboxIcon,
 } from '@/components/Icons';
 import { useProgramId } from '@/hooks/useProgramId';
 import type { ComponentType } from 'react';
@@ -27,6 +28,9 @@ const TABS: Tab[] = [
   { view: 'schedule', label: 'Schedule', Icon: GanttIcon },
   { view: 'resources', label: 'Resources', Icon: BarChartIcon },
   { view: 'members', label: 'Members', Icon: ResourcesIcon },
+  // Unified Assets surface — files + external links across the program's
+  // readable member projects (ADR-0212, #971).
+  { view: 'assets', label: 'Assets', Icon: InboxIcon },
   { view: 'settings', label: 'Settings', Icon: SettingsIcon },
 ];
 
