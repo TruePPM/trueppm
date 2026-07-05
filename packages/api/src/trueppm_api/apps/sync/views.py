@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
+from django.db.models import Max
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
@@ -17,13 +18,14 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.permissions import _membership_role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
     RetroActionItem,
     RetroVisibility,
@@ -39,6 +41,8 @@ from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
     SyncMembershipSerializer,
+    SyncProgramMembershipSerializer,
+    SyncProgramSerializer,
     SyncProjectSerializer,
     SyncPullResponseSerializer,
     SyncRetroActionItemSerializer,
@@ -646,3 +650,161 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             )
             result = cursor.fetchone()
         return int(result[0]) if result and result[0] is not None else 0
+
+
+class UserProgramSyncView(IdempotencyMixin, APIView):
+    """Pull-only delta sync for the caller's Program + ProgramMembership rows.
+
+    The project-scoped :class:`ProjectSyncView` cannot reach user-scoped Program
+    rows (ADR-0070 §Sync): the ``Project.program`` FK syncs offline so the program
+    badge renders on cached projects, but the program list itself does not — on a
+    job site the program layer vanishes and the user falls back to a flat project
+    list. This endpoint closes that gap, delivering Program and ProgramMembership
+    deltas for every program the caller is a member of. It is the 0.4 follow-up
+    ADR-0070 §Sync flagged; no new ADR (see the updated §Sync note).
+
+    Scope is derived entirely from the caller's own live memberships, so — unlike
+    the project endpoint — there is **no path parameter to tamper with**: no IDOR
+    surface. All co-members of the caller's programs are returned (parity with the
+    project endpoint, which returns every ``ProjectMembership`` for the project),
+    which lets the client enforce offline program RBAC and render the roster.
+
+    Tombstones: a program soft-deleted while the caller is still a member, and any
+    co-member membership soft-deleted, are delivered as ``deleted`` ids.
+
+    Known v1 limitation (mirrors ``ProjectSyncView``): if the caller's *own*
+    membership is soft-deleted (they are removed from a program), that row drops
+    out of the accessible set and its tombstone is never delivered — the online
+    path 403s on the next access and the client evicts the stale program on a full
+    re-sync. Full write-side offline for programs is out of scope for v1 (reads
+    first, per #561).
+
+    Usage:
+        GET /api/v1/sync/user/programs/?since=0
+    """
+
+    # Read-only pull; the generic Idempotency-Key path adds nothing (parity with
+    # ProjectSyncView.get, ADR-0170).
+    idempotency_exempt = True
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary="Pull the offline sync delta for the caller's programs",
+        parameters=[
+            OpenApiParameter(
+                name="since",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=0,
+                description=(
+                    "WatermelonDB high-water mark. Returns only Program / "
+                    "ProgramMembership rows whose `server_version` is strictly "
+                    "greater than this value. Omit (or pass `0`) for a full initial "
+                    "sync; adopt the previous response's `timestamp` for the delta."
+                ),
+            ),
+            OpenApiParameter(
+                name="cursor",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Opaque pagination continuation token (#1013). Omit on the "
+                    "first request; on each subsequent request pass the previous "
+                    "response's `next_cursor`. Keep `since` constant for the whole "
+                    "paging session. Loop until `has_more` is false, then adopt "
+                    "`timestamp` as the next `since`."
+                ),
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Maximum rows returned across both collections in one page. "
+                    "Defaults to `TRUEPPM_SYNC_PULL_PAGE_SIZE`; clamped to "
+                    "`TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE`."
+                ),
+            ),
+        ],
+        responses={200: SyncPullResponseSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        # Validate `since` — identical contract to ProjectSyncView.
+        since_raw = request.query_params.get("since", "0")
+        try:
+            since = int(since_raw)
+            if since < 0:
+                raise ValueError
+        except (ValueError, TypeError) as err:
+            raise ValidationError({"since": "Must be a non-negative integer."}) from err
+
+        cursor_raw = request.query_params.get("cursor")
+        cursor = SyncCursor.decode(cursor_raw) if cursor_raw else None
+        page_size = ProjectSyncView._resolve_page_size(request)
+
+        # Accessible set: programs the caller has a live membership on, kept as a
+        # queryset so Postgres evaluates it as a single subquery in the delta reads
+        # rather than round-tripping every id into Python.
+        accessible_ids = ProgramMembership.objects.filter(
+            user=cast("_User", request.user), is_deleted=False
+        ).values("program_id")
+
+        # Snapshot the high-water mark BEFORE the delta queries. server_version is
+        # monotonic, so a write landing after this snapshot moves the row forward in
+        # (server_version, id) order — delivered this pull (re-applied under upsert)
+        # or the next (its version > timestamp = next since); never lost. This is
+        # the same concurrency argument pagination.py makes, so no REPEATABLE READ
+        # wrapper is needed (ProjectSyncView's is belt-and-suspenders).
+        timestamp = self._watermark(accessible_ids)
+
+        # Program rows include soft-deleted ones so a program deleted while the
+        # caller is still a member arrives as a tombstone. Memberships cover every
+        # co-member of the caller's programs (offline RBAC + roster), soft-deleted
+        # rows included. Order is fixed — do not reorder without a protocol bump.
+        sources: list[SyncSource] = [
+            (
+                "programs",
+                Program.objects.filter(id__in=accessible_ids, server_version__gt=since),
+                SyncProgramSerializer,
+            ),
+            (
+                "program_memberships",
+                ProgramMembership.objects.filter(
+                    program_id__in=accessible_ids, server_version__gt=since
+                ),
+                SyncProgramMembershipSerializer,
+            ),
+        ]
+
+        changes, next_cursor, has_more = paginate_changes(
+            sources, cursor=cursor, page_size=page_size, collect=ProjectSyncView._collect
+        )
+
+        return Response(
+            {
+                "changes": changes,
+                "timestamp": timestamp,
+                "next_cursor": next_cursor.encode() if next_cursor is not None else None,
+                "has_more": has_more,
+            }
+        )
+
+    @staticmethod
+    def _watermark(accessible_ids: Any) -> int:
+        """Max ``server_version`` across the caller's programs and their memberships.
+
+        A safe upper bound the client adopts as the next ``since``. Two aggregates
+        rather than the 13-table union of the project watermark — the program slice
+        spans only these two tables. ``accessible_ids`` is a ``values("program_id")``
+        subquery, so each aggregate is one SQL round-trip.
+        """
+        program_max = Program.objects.filter(id__in=accessible_ids).aggregate(
+            m=Max("server_version")
+        )["m"]
+        membership_max = ProgramMembership.objects.filter(program_id__in=accessible_ids).aggregate(
+            m=Max("server_version")
+        )["m"]
+        return max(program_max or 0, membership_max or 0)
