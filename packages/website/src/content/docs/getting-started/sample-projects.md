@@ -161,6 +161,13 @@ program is created and owned by you, and you land on it once the import
 finishes. If the file fails validation, the page lists each problem with its
 JSON path so you can fix the file and try again.
 
+You can also reach the same importer from the sidebar **Import** button (next to
+**New project**): open it, choose the **TruePPM** format, and upload a `.json`
+seed. Because a native TruePPM export is a whole program, this creates a program
+(which may contain more than one project) and lands you on its overview — the
+round-trip counterpart to **Export to JSON**. The same dialog imports MS Project
+`.xml` files as a single project; pick the format that matches your file.
+
 ### From the command line
 
 ```bash

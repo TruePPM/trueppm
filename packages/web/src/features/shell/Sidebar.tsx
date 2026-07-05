@@ -521,6 +521,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             if (isDrawer) onClose?.();
             void navigate(`/projects/${projectId}/overview`);
           }}
+          onProgramImported={(programId) => {
+            // A native TruePPM seed re-materializes as a whole program
+            // (ADR-0222); land on its overview, not a single project.
+            setShowImport(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/programs/${programId}/overview`);
+          }}
         />
       )}
     </>
