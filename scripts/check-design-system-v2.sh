@@ -37,7 +37,7 @@ WEB_SRC="packages/web/src"
 SHELL_SRC="packages/web/src/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
-BASELINE_HEX=1196
+BASELINE_HEX=1195
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
