@@ -15,24 +15,24 @@ import {
 } from 'react';
 import { Link } from 'react-router';
 import { useMarkAllRead, useNotifications } from '@/hooks/useNotifications';
+import {
+  CATEGORY_FILTERS,
+  type NotificationCategory,
+  type NotificationFilter,
+  READ_STATE_FILTERS,
+  notificationEmptyCopy,
+} from './notificationFilters';
 import { NotificationRow } from './NotificationRow';
-
-type Filter = 'all' | 'unread' | 'archived';
 
 interface Props {
   onClose: () => void;
 }
 
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'archived', label: 'Archived' },
-];
-
 export function NotificationPanel({ onClose }: Props) {
-  const [filter, setFilter] = useState<Filter>('unread');
+  const [filter, setFilter] = useState<NotificationFilter>('unread');
+  const [category, setCategory] = useState<NotificationCategory>('all');
   const { notifications, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useNotifications({ filter });
+    useNotifications({ filter, category });
   const markAllRead = useMarkAllRead();
   const [announce, setAnnounce] = useState<string>('');
   const firstFocusRef = useRef<HTMLButtonElement>(null);
@@ -53,12 +53,12 @@ export function NotificationPanel({ onClose }: Props) {
   const handleFilterKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const idx = FILTERS.findIndex((f) => f.value === filter);
+    const idx = READ_STATE_FILTERS.findIndex((f) => f.value === filter);
     const nextIdx =
       e.key === 'ArrowRight'
-        ? (idx + 1) % FILTERS.length
-        : (idx - 1 + FILTERS.length) % FILTERS.length;
-    const next = FILTERS[nextIdx].value;
+        ? (idx + 1) % READ_STATE_FILTERS.length
+        : (idx - 1 + READ_STATE_FILTERS.length) % READ_STATE_FILTERS.length;
+    const next = READ_STATE_FILTERS[nextIdx].value;
     setFilter(next);
     tabRefs.current[next]?.focus();
   };
@@ -115,13 +115,13 @@ export function NotificationPanel({ onClose }: Props) {
         </div>
       </div>
 
-      {/* Filter tabs */}
+      {/* Read-state filter tabs */}
       <div
         role="tablist"
         aria-label="Filter notifications"
         className="flex gap-1 px-3 py-2 border-b border-neutral-border"
       >
-        {FILTERS.map((f) => {
+        {READ_STATE_FILTERS.map((f) => {
           const active = filter === f.value;
           return (
             <button
@@ -146,6 +146,37 @@ export function NotificationPanel({ onClose }: Props) {
                 }`}
             >
               {f.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Category selector — orthogonal to the read-state tabs (ADR-0213 §3).
+          A radiogroup, not a second tablist, so its "All" doesn't collide with
+          the read-state "All" tab and screen readers announce single-select. */}
+      <div
+        role="radiogroup"
+        aria-label="Filter by category"
+        className="flex gap-1 px-3 py-2 border-b border-neutral-border overflow-x-auto"
+      >
+        {CATEGORY_FILTERS.map((c) => {
+          const active = category === c.value;
+          return (
+            <button
+              key={c.value}
+              role="radio"
+              type="button"
+              aria-checked={active}
+              onClick={() => setCategory(c.value)}
+              className={`text-xs px-2 h-6 rounded-control font-medium whitespace-nowrap transition-colors
+                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+                ${
+                  active
+                    ? 'bg-brand-primary/10 text-brand-primary'
+                    : 'text-neutral-text-secondary hover:text-neutral-text-primary'
+                }`}
+            >
+              {c.label}
             </button>
           );
         })}
@@ -181,21 +212,18 @@ export function NotificationPanel({ onClose }: Props) {
             Couldn&apos;t load notifications.
           </p>
         )}
-        {!isLoading && !error && sorted.length === 0 && (
-          <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
-            <span aria-hidden="true" className="text-2xl">
-              {filter === 'archived' ? '🗂️' : '🎉'}
-            </span>
-            <p className="text-sm font-medium text-neutral-text-primary">
-              {filter === 'archived' ? 'Nothing archived yet' : "You're all caught up"}
-            </p>
-            <p className="text-xs text-neutral-text-secondary">
-              {filter === 'unread' && 'No unread mentions right now.'}
-              {filter === 'archived' && 'Archived mentions will collect here.'}
-              {filter === 'all' && 'When someone @-mentions you, it shows up here.'}
-            </p>
-          </div>
-        )}
+        {!isLoading && !error && sorted.length === 0 && (() => {
+          const copy = notificationEmptyCopy(filter, category);
+          return (
+            <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
+              <span aria-hidden="true" className="text-2xl">
+                {copy.emoji}
+              </span>
+              <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
+              <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
+            </div>
+          );
+        })()}
         {!isLoading && !error && sorted.length > 0 && (
           <div className="flex flex-col gap-2">
             {sorted.map((n) => (

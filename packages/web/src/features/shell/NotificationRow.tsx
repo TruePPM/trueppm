@@ -3,12 +3,20 @@
  * panel and the /me/notifications full-screen route (#311 phase 3).
  *
  * Click → navigate to source task; mark read on the way. Per-row [Mark read]
- * and [Archive] buttons keep the bulk actions discoverable.
+ * and [Archive] buttons keep the bulk actions discoverable. Inline [Snooze]
+ * (presets) and [Mute notifications like this] surface the noise controls where
+ * the noise is felt (ADR-0213, #1558) so a contributor never has to leave the
+ * panel for the settings page to turn a noisy type down.
  */
 
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
+import { toast } from '@/components/Toast/toast';
 import {
   type NotificationRow as NotificationRowType,
+  type NotificationSnoozePreset,
+  useMuteNotificationType,
+  useSnoozeNotification,
   useUpdateNotification,
 } from '@/hooks/useNotifications';
 import { formatRelative } from '@/lib/formatRelative';
@@ -19,9 +27,24 @@ interface Props {
   onNavigate?: () => void;
 }
 
+const SNOOZE_PRESETS: { preset: NotificationSnoozePreset; label: string; toast: string }[] = [
+  { preset: '1h', label: '1 hour', toast: 'Snoozed for 1 hour' },
+  { preset: '3h', label: '3 hours', toast: 'Snoozed for 3 hours' },
+  { preset: 'tomorrow', label: 'Tomorrow', toast: 'Snoozed until tomorrow' },
+];
+
+const actionBtn =
+  'text-xs text-neutral-text-secondary hover:text-neutral-text-primary ' +
+  'rounded-control px-2 h-7 ' +
+  'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none ' +
+  'disabled:opacity-50';
+
 export function NotificationRow({ notification, onNavigate }: Props) {
   const navigate = useNavigate();
   const update = useUpdateNotification();
+  const snooze = useSnoozeNotification();
+  const mute = useMuteNotificationType();
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
 
   // An event-sourced row (#639/#497/#861) carries its own title/preview and has
   // no mention; a mention row renders from the mentioner + comment snippet.
@@ -39,6 +62,8 @@ export function NotificationRow({ notification, onNavigate }: Props) {
   const ariaLabel = isEvent
     ? `${notification.subject}, ${ts}${notification.is_read ? '' : ', unread'}`
     : `Mention by ${mentioner}, ${ts}${notification.is_read ? '' : ', unread'}`;
+  const isSnoozed = !!notification.snoozed_until;
+  const busy = update.isPending || snooze.isPending || mute.isPending;
 
   function handleNavigate() {
     if (!notification.is_read) {
@@ -71,6 +96,37 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     update.mutate({ id: notification.id, is_archived: true });
   }
 
+  function handleSnooze(preset: NotificationSnoozePreset, confirmation: string) {
+    setSnoozeMenuOpen(false);
+    snooze.mutate(
+      { id: notification.id, preset },
+      { onSuccess: () => toast.success(confirmation) },
+    );
+  }
+
+  function handleUnsnooze() {
+    snooze.mutate(
+      { id: notification.id, until: null },
+      { onSuccess: () => toast.info('Snooze cleared') },
+    );
+  }
+
+  function handleMute() {
+    const eventType = notification.event_type;
+    mute.mutate(
+      { eventType, mute: true },
+      {
+        onSuccess: () =>
+          // In-app only (ADR-0213 §2) — email is untouched, hence "in your inbox".
+          toast.action('Muted in your inbox', {
+            label: 'Undo',
+            ariaLabel: 'Undo mute',
+            onClick: () => mute.mutate({ eventType, mute: false }),
+          }),
+      },
+    );
+  }
+
   return (
     <article
       aria-label={ariaLabel}
@@ -94,29 +150,62 @@ export function NotificationRow({ notification, onNavigate }: Props) {
         </div>
         <p className="text-xs text-neutral-text-secondary truncate">{preview}</p>
       </button>
-      <div className="flex items-center gap-1 mt-1">
-        <button
-          type="button"
-          onClick={handleMarkRead}
-          disabled={update.isPending}
-          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            rounded-control px-2 h-7
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
-            disabled:opacity-50"
-        >
+      <div className="flex items-center gap-1 mt-1 flex-wrap">
+        <button type="button" onClick={handleMarkRead} disabled={busy} className={actionBtn}>
           {notification.is_read ? 'Mark unread' : 'Mark read'}
         </button>
         {!notification.is_archived && (
-          <button
-            type="button"
-            onClick={handleArchive}
-            disabled={update.isPending}
-            className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-              rounded-control px-2 h-7
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
-              disabled:opacity-50"
-          >
+          <button type="button" onClick={handleArchive} disabled={busy} className={actionBtn}>
             Archive
+          </button>
+        )}
+        {isSnoozed ? (
+          <button type="button" onClick={handleUnsnooze} disabled={busy} className={actionBtn}>
+            Un-snooze
+          </button>
+        ) : (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSnoozeMenuOpen((open) => !open)}
+              disabled={busy}
+              aria-haspopup="menu"
+              aria-expanded={snoozeMenuOpen}
+              className={actionBtn}
+            >
+              Snooze
+            </button>
+            {snoozeMenuOpen && (
+              <div
+                role="menu"
+                aria-label="Snooze options"
+                className="absolute left-0 top-full mt-1 z-10 flex flex-col
+                  min-w-[8rem] rounded-card border border-neutral-border bg-neutral-surface p-1"
+              >
+                {SNOOZE_PRESETS.map((p) => (
+                  <button
+                    key={p.preset}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => handleSnooze(p.preset, p.toast)}
+                    disabled={busy}
+                    className="text-xs text-left text-neutral-text-secondary hover:text-neutral-text-primary
+                      hover:bg-neutral-surface-raised rounded-control px-2 h-7
+                      focus:ring-2 focus:ring-brand-primary focus:ring-inset focus:outline-none
+                      disabled:opacity-50"
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Mute a *type* — mention rows omit it (you mute a type; a mention is a
+            person addressing you). ADR-0213 §2. */}
+        {isEvent && (
+          <button type="button" onClick={handleMute} disabled={busy} className={actionBtn}>
+            Mute notifications like this
           </button>
         )}
       </div>
