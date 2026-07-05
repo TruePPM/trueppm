@@ -4385,6 +4385,13 @@ SCOPE_MCP_READ = "mcp:read"
 API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
+# Cap on the number of *active* personal access tokens (PATs) a single user may
+# hold at once (ADR-0211, issue #648). "Active" = owner-scoped, not revoked, not
+# soft-deleted, not past expiry. Bounds the blast radius of a leaked account and
+# keeps the /me/api-tokens/ list navigable; mirrors the count-gate precedent used
+# for per-task comments. Enterprise can later raise/lower this via policy.
+MAX_PERSONAL_ACCESS_TOKENS = 10
+
 
 def _default_api_token_scopes() -> list[str]:
     """Default scope set for a newly minted token.
@@ -4474,6 +4481,17 @@ class ApiToken(VersionedModel):
         "scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets "
         "and is rejected at every write path.",
     )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="personal_api_tokens",
+        help_text="Set for a user-scoped Personal Access Token (ADR-0211). The "
+        "token acts as this user, so RBAC applies exactly as their session would. "
+        "CASCADE — a deleted account takes its full-access credentials with it. "
+        "Exactly one of project/program/owner is non-null (DB constraint).",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -4486,6 +4504,13 @@ class ApiToken(VersionedModel):
         null=True,
         blank=True,
         help_text="Updated by the authenticator on each successful inbound request.",
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional expiry (ADR-0211). Null = non-expiring. The "
+        "authenticator rejects a token whose expiry is in the past; project/program "
+        "tokens leave this null and are unaffected.",
     )
     revoked_at = models.DateTimeField(
         null=True,
@@ -4500,20 +4525,29 @@ class ApiToken(VersionedModel):
         indexes = [
             models.Index(fields=["project", "revoked_at"]),
             models.Index(fields=["program", "revoked_at"]),
+            models.Index(fields=["owner", "revoked_at"]),
         ]
         constraints = [
             models.CheckConstraint(
-                # Exactly one of project / program is non-null. Prevents
-                # ambiguous-scope tokens at the database layer.
+                # Three-way scope XOR (ADR-0211): exactly one of project / program /
+                # owner is non-null. This is a *relaxation* of the original
+                # project-XOR-program rule — every existing (project XOR program) row
+                # still satisfies it, so it is safe on shipped data with no data
+                # migration. The invariant prevents an ambiguous "confused deputy"
+                # credential (e.g. project + owner both set) at the database layer:
+                # a token authorizes exactly one scope, never a mixture.
                 condition=(
-                    Q(project__isnull=False, program__isnull=True)
-                    | Q(project__isnull=True, program__isnull=False)
+                    Q(project__isnull=False, program__isnull=True, owner__isnull=True)
+                    | Q(project__isnull=True, program__isnull=False, owner__isnull=True)
+                    | Q(project__isnull=True, program__isnull=True, owner__isnull=False)
                 ),
                 name="api_token_scope_xor",
             ),
         ]
 
     def __str__(self) -> str:
+        if self.owner_id is not None:
+            return f"ApiToken({self.token_prefix}…, owner={self.owner_id})"
         if self.program_id is not None:
             return f"ApiToken({self.token_prefix}…, program={self.program_id})"
         return f"ApiToken({self.token_prefix}…, project={self.project_id})"
@@ -4522,6 +4556,44 @@ class ApiToken(VersionedModel):
     def is_program_scoped(self) -> bool:
         """True when this token authorizes writes into any project in a program."""
         return self.program_id is not None
+
+    @property
+    def is_personal(self) -> bool:
+        """True when this is a user-scoped Personal Access Token (ADR-0211)."""
+        return self.owner_id is not None
+
+    @property
+    def is_expired(self) -> bool:
+        """True when a non-null ``expires_at`` is in the past.
+
+        Mirrors the authenticator's expiry filter so the serializer and the cap
+        counter agree on what "active" means — an expired token is inactive even
+        though ``revoked_at`` is still null.
+        """
+        return self.expires_at is not None and self.expires_at <= timezone.now()
+
+    @classmethod
+    def active_personal_tokens_for(cls, user: Any) -> models.QuerySet[ApiToken]:
+        """Return a user's currently-active Personal Access Tokens (ADR-0211).
+
+        "Active" means owner-scoped to ``user``, not revoked, not soft-deleted, and
+        not past its expiry — the exact set the ``/me/api-tokens/`` cap counts and
+        the password-change revocation sweeps. Centralizing the definition here
+        keeps the authenticator, the create cap, and the serializer's ``is_expired``
+        from drifting apart.
+
+        Args:
+            user: The account whose active PATs to return.
+
+        Returns:
+            A queryset of the user's active ``ApiToken`` rows (newest first).
+        """
+        now = timezone.now()
+        return cls.objects.filter(
+            owner=user,
+            is_deleted=False,
+            revoked_at__isnull=True,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
 
 
 # Backwards-compat alias for any external code that still imports the old name.
@@ -4664,6 +4736,16 @@ class ApiTokenAuditEntry(models.Model):
         null=True,
         blank=True,
     )
+    # owner-scoped audit rows record Personal Access Token mint/revoke events
+    # (ADR-0211). CASCADE so a deleted account's audit trail dies with it, matching
+    # ApiToken.owner. Existing rows are all project/program-scoped (owner null).
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="personal_api_token_audit",
+        null=True,
+        blank=True,
+    )
     token = models.ForeignKey(
         ProjectApiToken,
         on_delete=models.SET_NULL,
@@ -4697,17 +4779,26 @@ class ApiTokenAuditEntry(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                # Exactly one of project / program is non-null — mirrors ApiToken.
+                # Three-way scope XOR — mirrors ApiToken (ADR-0211): exactly one of
+                # project / program / owner is non-null. A pure relaxation of the
+                # original project-XOR-program rule; every shipped row (all
+                # project/program-scoped) still satisfies it, so no data migration.
                 condition=(
-                    Q(project__isnull=False, program__isnull=True)
-                    | Q(project__isnull=True, program__isnull=False)
+                    Q(project__isnull=False, program__isnull=True, owner__isnull=True)
+                    | Q(project__isnull=True, program__isnull=False, owner__isnull=True)
+                    | Q(project__isnull=True, program__isnull=True, owner__isnull=False)
                 ),
                 name="api_token_audit_scope_xor",
             ),
         ]
 
     def __str__(self) -> str:
-        scope = f"program={self.program_id}" if self.program_id else f"project={self.project_id}"
+        if self.owner_id is not None:
+            scope = f"owner={self.owner_id}"
+        elif self.program_id is not None:
+            scope = f"program={self.program_id}"
+        else:
+            scope = f"project={self.project_id}"
         return f"ApiTokenAuditEntry({self.action} {self.token_prefix} {scope})"
 
 

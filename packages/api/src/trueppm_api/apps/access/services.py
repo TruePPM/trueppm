@@ -408,3 +408,44 @@ def revoke_all_refresh_tokens(user: Any) -> int:
         if created:
             revoked += 1
     return revoked
+
+
+def revoke_all_personal_access_tokens(user: Any) -> int:
+    """Soft-revoke every active Personal Access Token owned by ``user`` (ADR-0211).
+
+    Why this exists: a Personal Access Token is a *full-authority* bearer of the
+    user's own credentials — a script authenticating with it acts exactly as the
+    user. A password change is the user asserting "my credentials may be
+    compromised; cut everything off," so it must invalidate not only live sessions
+    (``revoke_all_refresh_tokens``) but also every long-lived personal credential
+    they minted. Leaving PATs live after a reset would defeat the whole point of
+    the reset — an attacker who phished the old password could keep the account via
+    a PAT they created. This is the PAT analogue of the refresh-token revocation and
+    is called immediately after it in the same atomic block.
+
+    Scope discipline: only ``owner=user`` (personal) tokens are revoked. Project-
+    and program-scoped tokens are *org assets* minted by an Admin/PM — they are not
+    the user's personal credentials and are deliberately left untouched, so a
+    password reset never breaks a team's CI integration.
+
+    Idempotent: already-revoked tokens are filtered out, so re-running is a no-op.
+    Uses a bulk ``update()`` (not per-row ``save()``) because revocation is a
+    single indexed write with no ``server_version`` sync semantics on the audit
+    path — the tokens are not mobile-synced resources whose version consumers track.
+
+    Args:
+        user: The account whose personal access tokens should all be revoked.
+
+    Returns:
+        The number of tokens newly revoked (already-revoked tokens are excluded).
+    """
+    # Local import: the projects app imports from access, so importing ApiToken at
+    # module top would create a circular dependency through the access → projects
+    # path (mirrors delete_program_cascade's lazy Project import).
+    from trueppm_api.apps.projects.models import ApiToken
+
+    return ApiToken.objects.filter(
+        owner=user,
+        is_deleted=False,
+        revoked_at__isnull=True,
+    ).update(revoked_at=timezone.now())

@@ -3338,6 +3338,228 @@
                 }
             }
         },
+        "/api/v1/me/api-tokens/": {
+            "get": {
+                "operationId": "v1_me_api_tokens_list",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0211 §Durable Execution).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedMyApiTokenList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List api tokens"
+            },
+            "post": {
+                "operationId": "v1_me_api_tokens_create",
+                "description": "Mint a personal token and return the raw value once.\n\nEnforces the active-token cap before generating anything so a user at the\ncap gets a clear 400 rather than a token they cannot keep. After the\nresponse is sent the raw token is not retrievable.",
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MyApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create api token"
+            }
+        },
+        "/api/v1/me/api-tokens/{id}/": {
+            "get": {
+                "operationId": "v1_me_api_tokens_retrieve",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0211 §Durable Execution).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MyApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve api token"
+            },
+            "delete": {
+                "operationId": "v1_me_api_tokens_destroy",
+                "description": "Revoke (soft-revoke) a personal token. Idempotent — re-revoking no-ops.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete api token"
+            }
+        },
         "/api/v1/me/credentials/": {
             "get": {
                 "operationId": "v1_me_credentials_list",
@@ -35419,6 +35641,81 @@
                 "type": "integer",
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
             },
+            "MyApiToken": {
+                "type": "object",
+                "description": "Read serializer for a user's own Personal Access Tokens (ADR-0211).\n\nScoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user\nso it is not exposed. The raw token and ``token_hash`` are never serialized;\nthe caller sees ``token_prefix`` only (enough to tell tokens apart) plus the\nlifecycle state it needs to render the list (expiry, revocation, last use).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Human-readable label (e.g. 'Jira Production').  Not unique."
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 8 hex chars of the raw token (for audit identification)."
+                    },
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopesEnum"
+                        },
+                        "readOnly": true,
+                        "description": "Capabilities this token grants. 'legacy:full' is the historical unrestricted scope (and a superset satisfying any read scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Updated by the authenticator on each successful inbound request."
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Optional expiry (ADR-0211). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected."
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when an Admin/PM revokes the token.  Non-null = inactive."
+                    },
+                    "is_revoked": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_expired": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "expires_at",
+                    "id",
+                    "is_expired",
+                    "is_revoked",
+                    "last_used_at",
+                    "name",
+                    "revoked_at",
+                    "scopes",
+                    "token_prefix"
+                ]
+            },
             "Notification": {
                 "type": "object",
                 "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
@@ -36248,6 +36545,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MeWorkTask"
+                        }
+                    }
+                }
+            },
+            "PaginatedMyApiTokenList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MyApiToken"
                         }
                     }
                 }

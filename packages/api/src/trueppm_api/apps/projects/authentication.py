@@ -6,6 +6,7 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth.models import AnonymousUser
+from django.db.models import Q
 from django.utils import timezone
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import exceptions
@@ -80,13 +81,21 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         except ValueError as exc:
             raise exceptions.AuthenticationFailed("Invalid token.") from exc
 
+        # Expiry filter (ADR-0211): a Personal Access Token past its ``expires_at``
+        # is treated as if it did not exist — no row, generic 401, no enumeration
+        # signal. Applies uniformly: project/program tokens leave ``expires_at``
+        # null and match the ``isnull`` branch, so they are unaffected. Folding
+        # expiry into the same indexed hash lookup keeps the hot path a single
+        # query and preserves the timing-safe "no match → no row" property (no
+        # Python-side string compare on secrets is introduced).
         token = (
             ProjectApiToken.objects.filter(
+                Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
                 token_hash=sha256_hex(raw_token),
                 revoked_at__isnull=True,
                 is_deleted=False,
             )
-            .select_related("project", "created_by")
+            .select_related("project", "created_by", "owner")
             .first()
         )
         if token is None:
@@ -97,12 +106,17 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         # specific use is written by the view (which holds the URL kwargs).
         ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
-        # request.user is the token creator (or AnonymousUser if the creator was
-        # deleted).  django-simple-history reads request.user via
-        # HistoricalRecords' middleware and writes it as history_user, so task
-        # mutations done via this token attribute back to the human who minted
-        # the integration.
-        user = token.created_by if token.created_by is not None else AnonymousUser()
+        # request.user resolution (ADR-0211):
+        #   - Personal Access Token → the ``owner`` (the acting user). Because
+        #     request.user becomes the owner, ALL downstream DRF object-level RBAC
+        #     applies exactly as that user's own session — a PAT is not a superuser
+        #     credential, it sees only what its owner sees.
+        #   - Project/program token → the ``created_by`` minter (owner is null), so
+        #     django-simple-history attributes task mutations back to the human who
+        #     minted the integration.
+        #   - Neither present (a project/program token whose SET_NULL minter was
+        #     deleted) → AnonymousUser.
+        user = token.owner or token.created_by or AnonymousUser()
         return (user, token)
 
     def authenticate_header(self, request: Request) -> str:

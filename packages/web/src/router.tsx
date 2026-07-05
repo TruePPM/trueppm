@@ -89,6 +89,11 @@ const MyGeneralPreferencesPage = lazy(() =>
   })),
 );
 
+const PersonalAccessTokensPage = lazy(() =>
+  import('@/features/me/PersonalAccessTokensPage').then((m) => ({
+    default: m.PersonalAccessTokensPage,
+  })),
+);
 const ConnectedAccountsPage = lazy(() =>
   import('@/features/me/ConnectedAccountsPage').then((m) => ({
     default: m.ConnectedAccountsPage,
@@ -543,6 +548,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <ConnectedAccountsPage />
+              </Suspense>
+            ),
+          },
+          // Per-user Personal Access Tokens (#648, ADR-0211).
+          {
+            path: 'me/settings/api-tokens',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <PersonalAccessTokensPage />
               </Suspense>
             ),
           },

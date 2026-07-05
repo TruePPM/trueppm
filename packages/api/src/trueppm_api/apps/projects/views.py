@@ -141,6 +141,8 @@ from trueppm_api.apps.projects.serializers import (
     MeWorkTaskSerializer,
     MilestoneListItemSerializer,
     MilestoneRollupLockedError,
+    MyApiTokenCreateSerializer,
+    MyApiTokenSerializer,
     PhaseSerializer,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
@@ -2462,10 +2464,16 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     aggregate active count. Revoked tokens are intentionally hidden from the summary —
     they remain visible on the dedicated API token page for audit purposes.
     """
+    # owner__isnull=True keeps user-scoped Personal Access Tokens (ADR-0211) out
+    # of the project/program integration summary — ApiToken is now polymorphic
+    # across project/program/owner scopes, and a personal token must never surface
+    # on a project's or program's token list even though the scope_filter already
+    # pins a specific id.
     qs = ApiToken.objects.filter(
         scope_filter,
         is_deleted=False,
         revoked_at__isnull=True,
+        owner__isnull=True,
     ).order_by("-created_at")
     active_total = qs.count()
     last_used_at: datetime.datetime | None = None
@@ -11516,10 +11524,14 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         return self._get_project_or_404(self.kwargs[self._scope_kwarg])
 
     def get_queryset(self) -> QuerySet[Any]:
+        # owner__isnull=True excludes user-scoped Personal Access Tokens (ADR-0211)
+        # — they share the ApiToken table but must never appear on a project's or
+        # program's token list.
         return (
             ProjectApiToken.objects.filter(
                 **{f"{self._scope_field}_id": self.kwargs[self._scope_kwarg]},
                 is_deleted=False,
+                owner__isnull=True,
             )
             .select_related("created_by", self._scope_field)
             .order_by("-created_at")
@@ -11681,6 +11693,155 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
             return Program.objects.get(pk=self.kwargs["program_pk"], is_deleted=False)
         except Program.DoesNotExist as exc:
             raise Http404("Program not found.") from exc
+
+
+class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
+    """``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).
+
+    A PAT authenticates a script *as the requesting user*: it acts with exactly
+    their RBAC, never more (the authenticator sets ``request.user`` to the token's
+    ``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can
+    only ever see, create, or revoke their own tokens.
+
+    - ``list`` / ``retrieve`` never expose the raw token or hash.
+    - ``create`` generates the raw token, returns it **once** in a ``token`` field,
+      writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``
+      active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).
+    - ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.
+
+    No WebSocket broadcast: a personal token has no board channel, so the audit row
+    is the durable record (ADR-0211 §Durable Execution).
+    """
+
+    # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
+    # carries the one-time plaintext token, which must never be persisted in the
+    # idempotency store for replay — same rationale as the project token viewset.
+    idempotency_exempt = True
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MyApiTokenSerializer
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_throttles(self) -> list[Any]:
+        from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
+
+        if self.action == "create":
+            return [TokenIssuanceThrottle()]
+        return []
+
+    def get_queryset(self) -> QuerySet[Any]:
+        # Auto-scoped to the requesting user: owner=request.user is the only object
+        # boundary — there is no project/program RBAC to check because a PAT is a
+        # purely personal credential.
+        return (
+            ProjectApiToken.objects.filter(
+                owner=self.request.user,  # type: ignore[misc]
+                is_deleted=False,
+            )
+            .select_related("owner")
+            .order_by("-created_at")
+        )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Mint a personal token and return the raw value once.
+
+        Enforces the active-token cap before generating anything so a user at the
+        cap gets a clear 400 rather than a token they cannot keep. After the
+        response is sent the raw token is not retrievable.
+        """
+        import secrets
+
+        from django.contrib.auth.models import User
+
+        from trueppm_api.apps.projects.authentication import (
+            TOKEN_PREFIX,
+            sha256_hex,
+        )
+        from trueppm_api.apps.projects.models import (
+            MAX_PERSONAL_ACCESS_TOKENS,
+            SCOPE_LEGACY_FULL,
+            ApiToken,
+            ApiTokenAuditAction,
+            ApiTokenAuditEntry,
+        )
+
+        # IsAuthenticated guarantees a real user; narrow for the FK assignments.
+        caller = cast(User, request.user)
+
+        write_serializer = MyApiTokenCreateSerializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+
+        # Cap gate (ADR-0211): count only ACTIVE tokens (not revoked, not expired,
+        # not deleted) so revoking or letting one expire frees a slot. Mirrors the
+        # per-task comment count-gate precedent.
+        active_count = ApiToken.active_personal_tokens_for(caller).count()
+        if active_count >= MAX_PERSONAL_ACCESS_TOKENS:
+            return Response(
+                {
+                    "detail": (
+                        f"You already have {MAX_PERSONAL_ACCESS_TOKENS} active personal "
+                        "access tokens (the maximum). Revoke one before creating another."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_token = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        token_prefix = raw_token[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8]
+
+        with transaction.atomic():
+            token = ProjectApiToken.objects.create(
+                owner=caller,
+                name=write_serializer.validated_data["name"],
+                # v1 PATs are full-access — the scope picker is deferred (ADR-0211).
+                scopes=[SCOPE_LEGACY_FULL],
+                expires_at=write_serializer.validated_data.get("expires_at"),
+                token_prefix=token_prefix,
+                token_hash=sha256_hex(raw_token),
+                # A PAT is minted by, and owned by, the same user.
+                created_by=caller,
+            )
+            ApiTokenAuditEntry.objects.create(
+                owner=caller,
+                token=token,
+                token_prefix=token_prefix,
+                actor=caller,
+                action=ApiTokenAuditAction.MINTED.value,
+                source_ip=_client_ip(request),
+                detail={"name": token.name},
+            )
+            # No WS broadcast — a personal token has no board channel (ADR-0211).
+
+        # Single-shot response: the raw token field is present here, never on reads.
+        read_data = MyApiTokenSerializer(token).data
+        return Response({**read_data, "token": raw_token}, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Revoke (soft-revoke) a personal token. Idempotent — re-revoking no-ops."""
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+
+        from trueppm_api.apps.projects.models import (
+            ApiTokenAuditAction,
+            ApiTokenAuditEntry,
+        )
+
+        caller = cast(User, request.user)  # IsAuthenticated guarantees a real user
+        token = self.get_object()  # get_queryset already scopes to owner=request.user
+        if token.revoked_at is None:
+            with transaction.atomic():
+                token.revoked_at = timezone.now()
+                token.save(update_fields=["revoked_at"])
+                ApiTokenAuditEntry.objects.create(
+                    owner=caller,
+                    token=token,
+                    token_prefix=token.token_prefix,
+                    actor=caller,
+                    action=ApiTokenAuditAction.REVOKED.value,
+                    source_ip=_client_ip(request),
+                    detail={"name": token.name},
+                )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class _ApiTokenAuditPagination(pagination.LimitOffsetPagination):

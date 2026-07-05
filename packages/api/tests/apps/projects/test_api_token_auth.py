@@ -11,6 +11,8 @@ tokens and the deleted-creator → AnonymousUser fallback.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -149,3 +151,51 @@ class TestProjectApiTokenAuthenticationFailures:
         _mint(project=project, created_by=creator, revoked_at=timezone.now())
         with pytest.raises(exceptions.AuthenticationFailed):
             ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+
+@pytest.mark.django_db
+class TestPersonalAccessTokenAuthentication:
+    """Personal Access Tokens (ADR-0211): owner resolution + expiry filter.
+
+    A PAT sets ``request.user`` to its ``owner`` (the acting user), so all
+    downstream RBAC applies exactly as that user's session. A token past its
+    ``expires_at`` fails closed with the same generic 401 as an unknown hash.
+    """
+
+    def test_personal_token_resolves_to_owner(self, creator: object) -> None:
+        # created_by (minter) differs from owner to prove owner wins the resolution.
+        owner = User.objects.create_user(username="pat_owner", password="pw")
+        token = _mint(owner=owner, project=None, created_by=creator)
+        result = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        user, auth = result
+        assert user == owner  # owner, not the minter
+        assert auth == token
+        assert auth.is_personal is True
+        # A far-future expiry authenticates fine.
+        token.expires_at = timezone.now() + timedelta(days=1)
+        token.save(update_fields=["expires_at"])
+        again = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert again is not None
+
+    def test_expired_personal_token_raises(self, creator: object) -> None:
+        owner = User.objects.create_user(username="pat_owner", password="pw")
+        _mint(
+            owner=owner,
+            project=None,
+            created_by=creator,
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+        with pytest.raises(exceptions.AuthenticationFailed):
+            ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+
+    def test_project_token_unaffected_by_expiry_filter(
+        self, project: Project, creator: object
+    ) -> None:
+        # A project token has null expires_at and still authenticates (the expiry
+        # branch must not regress the existing project/program path).
+        _mint(project=project, created_by=creator)
+        result = ProjectApiTokenAuthentication().authenticate(_request(f"Bearer {_RAW_TOKEN}"))
+        assert result is not None
+        user, _ = result
+        assert user == creator

@@ -12,6 +12,8 @@ Covers the two endpoints and the security properties they must hold:
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -174,6 +176,48 @@ def test_confirm_revokes_all_other_sessions(user) -> None:
     client.cookies[_COOKIE] = refresh_cookie_1
     refresh = client.post(_REFRESH_URL)
     assert refresh.status_code == 401
+
+
+@pytest.mark.django_db
+def test_confirm_revokes_personal_access_tokens_but_not_project_tokens(user) -> None:
+    """A password reset revokes the user's PATs but leaves org tokens alone (ADR-0211)."""
+    from datetime import date
+
+    from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+    from trueppm_api.apps.projects.models import ApiToken, Calendar, Project
+
+    def _mint(**kwargs):
+        raw = TOKEN_PREFIX + secrets.token_hex(32)
+        return ApiToken.objects.create(
+            name="tok",
+            token_prefix=raw[len(TOKEN_PREFIX) :][:8],
+            token_hash=sha256_hex(raw),
+            **kwargs,
+        )
+
+    # Two personal tokens owned by the resetting user, plus one project token they
+    # happen to have minted (an org asset).
+    pat_a = _mint(owner=user)
+    pat_b = _mint(owner=user)
+    cal = Calendar.objects.create(name="Std")
+    project = Project.objects.create(name="P", start_date=date(2026, 1, 5), calendar=cal)
+    project_token = _mint(project=project, created_by=user)
+
+    uid, token = _uid_token(user)
+    resp = APIClient().post(
+        _CONFIRM_URL,
+        {"uid": uid, "token": token, "new_password": _NEW_PASSWORD},
+        format="json",
+    )
+    assert resp.status_code == 200
+
+    pat_a.refresh_from_db()
+    pat_b.refresh_from_db()
+    project_token.refresh_from_db()
+    # Both personal tokens are revoked; the project token is untouched.
+    assert pat_a.revoked_at is not None
+    assert pat_b.revoked_at is not None
+    assert project_token.revoked_at is None
 
 
 # ---------------------------------------------------------------------------

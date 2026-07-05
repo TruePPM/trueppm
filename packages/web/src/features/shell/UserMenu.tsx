@@ -122,6 +122,16 @@ function MenuContent({
         Notifications
       </NavLink>
 
+      {/* Personal access tokens row (#648) */}
+      <NavLink
+        to="/me/settings/api-tokens"
+        role="menuitem"
+        onClick={onClose}
+        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+      >
+        Personal access tokens
+      </NavLink>
+
       {/* Keyboard shortcuts row */}
       <button
         type="button"
