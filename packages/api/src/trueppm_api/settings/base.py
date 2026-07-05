@@ -1217,5 +1217,14 @@ SPECTACULAR_SETTINGS = {
         # hash-disambiguate or rename existing components (same regression class as
         # ScopeChangeStatus above — project memory project_drf_enum_name_collision).
         "BlockerTypeEnum": "trueppm_api.apps.projects.models.BlockerType",
+        # ADR-0219 (#1266): ProjectExportJob.status introduces a second export-job
+        # status choice set with the SAME members (pending|running|success|failed)
+        # as workspace.ExportJobStatus. drf-spectacular unifies identical value-sets
+        # into ONE component, and without a pin it hash-disambiguates and DROPS the
+        # existing WorkspaceExportJobStatusEnum (a schema-drift regression — project
+        # memory project_drf_enum_name_collision). Pin the shared value-set to the
+        # already-published WorkspaceExportJobStatusEnum name so no component is
+        # removed; the project export field simply reuses that stable component.
+        "WorkspaceExportJobStatusEnum": "trueppm_api.apps.workspace.models.ExportJobStatus",
     },
 }

@@ -42892,7 +42892,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusA93Enum"
+                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -45518,16 +45518,6 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
-            },
-            "StatusA93Enum": {
-                "enum": [
-                    "pending",
-                    "running",
-                    "success",
-                    "failed"
-                ],
-                "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
             },
             "SyncPullResponse": {
                 "type": "object",
@@ -48406,7 +48396,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusA93Enum"
+                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -48461,6 +48451,16 @@
                     "started_at",
                     "status"
                 ]
+            },
+            "WorkspaceExportJobStatusEnum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "success",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
             },
             "WorkspaceInvite": {
                 "type": "object",
