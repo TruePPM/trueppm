@@ -272,6 +272,11 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   each runs under select_for_update + a status guard so a replay converges (vote is an upsert on
 #   unique(session, voter); reveal/reopen/commit/cancel are guarded state transitions; open is
 #   guarded by the poker_one_live_per_task partial-unique). No replayable resource to dedup.
+# - me-timesheet-submit (MeTimesheetSubmitView POST/DELETE, ADR-0224 / #1435) marks the caller's
+#   own week done / undone on the (user, week_start) singleton: POST is an update_or_create upsert
+#   (refreshes submitted_at), DELETE is idempotent (204 even when no marker exists). A replay
+#   converges to the same submitted/un-submitted state — the same naturally-idempotent per-user
+#   settings-toggle shape as auth-me-profile, with no replayable resource to dedup.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -296,6 +301,7 @@ EXEMPT_URL_NAMES = frozenset(
         "poker-commit",
         "poker-cancel",
         "auth-me-profile",
+        "me-timesheet-submit",
     }
 )
 
