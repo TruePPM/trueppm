@@ -184,6 +184,34 @@ const InviteAcceptPage = lazy(() =>
   })),
 );
 
+// ── Self-service password reset (issue 765, ADR-0209) — five public (no-auth) screens.
+//    Lazy-loaded so the recovery flow adds nothing to the initial login bundle. ──
+const ForgotPasswordPage = lazy(() =>
+  import('@/features/auth/passwordReset/ForgotPasswordPage').then((m) => ({
+    default: m.ForgotPasswordPage,
+  })),
+);
+const ForgotPasswordSentPage = lazy(() =>
+  import('@/features/auth/passwordReset/ForgotPasswordSentPage').then((m) => ({
+    default: m.ForgotPasswordSentPage,
+  })),
+);
+const ResetPasswordConfirmPage = lazy(() =>
+  import('@/features/auth/passwordReset/ResetPasswordConfirmPage').then((m) => ({
+    default: m.ResetPasswordConfirmPage,
+  })),
+);
+const ResetPasswordDonePage = lazy(() =>
+  import('@/features/auth/passwordReset/ResetPasswordDonePage').then((m) => ({
+    default: m.ResetPasswordDonePage,
+  })),
+);
+const ResetPasswordExpiredPage = lazy(() =>
+  import('@/features/auth/passwordReset/ResetPasswordExpiredPage').then((m) => ({
+    default: m.ResetPasswordExpiredPage,
+  })),
+);
+
 // ── Program settings (consolidated, ADR-0146) ──────────────────────────────────
 const ProgramSettingsPage = lazy(() =>
   import('@/features/settings/ProgramSettingsPage').then((m) => ({
@@ -253,6 +281,49 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <InviteAcceptPage />
+      </Suspense>
+    ),
+  },
+  // Public routes — no auth required (issue 765, ADR-0209). Self-service password reset:
+  // a user who has forgotten their password cannot authenticate, so the whole flow
+  // sits outside RequireAuth.
+  {
+    path: '/forgot-password',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ForgotPasswordPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/forgot-password/sent',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ForgotPasswordSentPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/reset-password/confirm/:uid/:token',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ResetPasswordConfirmPage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/reset-password/done',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ResetPasswordDonePage />
+      </Suspense>
+    ),
+  },
+  {
+    path: '/reset-password/expired',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ResetPasswordExpiredPage />
       </Suspense>
     ),
   },

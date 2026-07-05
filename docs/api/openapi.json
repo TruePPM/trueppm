@@ -1018,6 +1018,111 @@
                 "security": []
             }
         },
+        "/api/v1/auth/password/reset/": {
+            "post": {
+                "operationId": "v1_auth_password_reset_create",
+                "description": "Sends a one-time password reset link to the address if — and only if — it belongs to an account. The response is identical whether or not the address exists, so it never reveals which emails have accounts. Rate limited (5/min per IP).",
+                "summary": "Request a password reset link",
+                "tags": [
+                    "auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Reset link sent if the account exists."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/password/reset/confirm/": {
+            "post": {
+                "operationId": "v1_auth_password_reset_confirm_create",
+                "description": "Validates the uid + token from the reset link and sets the new password. On success, every other active session for the account is revoked (all refresh tokens are blacklisted). Returns 400 with `code: invalid_token` for an invalid or expired link, or `code: weak_password` with a `messages` list when the password fails policy.",
+                "summary": "Confirm a password reset",
+                "tags": [
+                    "auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PasswordResetConfirmRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Password reset; other sessions revoked."
+                    },
+                    "400": {
+                        "description": "Invalid/expired token or weak password."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
@@ -37169,6 +37274,44 @@
                         }
                     }
                 }
+            },
+            "PasswordResetConfirmRequest": {
+                "type": "object",
+                "description": "Request body for the confirm endpoint: uid + token + the new password.\n\nField-level validation only checks *shape* (non-empty strings). The token\nvalidity check and the user-dependent password policy run in the view so it can\nreturn distinct, non-leaking error codes (``invalid_token`` vs\n``weak_password``) that the frontend maps to different screens.",
+                "properties": {
+                    "uid": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "token": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "new_password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "new_password",
+                    "token",
+                    "uid"
+                ]
+            },
+            "PasswordResetRequestRequest": {
+                "type": "object",
+                "description": "Request body for the reset-link endpoint: a single email address.",
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "email"
+                ]
             },
             "PatchedAcceptanceCriterionRequest": {
                 "type": "object",

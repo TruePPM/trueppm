@@ -360,3 +360,51 @@ def split_program(
         program.save(update_fields=["is_closed", "closed_at", "closed_by"])
 
     return sub_programs
+
+
+def revoke_all_refresh_tokens(user: Any) -> int:
+    """Blacklist every outstanding simplejwt refresh token for ``user``.
+
+    This is the "sign out every device" primitive (ADR-0209). A password reset
+    (and, later, any explicit account-security action) must invalidate all of the
+    user's existing sessions, not just the one that triggered the change. The
+    SPA's session lives entirely in a JWT access token (in-memory, 15-min TTL) plus
+    an httpOnly refresh cookie (#897), so revoking every *refresh* token is the
+    complete server-side session revocation: a blacklisted refresh token can no
+    longer be exchanged for a new access token, and the old access token self-
+    expires within its short TTL.
+
+    Django sessions are intentionally left untouched — the SPA never authenticates
+    via ``django.contrib.sessions`` (that framework backs only the admin site and
+    the DRF browsable API), so there is no app session to clear there.
+
+    Idempotent: ``get_or_create`` means re-running blacklists nothing twice, and a
+    row already blacklisted by rotation stays blacklisted. Safe to call inside the
+    reset transaction.
+
+    Args:
+        user: The account whose refresh tokens should all be revoked.
+
+    Returns:
+        The number of tokens newly blacklisted (already-blacklisted tokens are not
+        counted). Zero when the account had no outstanding tokens (e.g. it has
+        never logged in on this deployment).
+    """
+    # Local import: the blacklist app's models are only importable once apps are
+    # loaded, and keeping the import lazy lets a lean deploy that removes the
+    # token_blacklist app degrade gracefully (the ImportError is swallowed → the
+    # password is still reset, sessions just fall back to TTL-only expiry).
+    try:
+        from rest_framework_simplejwt.token_blacklist.models import (
+            BlacklistedToken,
+            OutstandingToken,
+        )
+    except ImportError:  # pragma: no cover - only when the app is uninstalled
+        return 0
+
+    revoked = 0
+    for token in OutstandingToken.objects.filter(user=user):
+        _, created = BlacklistedToken.objects.get_or_create(token=token)
+        if created:
+            revoked += 1
+    return revoked

@@ -194,15 +194,13 @@ describe('LoginPage', () => {
     );
   });
 
-  it('shows a "coming soon" tooltip when Forgot? is clicked', async () => {
+  it('links Forgot? to the self-service password reset flow (issue 765)', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
-
-    expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'Password reset is coming — tracked in issue 765.',
-    );
+    // The control is now a real link into the /forgot-password flow, not a
+    // "coming soon" tooltip — self-service reset shipped in issue 765.
+    const forgot = screen.getByRole('link', { name: 'Forgot password?' });
+    expect(forgot).toHaveAttribute('href', '/forgot-password');
   });
 
   it('directs new users to their admin instead of a dead signup link', () => {

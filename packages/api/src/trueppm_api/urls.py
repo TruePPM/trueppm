@@ -18,6 +18,10 @@ from trueppm_api.core.auth_views import (
     CookieTokenObtainPairView,
     CookieTokenRefreshView,
 )
+from trueppm_api.core.password_reset import (
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+)
 
 
 @extend_schema(
@@ -83,6 +87,20 @@ urlpatterns = [
     path("api/v1/auth/token/", CookieTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/v1/auth/token/refresh/", CookieTokenRefreshView.as_view(), name="token_refresh"),
     path("api/v1/auth/logout/", CookieTokenLogoutView.as_view(), name="token_logout"),
+    # Self-service password reset (#765, ADR-0209). Both AllowAny + throttled with a
+    # dedicated "password_reset" scope. Request always returns 200 (no user
+    # enumeration); confirm validates a stateless token, sets the password, and
+    # revokes all of the account's other sessions.
+    path(
+        "api/v1/auth/password/reset/",
+        PasswordResetRequestView.as_view(),
+        name="password_reset",
+    ),
+    path(
+        "api/v1/auth/password/reset/confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="password_reset_confirm",
+    ),
     # Versioned API
     path("api/v1/", include("trueppm_api.apps.access.urls")),
     path("api/v1/", include("trueppm_api.apps.projects.urls")),
