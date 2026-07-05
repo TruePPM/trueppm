@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -12,6 +13,7 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,7 +21,12 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.access.models import (
+    ProgramMembership,
+    ProjectMembership,
+    Role,
+    UserDefinedMentionGroup,
+)
 from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
@@ -37,6 +44,8 @@ from trueppm_api.apps.access.serializers import (
     ProgramMembershipWriteSerializer,
     ProjectMembershipReadSerializer,
     ProjectMembershipWriteSerializer,
+    UserDefinedMentionGroupReadSerializer,
+    UserDefinedMentionGroupWriteSerializer,
     UserSearchResultSerializer,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -377,6 +386,208 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class UserDefinedMentionGroupViewSet(
+    IdempotencyMixin, viewsets.GenericViewSet[UserDefinedMentionGroup]
+):
+    """Nested CRUD for user-defined @mention groups (ADR-0211, #515).
+
+    URL: ``/api/v1/projects/{project_pk}/mention-groups/``
+         ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``
+         ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``
+         ``…/{pk}/mute/``  ``…/{pk}/unmute/``
+
+    Permission matrix (ADR-0211 §3):
+      list / retrieve            — any project member (Viewer+)
+      create / update / destroy  — Project Admin+  (group lifecycle is a PM act)
+      add-member / remove-member — Project Scheduler+  (roster curation)
+      mute / unmute              — any member (their own subscription only)
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    def get_serializer_class(self) -> type[BaseSerializer[UserDefinedMentionGroup]]:
+        if self.action in ("create", "partial_update", "update"):
+            return UserDefinedMentionGroupWriteSerializer
+        return UserDefinedMentionGroupReadSerializer
+
+    def get_queryset(self) -> QuerySet[UserDefinedMentionGroup]:
+        project_pk = self.kwargs["project_pk"]
+        return (
+            UserDefinedMentionGroup.objects.filter(project_id=project_pk, is_deleted=False)
+            .prefetch_related("members", "muted_by")
+            .order_by("name")
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        ctx = dict(super().get_serializer_context())
+        ctx["project_id"] = self.kwargs["project_pk"]
+        return ctx
+
+    def _get_project_or_404(self) -> Project:
+        try:
+            return Project.objects.get(pk=self.kwargs["project_pk"], is_deleted=False)
+        except Project.DoesNotExist as err:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound("Project not found.") from err
+
+    def _require_actor_role(self, request: Request, project_id: _PK, minimum: int) -> int:
+        role = _membership_role(request, project_id)
+        if role is None or role < minimum:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to perform this action.")
+        return role
+
+    def _broadcast(self, project_id: str, group_id: str, change: str) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Deferred to on_commit (ADR-0083) so a rolled-back write never notifies
+        # open Members tabs; the group is also a VersionedModel, so clients that
+        # miss the transient event reconcile via the sync delta.
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id,
+                "mention_group_changed",
+                {"group_id": group_id, "change": change},
+            )
+        )
+
+    def _read_response(self, instance: UserDefinedMentionGroup, *, code: int = 200) -> Response:
+        # Re-fetch through the prefetching queryset so member/mute counts on the
+        # response reflect the write without an N+1.
+        fresh = self.get_queryset().get(pk=instance.pk)
+        return Response(
+            UserDefinedMentionGroupReadSerializer(
+                fresh, context=self.get_serializer_context()
+            ).data,
+            status=code,
+        )
+
+    # -- lifecycle (Admin+) --------------------------------------------------
+
+    def list(self, request: Request, **kwargs: object) -> Response:
+        self._get_project_or_404()
+        serializer = UserDefinedMentionGroupReadSerializer(
+            self.get_queryset(), many=True, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    def retrieve(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        self._get_project_or_404()
+        return self._read_response(self.get_object())
+
+    def create(self, request: Request, **kwargs: object) -> Response:
+        project = self._get_project_or_404()
+        self._require_actor_role(request, project.pk, Role.ADMIN)
+        serializer = UserDefinedMentionGroupWriteSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(project=project, created_by=request.user)
+        self._broadcast(str(project.pk), str(instance.pk), "created")
+        return self._read_response(instance, code=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        project = self._get_project_or_404()
+        self._require_actor_role(request, project.pk, Role.ADMIN)
+        instance = self.get_object()
+        serializer = UserDefinedMentionGroupWriteSerializer(
+            instance, data=request.data, partial=True, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        self._broadcast(str(project.pk), str(instance.pk), "updated")
+        return self._read_response(instance)
+
+    def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        project = self._get_project_or_404()
+        # IsProjectNotArchived bypasses the archived check for any action named
+        # "destroy" (its bypass set is matched by action name, for ProjectViewSet's
+        # own delete). This nested viewset also names its delete "destroy", so the
+        # archived read-only invariant must be re-asserted explicitly here — every
+        # other write action (create/update/add-member/…) is already blocked by the
+        # permission because it is not in that bypass set.
+        if project.is_archived:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "This project is archived and cannot be modified. Unarchive it first."
+            )
+        self._require_actor_role(request, project.pk, Role.ADMIN)
+        instance = self.get_object()
+        instance.soft_delete()
+        self._broadcast(str(project.pk), str(instance.pk), "deleted")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # -- membership (Scheduler+) --------------------------------------------
+
+    def _member_user_or_400(self, project_id: _PK) -> Any:
+        """Resolve request.data['user'] to a User that is an active project member."""
+        user_id = (self.request.data or {}).get("user")
+        if not user_id:
+            raise drf_serializers.ValidationError({"user": "This field is required."})
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except (User.DoesNotExist, ValueError, TypeError) as err:
+            raise drf_serializers.ValidationError({"user": "User not found."}) from err
+        # A mention group may only contain current project members — a group
+        # member who is not on the project would be filtered out at resolution
+        # anyway, so reject the add up front.
+        if not ProjectMembership.objects.filter(
+            project_id=project_id, user=user, is_deleted=False
+        ).exists():
+            raise drf_serializers.ValidationError({"user": "User is not a member of this project."})
+        return user
+
+    def _mutate_membership(self, request: Request, *, add: bool) -> Response:
+        project = self._get_project_or_404()
+        self._require_actor_role(request, project.pk, Role.SCHEDULER)
+        instance = self.get_object()
+        user = self._member_user_or_400(project.pk)
+        if add:
+            instance.members.add(user)
+        else:
+            instance.members.remove(user)
+        # Bump server_version so the membership change flows through the sync
+        # delta (the M2M write alone does not touch the parent row).
+        instance.save(update_fields=["server_version"])
+        self._broadcast(
+            str(project.pk), str(instance.pk), "member_added" if add else "member_removed"
+        )
+        return self._read_response(instance)
+
+    @action(detail=True, methods=["post"], url_path="add-member")
+    def add_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_membership(request, add=True)
+
+    @action(detail=True, methods=["post"], url_path="remove-member")
+    def remove_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_membership(request, add=False)
+
+    # -- mute / unmute (any member, self only) ------------------------------
+
+    def _mutate_mute(self, request: Request, *, mute: bool) -> Response:
+        project = self._get_project_or_404()
+        # Any project member may mute/unmute a group for THEMSELVES only.
+        self._require_actor_role(request, project.pk, Role.VIEWER)
+        instance = self.get_object()
+        if mute:
+            instance.muted_by.add(request.user)  # type: ignore[arg-type]
+        else:
+            instance.muted_by.remove(request.user)  # type: ignore[arg-type]
+        return self._read_response(instance)
+
+    @action(detail=True, methods=["post"], url_path="mute")
+    def mute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_mute(request, mute=True)
+
+    @action(detail=True, methods=["post"], url_path="unmute")
+    def unmute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_mute(request, mute=False)
 
 
 class UserSearchView(APIView):

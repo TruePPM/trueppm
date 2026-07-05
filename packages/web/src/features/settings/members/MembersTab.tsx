@@ -6,6 +6,7 @@ import { useUpdateMemberRole } from '../hooks/useUpdateMemberRole';
 import { useRemoveMember } from '../hooks/useRemoveMember';
 import { MemberRow } from './MemberRow';
 import { InviteForm } from './InviteForm';
+import { MentionGroupsSection } from './MentionGroupsSection';
 import { ROLE_OWNER } from '@/lib/roles';
 
 export function MembersTab() {
@@ -85,6 +86,9 @@ export function MembersTab() {
           <InviteForm projectId={projectId} />
         </section>
       )}
+
+      {/* User-defined @mention groups (#515) */}
+      <MentionGroupsSection projectId={projectId} myRole={myRole} members={members} />
     </div>
   );
 }

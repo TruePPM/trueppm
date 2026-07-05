@@ -664,6 +664,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
       }
 
+      // --- User-defined @mention group events (#515) ---
+      // A peer creating/renaming/deleting a group or editing its roster on the
+      // Members tab broadcasts mention_group_changed; invalidate the group list so
+      // a second admin viewing the same tab reconciles live (mirrors membership).
+      else if (event_type === 'mention_group_changed') {
+        void queryClient.invalidateQueries({
+          queryKey: ['mention-groups', projectIdRef.current],
+        });
+      }
+
       // --- Team facet / role events (ADR-0078) ---
       // A peer flipping a Scrum Master / Product Owner facet or a team role on
       // the Project Settings → Team tab broadcasts team_member_changed. A facet
