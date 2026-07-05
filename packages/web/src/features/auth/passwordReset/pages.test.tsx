@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { type ReactNode } from 'react';
 
 import { AuthShell } from './AuthShell';
 import { ForgotPasswordPage } from './ForgotPasswordPage';
@@ -33,7 +34,7 @@ afterEach(() => {
 });
 
 /** Render an element inside a router with named landing routes to assert navigation. */
-function renderAt(path: string, routes: Array<{ path: string; element: React.ReactNode }>) {
+function renderAt(path: string, routes: Array<{ path: string; element: ReactNode }>) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
