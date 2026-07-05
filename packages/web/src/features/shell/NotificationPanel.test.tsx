@@ -10,6 +10,8 @@ vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: useNotificationsMock,
   useMarkAllRead: useMarkAllReadMock,
   useUpdateNotification: () => ({ mutate: vi.fn(), isPending: false }),
+  useSnoozeNotification: () => ({ mutate: vi.fn(), isPending: false }),
+  useMuteNotificationType: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 const rowFactory = (override = {}) => ({
@@ -30,6 +32,8 @@ const rowFactory = (override = {}) => ({
   project: 'p1',
   is_read: false,
   is_archived: false,
+  snoozed_until: null,
+  category: 'mentions',
   created_at: '2026-05-19T00:00:00Z',
   read_at: null,
   snippet: 'Take a look at this',
@@ -114,7 +118,7 @@ describe('NotificationPanel', () => {
     expect(screen.getByText(/Bob mentioned you/)).toBeTruthy();
   });
 
-  it('switches filter tabs and re-queries the hook', () => {
+  it('switches read-state filter tabs and re-queries the hook', () => {
     useNotificationsMock.mockReturnValue({
       notifications: [],
       isLoading: false,
@@ -123,9 +127,43 @@ describe('NotificationPanel', () => {
     useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Archived' }));
-    expect(useNotificationsMock).toHaveBeenLastCalledWith({ filter: 'archived' });
+    expect(useNotificationsMock).toHaveBeenLastCalledWith({
+      filter: 'archived',
+      category: 'all',
+    });
     fireEvent.click(screen.getByRole('tab', { name: 'All' }));
-    expect(useNotificationsMock).toHaveBeenLastCalledWith({ filter: 'all' });
+    expect(useNotificationsMock).toHaveBeenLastCalledWith({ filter: 'all', category: 'all' });
+  });
+
+  it('has a Snoozed read-state tab that re-queries with the snoozed filter', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Snoozed' }));
+    expect(useNotificationsMock).toHaveBeenLastCalledWith({
+      filter: 'snoozed',
+      category: 'all',
+    });
+  });
+
+  it('filters by category via the orthogonal radio selector', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    // Default filter is unread, category all.
+    fireEvent.click(screen.getByRole('radio', { name: 'Tasks' }));
+    expect(useNotificationsMock).toHaveBeenLastCalledWith({ filter: 'unread', category: 'tasks' });
+    // Category is orthogonal — switching the read-state keeps the category.
+    fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    expect(useNotificationsMock).toHaveBeenLastCalledWith({ filter: 'all', category: 'tasks' });
+  });
+
+  it('shows the snoozed empty-state copy for the Snoozed tab', () => {
+    useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
+    useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    renderWithRouter(<NotificationPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'Snoozed' }));
+    expect(screen.getByText('Nothing snoozed')).toBeTruthy();
   });
 
   it('triggers Mark all read and announces the result', () => {

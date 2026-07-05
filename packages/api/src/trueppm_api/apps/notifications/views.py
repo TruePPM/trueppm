@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
@@ -26,6 +31,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
+from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
@@ -54,6 +60,36 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 
+# Snooze presets (ADR-0216 §1). The client may send a preset key OR an explicit
+# `until` ISO datetime; presets are resolved server-side so the "tomorrow 9am"
+# anchor stays consistent and testable.
+SNOOZE_PRESETS: tuple[str, ...] = ("1h", "3h", "tomorrow")
+
+
+def _resolve_snooze_preset(preset: str, now: datetime.datetime) -> datetime.datetime | None:
+    """Resolve a snooze preset key to an absolute datetime, or None if unknown.
+
+    ``1h`` / ``3h`` are relative to ``now``; ``tomorrow`` is the next day at 09:00
+    in the workspace timezone (``settings.TIME_ZONE``), returned as an aware UTC
+    datetime. The workspace tz is used because the default ``auth.User`` carries
+    no per-user timezone.
+    """
+    if preset == "1h":
+        return now + datetime.timedelta(hours=1)
+    if preset == "3h":
+        return now + datetime.timedelta(hours=3)
+    if preset == "tomorrow":
+        try:
+            tz = datetime.UTC if not settings.TIME_ZONE else ZoneInfo(settings.TIME_ZONE)
+        except Exception:
+            tz = datetime.UTC
+        local_tomorrow = (now.astimezone(tz) + datetime.timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        return local_tomorrow.astimezone(datetime.UTC)
+    return None
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -77,6 +113,30 @@ if TYPE_CHECKING:
                     "The default list (neither param set) excludes archived rows."
                 ),
             ),
+            OpenApiParameter(
+                name="snoozed",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When `true` (or `1`), return only currently-snoozed rows "
+                    "(`snoozed_until` in the future). Every other view EXCLUDES "
+                    "currently-snoozed rows — including the unread-count query — "
+                    "so a deferred notification does not increment the bell badge."
+                ),
+            ),
+            OpenApiParameter(
+                name="category",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=list(CATEGORIES),
+                description=(
+                    "Filter to one derived category: `mentions`, `tasks`, "
+                    "`signals`, or `project`. Orthogonal to the read-state "
+                    "filters. `mentions` also matches mention-sourced rows."
+                ),
+            ),
         ],
     ),
 )
@@ -89,9 +149,10 @@ class NotificationViewSet(
 ):
     """Per-user notification inbox.
 
-    GET    /me/notifications/                     ?unread_only=true&limit=50
+    GET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks
     GET    /me/notifications/{id}/
     PATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }
+    POST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }
     POST   /me/notifications/mark-all-read/
 
     All reads/writes are auto-scoped to the authenticated user — no cross-user
@@ -113,16 +174,112 @@ class NotificationViewSet(
             "mention__mentioned_user",
             "project",
         )
-        unread_only = self.request.query_params.get("unread_only", "").lower() in ("1", "true")
-        if unread_only:
-            qs = qs.filter(is_read=False, is_archived=False)
-        archived_only = self.request.query_params.get("archived", "").lower() in ("1", "true")
-        if archived_only:
-            qs = qs.filter(is_archived=True)
-        elif not unread_only:
-            # Default list excludes archived
-            qs = qs.filter(is_archived=False)
+        params = self.request.query_params
+        now = timezone.now()
+        snoozed_only = params.get("snoozed", "").lower() in ("1", "true")
+        unread_only = params.get("unread_only", "").lower() in ("1", "true")
+        archived_only = params.get("archived", "").lower() in ("1", "true")
+
+        if snoozed_only:
+            # The "Snoozed" chip: rows deferred to the future, still active.
+            qs = qs.filter(snoozed_until__gt=now, is_archived=False)
+        else:
+            # Every non-snoozed view hides rows still inside their snooze window;
+            # they reappear automatically once snoozed_until passes (pure query-
+            # time filter, ADR-0216 §1). Applied BEFORE the read-state branch so
+            # the unread-count path (unread_only=true) also excludes snoozed rows
+            # — otherwise a deferred notification would still light the bell badge.
+            qs = qs.filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lte=now))
+            if unread_only:
+                qs = qs.filter(is_read=False, is_archived=False)
+            elif archived_only:
+                qs = qs.filter(is_archived=True)
+            else:
+                # Default list excludes archived
+                qs = qs.filter(is_archived=False)
+
+        # Derived category filter (ADR-0216 §3). The mapping lives in
+        # categories.py so this filter and the serializer's category field share
+        # one source of truth. `mentions` additionally matches mention-sourced
+        # rows (blank event_type + mention FK). An unknown category maps to an
+        # empty event-type set → matches nothing.
+        category = params.get("category", "").strip().lower()
+        if category:
+            event_types = event_types_for_category(category)
+            category_q = Q(event_type__in=event_types)
+            if category == CATEGORY_MENTIONS:
+                category_q |= Q(mention__isnull=False)
+            qs = qs.filter(category_q)
+
         return qs.order_by("-created_at")
+
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "preset": {"type": "string", "enum": list(SNOOZE_PRESETS)},
+                    "until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": True,
+                    },
+                },
+            }
+        },
+        responses=NotificationSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path="snooze")
+    def snooze(self, request: Request, pk: str | None = None) -> Response:
+        """Snooze (or un-snooze) a single notification (ADR-0216 §1).
+
+        Body accepts EITHER ``{"preset": "1h"|"3h"|"tomorrow"}`` OR
+        ``{"until": "<iso datetime>"}``. Pass ``{"until": null}`` (or an empty
+        body) to un-snooze — clearing ``snoozed_until`` returns the row to the
+        inbox immediately. Idempotent: re-snoozing overwrites the timestamp.
+
+        Looks the row up recipient-scoped directly (not via the filtered
+        get_queryset) so a currently-snoozed row can still be re-snoozed or
+        un-snoozed — the default queryset hides snoozed rows.
+        """
+        user = request.user
+        notification = get_object_or_404(Notification, pk=pk, recipient=user)
+        now = timezone.now()
+
+        preset = request.data.get("preset")
+        if preset:
+            until = _resolve_snooze_preset(preset, now)
+            if until is None:
+                return Response(
+                    {"detail": f"preset must be one of {list(SNOOZE_PRESETS)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif "until" in request.data:
+            raw = request.data.get("until")
+            if raw in (None, ""):
+                until = None  # explicit un-snooze
+            else:
+                parsed = parse_datetime(raw) if isinstance(raw, str) else None
+                if parsed is None:
+                    return Response(
+                        {"detail": "until must be an ISO 8601 datetime or null."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Anchor a naive timestamp to the current timezone rather than
+                # letting Django emit a naive-datetime warning / compare wrong.
+                if timezone.is_naive(parsed):
+                    parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+                until = parsed
+        else:
+            return Response(
+                {"detail": "Provide a 'preset' or an 'until' datetime (null to un-snooze)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notification.snoozed_until = until
+        notification.save(update_fields=["snoozed_until"])
+        serializer = self.get_serializer(notification)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_update(self, serializer: Any) -> None:
         instance: Notification = serializer.instance

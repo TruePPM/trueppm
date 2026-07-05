@@ -9,19 +9,19 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useMarkAllRead, useNotifications } from '@/hooks/useNotifications';
+import {
+  CATEGORY_FILTERS,
+  type NotificationCategory,
+  type NotificationFilter,
+  READ_STATE_FILTERS,
+  notificationEmptyCopy,
+} from '../shell/notificationFilters';
 import { NotificationRow } from '../shell/NotificationRow';
 
-type Filter = 'all' | 'unread' | 'archived';
-
-const FILTERS: { value: Filter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'archived', label: 'Archived' },
-];
-
 export function NotificationListPage() {
-  const [filter, setFilter] = useState<Filter>('unread');
-  const { notifications, isLoading, error } = useNotifications({ filter });
+  const [filter, setFilter] = useState<NotificationFilter>('unread');
+  const [category, setCategory] = useState<NotificationCategory>('all');
+  const { notifications, isLoading, error } = useNotifications({ filter, category });
   const markAllRead = useMarkAllRead();
   const [announce, setAnnounce] = useState<string>('');
 
@@ -64,9 +64,9 @@ export function NotificationListPage() {
       <div
         role="tablist"
         aria-label="Filter notifications"
-        className="flex gap-1 border-b border-neutral-border pb-2"
+        className="flex gap-1 border-b border-neutral-border pb-2 overflow-x-auto"
       >
-        {FILTERS.map((f) => {
+        {READ_STATE_FILTERS.map((f) => {
           const active = filter === f.value;
           return (
             <button
@@ -75,7 +75,7 @@ export function NotificationListPage() {
               type="button"
               aria-selected={active}
               onClick={() => setFilter(f.value)}
-              className={`text-xs px-3 h-7 font-medium border-b-2 transition-colors
+              className={`text-xs px-3 h-7 font-medium border-b-2 whitespace-nowrap transition-colors
                 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
@@ -84,6 +84,36 @@ export function NotificationListPage() {
                 }`}
             >
               {f.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Category selector — orthogonal to read-state (ADR-0216 §3). Radiogroup,
+          not a tablist, so its "All" doesn't collide with the read-state "All". */}
+      <div
+        role="radiogroup"
+        aria-label="Filter by category"
+        className="flex gap-1 overflow-x-auto"
+      >
+        {CATEGORY_FILTERS.map((c) => {
+          const active = category === c.value;
+          return (
+            <button
+              key={c.value}
+              role="radio"
+              type="button"
+              aria-checked={active}
+              onClick={() => setCategory(c.value)}
+              className={`text-xs px-3 h-7 rounded-control font-medium whitespace-nowrap transition-colors
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
+                ${
+                  active
+                    ? 'bg-brand-primary/10 text-brand-primary'
+                    : 'text-neutral-text-secondary hover:text-neutral-text-primary'
+                }`}
+            >
+              {c.label}
             </button>
           );
         })}
@@ -106,13 +136,18 @@ export function NotificationListPage() {
         </p>
       )}
 
-      {!isLoading && !error && sorted.length === 0 && (
-        <p className="text-sm text-neutral-text-secondary">
-          {filter === 'unread' && 'No unread mentions. Caught up!'}
-          {filter === 'archived' && 'Nothing archived yet.'}
-          {filter === 'all' && 'When someone @-mentions you, it shows up here.'}
-        </p>
-      )}
+      {!isLoading && !error && sorted.length === 0 && (() => {
+        const copy = notificationEmptyCopy(filter, category);
+        return (
+          <div className="flex flex-col items-center gap-1 py-12 text-center px-4">
+            <span aria-hidden="true" className="text-3xl">
+              {copy.emoji}
+            </span>
+            <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
+            <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
+          </div>
+        );
+      })()}
 
       {!isLoading && !error && sorted.length > 0 && (
         <ol className="flex flex-col gap-2 list-none p-0">

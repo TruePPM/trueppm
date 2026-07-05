@@ -4222,7 +4222,7 @@
         "/api/v1/me/notifications/": {
             "get": {
                 "operationId": "v1_me_notifications_list",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "query",
@@ -4231,6 +4231,20 @@
                             "type": "boolean"
                         },
                         "description": "When `true` (or `1`), return only archived notifications. The default list (neither param set) excludes archived rows."
+                    },
+                    {
+                        "in": "query",
+                        "name": "category",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "mentions",
+                                "project",
+                                "signals",
+                                "tasks"
+                            ]
+                        },
+                        "description": "Filter to one derived category: `mentions`, `tasks`, `signals`, or `project`. Orthogonal to the read-state filters. `mentions` also matches mention-sourced rows."
                     },
                     {
                         "name": "ordering",
@@ -4258,6 +4272,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "snoozed",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When `true` (or `1`), return only currently-snoozed rows (`snoozed_until` in the future). Every other view EXCLUDES currently-snoozed rows — including the unread-count query — so a deferred notification does not increment the bell badge."
                     },
                     {
                         "in": "query",
@@ -4313,7 +4335,7 @@
         "/api/v1/me/notifications/{id}/": {
             "get": {
                 "operationId": "v1_me_notifications_retrieve",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "path",
@@ -4368,7 +4390,7 @@
             },
             "patch": {
                 "operationId": "v1_me_notifications_partial_update",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "path",
@@ -4439,6 +4461,87 @@
                     }
                 },
                 "summary": "Partially update notification"
+            }
+        },
+        "/api/v1/me/notifications/{id}/snooze/": {
+            "post": {
+                "operationId": "v1_me_notifications_snooze_create",
+                "description": "Snooze (or un-snooze) a single notification (ADR-0216 §1).\n\nBody accepts EITHER ``{\"preset\": \"1h\"|\"3h\"|\"tomorrow\"}`` OR\n``{\"until\": \"<iso datetime>\"}``. Pass ``{\"until\": null}`` (or an empty\nbody) to un-snooze — clearing ``snoozed_until`` returns the row to the\ninbox immediately. Idempotent: re-snoozing overwrites the timestamp.\n\nLooks the row up recipient-scoped directly (not via the filtered\nget_queryset) so a currently-snoozed row can still be re-snoozed or\nun-snoozed — the default queryset hides snoozed rows.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "preset": {
+                                        "type": "string",
+                                        "enum": [
+                                            "1h",
+                                            "3h",
+                                            "tomorrow"
+                                        ]
+                                    },
+                                    "until": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Notification"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Snooze notification"
             }
         },
         "/api/v1/me/notifications/mark-all-read/": {
@@ -37079,6 +37182,16 @@
                     "is_archived": {
                         "type": "boolean"
                     },
+                    "snoozed_until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "category": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -37103,6 +37216,7 @@
                 },
                 "required": [
                     "body",
+                    "category",
                     "created_at",
                     "event_type",
                     "id",
@@ -37111,6 +37225,7 @@
                     "read_at",
                     "recipient",
                     "snippet",
+                    "snoozed_until",
                     "subject",
                     "task_id"
                 ]

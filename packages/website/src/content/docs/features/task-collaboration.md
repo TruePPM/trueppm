@@ -249,8 +249,8 @@ foreground. Background tabs pause the poll to save battery and API calls.
 ### The inbox
 
 The panel and the full route share the same shape: a tab strip (**All /
-Unread / Archived**), a list of `NotificationRow`s, and a **Mark all read**
-bulk action. Each row shows:
+Unread / Archived / Snoozed**), a list of `NotificationRow`s, and a **Mark all
+read** bulk action. Each row shows:
 
 - Who mentioned you (or "mentioned `@group`")
 - A truncated snippet of the comment body
@@ -259,6 +259,39 @@ bulk action. Each row shows:
 
 Clicking the row body navigates to the source task and marks the
 notification read on the way.
+
+### Snooze, mute, and category filter
+
+:::note[Ships in 0.4]
+Per-notification snooze, inline mute-a-type, and the category filter land in
+the **0.4 beta**. They surface the noise controls inline in the panel and the
+mobile route, so you never have to leave your inbox to turn a noisy type down.
+:::
+
+**Snooze** defers a single notification. The row's **Snooze** menu offers
+**1 hour**, **3 hours**, and **Tomorrow**; a snoozed row drops out of the
+All/Unread views — and out of the bell count — until its time passes, then
+reappears (still unread) on its own. No background job is involved; the row is
+simply hidden by a time comparison at read time. The **Snoozed** tab lists what
+you have deferred, and each snoozed row offers **Un-snooze** to bring it back
+immediately.
+
+**Mute notifications like this** turns off *future* in-app delivery of a
+notification *type* from the row where you feel the noise. It flips the in-app
+channel for that event's [preference](#preferences) off — email is untouched
+(its control stays in settings), which is why the confirmation reads "Muted in
+your inbox" and offers an **Undo**. Mention rows have no mute action: you mute a
+*type*, and a mention is a person addressing you.
+
+**Category** is a second, orthogonal selector — **All / Mentions / Tasks /
+Signals / Project** — alongside the read-state tabs. It classifies each
+notification from its event type (mentions, task events, schedule signals, and
+project-lifecycle events) so a busy feed stays scannable. Filtering by category
+keeps whichever read-state tab you are on.
+
+Every empty view — each category, the Snoozed tab, the mobile route — shows a
+friendly empty state ("You're all caught up", "Nothing snoozed") rather than a
+blank list.
 
 ### Preferences
 
@@ -326,8 +359,14 @@ Brief tour of the new endpoints:
 - `POST/DELETE .../comments/{id}/acknowledge/` — toggle ack
 - `POST/DELETE .../comments/{comment_pk}/reactions/[{id}/]` — toggle reaction
 - `GET /api/v1/me/notifications/` — your inbox; `?unread_only=true`,
-  `?archived=true`
+  `?archived=true`, `?snoozed=true`, `?category=mentions|tasks|signals|project`.
+  Every view except `?snoozed=true` excludes currently-snoozed rows — including
+  the unread-count query — so a deferred notification never lights the bell.
+  Each row carries a derived read-only `category` and its `snoozed_until` (ships
+  in 0.4)
 - `PATCH /api/v1/me/notifications/{id}/` — `{ is_read, is_archived }`
+- `POST /api/v1/me/notifications/{id}/snooze/` — `{ preset: "1h"|"3h"|"tomorrow" }`
+  or `{ until: "<iso>" }`; `{ until: null }` un-snoozes (ships in 0.4)
 - `POST /api/v1/me/notifications/mark-all-read/`
 - `GET /api/v1/me/notification-preferences/` — defaults are backfilled
   on first request per user

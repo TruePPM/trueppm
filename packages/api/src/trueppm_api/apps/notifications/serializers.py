@@ -7,6 +7,7 @@ from typing import Any
 
 from rest_framework import serializers
 
+from .categories import category_for
 from .models import (
     EmailSecurity,
     EmailTransportMode,
@@ -80,6 +81,13 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
     mention = MentionSerializer(read_only=True)
     snippet = serializers.SerializerMethodField()
     task_id = serializers.SerializerMethodField()
+    # Derived read-only category (ADR-0216 §3) — mentions | tasks | signals |
+    # project. Sourced from categories.category_for so the field and the
+    # ?category= filter share one mapping and never drift.
+    category = serializers.SerializerMethodField()
+
+    def get_category(self, obj: Notification) -> str:
+        return category_for(obj)
 
     def get_snippet(self, obj: Notification) -> str:
         """Short preview of the source mention's body.
@@ -131,6 +139,8 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "project",
             "is_read",
             "is_archived",
+            "snoozed_until",
+            "category",
             "created_at",
             "read_at",
             "snippet",
@@ -144,6 +154,9 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "subject",
             "body",
             "project",
+            # snoozed_until is written by the dedicated snooze action, never PATCH.
+            "snoozed_until",
+            "category",
             "created_at",
             "read_at",
             "snippet",
