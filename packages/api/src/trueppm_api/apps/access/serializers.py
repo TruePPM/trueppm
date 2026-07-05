@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
-from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.access.groups import KNOWN_GROUP_KEYS
+from trueppm_api.apps.access.models import (
+    ProgramMembership,
+    ProjectMembership,
+    Role,
+    UserDefinedMentionGroup,
+)
 from trueppm_api.apps.profiles.models import RoleContext
 
 User = get_user_model()
+
+# A mention group key must be a valid mention token (the name class of
+# notifications.services._MENTION_RE) so it is actually addressable as @name.
+_GROUP_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
@@ -176,6 +187,94 @@ class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMember
     def validate_role_title(self, value: str | None) -> str:
         # Collapse whitespace-only / empty submissions to "" so "unset" is a single
         # canonical state (empty string, never NULL — per the model's DJ001 default).
+        return (value or "").strip()
+
+
+class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):
+    """Response serializer for a user-defined @mention group (ADR-0212, #515).
+
+    ``members`` is the curated member set (summary detail); ``member_count`` is a
+    convenience for the list UI. ``muted_by_me`` reflects whether the *requesting*
+    user has muted this group — the per-user override that suppresses its
+    mentions for them.
+    """
+
+    members = _UserSummarySerializer(many=True, read_only=True)
+    member_count = serializers.SerializerMethodField()
+    muted_by_me = serializers.SerializerMethodField()
+
+    def get_member_count(self, obj: UserDefinedMentionGroup) -> int:
+        # `members` is already prefetched by the viewset (it also backs the
+        # ``members`` field), so counting the loaded rows in Python is free. A
+        # DB-side ``.count()`` here would be a wasted round trip, not a saving.
+        members = obj.members.all()
+        return len(members)
+
+    def get_muted_by_me(self, obj: UserDefinedMentionGroup) -> bool:
+        user = getattr(self.context.get("request"), "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        # muted_by is prefetched by the viewset.
+        return any(m.pk == user.pk for m in obj.muted_by.all())
+
+    class Meta:
+        model = UserDefinedMentionGroup
+        fields = [
+            "id",
+            "server_version",
+            "project",
+            "name",
+            "description",
+            "email_default_on",
+            "members",
+            "member_count",
+            "muted_by_me",
+        ]
+        read_only_fields = fields
+
+
+class UserDefinedMentionGroupWriteSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):
+    """Write serializer for create/rename/edit — ``project`` is injected from URL.
+
+    Membership and mute are managed through dedicated viewset actions (different
+    RBAC), so this serializer covers only the group's own attributes.
+    """
+
+    class Meta:
+        model = UserDefinedMentionGroup
+        fields = ["name", "description", "email_default_on"]
+
+    def validate_name(self, value: str) -> str:
+        # Accept a leading @ from the client for convenience; store without it.
+        name = value.strip().lstrip("@").strip()
+        if not name:
+            raise serializers.ValidationError("Group name cannot be empty.")
+        if len(name) > 32:
+            raise serializers.ValidationError("Group name must be 32 characters or fewer.")
+        if not _GROUP_NAME_RE.match(name):
+            raise serializers.ValidationError(
+                "Group name may only contain letters, digits, and the characters . _ -"
+            )
+        # An auto-group name (@admins, @scrum-team, …) must never be shadowed.
+        if name.lower() in KNOWN_GROUP_KEYS:
+            raise serializers.ValidationError(
+                f"'@{name}' is a reserved automatic group and cannot be used."
+            )
+        # Case-insensitive project-uniqueness (the DB constraint is the backstop;
+        # this returns a friendly field error instead of a 500 on the race loser).
+        project_id = str(self.context.get("project_id"))
+        qs = UserDefinedMentionGroup.objects.filter(
+            project_id=project_id, name__iexact=name, is_deleted=False
+        )
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                f"A group named '@{name}' already exists in this project."
+            )
+        return name
+
+    def validate_description(self, value: str | None) -> str:
         return (value or "").strip()
 
 

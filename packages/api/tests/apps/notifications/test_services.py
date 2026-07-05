@@ -471,6 +471,167 @@ class TestCreateMentionNotifications:
 
 
 # ---------------------------------------------------------------------------
+# User-defined mention groups (ADR-0212, #515)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestUserDefinedGroupMentions:
+    """The parser can't know @subcontractors is a group; resolve_parsed_mentions
+    reinterprets it, and create_mention_notifications applies per-group mute +
+    email default."""
+
+    def _group(self, project: Project, name: str, members: list[object], **kw: object):
+        from trueppm_api.apps.access.models import UserDefinedMentionGroup
+
+        group = UserDefinedMentionGroup.objects.create(project=project, name=name, **kw)
+        group.members.add(*members)
+        return group
+
+    def test_group_name_reinterpreted_as_group(
+        self,
+        project: Project,
+        alice: object,
+        bob: object,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        self._group(project, "subcontractors", [alice, bob])
+        # The pure parser classifies the unknown token as a user mention.
+        parsed = parse_mentions("ping @subcontractors")
+        assert parsed == [ParsedMention("user", "subcontractors")]
+        # The project-aware resolver promotes it to a group target.
+        resolved = resolve_parsed_mentions(parsed, project.pk, actor_role=Role.ADMIN)
+        assert resolved.skipped_users == []
+        assert len(resolved.group_targets) == 1
+        key, members = resolved.group_targets[0]
+        assert key == "subcontractors"
+        assert {u.pk for u in members} == {alice.pk, bob.pk}  # type: ignore[attr-defined]
+
+    def test_group_fan_out_creates_notifications(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        bob: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        self._group(project, "subs", [alice, bob])
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@subs heads up"), project.pk, actor_role=Role.ADMIN
+        )
+        created = create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+        )
+        assert created == 2
+        assert {*Notification.objects.values_list("recipient_id", flat=True)} == {alice.pk, bob.pk}
+        # The Mention audit row records the group key.
+        assert Mention.objects.filter(mentioned_group_key="subs").count() == 1
+
+    def test_muted_member_not_notified_by_group(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        bob: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        group = self._group(project, "subs", [alice, bob])
+        group.muted_by.add(alice)
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@subs"), project.pk, actor_role=Role.ADMIN
+        )
+        create_mention_notifications(
+            task_comment=comment, mentioner=author, parsed_result=resolved, project_id=project.pk
+        )
+        assert Notification.objects.filter(recipient=alice).count() == 0
+        assert Notification.objects.filter(recipient=bob).count() == 1
+
+    def test_muted_member_still_reached_by_direct_mention(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        # Mute is group-scoped: a direct @alice still notifies her.
+        group = self._group(project, "subs", [alice])
+        group.muted_by.add(alice)
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@subs and @alice"), project.pk, actor_role=Role.ADMIN
+        )
+        create_mention_notifications(
+            task_comment=comment, mentioner=author, parsed_result=resolved, project_id=project.pk
+        )
+        assert Notification.objects.filter(recipient=alice).count() == 1
+
+    def test_email_default_off_no_email_pending(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        self._group(project, "subs", [alice], email_default_on=False)
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@subs"), project.pk, actor_role=Role.ADMIN
+        )
+        create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+            now=NOON_UTC,
+        )
+        assert Notification.objects.get(recipient=alice).email_pending is False
+
+    def test_email_default_on_sets_email_pending(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        # Group manager flipped the per-group email default ON; outside quiet
+        # hours the recipient's email is queued without a per-user global toggle.
+        self._group(project, "subs", [alice], email_default_on=True)
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@subs"), project.pk, actor_role=Role.ADMIN
+        )
+        create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+            now=NOON_UTC,
+        )
+        assert Notification.objects.get(recipient=alice).email_pending is True
+
+    def test_member_still_wins_over_group_on_name_collision(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        bob: object,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        # A group literally named "alice" is shadowed by the member @alice.
+        self._group(project, "alice", [bob])
+        resolved = resolve_parsed_mentions(
+            parse_mentions("@alice"), project.pk, actor_role=Role.ADMIN
+        )
+        assert [u.pk for u in resolved.user_targets] == [alice.pk]  # type: ignore[attr-defined]
+        assert resolved.group_targets == []
+
+
+# ---------------------------------------------------------------------------
 # get_or_create_default_preferences
 # ---------------------------------------------------------------------------
 

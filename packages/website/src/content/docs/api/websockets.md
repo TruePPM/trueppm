@@ -112,8 +112,9 @@ The set is open-ended and grows as features land; current event types include:
 - **Board config**: `board_config_updated`, `board_view_created`,
   `board_view_updated`, `board_view_deleted`
 - **Membership / project**: `member_added`, `member_role_changed`,
-  `member_removed`, `project_updated`, `project_archived`, `project_unarchived`,
-  `project_transferred`, `project_deleted`, `project_hard_deleted`
+  `member_removed`, `mention_group_changed`, `project_updated`,
+  `project_archived`, `project_unarchived`, `project_transferred`,
+  `project_deleted`, `project_hard_deleted`
 - **Task suggestions**: `suggestion_created`, `suggestion_declined`,
   `suggestion_revoked` (decline/revoke carry only the suggestion + task id — never
   the actor — a silent state reconciliation, not a callout)
