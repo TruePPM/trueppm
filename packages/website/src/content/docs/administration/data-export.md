@@ -62,9 +62,64 @@ dependencies that point at a *sibling* project are omitted, since the sibling is
 not part of a single-project export.
 
 :::note
-This is the portable **JSON** export. For a boardroom-ready document, use the
-board PDF export instead. A richer project bundle (MS Project `.mpp`,
-attachments, time entries, and the audit log) is tracked as a follow-up.
+This is the lightweight, synchronous portable **JSON** export. For the complete
+archive — MS Project file, attachments, time entries, and change history — use
+the **project export bundle** below. For a boardroom-ready document, use the
+board PDF export instead.
+:::
+
+## Export a project bundle (async)
+
+The JSON seed above is the schedule's declarative state. The **export bundle** is
+the whole project: the JSON seed **plus** an MS Project file, every task
+attachment, all logged time entries, and the project change history — assembled
+into a single downloadable `.tar.gz`. Because a bundle can be large, it is built
+in the background and offered as a download when it is ready.
+
+### Web
+
+Open **Project → Settings → Lifecycle** and choose **Export bundle…**. The card
+shows the job move through *queued → building → ready*, then offers **Download
+bundle**. A finished bundle's download link stays valid for a few days (see
+[retention](/administration/retention/)); use **Rebuild** to make a fresh one.
+
+Exporting a bundle is an **Admin+** action — it aggregates the full change
+history, every member's time entries, and all attachment binaries, so it sits a
+tier above the Viewer-and-above JSON export.
+
+### API
+
+```
+POST /api/v1/projects/{id}/export/          # queue a bundle → 202 + job
+GET  /api/v1/projects/{id}/export/jobs/{job_id}/           # poll status
+GET  /api/v1/projects/{id}/export/jobs/{job_id}/download/  # download when ready
+```
+
+`POST` returns `202 Accepted` with a job whose `status` is `pending`. Poll the
+job endpoint until `status` is `success` (or `failed`), then fetch `download_url`.
+The download endpoint is authenticated (the archive is never served from a raw
+storage URL); it returns `409` while the job is still building and `410 Gone`
+once the link has expired. A bundle already `pending`/`running` for the project
+is reused rather than queuing a duplicate build.
+
+### What the bundle contains
+
+| Member | Contents |
+| --- | --- |
+| `seed.json` | The canonical JSON seed (same as the synchronous export). |
+| `msproject.xml` | The schedule as **MS Project XML** (MSPDI). |
+| `attachments/…` | Every task attachment binary, plus an `index.json` manifest. |
+| `time_entries.json` | All logged time entries for the project's tasks. |
+| `history/*.json` | The project's change history (tasks, dependencies, risks, sprints, project). |
+| `manifest.json` / `counts.json` | Archive metadata and per-member row counts. |
+
+:::note
+The MS Project artifact is **MS Project XML** (`.xml`, the MSPDI interchange
+format), which Microsoft Project opens natively — not the proprietary binary
+`.mpp`. TruePPM's MS Project integration can *read* binary `.mpp` files but does
+not write them, so the bundle ships the round-trippable XML format instead. The
+same credential-safety rule as the JSON export applies: **no passwords, tokens,
+or internal secrets are ever included.**
 :::
 
 ## Round-trip guarantee
