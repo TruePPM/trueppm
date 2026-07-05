@@ -3714,6 +3714,193 @@
                 "summary": "Delete api token"
             }
         },
+        "/api/v1/me/connections/{source}/": {
+            "get": {
+                "operationId": "v1_me_connections_retrieve",
+                "description": "Manage the authenticated user's connection to one external task source.\n\nRoutes (``<source>`` is an ``EXTERNAL_TASK_SOURCES`` key, e.g. ``jira``):\n    GET    /api/v1/me/connections/{source}/   summary (exists / status / config)\n    PUT    /api/v1/me/connections/{source}/   connect or update (verify then store)\n    DELETE /api/v1/me/connections/{source}/   disconnect (hard-remove ciphertext)\n\nAll actions require authentication and are self-scoped to ``request.user`` —\nthe ``(user, provider)`` filter is the single IDOR boundary, so another\nuser's connection is invisible by construction.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "source",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalConnectionSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve connection"
+            },
+            "put": {
+                "operationId": "v1_me_connections_update",
+                "description": "Connect or update the connection: allow-list host, verify, then store.\n\nOrder matters (#902): the ``base_url`` host is allow-listed *before*\n``verify_credential`` ships the token to it, so an attacker-controlled\nhost is rejected before the PAT is on the wire. On a failed verify the\nplaintext is never written — ``encrypt_secret`` is not reached.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "source",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalConnectionUpsertRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalConnectionUpsertRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalConnectionUpsertRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalConnectionSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalConnectionError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update connection"
+            },
+            "delete": {
+                "operationId": "v1_me_connections_destroy",
+                "description": "Disconnect: hard-remove the ciphertext, config, and cached items.\n\nIdempotent — a 204 whether or not a row existed (ADR-0097 §Resolution #2:\n\"owner-only delete hard-removes ciphertext\"). ``ExternalWorkItem`` FKs to\n``user`` (not the credential), so deleting the credential does not cascade\nthe cache — the cached items are removed explicitly here so a disconnect\nleaves no residual external data in My Work.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "source",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete connection"
+            }
+        },
         "/api/v1/me/credentials/": {
             "get": {
                 "operationId": "v1_me_credentials_list",
@@ -36605,6 +36792,112 @@
                 ],
                 "type": "string",
                 "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created"
+            },
+            "ExternalConnectionError": {
+                "type": "object",
+                "description": "422 body when credential verification against the source fails.",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "reason"
+                ]
+            },
+            "ExternalConnectionSummary": {
+                "type": "object",
+                "description": "Owner-facing summary of a connection — **never** the secret (ADR-0097 §3).\n\nThe ``source`` key is intentionally not echoed: the caller already has it from\nthe ``/me/connections/{source}/`` request path, and a serializer field literally\nnamed ``source`` collides with DRF's internal ``Field.source`` attribute.",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "exists": {
+                        "type": "boolean"
+                    },
+                    "base_url": {
+                        "type": "string"
+                    },
+                    "account_email": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "last_synced_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "jql": {
+                        "type": "string"
+                    },
+                    "project_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "account_email",
+                    "base_url",
+                    "exists",
+                    "jql",
+                    "last_synced_at",
+                    "name",
+                    "project_keys",
+                    "status"
+                ]
+            },
+            "ExternalConnectionUpsertRequest": {
+                "type": "object",
+                "description": "Payload for ``PUT /me/connections/{source}/`` (connect or update).\n\n``secret`` is the user's own API token (write-only, never echoed).\n``base_url`` is the source host (Jira Cloud ``https://<tenant>.atlassian.net``),\nallow-listed downstream. ``account_email`` + ``jql`` + ``project_keys`` are\nstored in the credential's ``config`` — the source reads them at pull time.",
+                "properties": {
+                    "secret": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    },
+                    "base_url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "account_email": {
+                        "type": "string",
+                        "format": "email",
+                        "default": ""
+                    },
+                    "jql": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 1024
+                    },
+                    "project_keys": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                        },
+                        "maxItems": 50
+                    }
+                },
+                "required": [
+                    "base_url",
+                    "secret"
+                ]
             },
             "ExternalTaskCard": {
                 "type": "object",

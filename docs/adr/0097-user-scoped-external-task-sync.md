@@ -1,7 +1,7 @@
 # ADR-0097: User-Scoped Read-Only External Task Sync (Personal Pull)
 
 ## Status
-Proposed — threat model complete (see §Threat Model → Resolution, 2026-05-30); awaiting acceptance decision.
+Accepted (2026-07-05) — threat model complete (see §Threat Model → Resolution, 2026-05-30). Data layer landed in #1418: the `EXTERNAL_TASK_SOURCES` registry + `ExternalTaskSource` ABC, the OSS Jira Cloud source, the `ExternalWorkItem` per-user cache, the `IntegrationCredential.config` extension, and the `/me/connections/{source}/` management endpoints. The pull worker (Celery + `ExternalSyncRequest` outbox), the `POST .../sync/` trigger, and the My Work augmentation follow in #1419.
 
 ## Related issues
 
