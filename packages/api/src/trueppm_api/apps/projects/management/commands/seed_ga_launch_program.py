@@ -247,6 +247,9 @@ class Command(BaseCommand):
                 # nosemgrep: unvalidated-password
                 user.set_password(password)
             else:
+                # Unusable password (Django sets a sentinel hash, not a real
+                # credential) — nothing to validate.
+                # nosemgrep: unvalidated-password
                 user.set_password(None)
             user.save(update_fields=["password"])
             out[username] = user
