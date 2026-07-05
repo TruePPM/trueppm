@@ -20,6 +20,28 @@ vi.mock('@/hooks/useMyWork', async (importActual) => ({
   useMyWorkStatusUpdate: () => ({ mutate: mutateSpy, isPending: false }),
 }));
 
+// Hermetic timer: no /me/timer/ network from the row's TaskTimerControl (#1415).
+// `runningTaskId` drives which task is treated as running; the elapsed ticker is
+// stubbed to a fixed value so the running-row assertion is deterministic.
+const { startTimerSpy, stopTimerSpy, timerState } = vi.hoisted(() => ({
+  startTimerSpy: vi.fn(),
+  stopTimerSpy: vi.fn(),
+  timerState: { runningTaskId: null as string | null },
+}));
+vi.mock('@/hooks/useActiveTimer', () => ({
+  useActiveTimer: () => ({
+    timer: timerState.runningTaskId
+      ? { task: timerState.runningTaskId, started_at: '2026-07-05T10:00:00Z' }
+      : null,
+    startTimer: startTimerSpy,
+    stopTimer: stopTimerSpy,
+    isTaskRunning: (id: string) => timerState.runningTaskId === id,
+    isStarting: false,
+    isStopping: false,
+  }),
+  useElapsedSeconds: (startedAt: string | null | undefined) => (startedAt ? 5046 : 0),
+}));
+
 function wrap(ui: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -130,6 +152,39 @@ describe('MyWorkTaskRow complete checkbox (#1226)', () => {
     expect(checkbox).toBeDisabled();
     expect(checkbox).toHaveAttribute('aria-pressed', 'true');
     expect(warmSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('MyWorkTaskRow timer control (#1415)', () => {
+  beforeEach(() => {
+    startTimerSpy.mockClear();
+    stopTimerSpy.mockClear();
+    timerState.runningTaskId = null;
+  });
+
+  it('renders a Start timer control that starts the timer on this task', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    const start = screen.getByRole('button', { name: 'Start timer on Build login' });
+    fireEvent.click(start);
+    expect(startTimerSpy).toHaveBeenCalledWith('t1');
+  });
+
+  it('shows a Stop control with the live inline elapsed when this task is running', () => {
+    timerState.runningTaskId = 't1';
+    wrap(<MyWorkTaskRow task={BASE} />);
+    // No play control while running.
+    expect(screen.queryByRole('button', { name: 'Start timer on Build login' })).not.toBeInTheDocument();
+    const stop = screen.getByRole('button', { name: 'Stop timer on Build login and log time' });
+    expect(stop).toBeInTheDocument();
+    // 5046s → 1:24:06 inline elapsed.
+    expect(screen.getByText('1:24:06')).toBeInTheDocument();
+    fireEvent.click(stop);
+    expect(stopTimerSpy).toHaveBeenCalled();
+  });
+
+  it('disables the Start control on a completed task', () => {
+    wrap(<MyWorkTaskRow task={{ ...BASE, status: 'COMPLETE' }} />);
+    expect(screen.getByRole('button', { name: 'Start timer on Build login' })).toBeDisabled();
   });
 });
 

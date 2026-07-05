@@ -14,7 +14,9 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
 import { useMyWorkStatusUpdate, type MyWorkTask } from '@/hooks/useMyWork';
+import { useActiveTimer, useElapsedSeconds } from '@/hooks/useActiveTimer';
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
+import { formatElapsed } from '@/lib/formatElapsed';
 import { formatDueLabel } from './dueLabel';
 import { StatusPicker } from './StatusPicker';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
@@ -43,6 +45,66 @@ const STATUS_CHIP_CLASSES: Record<TaskStatus, string> = {
 
 interface Props {
   task: MyWorkTask;
+}
+
+/**
+ * Start/stop time-entry control for a single My Work row (issue 1415, ADR-0185 §C).
+ *
+ * When this task's timer is running the button becomes a stop control with the
+ * live inline elapsed (the "active row mirrors the running state" treatment);
+ * otherwise it is a play control that starts a timer here. Starting while
+ * another task's timer runs is handled server-side (that timer is auto-stopped
+ * and logged), so the button is always a plain play when this task is idle.
+ *
+ * Extracted so the per-second elapsed tick re-renders only the one running row —
+ * `useElapsedSeconds` is inert (no interval) when this task is not running.
+ */
+function TaskTimerControl({ task }: Props) {
+  const { timer, startTimer, stopTimer, isTaskRunning, isStarting, isStopping } = useActiveTimer();
+  const running = isTaskRunning(task.id);
+  const elapsed = useElapsedSeconds(running ? timer?.started_at : null);
+  const isComplete = task.status === 'COMPLETE';
+
+  if (running) {
+    return (
+      <button
+        type="button"
+        onClick={() => stopTimer()}
+        disabled={isStopping}
+        aria-label={`Stop timer on ${task.name} and log time`}
+        className="inline-flex h-11 items-center gap-1.5 rounded-control px-2 md:h-7
+          border border-semantic-on-track/40 bg-semantic-on-track-bg text-semantic-on-track
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          disabled:cursor-progress disabled:opacity-60"
+      >
+        <span className="grid h-3.5 w-3.5 place-items-center rounded-[3px] bg-current" aria-hidden="true">
+          <span className="h-1.5 w-1.5 rounded-[1px] bg-semantic-on-track-bg" />
+        </span>
+        <span className="tppm-mono text-xs" aria-hidden="true">
+          {formatElapsed(elapsed)}
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => startTimer(task.id)}
+      disabled={isStarting || isComplete}
+      aria-label={`Start timer on ${task.name}`}
+      title="Start timer"
+      className="grid h-11 w-11 shrink-0 place-items-center rounded-control text-neutral-text-secondary md:h-7 md:w-7
+        hover:text-brand-primary hover:bg-brand-primary/5
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+        disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent"
+    >
+      {/* Play triangle. */}
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+        <path d="M2.5 1.5v9l7-4.5-7-4.5z" />
+      </svg>
+    </button>
+  );
 }
 
 export function MyWorkTaskRow({ task }: Props) {
@@ -210,6 +272,12 @@ export function MyWorkTaskRow({ task }: Props) {
             )}
           </p>
         )}
+      </div>
+
+      {/* Time-entry timer control (issue 1415) — start here, or stop + log if this
+          task's timer is the one running. */}
+      <div className="shrink-0">
+        <TaskTimerControl task={task} />
       </div>
 
       {/* Status chip — opens StatusPicker popover on tap. */}

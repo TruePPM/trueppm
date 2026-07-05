@@ -21,6 +21,7 @@ import { HealthCluster } from './HealthCluster';
 import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
+import { TimerChip } from '@/features/timer/TimerChip';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { SyncStatusBadge } from './SyncStatusBadge';
 import { NotificationBell } from './NotificationBell';
@@ -197,6 +198,11 @@ export function TopBar({ onHamburgerClick }: Props) {
             (issue 1562), collapsing to "Health ▾" only on phones below md. Stays
             pinned, never behind a tab scroll. */}
         <HealthCluster onTaskNavigate={handleTaskNavigate} />
+
+        {/* Running time-entry timer (issue 1415, ADR-0185 §C) — app-wide while a timer
+            runs; renders nothing when idle. Started from a task-context surface
+            (My Work row), stoppable from anywhere. */}
+        <TimerChip />
 
         {/* Context-aware "+ New" (ADR-0131) — self-gates by route + RBAC. */}
         <CreateMenu />
