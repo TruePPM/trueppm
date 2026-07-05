@@ -544,6 +544,76 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     ).toBeVisible();
   });
 
+  test('renders the real cross-program signals — schedule health, ship-date forecast, burn pace (#1236)', async ({
+    page,
+  }) => {
+    // 401-guard + 404 catch-all first (last-registered-wins); specific mocks below win.
+    await setupCatchAll(page);
+    await setupAuthenticatedPage(page);
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      }),
+    );
+    await page.route('**/api/v1/me/active-sprints/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    // /me/work/ carries the additive `signals` block (#1236). Each signal is
+    // real server-computed data; the burndown's sprint_id matches the active
+    // sprint so the sprint focus card adopts the real series + pace.
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [TASK],
+          next: null,
+          previous: null,
+          active_sprints: [ACTIVE_SPRINT],
+          due_today_count: 1,
+          server_version_high_water: 100,
+          signals: {
+            schedule_health: { band: 'at_risk', project_count: 2 },
+            forecast: {
+              p80_finish: '2026-08-14',
+              project_id: PROJECT_ID,
+              project_name: 'Design App',
+              as_of: '2026-07-01T09:12:00Z',
+            },
+            sprint_burndown: {
+              sprint_id: SPRINT_ID,
+              sprint_name: 'Sprint 12',
+              committed_points: 40,
+              series: [
+                { date: '2026-05-20', remaining_points: 40 },
+                { date: '2026-05-21', remaining_points: 30 },
+                { date: '2026-05-22', remaining_points: 22 },
+              ],
+              burn_status: 'behind',
+              trend_points: -6,
+              projected_finish_date: '2026-06-05',
+            },
+          },
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    // Schedule-health detail line on the needs-attention card (real SPI-proxy).
+    await expect(page.getByText('Schedule at risk · 2 projects')).toBeVisible();
+
+    // Real burn pace on the sprint focus card.
+    await expect(page.getByText('6 pts behind')).toBeVisible();
+
+    // The right-column ship-date forecast panel (real Monte-Carlo P80).
+    await expect(page.getByRole('heading', { name: 'Ship-date forecast' })).toBeVisible();
+    await expect(page.getByText('Aug 14, 2026')).toBeVisible();
+    await expect(page.getByText(/Design App · 80% confidence · as of/)).toBeVisible();
+  });
+
   test('a blocked task shows the Blocked badge, type chip, age, and reason (#476/#855/#1135)', async ({
     page,
   }) => {

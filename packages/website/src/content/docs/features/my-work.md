@@ -52,6 +52,29 @@ When you flag a task blocked, the **Scrum Master and PM are notified** (each can
 The Today / This Sprint / Upcoming grouping and the blocked badge were added in 0.3. Before 0.3, My Work grouped by active sprint.
 :::
 
+## Your focus row *(ships in 0.4)*
+
+Above your task list, a row of focus cards summarizes where you stand across every
+program you work in. The worst signal leads, so the card you most need to act on is
+the biggest and reads first. Each card shows a real, server-computed figure — and
+where a figure has no real source yet, it is simply left off rather than estimated:
+
+- **Needs attention** — how many of your tasks are blocked or on the critical path.
+  When a schedule-health reading is available, the card adds a **schedule (SPI)** line
+  — *on track*, *at risk*, or *critical* — rolled up across your projects, worst first.
+- **Your sprint** — days left in your soonest-ending active sprint, with the real
+  **burndown** behind the card's spark and a plain-English pace line ("5 pts behind",
+  "on track", "3 pts ahead") when the sprint has a points baseline.
+- **Your load** — how many open tasks you're carrying, with a due-today count. This is
+  an honest task count, not a capacity percentage: TruePPM does not compute a
+  cross-program "load vs target" figure, so it does not show one.
+
+Beside the list, a **ship-date forecast** panel shows the Monte-Carlo **P80 finish
+date** — the date by which your work is 80% likely to be done — for the project that
+ships last among those you're on, but only once a forecast has actually been run for
+it. A project with no forecast, no baseline, or no burndown history yet contributes no
+signal, so a card or panel never shows a made-up number.
+
 ## Status updates
 
 Tap the status chip on any row. A small picker opens with four choices. Pick one and the task updates immediately — the change is sent to the server in the background and other people who have the project open see the new status within a couple of seconds.

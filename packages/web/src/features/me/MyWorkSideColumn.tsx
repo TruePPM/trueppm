@@ -3,19 +3,34 @@
  * list. The v2 spec wants Agile → sprint/burndown and Waterfall/Hybrid →
  * critical-path mini. My Work is cross-program with no single methodology, so we
  * show whichever signals the user's data implies:
+ *   - a "Ship-date forecast" panel when the server supplies a real Monte-Carlo
+ *     P80 across the user's forecasted projects (#1236 — the spec's right-column
+ *     ship-date forecast; omitted when no project has a forecast, rule 120),
  *   - an "Active sprints" panel when the user has any active sprint (the agile
  *     signal), and
  *   - an "On the critical path" mini-list of the user's critical tasks (the
  *     waterfall signal).
  * Each panel self-suppresses when empty; the whole column self-suppresses when
- * neither has anything, so a sprintless / non-critical contributor sees the
+ * none has anything, so a sprintless / non-critical contributor sees the
  * single-column list with no empty rail.
  */
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { MyWorkTask, MyWorkActiveSprint } from '@/hooks/useMyWork';
+import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
 
 const MAX_CRITICAL = 4;
+
+/** Format an ISO date (YYYY-MM-DD) as e.g. "Aug 14, 2026" without a timezone shift. */
+function formatShipDate(iso: string): string {
+  // Parse as a local date (append T00:00 avoids the UTC-midnight day-rollback).
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Format the "as of" ISO timestamp as a short calendar day. */
+function formatAsOf(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
 
 function Panel({
   title,
@@ -42,17 +57,33 @@ function Panel({
 export function MyWorkSideColumn({
   tasks,
   activeSprints,
+  forecast,
 }: {
   tasks: MyWorkTask[];
   activeSprints: MyWorkActiveSprint[];
+  /** Real cross-program Monte-Carlo P80 ship-date forecast (#1236), if any. */
+  forecast?: MyWorkSignals['forecast'];
 }) {
   const criticalTasks = tasks.filter((t) => t.is_critical).slice(0, MAX_CRITICAL);
   const criticalTotal = tasks.filter((t) => t.is_critical).length;
 
-  if (activeSprints.length === 0 && criticalTotal === 0) return null;
+  if (!forecast && activeSprints.length === 0 && criticalTotal === 0) return null;
 
   return (
     <div className="flex flex-col gap-4">
+      {forecast && (
+        <Panel title="Ship-date forecast" count="P80">
+          <div className="px-4 py-3">
+            <p className="font-display text-lg font-semibold tracking-tight text-neutral-text-primary">
+              {formatShipDate(forecast.p80_finish)}
+            </p>
+            <p className="mt-0.5 text-xs text-neutral-text-secondary">
+              {forecast.project_name} · 80% confidence · as of {formatAsOf(forecast.as_of)}
+            </p>
+          </div>
+        </Panel>
+      )}
+
       {activeSprints.length > 0 && (
         <Panel title="Active sprints" count={`${activeSprints.length}`}>
           <ul className="flex flex-col">

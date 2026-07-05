@@ -6,8 +6,10 @@ import {
   dateChip,
   buildMyWorkFocusCards,
   myWorkFocusHeading,
+  burndownSpark,
+  burnPaceDetail,
 } from './myWorkFocus';
-import type { MyWorkTask, MyWorkActiveSprint } from '@/hooks/useMyWork';
+import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
 
 function task(overrides: Partial<MyWorkTask> = {}): MyWorkTask {
   return {
@@ -159,6 +161,117 @@ describe('buildMyWorkFocusCards', () => {
   it('reads calm (on-track) when nothing needs attention', () => {
     const cards = buildMyWorkFocusCards([task()], [], 0);
     expect(cards[0]).toMatchObject({ key: 'needs_attention', value: '0', variant: 'on-track' });
+  });
+});
+
+describe('cross-program signals enrichment (#1236)', () => {
+  it('adds a real schedule-health detail line to the needs-attention card', () => {
+    const signals: MyWorkSignals = {
+      schedule_health: { band: 'at_risk', project_count: 3 },
+    };
+    const cards = buildMyWorkFocusCards([task({ is_blocked: true })], [], 0, signals);
+    // Value color still reflects local urgency; the health figure is its own line.
+    expect(cards[0]).toMatchObject({ key: 'needs_attention', variant: 'critical' });
+    expect(cards[0].detail).toEqual({
+      text: 'Schedule at risk · 3 projects',
+      tone: 'at-risk',
+    });
+  });
+
+  it('singularizes the schedule-health project count', () => {
+    const cards = buildMyWorkFocusCards([task()], [], 0, {
+      schedule_health: { band: 'on_track', project_count: 1 },
+    });
+    expect(cards[0].detail?.text).toBe('Schedule on track · 1 project');
+  });
+
+  it('omits the detail line when no schedule_health signal is present', () => {
+    const cards = buildMyWorkFocusCards([task()], [], 0);
+    expect(cards[0].detail).toBeUndefined();
+  });
+
+  it('uses the real burndown series + pace on the matching lead sprint card', () => {
+    const sprints = [sprint({ id: 's2', name: 'Soon', days_remaining: 2 })];
+    const signals: MyWorkSignals = {
+      sprint_burndown: {
+        sprint_id: 's2',
+        sprint_name: 'Soon',
+        committed_points: 40,
+        series: [
+          { date: '2026-06-20', remaining_points: 40 },
+          { date: '2026-06-21', remaining_points: 20 },
+          { date: '2026-06-22', remaining_points: 10 },
+        ],
+        burn_status: 'behind',
+        trend_points: -5,
+        projected_finish_date: '2026-07-05',
+      },
+    };
+    const cards = buildMyWorkFocusCards([], sprints, 0, signals);
+    // Real series → last bar is today's remaining share (10/40 = 0.25).
+    expect(cards[1].spark?.at(-1)).toBeCloseTo(0.25);
+    expect(cards[1].spark).toHaveLength(3);
+    expect(cards[1].detail).toEqual({ text: '5 pts behind', tone: 'at-risk' });
+  });
+
+  it('falls back to the direction-only ramp when the burndown is for a different sprint', () => {
+    const sprints = [sprint({ id: 's2', name: 'Soon', days_remaining: 2 })];
+    const signals: MyWorkSignals = {
+      sprint_burndown: {
+        sprint_id: 'OTHER',
+        sprint_name: 'Other',
+        committed_points: 10,
+        series: [{ date: '2026-06-20', remaining_points: 5 }],
+        burn_status: 'on_track',
+        trend_points: 0,
+        projected_finish_date: null,
+      },
+    };
+    const cards = buildMyWorkFocusCards([], sprints, 0, signals);
+    // 5-step honest ramp, no real-series detail.
+    expect(cards[1].spark).toHaveLength(5);
+    expect(cards[1].detail).toBeUndefined();
+  });
+});
+
+describe('burndownSpark', () => {
+  it('normalizes remaining points against the committed baseline', () => {
+    const heights = burndownSpark(
+      [
+        { remaining_points: 40 },
+        { remaining_points: 20 },
+        { remaining_points: 0 },
+      ],
+      40,
+    );
+    expect(heights).toEqual([1, 0.5, 0.06]); // floored at 0.06 so an empty bar still shows
+  });
+
+  it('normalizes against the series peak when scope grew past commitment', () => {
+    const heights = burndownSpark([{ remaining_points: 50 }, { remaining_points: 25 }], 40);
+    expect(heights?.[0]).toBeCloseTo(1);
+    expect(heights?.[1]).toBeCloseTo(0.5);
+  });
+
+  it('returns undefined for an empty series (honest fallback)', () => {
+    expect(burndownSpark([], 40)).toBeUndefined();
+  });
+});
+
+describe('burnPaceDetail', () => {
+  it('phrases behind / ahead with the signed magnitude and tone', () => {
+    expect(burnPaceDetail('behind', -5)).toEqual({ text: '5 pts behind', tone: 'at-risk' });
+    expect(burnPaceDetail('ahead', 3)).toEqual({ text: '3 pts ahead', tone: 'on-track' });
+    expect(burnPaceDetail('behind', -1)).toEqual({ text: '1 pt behind', tone: 'at-risk' });
+  });
+
+  it('reads "On track" within the ideal band', () => {
+    expect(burnPaceDetail('on_track', 0)).toEqual({ text: 'On track', tone: 'neutral' });
+  });
+
+  it('omits the pace when there is no baseline (no_data / null trend)', () => {
+    expect(burnPaceDetail('no_data', null)).toBeUndefined();
+    expect(burnPaceDetail('on_track', null)).toBeUndefined();
   });
 });
 

@@ -15,9 +15,11 @@
  * prominent blocked badge.
  *
  * Cross-program reality: the focus cards reference only data the /me/work/
- * payload actually returns. The spec's SPI / Monte-Carlo P80 / utilization
- * signals are project-level and not available here, so they are deliberately
- * not rendered rather than fabricated (rule 120). See myWorkFocus.ts.
+ * payload actually returns. Where a real server-side computation exists, the
+ * payload's `signals` block (#1236, ADR-0221) surfaces cross-program schedule
+ * health (SPI-proxy), a Monte-Carlo P80 ship-date forecast, and a real sprint
+ * burndown series. Utilization stays honestly omitted — no cross-program
+ * per-user capacity computation exists to back it (rule 120). See myWorkFocus.ts.
  *
  * Loading shows a row skeleton (no spinners — rule 3 / progressive
  * disclosure). Errors surface as a banner with retry; cached data, if any,
@@ -94,6 +96,9 @@ export function MyWorkPage() {
   // Stable reference so the focus-card memo doesn't recompute every render when
   // the active-sprints array is otherwise unchanged.
   const activeSprints = useMemo(() => firstPage?.active_sprints ?? [], [firstPage]);
+  // Cross-program focus-card signals (#1236) — first page only; undefined when
+  // the server has no real data to back any of them (honest omission).
+  const signals = firstPage?.signals;
   const retroItemCount = firstPage?.retro_action_items?.length ?? 0;
   // Surface count includes retro suggestions/owned items so an empty task list
   // doesn't suppress the "From retros" section when a user has pending
@@ -119,8 +124,8 @@ export function MyWorkPage() {
 
   const workGroups = useMemo(() => groupByBucket(visibleTasks), [visibleTasks]);
   const focusCards = useMemo(
-    () => buildMyWorkFocusCards(allTasks, activeSprints, dueTodayCount),
-    [allTasks, activeSprints, dueTodayCount],
+    () => buildMyWorkFocusCards(allTasks, activeSprints, dueTodayCount, signals),
+    [allTasks, activeSprints, dueTodayCount, signals],
   );
 
   // Computed once per render — `new Date()` keeps the greeting honest to the
@@ -248,7 +253,13 @@ export function MyWorkPage() {
               )}
             </section>
 
-            {hasWork && <MyWorkSideColumn tasks={allTasks} activeSprints={activeSprints} />}
+            {hasWork && (
+              <MyWorkSideColumn
+                tasks={allTasks}
+                activeSprints={activeSprints}
+                forecast={signals?.forecast}
+              />
+            )}
           </div>
         </div>
       )}

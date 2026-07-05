@@ -53,4 +53,14 @@ describe('MyWorkFocusCards', () => {
     // Two-up uses md:grid-cols-2, three-up uses the 1.3fr lead layout.
     expect(container.firstElementChild?.className).toContain('md:grid-cols-2');
   });
+
+  it('renders the real signal detail line as accessible text, not color-only (#1236)', () => {
+    const enriched: MyWorkFocusCard = {
+      ...NEEDS_ATTENTION,
+      detail: { text: 'Schedule at risk · 3 projects', tone: 'at-risk' },
+    };
+    render(<MyWorkFocusCards cards={[enriched]} />);
+    // The meaning is in the text (screen-reader accessible), the tone only colors it.
+    expect(screen.getByText('Schedule at risk · 3 projects')).toBeInTheDocument();
+  });
 });

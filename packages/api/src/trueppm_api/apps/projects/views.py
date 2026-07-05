@@ -10605,8 +10605,15 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             "previous": "<cursor>" | null,
             "active_sprints": [{ ...minimal sprint card... }],
             "due_today_count": 3,
-            "server_version_high_water": 12345
+            "server_version_high_water": 12345,
+            "signals": { ...cross-program focus-card aggregates, #1236... }
         }
+
+    ``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for
+    the focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,
+    and a real sprint burndown series — over the user's own member projects. Each
+    sub-key appears only when a real server-side computation backs it (rule 120: no
+    fabrication), and only on the first page. See ``services.me_work_signals``.
     """
 
     permission_classes = [IsAuthenticated]
@@ -10686,7 +10693,11 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                     "all their projects, wrapped with sprint and freshness metadata: "
                     "{results: [<flat task>], next, previous, active_sprints: "
                     "[<minimal sprint card>], due_today_count, "
-                    "server_version_high_water}."
+                    "server_version_high_water, retro_action_items, signals}. "
+                    "`signals` (#1236) carries cross-program focus-card aggregates — "
+                    "`schedule_health`, `forecast` (Monte-Carlo P80), and "
+                    "`sprint_burndown` — each present only when a real server-side "
+                    "computation backs it (rule 120), and only on the first page."
                 ),
             ),
         },
@@ -10764,7 +10775,27 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # and pass it on the next pull as ``?since=`` to fetch only changes.
         server_version_high_water = queryset.aggregate(_max=Max("server_version"))["_max"] or 0
 
-        active_sprints_payload = MeWorkActiveSprintSerializer(active_sprints_qs, many=True).data
+        # Materialize once: the serializer reads it and the cross-program signal
+        # rollup (#1236) reuses the same Sprint rows to pick the lead sprint, so
+        # the burndown signal costs no extra active-sprint query.
+        active_sprints_list = list(active_sprints_qs)
+        active_sprints_payload = MeWorkActiveSprintSerializer(active_sprints_list, many=True).data
+
+        # Cross-program focus-card signals (#1236, ADR-0221). Bounded grouped
+        # queries over the user's member projects, so compute them only on the
+        # first page — the web reads aggregates from page 1 and this keeps the
+        # ~7 extra queries off every infinite-scroll page. The ``signals`` KEY is
+        # therefore a stable first-page fact: it is ALWAYS present on page 1 (an
+        # empty ``{}`` when nothing is backable) and absent on later pages, so the
+        # web binds one shape. Each *sub*-key inside it appears only when a real
+        # server-side computation backs it (rule 120: honest omission, never a
+        # fabricated number).
+        is_first_page = self.paginator is None or getattr(self.paginator, "offset", 0) == 0
+        me_work_signals_payload: dict[str, Any] = {}
+        if is_first_page:
+            from trueppm_api.apps.projects.services import me_work_signals
+
+            me_work_signals_payload = me_work_signals(request.user, active_sprints_list, today)
 
         # Retro action items relevant to this user (ADR-0071 §4c):
         #   - Suggestions PENDING for this user
@@ -10778,6 +10809,10 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             paginated["due_today_count"] = due_today_count
             paginated["server_version_high_water"] = server_version_high_water
             paginated["retro_action_items"] = retro_items_payload
+            # First page: always include the key (even ``{}``) for a stable shape.
+            # Later pages omit it — the web reads signals from page 1 only.
+            if is_first_page:
+                paginated["signals"] = me_work_signals_payload
             return Response(paginated, status=status.HTTP_200_OK)
 
         return Response(
@@ -10789,6 +10824,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 "due_today_count": due_today_count,
                 "server_version_high_water": server_version_high_water,
                 "retro_action_items": retro_items_payload,
+                "signals": me_work_signals_payload,
             },
             status=status.HTTP_200_OK,
         )
