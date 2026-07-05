@@ -7,6 +7,8 @@
 [![Coverage](https://gitlab.com/trueppm/trueppm/badges/main/coverage.svg)](https://gitlab.com/trueppm/trueppm/-/pipelines)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+> **Canonical source: [gitlab.com/trueppm/trueppm](https://gitlab.com/trueppm/trueppm)** — issues and merge requests are handled there. The GitHub repository is a read-only mirror for discovery; it does not accept issues or pull requests.
+
 **Waterfall, agile, and hybrid programs — one platform, one data model.**
 
 Most tools make you pick a side. Jira speaks agile and turns into a mess the moment someone wants a timeline. MS Project speaks waterfall and ignores how the team actually works in two-week sprints. So the project manager keeps a schedule, the team keeps a board, and somebody spends every Monday reconciling the two by hand.

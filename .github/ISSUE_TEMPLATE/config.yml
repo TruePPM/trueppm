@@ -1,0 +1,15 @@
+# GitHub is a read-only mirror of the canonical GitLab repository.
+# Issues are not tracked here — redirect contributors to GitLab.
+blank_issues_enabled: false
+contact_links:
+  - name: File an issue on GitLab (canonical tracker)
+    url: https://gitlab.com/trueppm/trueppm/-/issues
+    about: >-
+      GitHub is a read-only mirror. All bug reports, feature requests, and
+      discussion happen on GitLab, which is the canonical home of TruePPM.
+  - name: Documentation
+    url: https://docs.trueppm.com
+    about: Guides, API reference, and administration runbooks.
+  - name: Contributing guide
+    url: https://gitlab.com/trueppm/trueppm/-/blob/main/CONTRIBUTING.md
+    about: How to set up the project and submit a merge request on GitLab.
