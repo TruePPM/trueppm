@@ -48,7 +48,7 @@ interface Props {
 }
 
 /**
- * Start/stop time-entry control for a single My Work row (#1415, ADR-0185 §C).
+ * Start/stop time-entry control for a single My Work row (issue 1415, ADR-0185 §C).
  *
  * When this task's timer is running the button becomes a stop control with the
  * live inline elapsed (the "active row mirrors the running state" treatment);
@@ -274,7 +274,7 @@ export function MyWorkTaskRow({ task }: Props) {
         )}
       </div>
 
-      {/* Time-entry timer control (#1415) — start here, or stop + log if this
+      {/* Time-entry timer control (issue 1415) — start here, or stop + log if this
           task's timer is the one running. */}
       <div className="shrink-0">
         <TaskTimerControl task={task} />

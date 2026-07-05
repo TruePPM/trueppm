@@ -1,5 +1,5 @@
 /**
- * Time-tracking display formatters for the live running timer (#1415, ADR-0185).
+ * Time-tracking display formatters for the live running timer (issue 1415, ADR-0185).
  *
  * The running clock is always *derived* from the server's authoritative
  * `started_at` (never accumulated client-side), so these take a plain second /

@@ -199,7 +199,7 @@ export function TopBar({ onHamburgerClick }: Props) {
             pinned, never behind a tab scroll. */}
         <HealthCluster onTaskNavigate={handleTaskNavigate} />
 
-        {/* Running time-entry timer (#1415, ADR-0185 §C) — app-wide while a timer
+        {/* Running time-entry timer (issue 1415, ADR-0185 §C) — app-wide while a timer
             runs; renders nothing when idle. Started from a task-context surface
             (My Work row), stoppable from anywhere. */}
         <TimerChip />

@@ -1,11 +1,11 @@
 /**
- * App-wide running-timer chip in the TopBar right cluster (#1415, ADR-0185 §C).
+ * App-wide running-timer chip in the TopBar right cluster (issue 1415, ADR-0185 §C).
  *
  * Renders **only while a timer is running** (like `TaskRunIndicator`) — the calm
  * shell stays quiet when idle, and starting a timer is a task-context action
  * that lives on the My Work row, not a header control. The persistent idle
  * "0:00:00 · No timer" affordance with a task picker is the global quick-log
- * popover's job (#1416), not this chip's.
+ * popover's job (issue 1416), not this chip's.
  *
  * The chip shows a pulsing dot, the mono live elapsed (`1:24:06`, derived from
  * the server `started_at`), the task label, and a stop control. Its running tint

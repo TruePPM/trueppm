@@ -1,5 +1,5 @@
 /**
- * Live running-timer state for task time entry (#1415, ADR-0185 §4).
+ * Live running-timer state for task time entry (issue 1415, ADR-0185 §4).
  *
  * A contributor starts a timer on a task; a header chip shows the running
  * elapsed app-wide; stopping writes a `TimeEntry`. The timer is a **server**
