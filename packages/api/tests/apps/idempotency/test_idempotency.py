@@ -234,6 +234,14 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 # - token_logout (CookieTokenLogoutView POST, #897) is naturally idempotent: it clears the
 #   refresh cookie and best-effort blacklists the token, so replaying it converges to the same
 #   logged-out state — mirroring the token_obtain_pair / token_refresh exemptions.
+# - password_reset (PasswordResetRequestView POST, ADR-0209 / #765) is the unauthenticated
+#   forgot-password endpoint: it best-effort emails a stateless, fully re-requestable token and
+#   persists no replayable resource, so idempotency keys don't apply — the same shape as
+#   token_obtain_pair; abuse is bounded by the scoped `password_reset` throttle.
+# - password_reset_confirm (PasswordResetConfirmView POST, ADR-0209 / #765) is single-use by
+#   construction: the token stops validating the moment the password hash changes, so a replay
+#   converges to a 400 invalid_token rather than a duplicate effect (naturally idempotent), and
+#   it too persists no idempotency-keyable resource.
 # - project-signal-privacy (SignalPrivacyPolicyView PATCH, ADR-0104 / #553) sets one signal's
 #   audience on the per-project policy singleton; setting the current value short-circuits to a
 #   no-op (no history row), so replaying converges to the same posture — the retention-settings
@@ -273,6 +281,8 @@ EXEMPT_URL_NAMES = frozenset(
         "token_obtain_pair",
         "token_refresh",
         "token_logout",
+        "password_reset",
+        "password_reset_confirm",
         "project-signal-privacy",
         "project-signal-privacy-raise-ceiling",
         "project-signal-privacy-ratchet-down",

@@ -227,6 +227,9 @@ def send_password_reset_email(user: Any) -> bool:
         # Best-effort: a lost email has no persisted state to reconcile (the token
         # is stateless and re-requestable). Never re-raise — a 500 here would itself
         # leak that the address exists.
+        # No secret logged: the only interpolated value is user.pk (a UUID); the
+        # literal merely contains the word "password", which trips the heuristic.
+        # nosemgrep: python-logger-credential-disclosure
         logger.warning("password reset email failed for user %s", user.pk, exc_info=True)
         return False
     return True
@@ -362,6 +365,10 @@ class PasswordResetConfirmView(APIView):
         from trueppm_api.apps.access.services import revoke_all_refresh_tokens
 
         with transaction.atomic():
+            # Password already validated above by enforce_reset_password_policy(),
+            # which runs django...validate_password(new_password, user) plus the
+            # reset-flow policy; set_password is only reached once that passed.
+            # nosemgrep: unvalidated-password
             user.set_password(new_password)
             user.save(update_fields=["password"])
             revoke_all_refresh_tokens(user)
