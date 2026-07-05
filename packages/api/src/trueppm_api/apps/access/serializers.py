@@ -204,8 +204,11 @@ class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefi
     muted_by_me = serializers.SerializerMethodField()
 
     def get_member_count(self, obj: UserDefinedMentionGroup) -> int:
-        # Prefetched by the viewset — len() over the cache, no extra query.
-        return len(obj.members.all())
+        # `members` is already prefetched by the viewset (it also backs the
+        # ``members`` field), so counting the loaded rows in Python is free. A
+        # DB-side ``.count()`` here would be a wasted round trip, not a saving.
+        members = obj.members.all()
+        return len(members)
 
     def get_muted_by_me(self, obj: UserDefinedMentionGroup) -> bool:
         user = getattr(self.context.get("request"), "user", None)
