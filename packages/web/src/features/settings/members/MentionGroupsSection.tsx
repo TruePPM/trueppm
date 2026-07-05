@@ -19,7 +19,7 @@ interface MentionGroupsSectionProps {
 /**
  * Project Settings → Members: user-defined @mention group management (#515).
  *
- * RBAC mirrors the server (ADR-0211 §3): Admin+ curates the set of groups
+ * RBAC mirrors the server (ADR-0212 §3): Admin+ curates the set of groups
  * (create/rename/delete/email-default); Scheduler+ edits membership; any member
  * may mute a group for themselves. The section is hidden entirely below
  * Scheduler since there is nothing a Member/Viewer can manage here except mute,

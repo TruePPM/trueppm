@@ -1,4 +1,4 @@
-"""Tests for user-defined @mention group CRUD, RBAC, and resolution (ADR-0211, #515)."""
+"""Tests for user-defined @mention group CRUD, RBAC, and resolution (ADR-0212, #515)."""
 
 from __future__ import annotations
 

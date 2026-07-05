@@ -16830,7 +16830,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/": {
             "get": {
                 "operationId": "v1_projects_mention_groups_list",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -16912,7 +16912,7 @@
             },
             "post": {
                 "operationId": "v1_projects_mention_groups_create",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -16989,7 +16989,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/{id}/": {
             "get": {
                 "operationId": "v1_projects_mention_groups_retrieve",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17053,7 +17053,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_mention_groups_partial_update",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17136,7 +17136,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_mention_groups_destroy",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17195,7 +17195,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/{id}/add-member/": {
             "post": {
                 "operationId": "v1_projects_mention_groups_add_member_create",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17261,7 +17261,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/{id}/mute/": {
             "post": {
                 "operationId": "v1_projects_mention_groups_mute_create",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17327,7 +17327,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/{id}/remove-member/": {
             "post": {
                 "operationId": "v1_projects_mention_groups_remove_member_create",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -17393,7 +17393,7 @@
         "/api/v1/projects/{project_pk}/mention-groups/{id}/unmute/": {
             "post": {
                 "operationId": "v1_projects_mention_groups_unmute_create",
-                "description": "Nested CRUD for user-defined @mention groups (ADR-0211, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0211 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
                 "parameters": [
                     {
                         "in": "path",
@@ -46391,7 +46391,7 @@
             },
             "UserDefinedMentionGroupRead": {
                 "type": "object",
-                "description": "Response serializer for a user-defined @mention group (ADR-0211, #515).\n\n``members`` is the curated member set (summary detail); ``member_count`` is a\nconvenience for the list UI. ``muted_by_me`` reflects whether the *requesting*\nuser has muted this group — the per-user override that suppresses its\nmentions for them.",
+                "description": "Response serializer for a user-defined @mention group (ADR-0212, #515).\n\n``members`` is the curated member set (summary detail); ``member_count`` is a\nconvenience for the list UI. ``muted_by_me`` reflects whether the *requesting*\nuser has muted this group — the per-user override that suppresses its\nmentions for them.",
                 "properties": {
                     "id": {
                         "type": "string",

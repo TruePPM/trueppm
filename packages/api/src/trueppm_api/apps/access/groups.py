@@ -18,7 +18,7 @@ ADR-0075 locked constraints enforced by this module:
     @all cardinality cap: 200 (raises GroupTooLargeError above)
     @all role gate:       ADMIN+ (enforced by the parser, not this module)
 
-User-defined groups (#515, ADR-0211) are curated per project and resolved by
+User-defined groups (#515, ADR-0212) are curated per project and resolved by
 the separate ``resolve_user_defined_group_members`` path below — distinct from
 the RBAC-derived auto-groups above.
 """
@@ -153,7 +153,7 @@ def resolve_user_defined_group_members(
 ) -> list[uuid.UUID] | None:
     """Snapshot-resolve a user-defined group name to its member user UUIDs.
 
-    The "separate resolver path" this module's header defers to #515 (ADR-0211).
+    The "separate resolver path" this module's header defers to #515 (ADR-0212).
     Distinct from :func:`resolve_group_members`, which resolves the RBAC-derived
     auto-groups: this looks up an admin-curated
     :class:`~trueppm_api.apps.access.models.UserDefinedMentionGroup` by its

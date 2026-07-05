@@ -391,14 +391,14 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 class UserDefinedMentionGroupViewSet(
     IdempotencyMixin, viewsets.GenericViewSet[UserDefinedMentionGroup]
 ):
-    """Nested CRUD for user-defined @mention groups (ADR-0211, #515).
+    """Nested CRUD for user-defined @mention groups (ADR-0212, #515).
 
     URL: ``/api/v1/projects/{project_pk}/mention-groups/``
          ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``
          ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``
          ``…/{pk}/mute/``  ``…/{pk}/unmute/``
 
-    Permission matrix (ADR-0211 §3):
+    Permission matrix (ADR-0212 §3):
       list / retrieve            — any project member (Viewer+)
       create / update / destroy  — Project Admin+  (group lifecycle is a PM act)
       add-member / remove-member — Project Scheduler+  (roster curation)

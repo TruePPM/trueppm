@@ -308,7 +308,7 @@ def resolve_parsed_mentions(
     - User mentions are filtered to current project members; non-members go to
       `skipped_users` so the caller can surface a structured 400.
     - A `@name` that resolves to neither a member nor a `KNOWN_GROUP_KEYS`
-      auto-group is reinterpreted as a **user-defined group** (ADR-0211, #515):
+      auto-group is reinterpreted as a **user-defined group** (ADR-0212, #515):
       the parser is pure and cannot know a name is a group, so this project-aware
       step promotes it to a group target when a live
       `UserDefinedMentionGroup` with that name exists in the project. A real
@@ -337,7 +337,7 @@ def resolve_parsed_mentions(
         )
         resolved_by_name = {u.username: u for u in member_users}
         # Names that are not current project members may be user-defined groups
-        # (ADR-0211). Batch-resolve them in ONE query set (not per-token) so a
+        # (ADR-0212). Batch-resolve them in ONE query set (not per-token) so a
         # comment with many unknown @tokens never fans into an N+1 on the
         # synchronous comment-create path. Snapshot the members at write time,
         # filtered to those still on the project.
@@ -455,7 +455,7 @@ def create_mention_notifications(
         )
         group_member_index[group_key] = members
 
-    # User-defined group routing (ADR-0211 §5). Load the email-default and mute
+    # User-defined group routing (ADR-0212 §5). Load the email-default and mute
     # sets for any mentioned key that is a live user-defined group in this
     # project. Auto-group keys (@admins, @scrum-team, …) simply don't match and
     # keep their existing global-toggle behavior. udg_email_default maps a group
@@ -504,7 +504,7 @@ def create_mention_notifications(
             for member in group_member_index[group_key]:
                 if member.pk == mentioner.pk:
                     continue  # Don't notify yourself
-                # Per-group mute (ADR-0211): a member who muted THIS user-defined
+                # Per-group mute (ADR-0212): a member who muted THIS user-defined
                 # group is skipped for it. They may still be added by a different,
                 # un-muted group (setdefault below) or a direct @mention above.
                 if (member.pk, group_key) in udg_mutes:
@@ -567,7 +567,7 @@ def create_mention_notifications(
         )
         # Email gate. The project matrix (comment_mention/email) + quiet hours are
         # the common baseline. The per-user opt-in then differs by source:
-        #   - user-defined group (ADR-0211 §5): the group manager's per-group
+        #   - user-defined group (ADR-0212 §5): the group manager's per-group
         #     email default is the self-contained opt-in — a mute already removed
         #     the recipient from the in-app gate above, so reaching here means
         #     un-muted; email follows the group default.

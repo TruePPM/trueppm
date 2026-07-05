@@ -191,7 +191,7 @@ class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMember
 
 
 class UserDefinedMentionGroupReadSerializer(serializers.ModelSerializer[UserDefinedMentionGroup]):
-    """Response serializer for a user-defined @mention group (ADR-0211, #515).
+    """Response serializer for a user-defined @mention group (ADR-0212, #515).
 
     ``members`` is the curated member set (summary detail); ``member_count`` is a
     convenience for the list UI. ``muted_by_me`` reflects whether the *requesting*

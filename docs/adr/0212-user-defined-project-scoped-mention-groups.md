@@ -1,4 +1,4 @@
-# ADR-0211: User-defined project-scoped @mention groups
+# ADR-0212: User-defined project-scoped @mention groups
 
 ## Status
 Accepted

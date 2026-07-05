@@ -175,7 +175,7 @@ class ProgramMembership(VersionedModel):
 
 
 class UserDefinedMentionGroup(VersionedModel):
-    """Admin-curated, project-scoped ``@mention`` group (ADR-0211, #515).
+    """Admin-curated, project-scoped ``@mention`` group (ADR-0212, #515).
 
     Complements the RBAC-derived auto-groups (``@admins``, ``@scrum-team``, …)
     resolved in ``access/groups.py`` with workflow-shaped groupings a PM defines
@@ -201,7 +201,7 @@ class UserDefinedMentionGroup(VersionedModel):
     name = models.CharField(max_length=32)
     # Optional one-line purpose shown in the manager UI. DJ001: "" not NULL.
     description = models.CharField(max_length=140, blank=True, default="")
-    # Per-group email default (ADR-0211 §5). Default OFF preserves the un-opted-
+    # Per-group email default (ADR-0212 §5). Default OFF preserves the un-opted-
     # email hard-NO (ADR-0075 V2); the group manager flips it on.
     email_default_on = models.BooleanField(default=False)
     created_by = models.ForeignKey(
@@ -218,7 +218,7 @@ class UserDefinedMentionGroup(VersionedModel):
         related_name="mention_groups",
         blank=True,
     )
-    # Per-user override / per-group mute (ADR-0211 §5). A member who mutes a group
+    # Per-user override / per-group mute (ADR-0212 §5). A member who mutes a group
     # receives neither in-app nor email for that group's mentions; a direct
     # @user mention still reaches them (mute is group-scoped).
     muted_by = models.ManyToManyField(

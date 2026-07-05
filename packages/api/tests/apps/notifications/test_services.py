@@ -471,7 +471,7 @@ class TestCreateMentionNotifications:
 
 
 # ---------------------------------------------------------------------------
-# User-defined mention groups (ADR-0211, #515)
+# User-defined mention groups (ADR-0212, #515)
 # ---------------------------------------------------------------------------
 
 
