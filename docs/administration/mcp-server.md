@@ -134,7 +134,7 @@ docker run --rm -p 8000:8000 \
 
 ## What it can answer
 
-The read-tool surface ships in 0.4: **14 read-only tools**, each mapping to one
+The read-tool surface ships in 0.4: **15 read-only tools**, each mapping to one
 existing REST endpoint and returning only what your role permits. Results are
 compacted for an LLM context budget (empty fields omitted, long free-text
 truncated), and project/program results carry a `caller_role` field passed
@@ -147,7 +147,10 @@ straight through from the API.
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary` (CPM finish, P50/P80/P95, SPI,
   critical-task count), `get_monte_carlo_forecast` (latest persisted run;
-  read-only, never triggers a new simulation), `list_risks`.
+  read-only, never triggers a new simulation), `get_schedule_derivation` (the
+  server-computed *why* behind a CPM value or Monte Carlo percentile — the driving
+  predecessor/successor, binding constraint, lag, and calendar contribution),
+  `list_risks`.
 - **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only).
 - **Identity** — `whoami` (connection check).
 

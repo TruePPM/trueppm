@@ -3,6 +3,53 @@ import starlight from "@astrojs/starlight";
 import starlightVersions from "starlight-versions";
 import rehypeMermaid from "rehype-mermaid";
 
+// The "cut-off words" bug. Mermaid emits a single self-closed `<br />` inside
+// each multi-line <foreignObject> label, but Astro's HTML serialization renders
+// it as `<br></br>`. HTML parsers read the stray `</br>` as a SECOND start tag,
+// so one intended break became two: every two-line label rendered three lines
+// tall and clipped its last line out of the fixed-height (Mermaid-measured) box.
+// It hit every multi-line label across the docs site.
+//
+// Rewriting the `<br>` to a raw void `<br>` does not survive — Astro's downstream
+// raw-HTML pass re-parses it into a `br` element and re-serializes it doubled.
+// So this plugin removes the `<br>` entirely: it splits each label element's
+// children on the break and wraps each line in a `display:block` <span>, which
+// stacks identically but serializes stably as `<span></span>` (no void-element
+// ambiguity). Scoped to Mermaid SVGs (id `mermaid…`) so prose is untouched.
+function rehypeFixMermaidLineBreaks() {
+  const splitOnBr = (children) => {
+    const lines = [[]];
+    for (const c of children) {
+      if (c.type === "element" && c.tagName === "br") lines.push([]);
+      else lines[lines.length - 1].push(c);
+    }
+    return lines.map((line) => ({
+      type: "element",
+      tagName: "span",
+      properties: { style: "display:block" },
+      children: line,
+    }));
+  };
+  const walk = (node, inMermaid) => {
+    if (!node || !node.children) return;
+    const isMermaidSvg =
+      node.type === "element" &&
+      node.tagName === "svg" &&
+      typeof node.properties?.id === "string" &&
+      node.properties.id.startsWith("mermaid");
+    const within = inMermaid || isMermaidSvg;
+    if (
+      within &&
+      node.children.some((c) => c.type === "element" && c.tagName === "br")
+    ) {
+      node.children = splitOnBr(node.children);
+      return;
+    }
+    for (const child of node.children) walk(child, within);
+  };
+  return (tree) => walk(tree, false);
+}
+
 // When a release is cut, add an entry here. The plugin is only loaded when
 // at least one version exists (it errors on an empty array).
 // Example: { slug: "0.1.0", label: "v0.1.0" }
@@ -42,20 +89,36 @@ export default defineConfig({
             theme: "base",
             // Render node/edge labels as HTML (foreignObject) rather than SVG
             // <text>. SVG text labels ignore `<br/>` (collapsing multi-line
-            // labels to their first line) and depend on Mermaid's own font-metric
-            // measurement, which mis-sizes `system-ui` in the headless Chromium
-            // renderer and clips the text at the box edge. HTML labels are laid
-            // out by the real browser at build time, so boxes auto-size to their
-            // content and `<br/>` works. Mermaid only honors htmlLabels when
-            // securityLevel is not "strict" (rehype-mermaid's default); "loose"
-            // is safe here because the diagram source is trusted repo markdown
-            // rendered at build time, never user input at runtime.
+            // labels to their first line). HTML labels are laid out by the real
+            // browser at build time and `<br/>` works. Mermaid only honors
+            // htmlLabels when securityLevel is not "strict" (rehype-mermaid's
+            // default); "loose" is safe here because the diagram source is
+            // trusted repo markdown rendered at build time, never user input at
+            // runtime.
             securityLevel: "loose",
             htmlLabels: true,
             flowchart: { htmlLabels: true, useMaxWidth: true },
+            // Font choice is a CORRECTNESS constraint, not a style one. Boxes
+            // are sized by measuring each label at BUILD time in the headless
+            // Chromium (Ubuntu, `mcr.microsoft.com/playwright`), then the SVG
+            // ships as fixed-width foreignObjects that a VISITOR's browser
+            // repaints. If the build font is narrower than the paint font, every
+            // label is clipped at the box edge — the recurring "cut-off words"
+            // bug. `system-ui` is the worst possible choice here: it resolves to
+            // a narrow Linux face at build but wide San Francisco on a Mac
+            // visitor, so labels reliably clipped in production (a same-machine
+            // Mac build did not reproduce it — only the cross-machine gap does).
+            //
+            // Fix: pin an Arial metric stack. The Playwright image ships
+            // `fonts-liberation` (Liberation Sans is metric-identical to Arial
+            // by design), every desktop OS has Arial, and Linux visitors fall to
+            // Liberation — so build-measurement metrics equal paint metrics on
+            // EVERY machine. Set at the top level (Mermaid measures with the
+            // top-level `fontFamily`, default `arial,sans-serif`) AND mirrored in
+            // themeVariables so the painted `.label` CSS resolves the same face.
+            fontFamily: "Arial, Helvetica, sans-serif",
             themeVariables: {
-              fontFamily:
-                "system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+              fontFamily: "Arial, Helvetica, sans-serif",
               // Filled accent nodes with white labels — reads on white and navy.
               primaryColor: "#3b5bdb",
               primaryBorderColor: "#c5d0f6",
@@ -76,6 +139,9 @@ export default defineConfig({
           },
         },
       ],
+      // MUST run after rehype-mermaid: repairs the `<br></br>` double-break the
+      // serializer introduces into foreignObject labels (see above).
+      rehypeFixMermaidLineBreaks,
     ],
   },
   integrations: [
@@ -126,9 +192,7 @@ export default defineConfig({
         // --- The Story (canonical narrative — lands prospects + evaluators) ---
         {
           label: "The Story",
-          items: [
-            { slug: "the-story" },
-          ],
+          items: [{ slug: "the-story" }],
         },
         // --- Getting Started (everyone) ---
         {
