@@ -580,6 +580,35 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 TRUEPPM_EDITION: str = env("TRUEPPM_EDITION", default="community")
 
 # ---------------------------------------------------------------------------
+# OpenTelemetry observability foundation (ADR-0223, #708)
+#
+# OPT-IN, no default endpoint. Telemetry is enabled only when an OTLP endpoint
+# is configured AND the master switch is on; with no endpoint the provider is a
+# strict no-op (no SDK objects, no export threads, zero per-request cost). We
+# read the well-known upstream OTEL_* env vars so operators reuse the names they
+# already know from every other OTel-emitting service in their cluster, and add
+# a few TRUEPPM_OTEL_* switches for behaviour the standard vars don't express.
+# The bootstrap in trueppm_api.apps.observability.otel consumes these settings.
+# ---------------------------------------------------------------------------
+
+# The gate: an empty endpoint means telemetry is off. No default is provided on
+# purpose — export must be a deliberate operator choice, never a silent egress.
+OTEL_EXPORTER_OTLP_ENDPOINT: str = env("OTEL_EXPORTER_OTLP_ENDPOINT", default="")
+# "grpc" (default, port 4317) or "http/protobuf" (port 4318).
+OTEL_EXPORTER_OTLP_PROTOCOL: str = env("OTEL_EXPORTER_OTLP_PROTOCOL", default="grpc")
+# Passed through verbatim to the exporter, e.g. "authorization=Bearer <token>"
+# for a SaaS OTLP backend. Comma-separated key=value pairs per the OTel spec.
+OTEL_EXPORTER_OTLP_HEADERS: str = env("OTEL_EXPORTER_OTLP_HEADERS", default="")
+# Resource service.name. Defaults to the service, not the pod.
+OTEL_SERVICE_NAME: str = env("OTEL_SERVICE_NAME", default="trueppm-api")
+# Master kill switch, AND-ed with endpoint presence. Lets an operator leave the
+# endpoint configured (e.g. in a shared ConfigMap) while disabling export here.
+TRUEPPM_OTEL_ENABLED: bool = env.bool("TRUEPPM_OTEL_ENABLED", default=True)
+# Independent signal toggles (only consulted when telemetry is enabled overall).
+TRUEPPM_OTEL_TRACES_ENABLED: bool = env.bool("TRUEPPM_OTEL_TRACES_ENABLED", default=True)
+TRUEPPM_OTEL_METRICS_ENABLED: bool = env.bool("TRUEPPM_OTEL_METRICS_ENABLED", default=True)
+
+# ---------------------------------------------------------------------------
 # Integration credential encryption key (ADR-0049 §3)
 #
 # Fernet key used to encrypt the PAT secrets stored in

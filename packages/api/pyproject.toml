@@ -76,6 +76,16 @@ dependencies = [
     # SSRF-guarded egress, not PyJWKClient's own socket). The [crypto] extra pulls
     # cryptography, which is already pinned directly above — no new transitive surface.
     "pyjwt[crypto]>=2.10,<3.0",
+    # OpenTelemetry observability foundation (ADR-0223, #708). Apache-2.0, as is the
+    # full transitive closure (opentelemetry-api/-proto/-semantic-conventions,
+    # googleapis-common-protos, grpcio, protobuf) — no copyleft, so license:check:py
+    # stays green. OPT-IN: the provider is a strict no-op unless an OTLP endpoint is
+    # configured (no default endpoint), so a bare install pays no runtime cost.
+    # -sdk gives the TracerProvider/MeterProvider + batch processors; -exporter-otlp
+    # is the OTLP exporter meta-package (gRPC + HTTP). Capped one major up per the
+    # bounding convention above.
+    "opentelemetry-sdk>=1.43,<2",
+    "opentelemetry-exporter-otlp>=1.43,<2",
 ]
 
 [project.optional-dependencies]
