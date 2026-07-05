@@ -199,10 +199,14 @@ def test_sprint_burndown_uses_soonest_ending_sprint(calendar: Calendar, alice: o
     lead = _active_sprint(p1, "Lead", finish=today + timedelta(days=2))
     later = _active_sprint(p1, "Later", finish=today + timedelta(days=9))
     # Alice must own a non-BACKLOG task in each to make them "active" for her.
+    # Creating an IN_PROGRESS task fires task_status_changed (receivers.py),
+    # which real-time upserts *today's* burn snapshot for the lead sprint —
+    # remaining_points is 0 because this fixture task carries no story_points.
+    # That live point lands after the three historical snapshots seeded below.
     _task(p1, "lead-task", sprint=lead, assignee=alice, status=TaskStatus.IN_PROGRESS)
     _task(p1, "later-task", sprint=later, assignee=alice, status=TaskStatus.IN_PROGRESS)
 
-    # Real burn series for the lead sprint only.
+    # Real burn series for the lead sprint only (historical days before today).
     for i, remaining in enumerate((40, 34, 28)):
         SprintBurnSnapshot.objects.create(
             sprint=lead,
@@ -217,7 +221,7 @@ def test_sprint_burndown_uses_soonest_ending_sprint(calendar: Calendar, alice: o
     assert burndown["sprint_id"] == str(lead.id)
     assert burndown["sprint_name"] == "Lead"
     assert burndown["committed_points"] == 40
-    assert [p["remaining_points"] for p in burndown["series"]] == [40, 34, 28]
+    assert [p["remaining_points"] for p in burndown["series"]] == [40, 34, 28, 0]
     # burn_status is a real server verdict (not no_data — we have a baseline + snaps).
     assert burndown["burn_status"] in {"ahead", "on_track", "behind"}
 
@@ -229,6 +233,10 @@ def test_sprint_burndown_omitted_without_snapshots(calendar: Calendar, alice: ob
     _member(p1, alice)
     sprint = _active_sprint(p1, "S", finish=today + timedelta(days=3))
     _task(p1, "t", sprint=sprint, assignee=alice, status=TaskStatus.IN_PROGRESS)
+    # The task creation above fires task_status_changed, which real-time upserts
+    # today's snapshot (receivers.py) — clear it so the sprint genuinely has none,
+    # exercising the omission path itself rather than an unreachable precondition.
+    SprintBurnSnapshot.objects.filter(sprint=sprint).delete()
 
     signals = _client(alice).get("/api/v1/me/work/").data["signals"]
     assert "sprint_burndown" not in signals
