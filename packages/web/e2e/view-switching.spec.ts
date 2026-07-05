@@ -92,6 +92,22 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: FIXTURE_PROJECTS.length, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  // Project detail — ProjectShell gates every project route on this query
+  // (issue #1111) and renders the "isn't available" empty state on a 404. This
+  // spec previously only mocked the projects LIST, so the detail GET fell
+  // through setupCatchAll's 404 and, once TanStack Query's retries exhausted,
+  // ProjectShell would intermittently redirect to the not-found state mid-test —
+  // the flake behind the round-trip Grid→Board case.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/`, (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECTS[0]),
+      });
+    }
+    return route.continue();
+  });
   // Overview endpoints — stub with minimal data so ProjectOverviewPage doesn't error
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
     route.fulfill({
