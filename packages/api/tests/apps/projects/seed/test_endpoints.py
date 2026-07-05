@@ -103,7 +103,7 @@ def test_project_export_round_trips_through_program_import(user: Any) -> None:
     """A #967 project seed export re-imports through POST /programs/import/ (#1611).
 
     This is the exact contract the create-from-import "TruePPM" format tile relies
-    on (ADR-0220): a project exported as canonical JSON re-materializes as a fresh
+    on (ADR-0222): a project exported as canonical JSON re-materializes as a fresh
     program (the #967 single-project wrapper) with freshly-minted ids, never
     clobbering the source. Uploaded as multipart, mirroring the web flow.
     """

@@ -1,4 +1,4 @@
-# ADR-0220: Native TruePPM seed import in the create-from-import modal
+# ADR-0222: Native TruePPM seed import in the create-from-import modal
 
 ## Status
 Accepted

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupApiMocks, setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * Native TruePPM seed import E2E (#1611, ADR-0220).
+ * Native TruePPM seed import E2E (#1611, ADR-0222).
  *
  * The create-from-import dialog's "TruePPM" format tile is a real choice in the
  * standalone (Sidebar) entry: picking it swaps the accepted file type to .json

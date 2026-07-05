@@ -1,6 +1,6 @@
 import type { KeyboardEvent } from 'react';
 
-/** The two import sources the create-from-import dialog can ingest (ADR-0220). */
+/** The two import sources the create-from-import dialog can ingest (ADR-0222). */
 export type ImportFormat = 'msproject' | 'trueppm';
 
 export interface FormatPickerProps {
@@ -9,7 +9,7 @@ export interface FormatPickerProps {
   /** Change the selected format (clears any picked file in the host). */
   onSelectFormat: (format: ImportFormat) => void;
   /**
-   * Whether the native TruePPM tile is a real choice here (ADR-0220). A native
+   * Whether the native TruePPM tile is a real choice here (ADR-0222). A native
    * seed re-imports as a whole *program*, so it is only offered in the
    * standalone create entry (no parent program). When the dialog is scoped to an
    * existing program (`programId` set), the tile stays disabled and points the
@@ -33,13 +33,13 @@ function onRadioKeyDown(event: KeyboardEvent<HTMLDivElement>, activate: () => vo
 }
 
 /**
- * Format selector for the create-from-import dialog (ADR-0092, ADR-0220).
+ * Format selector for the create-from-import dialog (ADR-0092, ADR-0222).
  *
  * Two ingest sources: **MS Project** (`.xml`; `.mpp`/`.mpx` are gated behind
  * issue 128 / issue 120) and **TruePPM** (the native canonical JSON seed,
  * issue 1611). Selecting TruePPM swaps the accepted file type to `.json`; the
  * host re-imports it through the program-seed importer (a native export
- * re-materializes as a whole program, ADR-0220), so the tile is only a live
+ * re-materializes as a whole program, ADR-0222), so the tile is only a live
  * choice in the standalone create entry — `truePpmEnabled` is false when the
  * dialog is scoped to an existing program, where the tile stays perceivable but
  * disabled with an honest reason rather than silently dimmed.

@@ -18,7 +18,7 @@ interface Props {
   onCreated: (projectId: string) => void;
   /**
    * Called with the new program's id when a native TruePPM seed is imported
-   * (ADR-0220). Only wired by the standalone entry (Sidebar) — a native export
+   * (ADR-0222). Only wired by the standalone entry (Sidebar) — a native export
    * re-materializes as a whole program, so it is not offered when `programId`
    * scopes the dialog to an existing program.
    */
@@ -52,7 +52,7 @@ function msProjectErrorMessage(error: unknown): string {
 }
 
 /**
- * Create-a-project-from-a-file modal (ADR-0092, ADR-0220, #797, #1611).
+ * Create-a-project-from-a-file modal (ADR-0092, ADR-0222, #797, #1611).
  *
  * Distinct from {@link ImportModal} (which imports into an existing project):
  * this creates a NEW thing from an uploaded file. Two sources via
@@ -62,7 +62,7 @@ function msProjectErrorMessage(error: unknown): string {
  *   the caller navigates to the project, where the post-import `TaskRun` drives
  *   the importing → success/failure state (the VoC "no silent async" rule).
  * - **TruePPM** `.json` (native canonical seed) → {@link useImportProgramSeed}.
- *   A native export re-materializes as a whole *program* (ADR-0220), so on
+ *   A native export re-materializes as a whole *program* (ADR-0222), so on
  *   success the modal hands the new program id to `onProgramImported`. This tile
  *   is only live in the standalone entry (no `programId`).
  *
@@ -78,7 +78,7 @@ export function ImportProjectModal({
 }: Props) {
   // A native TruePPM seed imports as a whole program, which cannot be nested
   // inside an existing program — so the tile is only a live choice in the
-  // standalone entry (ADR-0220). Scoped-to-a-program dialogs stay MS Project.
+  // standalone entry (ADR-0222). Scoped-to-a-program dialogs stay MS Project.
   const truePpmEnabled = !programId;
 
   const [format, setFormat] = useState<ImportFormat>('msproject');
