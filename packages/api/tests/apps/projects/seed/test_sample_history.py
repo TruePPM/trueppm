@@ -6,7 +6,7 @@ history an evaluator actually sees — that the authored event timelines produce
 dated reassignments, review rework, persona comments, risk lifecycles, sprint
 goal verdicts, and mid-sprint scope audit, not just a synthesized status walk.
 
-One import per sample (Atlas replays 68 tasks), so every dimension for a sample
+One import per sample (Atlas replays ~70 tasks), so every dimension for a sample
 is asserted in a single test to avoid re-importing.
 """
 

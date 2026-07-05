@@ -120,13 +120,32 @@
       "slug": "standard",
       "name": "Atlas Standard (5-day)",
       "working_days": 31,
-      "hours_per_day": 8.0
+      "hours_per_day": 8.0,
+      "exceptions": [
+        {
+          "exc_start": "A-45",
+          "exc_end": "A-43",
+          "description": "Diego — PTO"
+        }
+      ]
     },
     {
       "slug": "gtm-regional",
       "name": "GTM Regional (5-day, holidays)",
       "working_days": 31,
-      "hours_per_day": 7.5
+      "hours_per_day": 7.5,
+      "exceptions": [
+        {
+          "exc_start": "A-1",
+          "exc_end": "A+2",
+          "description": "Clara — PTO (vacation)"
+        },
+        {
+          "exc_start": "A-30",
+          "exc_end": "A-28",
+          "description": "Clara — PTO (conference)"
+        }
+      ]
     }
   ],
   "resources": [
@@ -349,6 +368,20 @@
       "calendar": "standard",
       "default_view": "BOARD",
       "agile_features": true,
+      "forecast_history": {
+        "days": 60,
+        "commitment_finish": "A+28",
+        "cpm_start": "A+14",
+        "cpm_end": "A+30",
+        "p50_start": "A+20",
+        "p50_end": "A+34",
+        "p80_start": "A+26",
+        "p80_end": "A+44",
+        "p95_start": "A+32",
+        "p95_end": "A+56",
+        "mc_iterations": 2000,
+        "completion_ratio": 0.6
+      },
       "board_columns": [
         "Backlog",
         "To Do",
@@ -705,11 +738,32 @@
           "governance_class": "flow"
         },
         {
+          "wbs_path": "2.6",
+          "name": "Tenant data cutover hook",
+          "type": "story",
+          "status": "NOT_STARTED",
+          "duration": 3,
+          "story_points": 5,
+          "parent_epic": "2",
+          "assignee": "omar",
+          "sprint": "pc-sprint-6",
+          "delivery_mode": "scrum",
+          "governance_class": "flow",
+          "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372)."
+        },
+        {
           "wbs_path": "9",
           "name": "Platform Core GA",
           "is_milestone": true,
           "delivery_mode": "milestone",
           "planned_start": "A+22"
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "migration-tooling:3.2",
+          "successor": "2.6",
+          "dep_type": "FS"
         }
       ],
       "sprints": [
@@ -966,6 +1020,20 @@
       "start_date": "A-90",
       "calendar": "standard",
       "default_view": "SCHEDULE",
+      "forecast_history": {
+        "days": 60,
+        "commitment_finish": "A+68",
+        "cpm_start": "A+58",
+        "cpm_end": "A+70",
+        "p50_start": "A+62",
+        "p50_end": "A+74",
+        "p80_start": "A+68",
+        "p80_end": "A+82",
+        "p95_start": "A+74",
+        "p95_end": "A+92",
+        "mc_iterations": 2000,
+        "completion_ratio": 0.5
+      },
       "tasks": [
         {
           "wbs_path": "1",
@@ -1654,6 +1722,20 @@
       "calendar": "gtm-regional",
       "default_view": "OVERVIEW",
       "agile_features": true,
+      "forecast_history": {
+        "days": 60,
+        "commitment_finish": "A+40",
+        "cpm_start": "A+30",
+        "cpm_end": "A+44",
+        "p50_start": "A+34",
+        "p50_end": "A+48",
+        "p80_start": "A+40",
+        "p80_end": "A+56",
+        "p95_start": "A+46",
+        "p95_end": "A+64",
+        "mc_iterations": 2000,
+        "completion_ratio": 0.55
+      },
       "tasks": [
         {
           "wbs_path": "1",

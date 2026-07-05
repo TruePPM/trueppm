@@ -36,6 +36,17 @@ def d(offset_days: int) -> str:
     return f"A{offset_days - ANCHOR_OFFSET:+d}"
 
 
+def da(anchor_days: int) -> str:
+    """An anchor-relative seed date literal (``A±N``) — offset from import day.
+
+    Unlike :func:`d` (which is project-timeline based, shifted by ANCHOR_OFFSET),
+    ``da`` expresses a date directly relative to "today" — the natural frame for
+    PTO and forecast-history parameters (#376), which are anchored on the demo's
+    present, not a project's day zero.
+    """
+    return f"A{anchor_days:+d}"
+
+
 def ts(offset_days: int, hour: int = 10, minute: int = 0) -> str:
     """An anchor-relative event timestamp (``A±NTHH:MM``); never weekend-snapped.
 
@@ -103,6 +114,11 @@ CALENDARS = [
         "name": "Atlas Standard (5-day)",
         "working_days": 31,
         "hours_per_day": 8.0,
+        # PTO the capacity-reality view (#369) reads: one past leave block on the
+        # main calendar. Ranges also remove those days from date snapping (#376).
+        "exceptions": [
+            {"exc_start": da(-45), "exc_end": da(-43), "description": "Diego — PTO"},
+        ],
     },
     # GTM team observes a regional holiday calendar (still Mon-Fri here, but a
     # distinct calendar so the demo shows calendar assignment per project).
@@ -111,8 +127,72 @@ CALENDARS = [
         "name": "GTM Regional (5-day, holidays)",
         "working_days": 31,
         "hours_per_day": 7.5,
+        # A current PTO block (spans today) plus a past one, so the capacity view
+        # shows both live and historical time off.
+        "exceptions": [
+            {
+                "exc_start": da(-1),
+                "exc_end": da(2),
+                "description": "Clara — PTO (vacation)",
+            },
+            {
+                "exc_start": da(-30),
+                "exc_end": da(-28),
+                "description": "Clara — PTO (conference)",
+            },
+        ],
     },
 ]
+
+# Per-project forecast-history backfill parameters (#376, ADR-0211). The loader
+# synthesizes one ProjectForecastSnapshot per day across `days`, drifting the CPM
+# finish and Monte Carlo band right while `commitment_finish` holds — so the
+# forecast-trend chart (#368) shows a real slip and total-float pressure going
+# negative on day one. Keyed by project slug.
+FORECAST_HISTORY = {
+    "platform-core": {
+        "days": 60,
+        "commitment_finish": da(28),
+        "cpm_start": da(14),
+        "cpm_end": da(30),
+        "p50_start": da(20),
+        "p50_end": da(34),
+        "p80_start": da(26),
+        "p80_end": da(44),
+        "p95_start": da(32),
+        "p95_end": da(56),
+        "mc_iterations": 2000,
+        "completion_ratio": 0.6,
+    },
+    "migration-tooling": {
+        "days": 60,
+        "commitment_finish": da(68),
+        "cpm_start": da(58),
+        "cpm_end": da(70),
+        "p50_start": da(62),
+        "p50_end": da(74),
+        "p80_start": da(68),
+        "p80_end": da(82),
+        "p95_start": da(74),
+        "p95_end": da(92),
+        "mc_iterations": 2000,
+        "completion_ratio": 0.5,
+    },
+    "gtm-readiness": {
+        "days": 60,
+        "commitment_finish": da(40),
+        "cpm_start": da(30),
+        "cpm_end": da(44),
+        "p50_start": da(34),
+        "p50_end": da(48),
+        "p80_start": da(40),
+        "p80_end": da(56),
+        "p95_start": da(46),
+        "p95_end": da(64),
+        "mc_iterations": 2000,
+        "completion_ratio": 0.55,
+    },
+}
 
 
 def three_point(most_likely: int) -> dict:
@@ -257,6 +337,34 @@ def build_platform_core() -> dict:
             )
             story_counter += 1
 
+    # Near-infeasible commitment (#372): a story committed to the ACTIVE sprint
+    # (pc-sprint-6) but gated by a cross-project predecessor — Migration Tooling's
+    # "Performance tuning" (mt:3.2) — whose planned window lands *after* this
+    # sprint closes. Once the program CPM pass runs, its early_start is pushed past
+    # the sprint boundary, so the dependency-reality at-risk indicator fires. Stays
+    # NOT_STARTED (blocked) rather than progressing. Epic 2 ("Multi-tenancy").
+    tasks.append(
+        {
+            "wbs_path": "2.6",
+            "name": "Tenant data cutover hook",
+            "type": "story",
+            "status": "NOT_STARTED",
+            "duration": 3,
+            "story_points": 5,
+            "parent_epic": "2",
+            "assignee": "omar",
+            "sprint": "pc-sprint-6",
+            "delivery_mode": "scrum",
+            "governance_class": "flow",
+            "notes": (
+                "Committed to the active sprint but gated on the migration team's "
+                "Performance tuning task — a cross-project predecessor whose finish "
+                "lands after this sprint closes. Demonstrates the dependency-reality "
+                "at-risk indicator (#372)."
+            ),
+        }
+    )
+
     # Public-launch milestone for Platform Core (target of last sprint).
     tasks.append(
         {
@@ -278,8 +386,17 @@ def build_platform_core() -> dict:
         "calendar": "standard",
         "default_view": "BOARD",
         "agile_features": True,
+        "forecast_history": FORECAST_HISTORY["platform-core"],
         "board_columns": ["Backlog", "To Do", "In Progress", "In Review", "Done"],
         "tasks": tasks,
+        "dependencies": [
+            # Cross-project seam driving the at-risk sprint commitment (see task 2.6).
+            {
+                "predecessor": "migration-tooling:3.2",
+                "successor": "2.6",
+                "dep_type": "FS",
+            }
+        ],
         "sprints": sprints,
         "baselines": [
             {
@@ -489,6 +606,7 @@ def build_migration_tooling() -> dict:
         "start_date": d(0),
         "calendar": "standard",
         "default_view": "SCHEDULE",
+        "forecast_history": FORECAST_HISTORY["migration-tooling"],
         "tasks": tasks,
         "dependencies": deps,
         "baselines": [
@@ -667,6 +785,7 @@ def build_gtm_readiness() -> dict:
         "calendar": "gtm-regional",
         "default_view": "OVERVIEW",
         "agile_features": True,
+        "forecast_history": FORECAST_HISTORY["gtm-readiness"],
         "tasks": tasks,
         "dependencies": deps,
         "risks": [

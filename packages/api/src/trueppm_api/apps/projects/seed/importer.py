@@ -33,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
     Calendar,
+    CalendarException,
     Dependency,
     EstimateStatus,
     Program,
@@ -42,6 +43,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     Task,
 )
+from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
 from trueppm_api.apps.projects.seed.reldates import (
     WorkingCalendar,
     resolve_anchor,
@@ -166,6 +168,12 @@ class _SeedImporter:
         # transaction under the seed_replay flag (side effects suppressed).
         if self.replay:
             replay_timeline(self.payload, self._replay_context())
+
+        # Pass D (#376): backfill ProjectForecastSnapshot history for any project
+        # that authored a forecast_history block. Runs after replay so task_count /
+        # completed_task_count reflect the final replayed state, and still inside the
+        # import transaction so a failure rolls the whole import back (ADR-0211).
+        self._backfill_forecast_history()
 
         project_ids = [str(p.pk) for p in self.projects.values()]
         # Seeded tasks have no CPM dates; recompute so the schedule renders.
@@ -334,6 +342,31 @@ class _SeedImporter:
                 },
             )
             self.calendars[cal["slug"]] = obj
+            self._resolve_calendar_exceptions(obj, cal.get("exceptions", []))
+
+    def _resolve_calendar_exceptions(
+        self, calendar: Calendar, exceptions: list[dict[str, Any]]
+    ) -> None:
+        """Materialize a calendar's non-working ranges (holidays, PTO) — #376.
+
+        Exceptions resolve against the import anchor (relative dates land exactly —
+        a holiday is a fact, never weekend-snapped) and are created idempotently on
+        ``(calendar, exc_start, exc_end)``. Calendars are a shared global catalog
+        that ``_replace_existing`` does not wipe on a sample reload, so get_or_create
+        keeps a reload from accumulating duplicate PTO rows. Materializing them here
+        (before the per-project structure pass) means ``_build_working_calendar``
+        picks them up, so a PTO range also removes those days from date snapping —
+        one source of non-working truth (ADR-0211).
+        """
+        for exc in exceptions:
+            start = resolve_date(exc["exc_start"], anchor=self.anchor, snap=False)
+            end = resolve_date(exc["exc_end"], anchor=self.anchor, snap=False)
+            CalendarException.objects.get_or_create(
+                calendar=calendar,
+                exc_start=start,
+                exc_end=end,
+                defaults={"description": exc.get("description", "")},
+            )
 
     def _resolve_resources(self) -> None:
         for res in self.payload.get("resources", []):
@@ -597,6 +630,28 @@ class _SeedImporter:
             BaselineTask.objects.bulk_create(rows)
             if rows and has_dates:
                 Baseline.objects.filter(pk=baseline.pk).update(has_cpm_dates=True)
+
+    def _backfill_forecast_history(self) -> None:
+        """Synthesize ProjectForecastSnapshot history for projects that author it.
+
+        Delegates the drift math to ``forecast_backfill`` (ADR-0211). Keyed off the
+        seed's ``forecast_history`` block so it is opt-in and generic — only the
+        history-aware samples carry it, but any v2 seed may.
+        """
+        for project_data in self.payload["projects"]:
+            spec = project_data.get("forecast_history")
+            if not spec:
+                continue
+            project = self.projects[project_data["slug"]]
+            task_count = Task.objects.filter(project=project, is_deleted=False).count()
+            backfill_forecast_history(
+                project,
+                spec,
+                anchor=self.anchor,
+                program_code=self.payload["program"]["slug"],
+                project_slug=project_data["slug"],
+                task_count=task_count,
+            )
 
     def _create_program_risks(self, program: Program) -> None:
         """Program-scoped risks attach to the first project (Risk is project-FK).
