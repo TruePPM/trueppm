@@ -89,7 +89,7 @@ export function NotificationListPage() {
         })}
       </div>
 
-      {/* Category selector — orthogonal to read-state (ADR-0213 §3). Radiogroup,
+      {/* Category selector — orthogonal to read-state (ADR-0216 §3). Radiogroup,
           not a tablist, so its "All" doesn't collide with the read-state "All". */}
       <div
         role="radiogroup"

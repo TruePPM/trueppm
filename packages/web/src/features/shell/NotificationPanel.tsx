@@ -151,7 +151,7 @@ export function NotificationPanel({ onClose }: Props) {
         })}
       </div>
 
-      {/* Category selector — orthogonal to the read-state tabs (ADR-0213 §3).
+      {/* Category selector — orthogonal to the read-state tabs (ADR-0216 §3).
           A radiogroup, not a second tablist, so its "All" doesn't collide with
           the read-state "All" tab and screen readers announce single-select. */}
       <div

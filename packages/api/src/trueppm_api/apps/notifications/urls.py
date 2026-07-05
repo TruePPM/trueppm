@@ -25,7 +25,7 @@ urlpatterns = [
         NotificationViewSet.as_view({"get": "retrieve", "patch": "partial_update"}),
         name="me-notifications-detail",
     ),
-    # Per-notification snooze / un-snooze (ADR-0213 §1). Explicit path because
+    # Per-notification snooze / un-snooze (ADR-0216 §1). Explicit path because
     # this app wires the viewset with as_view() rather than a router, so @action
     # isn't auto-routed.
     path(

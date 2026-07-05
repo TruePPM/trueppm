@@ -63,9 +63,9 @@ export interface NotificationRow {
   project: string;
   is_read: boolean;
   is_archived: boolean;
-  /** ISO datetime a snoozed row reappears at, or null when not snoozed (ADR-0213 §1). */
+  /** ISO datetime a snoozed row reappears at, or null when not snoozed (ADR-0216 §1). */
   snoozed_until: string | null;
-  /** Derived server-side: mentions | tasks | signals | project (ADR-0213 §3). */
+  /** Derived server-side: mentions | tasks | signals | project (ADR-0216 §3). */
   category: string;
   created_at: string;
   read_at: string | null;
@@ -106,7 +106,7 @@ function useDocumentVisible(): boolean {
  * to drive the badge.
  *
  * Snoozed rows are excluded server-side (the list endpoint's unread path
- * applies the `snoozed_until > now()` exclusion, ADR-0213 §1) so a deferred
+ * applies the `snoozed_until > now()` exclusion, ADR-0216 §1) so a deferred
  * notification never lights the badge — no client-side filtering needed here.
  */
 export function useUnreadNotificationCount(): { count: number; isLoading: boolean } {
@@ -143,7 +143,7 @@ interface UseNotificationsOptions {
  *
  * The read-state (filter) AND category dimensions are both part of the query
  * key so switching either re-fetches instead of colliding on one cache slot
- * (ADR-0213 §4).
+ * (ADR-0216 §4).
  */
 export function useNotifications({ filter, category = 'all' }: UseNotificationsOptions) {
   const query = useInfiniteQuery<
@@ -231,7 +231,7 @@ interface SnoozeVars {
  * Send `{ preset }` for a 1h/3h/tomorrow preset, or `{ until }` with an ISO
  * datetime (or `null` to un-snooze). A snoozed row drops out of the All/Unread
  * views and the bell count until its time passes, so both the list and the
- * unread-count caches are invalidated (ADR-0213 §1).
+ * unread-count caches are invalidated (ADR-0216 §1).
  */
 export function useSnoozeNotification() {
   const queryClient = useQueryClient();
@@ -261,7 +261,7 @@ interface MuteVars {
 }
 
 /**
- * Mute (or un-mute) a notification *type* from the inbox (ADR-0213 §2).
+ * Mute (or un-mute) a notification *type* from the inbox (ADR-0216 §2).
  *
  * Reuses the existing per-`(event_type, channel)` preference plumbing rather
  * than adding a new model: it resolves the user's IN-APP preference row for the

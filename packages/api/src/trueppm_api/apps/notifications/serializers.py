@@ -81,7 +81,7 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
     mention = MentionSerializer(read_only=True)
     snippet = serializers.SerializerMethodField()
     task_id = serializers.SerializerMethodField()
-    # Derived read-only category (ADR-0213 §3) — mentions | tasks | signals |
+    # Derived read-only category (ADR-0216 §3) — mentions | tasks | signals |
     # project. Sourced from categories.category_for so the field and the
     # ?category= filter share one mapping and never drift.
     category = serializers.SerializerMethodField()

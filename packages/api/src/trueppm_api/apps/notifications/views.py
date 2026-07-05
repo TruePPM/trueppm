@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
 
-# Snooze presets (ADR-0213 §1). The client may send a preset key OR an explicit
+# Snooze presets (ADR-0216 §1). The client may send a preset key OR an explicit
 # `until` ISO datetime; presets are resolved server-side so the "tomorrow 9am"
 # anchor stays consistent and testable.
 SNOOZE_PRESETS: tuple[str, ...] = ("1h", "3h", "tomorrow")
@@ -186,7 +186,7 @@ class NotificationViewSet(
         else:
             # Every non-snoozed view hides rows still inside their snooze window;
             # they reappear automatically once snoozed_until passes (pure query-
-            # time filter, ADR-0213 §1). Applied BEFORE the read-state branch so
+            # time filter, ADR-0216 §1). Applied BEFORE the read-state branch so
             # the unread-count path (unread_only=true) also excludes snoozed rows
             # — otherwise a deferred notification would still light the bell badge.
             qs = qs.filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lte=now))
@@ -198,7 +198,7 @@ class NotificationViewSet(
                 # Default list excludes archived
                 qs = qs.filter(is_archived=False)
 
-        # Derived category filter (ADR-0213 §3). The mapping lives in
+        # Derived category filter (ADR-0216 §3). The mapping lives in
         # categories.py so this filter and the serializer's category field share
         # one source of truth. `mentions` additionally matches mention-sourced
         # rows (blank event_type + mention FK). An unknown category maps to an
@@ -231,7 +231,7 @@ class NotificationViewSet(
     )
     @action(detail=True, methods=["post"], url_path="snooze")
     def snooze(self, request: Request, pk: str | None = None) -> Response:
-        """Snooze (or un-snooze) a single notification (ADR-0213 §1).
+        """Snooze (or un-snooze) a single notification (ADR-0216 §1).
 
         Body accepts EITHER ``{"preset": "1h"|"3h"|"tomorrow"}`` OR
         ``{"until": "<iso datetime>"}``. Pass ``{"until": null}`` (or an empty

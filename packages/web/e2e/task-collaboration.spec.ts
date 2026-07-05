@@ -374,7 +374,7 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           body: JSON.stringify({ count: unreadCount, next: null, previous: null, results: [] }),
         });
       }
-      // Filtered list. Mirrors the server (ADR-0213): snoozed rows are hidden
+      // Filtered list. Mirrors the server (ADR-0216): snoozed rows are hidden
       // from every view except ?snoozed=true; category is orthogonal.
       const now = Date.now();
       const isSnoozed = (n: unknown) => {
@@ -954,7 +954,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(panel.getByText(/Caught up/i)).toBeVisible();
   });
 
-  test('category selector filters the feed (ADR-0213 §3)', async ({ page }) => {
+  test('category selector filters the feed (ADR-0216 §3)', async ({ page }) => {
     await bootProjectPage(page, {
       notifications: [FIXTURE_NOTIFICATION, FIXTURE_EVENT_NOTIFICATION],
       unreadCount: 2,
@@ -981,7 +981,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(panel.getByText('Wire HVAC controls rescheduled in Sprint 4')).toHaveCount(0);
   });
 
-  test('snoozing a row removes it from the unread view (ADR-0213 §1)', async ({ page }) => {
+  test('snoozing a row removes it from the unread view (ADR-0216 §1)', async ({ page }) => {
     await bootProjectPage(page, {
       notifications: [FIXTURE_NOTIFICATION],
       unreadCount: 1,

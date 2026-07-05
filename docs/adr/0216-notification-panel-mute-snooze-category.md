@@ -1,4 +1,4 @@
-# ADR-0213: Notification panel — inline mute, snooze, and category filter
+# ADR-0216: Notification panel — inline mute, snooze, and category filter
 
 ## Status
 Accepted

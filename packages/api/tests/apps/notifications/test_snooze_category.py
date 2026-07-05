@@ -1,4 +1,4 @@
-"""Tests for notification snooze + derived category filters (ADR-0213, #1558)."""
+"""Tests for notification snooze + derived category filters (ADR-0216, #1558)."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ def _event_notification(
 
 class TestCategoryMapping:
     def test_every_event_type_maps_to_a_known_category(self) -> None:
-        """Exhaustiveness guard (ADR-0213 consequences): a newly added event type
+        """Exhaustiveness guard (ADR-0216 consequences): a newly added event type
         that isn't classified would silently fall back to `mentions` — this test
         forces an explicit mapping decision for every enum member instead."""
         from trueppm_api.apps.notifications import categories as cat_module

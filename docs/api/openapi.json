@@ -4466,7 +4466,7 @@
         "/api/v1/me/notifications/{id}/snooze/": {
             "post": {
                 "operationId": "v1_me_notifications_snooze_create",
-                "description": "Snooze (or un-snooze) a single notification (ADR-0213 §1).\n\nBody accepts EITHER ``{\"preset\": \"1h\"|\"3h\"|\"tomorrow\"}`` OR\n``{\"until\": \"<iso datetime>\"}``. Pass ``{\"until\": null}`` (or an empty\nbody) to un-snooze — clearing ``snoozed_until`` returns the row to the\ninbox immediately. Idempotent: re-snoozing overwrites the timestamp.\n\nLooks the row up recipient-scoped directly (not via the filtered\nget_queryset) so a currently-snoozed row can still be re-snoozed or\nun-snoozed — the default queryset hides snoozed rows.",
+                "description": "Snooze (or un-snooze) a single notification (ADR-0216 §1).\n\nBody accepts EITHER ``{\"preset\": \"1h\"|\"3h\"|\"tomorrow\"}`` OR\n``{\"until\": \"<iso datetime>\"}``. Pass ``{\"until\": null}`` (or an empty\nbody) to un-snooze — clearing ``snoozed_until`` returns the row to the\ninbox immediately. Idempotent: re-snoozing overwrites the timestamp.\n\nLooks the row up recipient-scoped directly (not via the filtered\nget_queryset) so a currently-snoozed row can still be re-snoozed or\nun-snoozed — the default queryset hides snoozed rows.",
                 "parameters": [
                     {
                         "in": "path",

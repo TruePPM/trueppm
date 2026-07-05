@@ -313,7 +313,7 @@ class Notification(models.Model):
 
     is_read = models.BooleanField(default=False, db_index=True)
     is_archived = models.BooleanField(default=False)
-    # Per-notification snooze (ADR-0213 §1). A row with snoozed_until > now() is
+    # Per-notification snooze (ADR-0216 §1). A row with snoozed_until > now() is
     # hidden from the All/Unread inbox views (and the unread-count query) until
     # the timestamp passes, then reappears — a pure query-time filter, no Celery.
     # Null = not snoozed. Indexed because every non-snoozed list query filters on it.

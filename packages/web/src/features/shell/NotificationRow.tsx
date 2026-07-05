@@ -5,7 +5,7 @@
  * Click → navigate to source task; mark read on the way. Per-row [Mark read]
  * and [Archive] buttons keep the bulk actions discoverable. Inline [Snooze]
  * (presets) and [Mute notifications like this] surface the noise controls where
- * the noise is felt (ADR-0213, #1558) so a contributor never has to leave the
+ * the noise is felt (ADR-0216, #1558) so a contributor never has to leave the
  * panel for the settings page to turn a noisy type down.
  */
 
@@ -117,7 +117,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
       { eventType, mute: true },
       {
         onSuccess: () =>
-          // In-app only (ADR-0213 §2) — email is untouched, hence "in your inbox".
+          // In-app only (ADR-0216 §2) — email is untouched, hence "in your inbox".
           toast.action('Muted in your inbox', {
             label: 'Undo',
             ariaLabel: 'Undo mute',
@@ -202,7 +202,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
           </div>
         )}
         {/* Mute a *type* — mention rows omit it (you mute a type; a mention is a
-            person addressing you). ADR-0213 §2. */}
+            person addressing you). ADR-0216 §2. */}
         {isEvent && (
           <button type="button" onClick={handleMute} disabled={busy} className={actionBtn}>
             Mute notifications like this

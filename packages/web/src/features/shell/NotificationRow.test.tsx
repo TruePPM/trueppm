@@ -207,7 +207,7 @@ describe('NotificationRow', () => {
     expect(screen.queryByText('Archive')).toBeNull();
   });
 
-  // -- Snooze (ADR-0213 §1) --------------------------------------------------
+  // -- Snooze (ADR-0216 §1) --------------------------------------------------
 
   it('opens the snooze menu and snoozes with the chosen preset', () => {
     renderWithRouter(<NotificationRow notification={row()} />);
@@ -243,7 +243,7 @@ describe('NotificationRow', () => {
     );
   });
 
-  // -- Mute a type (ADR-0213 §2) ---------------------------------------------
+  // -- Mute a type (ADR-0216 §2) ---------------------------------------------
 
   it('mutes the type for an event-sourced row', () => {
     renderWithRouter(

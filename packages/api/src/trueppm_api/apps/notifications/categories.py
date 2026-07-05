@@ -1,4 +1,4 @@
-"""Notification category derivation (ADR-0213 §3).
+"""Notification category derivation (ADR-0216 §3).
 
 A notification's *category* is derived from its ``event_type`` (and, for
 mention-sourced rows, from the presence of a ``mention`` FK) — there is no
@@ -36,7 +36,7 @@ CATEGORIES: tuple[str, ...] = (
 )
 
 # event_type → category. Exhaustive over NotificationEventType (enforced by
-# test_categories). Grouping per ADR-0213 §3:
+# test_categories). Grouping per ADR-0216 §3:
 #   mentions — a person addressing you
 #   tasks    — events about a task you own / are on
 #   signals  — schedule-health signals and team-visibility proposals

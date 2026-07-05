@@ -50,7 +50,7 @@ describe('NotificationListPage', () => {
     useNotificationsMock.mockReturnValue({ notifications: [], isLoading: false, error: null });
     useMarkAllReadMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     renderWithRouter(<NotificationListPage />);
-    // Unified with the panel's friendly two-part copy (ADR-0213 §4) — the mobile
+    // Unified with the panel's friendly two-part copy (ADR-0216 §4) — the mobile
     // route no longer renders a bare "broken"-looking <p>.
     expect(screen.getByText("You're all caught up")).toBeTruthy();
     expect(screen.getByText('No unread mentions right now.')).toBeTruthy();

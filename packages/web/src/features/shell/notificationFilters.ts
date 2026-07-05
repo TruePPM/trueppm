@@ -1,5 +1,5 @@
 /**
- * Shared notification filter definitions (ADR-0213 §4, #1558).
+ * Shared notification filter definitions (ADR-0216 §4, #1558).
  *
  * The desktop slide-out (`NotificationPanel`) and the mobile route
  * (`NotificationListPage`) previously each declared their own `FILTERS` array,
