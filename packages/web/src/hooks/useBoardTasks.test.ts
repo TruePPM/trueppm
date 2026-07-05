@@ -8,10 +8,12 @@
  */
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
+import type { Task } from '@/types';
 import { useUpdateTaskStatus } from './useBoardTasks';
+import { useBoardOutboxStore } from '@/features/board/offline/boardOutboxStore';
 
 const { patchMock, toastMock } = vi.hoisted(() => ({
   patchMock: vi.fn(),
@@ -38,9 +40,14 @@ function makeQC() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useBoardOutboxStore.setState({ opsByTask: {}, hydrated: true });
 });
 
-describe('useUpdateTaskStatus', () => {
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('useUpdateTaskStatus (online)', () => {
   it('invalidates the tasks query on success', async () => {
     patchMock.mockResolvedValueOnce({ data: { id: 't1', status: 'COMPLETE' } });
     const qc = makeQC();
@@ -49,8 +56,10 @@ describe('useUpdateTaskStatus', () => {
 
     result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'COMPLETE' });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] });
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
+    );
+    expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { status: 'COMPLETE' });
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
@@ -61,7 +70,35 @@ describe('useUpdateTaskStatus', () => {
 
     result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'COMPLETE' });
 
-    await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(toastMock.error).toHaveBeenCalledWith("Couldn't move the card — try again.");
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Couldn't move the card — try again."),
+    );
+  });
+});
+
+describe('useUpdateTaskStatus (offline, ADR-0220)', () => {
+  it('queues the move optimistically instead of hitting the network when offline', async () => {
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    const qc = makeQC();
+    qc.setQueryData<Task[]>(
+      ['tasks', 'p1'],
+      [{ id: 't1', name: 'Frame wall', status: 'NOT_STARTED', serverVersion: 3 } as Task],
+    );
+    const { result } = renderHook(() => useUpdateTaskStatus(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'IN_PROGRESS' });
+
+    // No network call while offline...
+    expect(patchMock).not.toHaveBeenCalled();
+    // ...but the card moved optimistically...
+    await waitFor(() =>
+      expect(qc.getQueryData<Task[]>(['tasks', 'p1'])?.[0].status).toBe('IN_PROGRESS'),
+    );
+    // ...and the move is queued with the observed base server version for conflict checks.
+    await waitFor(() => {
+      const op = useBoardOutboxStore.getState().opsByTask['t1'];
+      expect(op?.status).toBe('IN_PROGRESS');
+      expect(op?.baseServerVersion).toBe(3);
+    });
   });
 });

@@ -16,6 +16,8 @@ import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip } from './PendingAcceptanceChip';
+import { PendingSyncBadge } from './PendingSyncBadge';
+import { useIsCardPendingSync } from './offline/boardOutboxStore';
 import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
@@ -354,6 +356,11 @@ function BoardCardImpl({
   // PendingAcceptanceChip carries the read-state instead.
   const isPending = task.sprintPending === true;
   const showCriticalState = task.isCritical && isScheduled && !isPending;
+
+  // ADR-0220: does this card have a status move queued offline (IndexedDB) that
+  // has not yet flushed? Subscribed from the board outbox store so the badge
+  // appears/clears reactively without prop-drilling through the board grid.
+  const isPendingSync = useIsCardPendingSync(task.id);
 
   // EVM indicators (issue 185): SPI + its band are server-owned (issue 990 / API-first
   // issue 986) — the card renders them, it no longer re-derives earned%/planned% from
@@ -703,6 +710,7 @@ function BoardCardImpl({
             {task.name}
           </span>
           {isPending && <PendingAcceptanceChip compact className="shrink-0" />}
+          {isPendingSync && <PendingSyncBadge compact className="shrink-0" />}
           {/* Worst-offender badge (issue 1305) — at compact density it is display-only
               (no peek): one glyph + label conveying the single highest-severity
               signal. It subsumes the old CP chip (critical path is one of its
@@ -870,10 +878,12 @@ function BoardCardImpl({
         {((cardSignal && !isDetailed) ||
           showCriticalState ||
           isPending ||
+          isPendingSync ||
           task.assignees.length > 0 ||
           isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
             {isPending && <PendingAcceptanceChip />}
+            {isPendingSync && <PendingSyncBadge />}
             {/* Comfortable: one interactive worst-offender badge that toggles the
                 health-chip peek (issue 1305). Detailed: keep the CP chip inline since
                 the full chip set is already shown below — no badge, no peek. */}
@@ -1097,40 +1107,40 @@ function BoardCardImpl({
               </span>
             </div>
           )}
-        {/* Baseline vs. forecast date variance (issue 186), folded into the
+          {/* Baseline vs. forecast date variance (issue 186), folded into the
             issue 1305 peek so the badge's aria-controls covers everything it reveals;
             the panel inherits the peek's collapsed/revealed visibility. */}
-        {baselineVarianceDays !== null && (
-          <div
-            className="mt-1.5 pt-1 border-t border-neutral-border/30"
-            aria-label={`Baseline variance: ${baselineVarianceDays > 0 ? '+' : ''}${baselineVarianceDays}d`}
-          >
-            <div className="flex items-center gap-1.5 flex-wrap text-xs">
-              <span className="text-neutral-text-disabled">
-                BL <span className="tppm-mono">{formatShortDate(task.baselineFinish!)}</span>
-              </span>
-              <span className="text-neutral-text-disabled" aria-hidden="true">
-                →
-              </span>
-              <span className="text-neutral-text-secondary">
-                FC <span className="tppm-mono">{formatShortDate(task.finish)}</span>
-              </span>
-              <span
-                className={[
-                  'font-medium tppm-mono',
-                  baselineVarianceDays > 5
-                    ? 'text-semantic-critical'
-                    : baselineVarianceDays > 0
-                      ? 'text-semantic-at-risk'
-                      : 'text-semantic-on-track',
-                ].join(' ')}
-              >
-                {baselineVarianceDays > 0 ? '+' : ''}
-                {baselineVarianceDays}d
-              </span>
+          {baselineVarianceDays !== null && (
+            <div
+              className="mt-1.5 pt-1 border-t border-neutral-border/30"
+              aria-label={`Baseline variance: ${baselineVarianceDays > 0 ? '+' : ''}${baselineVarianceDays}d`}
+            >
+              <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                <span className="text-neutral-text-disabled">
+                  BL <span className="tppm-mono">{formatShortDate(task.baselineFinish!)}</span>
+                </span>
+                <span className="text-neutral-text-disabled" aria-hidden="true">
+                  →
+                </span>
+                <span className="text-neutral-text-secondary">
+                  FC <span className="tppm-mono">{formatShortDate(task.finish)}</span>
+                </span>
+                <span
+                  className={[
+                    'font-medium tppm-mono',
+                    baselineVarianceDays > 5
+                      ? 'text-semantic-critical'
+                      : baselineVarianceDays > 0
+                        ? 'text-semantic-at-risk'
+                        : 'text-semantic-on-track',
+                  ].join(' ')}
+                >
+                  {baselineVarianceDays > 0 ? '+' : ''}
+                  {baselineVarianceDays}d
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
         {/* end health-chip peek (issue 1305) */}
 
