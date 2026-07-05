@@ -73,6 +73,7 @@ def close_sprint(self: object, request_id: str) -> None:
     from trueppm_api.apps.projects.services import (
         apply_carry_over,
         apply_pending_disposition,
+        notify_carryover_assignees,
         snapshot_completed_metrics,
         snapshot_sprint_task_outcomes,
     )
@@ -172,6 +173,24 @@ def close_sprint(self: object, request_id: str) -> None:
             # never blocks the close. 'carry' re-flags pending tasks in the
             # incoming sprint; 'reject' removes them from the sprint.
             apply_pending_disposition(sprint, req.pending_disposition, by=req.requested_by)
+
+            # ADR-0232 (#1470): tell each carried task's assignee their committed
+            # work crossed the close→plan seam. Sourced from the faithful moved-id
+            # set; defers create_event_notifications to on_commit inside the
+            # service. Non-blocking like the reforecast digest below: a
+            # notification bug must never strand or revert a sprint close.
+            try:
+                notify_carryover_assignees(
+                    sprint,
+                    req.carry_over_to,
+                    carried_task_ids,
+                    actor_id=req.requested_by_id,
+                )
+            except Exception:
+                logger.exception(
+                    "close_sprint: carryover notification failed for sprint %s — continuing close",
+                    sprint.pk,
+                )
 
             # ADR-0074: recompute the milestone rollup with the final
             # completed_* snapshot. Runs here (inside the drain transaction,

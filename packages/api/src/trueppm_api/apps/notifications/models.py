@@ -102,6 +102,15 @@ class NotificationEventType(models.TextChoices):
     # this is opt-in, configurable, and reaches the owner asynchronously. In-app ON,
     # email opt-in OFF (Priya's un-opted-email hard-NO).
     TASK_STALE = "task.stale", "A task I own has gone stale"
+    # Sprint-close carryover reassignment (ADR-0232, #1470). Fires to the assignee
+    # when close-time carry-over moves a task they own to the next sprint or the
+    # backlog — the "my work hopped sprints over the weekend and nobody told me"
+    # gap (Priya's load-bearing 🔴 in the 2026-07-01 agile VoC audit). A durable
+    # in-app inbox row, NOT a push: ADR-0102 §6 withholds push for board mechanics,
+    # but carryover is an actual reassignment of committed work (closer to
+    # task.assigned), so the inbox row reaches the assignee off-session without
+    # interrupting. In-app ON, email opt-in OFF (Priya's un-opted-email hard-NO).
+    TASK_MOVED_SPRINT = "task.moved_sprint", "A task I own was carried to another sprint"
 
 
 class NotificationChannel(models.TextChoices):
@@ -428,6 +437,11 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # of forgotten cards must not become un-asked-for email.
     (NotificationEventType.TASK_STALE, NotificationChannel.IN_APP, True),
     (NotificationEventType.TASK_STALE, NotificationChannel.EMAIL, False),
+    # ADR-0232 (#1470) — sprint-close carryover reassignment. In-app ON so the
+    # assignee learns their committed work moved across the close→plan seam; email
+    # opt-in OFF (Priya's un-opted-email hard-NO).
+    (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.EMAIL, False),
 ]
 
 

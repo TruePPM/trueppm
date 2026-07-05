@@ -273,6 +273,52 @@ test.describe('Sprint header buttons (#299)', () => {
     await expect.poll(() => closeBody?.carry_over_to).toBe('sp-planned');
   });
 
+  test('close-success surfaces a carryover summary toast (#1470)', async ({ page }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (r) =>
+      r.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ count: 2, next: null, previous: null, results: [ACTIVE_SPRINT, PLANNED_SPRINT] }),
+      }),
+    );
+    // Two carry-eligible tasks (IN_PROGRESS, NOT_STARTED) on the active sprint —
+    // the toast count is computed from these four statuses at confirm time.
+    await page.route(/\/api\/v1\/tasks\//, (r) =>
+      r.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify({ count: BACKLOG_TASKS.length, next: null, previous: null, results: BACKLOG_TASKS }),
+      }),
+    );
+    await page.route(/\/api\/v1\/sprints\/sp-active\/close\//, (r) =>
+      r.fulfill({
+        status: 202, contentType: 'application/json',
+        body: JSON.stringify({ queued: true, request_id: 'req-1' }),
+      }),
+    );
+
+    await page.goto(ROUTE);
+    await expect(page.getByRole('heading', { name: /Sprint Alpha/ })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /Close active sprint/ }).click();
+    const dialog = page.getByRole('dialog', { name: /Close Sprint Alpha/ });
+    await expect(dialog).toBeVisible();
+    // Carry to the project backlog — no destination sprint tab, so selection
+    // stays on the closed sprint (auto-advance is unit-covered in
+    // carryoverToast.test.ts; carrying to a real sprint renders the heavy
+    // planning panel, which is out of scope for this header-flow spec).
+    await dialog.getByRole('radio', { name: 'Project backlog' }).click();
+    await dialog.getByRole('button', { name: 'Close sprint' }).click();
+
+    // Carryover summary toast names the count and the destination. This is the
+    // visible close-success confirmation the closer sees (the authoritative
+    // per-assignee signal is the backend in-app notification).
+    await expect(
+      page.getByText('Sprint Alpha closed — 2 tasks moved to the backlog.'),
+    ).toBeVisible();
+    // The dialog closes on success.
+    await expect(dialog).toBeHidden();
+  });
+
   test('a failed close keeps the dialog open and re-enables the button (#1518)', async ({
     page,
   }) => {

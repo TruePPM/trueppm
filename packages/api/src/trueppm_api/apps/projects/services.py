@@ -14,7 +14,7 @@ from __future__ import annotations
 import calendar
 import logging
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -4022,6 +4022,122 @@ def notify_milestone_forecast_shift(
             task_id=milestone_id,
         )
     )
+
+
+def notify_carryover_assignees(
+    closed_sprint: Any,
+    carry_over_to: str,
+    carried_task_ids: Sequence[str],
+    *,
+    actor_id: Any = None,
+) -> None:
+    """Notify each carried task's assignee that close-time carry-over moved their
+    work across the close→plan seam (ADR-0232, #1470).
+
+    At sprint close ``apply_carry_over`` silently reassigns every incomplete
+    task's ``sprint`` FK. Without this the assignee gets no signal that their own
+    committed work hopped to the next sprint (or the backlog) — the load-bearing
+    🔴 for the Team Member persona (Priya) in the 2026-07-01 agile VoC audit.
+
+    A durable in-app inbox row, NOT a push: ADR-0102 §6 withholds push for
+    pending-scope board mechanics, but carryover is an actual reassignment of
+    committed work (closer to ``task.assigned``), so the inbox row reaches the
+    assignee off-session — which is the point, since the close usually happens
+    outside their session — without interrupting. Email defaults OFF (Priya's
+    un-opted-email hard-NO); the row is created only if the recipient's
+    ``NotificationPreference`` allows in-app (``create_event_notifications``).
+
+    Recipients are the moved tasks' assignees, minus the actor who requested the
+    close (they already know — matches the ``task.assigned`` self-exclusion). The
+    body names the origin sprint and the destination (a real sprint's name, or
+    "the backlog") and never surfaces story points (ADR-0104 velocity privacy).
+
+    Sourcing from ``carried_task_ids`` (what ``apply_carry_over`` actually moved)
+    keeps this faithful to the ``SprintTaskOutcome`` CARRIED set (ADR-0176) rather
+    than re-deriving the disposition. ``carry_over_to == "none"`` never reaches
+    here (``apply_carry_over`` returns ``[]``).
+
+    One inbox row per assignee, not per task: an assignee with several carried
+    tasks gets a single summary row (Priya's noise hard-NO), and the whole batch
+    is written with one preference lookup + one ``bulk_create`` via
+    ``create_event_notifications_batch``. The single-task case names and
+    deep-links that task; the multi-task case summarises the count with no single
+    anchor. Non-blocking end to end: the synchronous payload build is guarded by
+    the caller, and the deferred write is wrapped here so an emit-time failure is
+    logged and swallowed — it can never propagate out of the ``on_commit`` hook
+    and mislead the (already-committed) sprint close into a FAILED status.
+
+    Args:
+        closed_sprint: The just-closed ``Sprint`` (origin).
+        carry_over_to: The close policy — ``"backlog"`` or a destination sprint
+            UUID string. ``"none"`` is not expected (empty ``carried_task_ids``).
+        carried_task_ids: Task UUID strings that ``apply_carry_over`` moved.
+        actor_id: PK of the user who requested the close; excluded from recipients.
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+    from trueppm_api.apps.projects.models import Sprint, Task
+
+    if not carried_task_ids:
+        return
+
+    # Destination label: a real sprint's name, or the backlog. A missing sprint
+    # (deleted mid-close, not expected) degrades to a generic phrase rather than
+    # leaking a raw UUID into the inbox copy.
+    if carry_over_to == "backlog":
+        destination = "the backlog"
+    else:
+        dest_sprint = Sprint.objects.filter(pk=carry_over_to).only("name").first()
+        destination = dest_sprint.name if dest_sprint is not None else "the next sprint"
+
+    origin = closed_sprint.name
+    project_id = str(closed_sprint.project_id)
+
+    # Group the moved tasks by assignee synchronously (pre-commit) so the
+    # on_commit callback reads no source object a later mutation could change.
+    # Tasks with no assignee, or assigned to the closer, are skipped ("they
+    # already know" — matches task.assigned's self-exclusion).
+    by_assignee: dict[Any, list[tuple[str, str]]] = {}
+    for task in Task.objects.filter(pk__in=list(carried_task_ids)).only(
+        "id", "name", "assignee_id"
+    ):
+        if task.assignee_id is None or task.assignee_id == actor_id:
+            continue
+        by_assignee.setdefault(task.assignee_id, []).append((str(task.id), task.name))
+
+    if not by_assignee:
+        return
+
+    # One row per assignee: name + deep-link the single task, or summarise a count.
+    rows: list[tuple[Any, str, str, str | None]] = []
+    for assignee_id, tasks in by_assignee.items():
+        if len(tasks) == 1:
+            task_id, name = tasks[0]
+            subject = f'Your task "{name}" was carried to {destination}'
+            body = f'{origin} closed — your task "{name}" was carried to {destination}.'
+            rows.append((assignee_id, subject, body, task_id))
+        else:
+            count = len(tasks)
+            subject = f"{count} of your tasks were carried to {destination}"
+            body = f"{origin} closed — {count} of your tasks were carried to {destination}."
+            rows.append((assignee_id, subject, body, None))
+
+    def _emit() -> None:
+        # Best-effort: a notification write must never strand the (already
+        # committed) close, so a failure here is logged and swallowed rather than
+        # propagated out of the on_commit hook.
+        try:
+            create_event_notifications_batch(
+                event_type=NotificationEventType.TASK_MOVED_SPRINT,
+                project_id=project_id,
+                rows=rows,
+            )
+        except Exception:
+            logger.exception(
+                "notify_carryover_assignees: emit failed for sprint %s", closed_sprint.pk
+            )
+
+    transaction.on_commit(_emit)
 
 
 def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:

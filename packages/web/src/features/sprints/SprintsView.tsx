@@ -41,6 +41,7 @@ import {
   type SprintFilterValue,
 } from './SprintFilterPopover';
 import { CloseSprintDialog } from './CloseSprintDialog';
+import { buildCarryoverToast, carryoverAdvanceTarget } from './carryoverToast';
 import { toast } from '@/components/Toast/toast';
 import { RetroHandoffBanner } from './RetroHandoffBanner';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
@@ -53,7 +54,7 @@ import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { daysBetween } from './sprintMath';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
-import type { Task } from '@/types';
+import type { Task, TaskStatus } from '@/types';
 
 function sprintFilterKey(sprintId: string): string {
   return `trueppm.sprintFilter.${sprintId}`;
@@ -90,6 +91,17 @@ function writeStoredFilter(sprintId: string, value: SprintFilterValue): void {
 }
 
 const EMPTY_FILTER: SprintFilterValue = { assignee: 'anyone', statuses: new Set() };
+
+// The task statuses close-time carry-over actually moves — mirrors the backend
+// `_CARRY_OVER_INCOMPLETE_STATUSES` (projects/services.py). Used to estimate the
+// carried count for the close-success toast (#1470, ADR-0232); ON_HOLD and
+// COMPLETE are deliberately excluded because apply_carry_over leaves them behind.
+const CARRY_OVER_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
+  'BACKLOG',
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'REVIEW',
+]);
 
 /**
  * Sprints workspace — issue #227.
@@ -319,6 +331,19 @@ export function SprintsView() {
     // and it leaves the active bucket — the retro handoff must reference this
     // exact sprint, not whatever becomes active after the refetch.
     const closing = { sprintId: activeSprint.id, sprintName: activeSprint.name };
+    // Carryover summary for the close-success toast + auto-advance (#1470,
+    // ADR-0232). Computed here at confirm time from the active sprint's backlog:
+    // the close is async (202 queued), so the exact server-side moved count isn't
+    // known yet — this is the carry-eligible estimate. The authoritative
+    // per-assignee signal is the backend in-app notification; this toast is the
+    // closer's immediate confirmation. carryOverTo is 'backlog', 'none', or a
+    // destination sprint UUID (the dialog resolves the "next planned" choice to
+    // the sprint id before calling us), so a non-literal value is a real sprint.
+    const carriedCount = backlogTasks.filter((t) =>
+      CARRY_OVER_STATUSES.has(t.status),
+    ).length;
+    const advanceTo = carryoverAdvanceTarget(carryOverTo);
+    const destName = advanceTo ? (buckets.planned[0]?.name ?? null) : null;
     closeSprint.mutate(
       {
         sprintId: activeSprint.id,
@@ -331,12 +356,27 @@ export function SprintsView() {
         onSuccess: () => {
           setCloseDialogOpen(false);
           setRetroHandoff(closing);
+          // Confirm what moved where (#1470). The toast host is an aria-live
+          // region, so this doubles as the SR announcement for the programmatic
+          // selection change below (no extra live region needed).
+          toast.success(
+            buildCarryoverToast(closing.sprintName, carriedCount, carryOverTo, destName),
+          );
+          // Auto-advance: land on the destination sprint so the user sees where
+          // the work went, not the just-closed tab. Only when carrying to a real
+          // sprint — backlog/none have no destination tab. Does not fight the
+          // retro-handoff banner, which is keyed off retroHandoff state (not the
+          // selection) and still offers a one-tap jump back to the closed sprint's
+          // retro. No focus move — the aria-live toast covers the context shift.
+          if (advanceTo) {
+            setSelectedSprintId(advanceTo);
+          }
         },
         // The dialog only closes in onSuccess, so a failed close leaves it open
         // with no other signal. Fire an explicit error toast so the user knows
         // the sprint was not closed and can retry (issue 1631).
         onError: () => {
-          toast.error("Couldn't close the sprint — try again.");
+          toast.error(`Couldn't close the ${itl.lower} — try again.`);
         },
       },
     );

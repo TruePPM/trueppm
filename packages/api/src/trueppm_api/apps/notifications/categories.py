@@ -50,6 +50,7 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.TASK_BLOCKED.value: CATEGORY_TASKS,
     NotificationEventType.TASK_STALE.value: CATEGORY_TASKS,
     NotificationEventType.SPRINT_TASK_RESCHEDULED.value: CATEGORY_TASKS,
+    NotificationEventType.TASK_MOVED_SPRINT.value: CATEGORY_TASKS,
     NotificationEventType.MILESTONE_FORECAST_SHIFTED.value: CATEGORY_SIGNALS,
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED.value: CATEGORY_SIGNALS,
     NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED.value: CATEGORY_SIGNALS,
