@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("notifications", "0001_squashed_0006_notification_task"),
+        ("notifications", "0007_workspaceemailsettings"),
     ]
 
     operations = [

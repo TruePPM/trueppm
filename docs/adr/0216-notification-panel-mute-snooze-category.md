@@ -98,7 +98,7 @@ route — reusing the existing preference plumbing and adding the minimum new mo
   action + category/snoozed filters, a `categories.py` mapping), web (NotificationPanel,
   NotificationListPage, NotificationRow inline actions, shared FILTERS source, useNotifications
   hooks + query-key changes for category/snoozed, api types)
-- **Migration required:** yes — `notifications` `0007_notification_snoozed_until` (one nullable
+- **Migration required:** yes — `notifications` `0008_notification_snoozed_until` (one nullable
   indexed column; no data migration).
 - **API changes:** yes — `snooze`/un-snooze action, `?category=`/`?snoozed=` filters, two new
   read-only serializer fields; OpenAPI regenerated.
