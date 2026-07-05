@@ -103,7 +103,9 @@ upsell** — never a dead control. See `04-entitlements.md`.
 ## For implementers — start here
 1. Read this file + ADR-0126.
 2. Tokens: `globals.css` (`:root` / `.dark`) and `tailwind.config.ts`. Never hardcode
-   hex in components — the lint gate fails it.
+   hex in components — the lint gate fails it. (The gate counts hex only in a color
+   context — a quoted value, a `bg-[#…]` arbitrary class, or a `:` CSS value — so a
+   `#1236` issue reference in a comment is fine and will not trip it.)
 3. Sage: fill vs. text split (§ "The system"). Use `bg-app-canvas` for page canvas,
    `bg-neutral-surface` for cards.
 4. The upstream handoff (`design_handoff_trueppm_v2/`) carries the full per-area

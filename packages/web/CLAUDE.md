@@ -45,7 +45,7 @@ These rules are enforced at review time. Violations block merge.
    - At-risk → `text-semantic-at-risk` / `bg-semantic-at-risk`
    - Critical → `text-semantic-critical` / `bg-semantic-critical`
    - Unknown → `text-neutral-text-disabled`
-8. **No custom hex colors in components** — always use Design System tokens from `tailwind.config.ts`
+8. **No custom hex colors in components** — always use Design System tokens from `tailwind.config.ts`. The `design-system-v2` gate (`scripts/check-design-system-v2.sh`) ratchets hex **color literals** — a `#hex` that is quoted (`'#f59e0b'`), in a Tailwind arbitrary value (`bg-[#…]`), or a CSS value (`stroke: #fff`). It does **not** count a bare `#1236`-style issue reference in a comment, so cite issue numbers freely — do **not** rewrite them to "issue N" to appease the gate (that was a workaround for an old false positive, now fixed). If the gate fails, you added a real hardcoded color: tokenize it, don't launder the number.
 
 8a. **`--chrome-*` tokens are for fixed UI furniture** (sidebar, Schedule task-list panel, TopBar) that follows the active theme. `--neutral-*` tokens are for page content surfaces. Use `bg-chrome-surface` on shell chrome, `bg-neutral-surface` on content areas. Both adapt with the `.dark` class on `<html>`. In dark mode `--chrome-surface` equals the legacy `gantt-surface` deep navy (#0F1117). Chrome tokens: `surface`, `surface-raised`, `border`, `text-primary`, `text-secondary`, `row-hover`, `row-active`, `grid`.
 

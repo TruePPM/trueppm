@@ -10,7 +10,14 @@
 #   1. arbitrary Tailwind color VALUE classes — e.g. `bg-[#7C3AED]`, `text-[#abc]` —
 #      which bypass the token system entirely. RATCHET against a committed baseline.
 #   2. raw hex color literals in component source — rule 8 ("no custom hex in
-#      components"). The tree carries pre-existing debt, so this is a RATCHET: the
+#      components"). Only hex in a COLOR context is counted: quoted (`'#f59e0b'`),
+#      inside a Tailwind arbitrary value (`bg-[#7C3AED]`), or a CSS value after a
+#      colon (`stroke: #fff`). A bare `#1236`-style token in a comment or string —
+#      an issue reference, not a color — is deliberately NOT counted (it is decimal
+#      and never in color context). This is the fix for the false-positive class
+#      that made the gate a moving target: every `#NNNN` issue ref in a comment used
+#      to inflate the count and fail unrelated MRs (see the "issue N" rewrites in
+#      git history). The tree carries pre-existing debt, so this is a RATCHET: the
 #      count may not exceed the baseline. New code adds zero; debt only trends down.
 #   3. off-token box-shadow — named `shadow-{sm,md,lg,...}` utilities AND arbitrary
 #      `shadow-[...]` values. The v2 standard is borders-over-shadows; `shadow-card`
@@ -37,7 +44,10 @@ WEB_SRC="packages/web/src"
 SHELL_SRC="packages/web/src/features/shell"
 
 # ── Baselines (ratchet floors). See header. Drive these to zero over time. ──
-BASELINE_HEX=1195
+# BASELINE_HEX counts hex literals in a COLOR context only (see hex_count and the
+# header). It dropped from 1195 to 129 when the count stopped miscounting `#NNNN`
+# issue references as colors — the 129 are the real hardcoded color literals.
+BASELINE_HEX=129
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the
@@ -51,6 +61,13 @@ BASELINE_BLACK=8
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
+# A hex COLOR literal, as it actually appears in TSX/CSS-in-JS: the `#` is preceded
+# by a string quote (' " `), a Tailwind arbitrary-value `[`, or a CSS `value:` colon.
+# This is what rule 8 forbids. It deliberately does NOT match a bare `#1236` issue
+# reference in a comment (decimal, never in color context) — the false-positive class
+# that used to inflate the ratchet and fail unrelated MRs.
+HEX_COLOR_PAT='(["'\''`[]|:[[:space:]]*)#[0-9a-fA-F]{3,8}\b'
+
 # grep wrapper for the count pipelines below. grep exits 1 on "no match", which
 # under `set -euo pipefail` would kill the gate the moment a count legitimately
 # reaches zero — exactly the state this gate exists to ratchet toward. Treat
@@ -60,7 +77,7 @@ EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 g() { grep "$@" || [ "$?" -eq 1 ]; }
 
 hex_count() {
-  g -rIE "#[0-9a-fA-F]{3,8}\b" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
+  g -rIE "$HEX_COLOR_PAT" "$WEB_SRC" --include="*.tsx" --include="*.ts" 2>/dev/null \
     | g -vE "$EXCLUDE" | wc -l | tr -d ' '
 }
 arbitrary_count() {
