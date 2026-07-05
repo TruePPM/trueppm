@@ -1,6 +1,6 @@
 /**
  * Personal Access Tokens page — User → Settings → Personal Access Tokens
- * (#648, ADR-0214).
+ * (issue 648, ADR-0214).
  *
  * A PAT is a user-scoped API credential (`Authorization: Bearer tppm_…`) that
  * authenticates a script *as you* — it carries exactly your RBAC. This page

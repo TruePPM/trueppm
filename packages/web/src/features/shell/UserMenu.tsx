@@ -122,7 +122,7 @@ function MenuContent({
         Notifications
       </NavLink>
 
-      {/* Personal access tokens row (#648) */}
+      {/* Personal access tokens row (issue 648) */}
       <NavLink
         to="/me/settings/api-tokens"
         role="menuitem"
