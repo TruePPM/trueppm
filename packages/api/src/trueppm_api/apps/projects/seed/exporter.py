@@ -321,6 +321,22 @@ class _Exporter:
             _put(block, "working_days", cal.working_days)
             _put(block, "hours_per_day", cal.hours_per_day)
             _put(block, "timezone", cal.timezone)
+            # Non-working ranges (holidays / PTO, #376). Exported as ISO literals so
+            # the export→import→export fixpoint is byte-stable; ordered for
+            # determinism. Forecast-snapshot history is deliberately NOT exported —
+            # like SprintBurnSnapshot it is derived observational history, not
+            # authored structure, so a round-trip drops it (its parameters are not
+            # recoverable from the materialized rows).
+            exceptions = [
+                {
+                    "exc_start": exc.exc_start.isoformat(),
+                    "exc_end": exc.exc_end.isoformat(),
+                    **({"description": exc.description} if exc.description else {}),
+                }
+                for exc in cal.exceptions.all().order_by("exc_start", "exc_end")
+            ]
+            if exceptions:
+                block["exceptions"] = exceptions
             blocks.append(block)
         return sorted(blocks, key=lambda c: c["slug"])
 

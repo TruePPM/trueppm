@@ -33,8 +33,9 @@ export function SampleDataBanner({ programId, canRemove }: SampleDataBannerProps
       className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-brand-primary/30 bg-brand-primary-light px-4 py-3"
     >
       <p className="text-sm text-neutral-text-primary">
-        <span className="font-semibold">This is sample data.</span> Explore freely — remove it when
-        you&rsquo;re ready to start your own work.
+        <span className="font-semibold">This is sample data.</span> It includes 60 days of history —
+        forecast trend, sprint velocity, and baseline variance render out of the box. Explore freely
+        — remove it when you&rsquo;re ready to start your own work.
       </p>
       {canRemove &&
         (confirming ? (

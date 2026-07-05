@@ -71,7 +71,7 @@ calendar-aware capacity is visible.
 #### Atlas Platform Launch — hybrid-large (the flagship)
 
 A fictional B2B SaaS launch: one program, three projects that span the
-methodology mix, 68 tasks, a 15-plus person resource roster across calendars,
+methodology mix, 69 tasks, a 15-plus person resource roster across calendars,
 and a **20-risk register**.
 
 - **Platform Core** (agile) — sprints with a velocity history feeding a release
@@ -79,6 +79,15 @@ and a **20-risk register**.
 - **Migration Tooling** (waterfall) — a CPM-scheduled plan with three-point
   estimates and a captured baseline.
 - **GTM Readiness** (hybrid) — gated launch planning with agile enablement work.
+
+:::note[Coming in 0.4]
+From 0.4 the Atlas sample also carries **60 days of forecast history**, PTO on
+its calendars, and an at-risk cross-project sprint commitment, so the
+forecast-trend chart, capacity view, and dependency-reality indicator render out
+of the box. The [Sample project tour](/getting-started/sample-project-tour/)
+walks through that history and a go-offline demo. 0.4 is
+[Underway](/overview/roadmap/).
+:::
 
 **Look at first:** the cross-project critical path — Platform Core gates
 Migration, which gates the public-launch milestone — and the **Monte Carlo**

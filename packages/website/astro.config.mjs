@@ -137,6 +137,7 @@ export default defineConfig({
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
             { slug: "getting-started/sample-projects" },
+            { slug: "getting-started/sample-project-tour" },
             { slug: "getting-started/evaluation-guide" },
             { slug: "getting-started/upgrade" },
           ],
