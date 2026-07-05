@@ -11,6 +11,8 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - Dead-letter inspector golden path: list → select row → detail (attempt
  *   summary, last error, payload viewer).
  * - Dead-letter inspector empty state (the healthy all-clear case).
+ * - Write actions (#695, ADR-0210): requeue one with backoff, drop one with a
+ *   note, and bulk requeue-all over the current filter set.
  */
 
 const FIXTURE_ME = {
@@ -105,9 +107,49 @@ async function setup(
           body: pj({ detail: 'Internal server error.' }),
         }),
   );
-  // List + detail share a prefix; branch on the path so the detail id wins.
+  // List + detail + the four write actions share a prefix; branch on method +
+  // path so each returns its real response shape (#695, ADR-0210). One handler
+  // keeps the ordering unambiguous (Playwright glob edge cases around the query
+  // string are avoided by matching on pathname, which excludes the query).
   await page.route('**/api/v1/admin/failed-tasks/**', (route) => {
     const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    if (method === 'POST') {
+      if (path.endsWith('/requeue_all/')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ processed: failedTasks.length, matched: failedTasks.length, capped: false }),
+        });
+      }
+      if (path.endsWith('/drop_all/')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ processed: failedTasks.length, matched: failedTasks.length, capped: false }),
+        });
+      }
+      if (path.endsWith('/requeue/')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...FIXTURE_TASK, status: 'retried', workflow_id: 'wf-abc' }),
+        });
+      }
+      if (path.endsWith('/drop/')) {
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({
+            ...FIXTURE_TASK,
+            status: 'dismissed',
+            resolution_note: 'vendor relay down',
+            resolved_by_display: 'Admin',
+            resolved_at: '2026-05-25T12:00:00Z',
+          }),
+        });
+      }
+    }
     if (path.endsWith('/ft-1/')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_TASK) });
     }
@@ -175,8 +217,9 @@ test.describe('Workspace Settings → System health', () => {
     await expect(page.getByText('Connection refused by broker')).toBeVisible();
     // Payload viewer renders the pretty-printed args/kwargs.
     await expect(page.getByText(/"project": "p1"/)).toBeVisible();
-    // Read-only: no requeue/drop/retry/dismiss actions in 0.2.
-    await expect(page.getByRole('button', { name: /requeue|drop|retry|dismiss/i })).toHaveCount(0);
+    // #695: the detail pane now exposes per-task Requeue + Drop actions.
+    await expect(page.getByRole('button', { name: 'Requeue', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Drop', exact: true })).toBeVisible();
   });
 
   test('dead-letter inspector shows the all-clear empty state', async ({ page }) => {
@@ -185,5 +228,56 @@ test.describe('Workspace Settings → System health', () => {
 
     await expect(page.getByText('No dead-lettered tasks')).toBeVisible();
     await expect(page.getByText('Background processing is clean.')).toBeVisible();
+  });
+
+  test('requeue one with a backoff confirms and toasts', async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/health/dead-letters?selected=ft-1');
+
+    // Gate on the detail pane having rendered before touching the action bar.
+    await expect(page.getByRole('heading', { name: 'Attempt summary' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Requeue', exact: true }).click();
+
+    // Confirm dialog with the backoff select.
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Backoff').selectOption('300');
+    await dialog.getByRole('button', { name: 'Requeue', exact: true }).click();
+
+    // Success toast; dialog closes.
+    await expect(page.getByText(/Requeued scheduling\.recalculate_schedule/)).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  });
+
+  test('drop one with a note confirms and toasts', async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/health/dead-letters?selected=ft-1');
+    await expect(page.getByRole('heading', { name: 'Attempt summary' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Drop', exact: true }).click();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel(/Note/).fill('vendor relay down');
+    await dialog.getByRole('button', { name: 'Drop', exact: true }).click();
+
+    await expect(page.getByText(/Dropped scheduling\.recalculate_schedule/)).toBeVisible();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  });
+
+  test('bulk requeue-all over the current filter set confirms and toasts', async ({ page }) => {
+    await setup(page);
+    await page.goto('/settings/health/dead-letters');
+
+    // The bulk bar advertises the current filter count.
+    await expect(page.getByText('scheduling.recalculate_schedule', { exact: true }).first()).toBeVisible();
+    await page.getByRole('button', { name: /Requeue all \(1\)/ }).click();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /Requeue 1/ }).click();
+
+    await expect(page.getByText(/Requeued 1 task\./)).toBeVisible();
   });
 });

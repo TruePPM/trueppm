@@ -75,9 +75,10 @@ to the editor, where admins tune windows, schedule, and on-demand runs; see
 
 ## Dead-letter inspector
 
-Reached from the overview's **Open inspector** link. A read-only split view over
+Reached from the overview's **Open inspector** link. A split view over
 permanently-failed Celery tasks (the `FailedTask` records that back
-[Dead-letter Alerting](/administration/dead-letter-alerting)).
+[Dead-letter Alerting](/administration/dead-letter-alerting)) — inspect a task on the
+left/detail, then requeue or drop it (see [Triaging dead-lettered tasks](#triaging-dead-lettered-tasks)).
 
 - **Filter** by status, task name (substring), and time window; sorted newest-failure-first.
 - **Detail pane** for a selected task:
@@ -87,25 +88,56 @@ permanently-failed Celery tasks (the `FailedTask` records that back
   - **Last error** — exception type, message, and the full traceback (collapsible).
   - **Payload** — the pretty-printed task `args` and `kwargs`.
 
-The inspector **UI** is read-only — retry and dismiss buttons in the console are a
-planned follow-up. The actions themselves are available today via the API (below):
-`retry` re-enqueues the original task with its stored args/kwargs, and `dismiss`
-acknowledges a dead-lettered task without retrying it.
+## Triaging dead-lettered tasks
+
+From the detail pane you can act on a parked task; both actions are workspace-admin
+gated and each opens a confirmation before it runs.
+
+- **Requeue** re-enqueues the original task with its stored `args`/`kwargs` after an
+  operator-chosen **backoff** (immediately, or in 5 minutes / 30 minutes / 1 hour).
+  The requeue does **not** re-dispatch on a side channel — it round-trips through the
+  durable workflow backend, so a broker outage at the moment you click cannot silently
+  lose the re-enqueue (the workflow outbox drain re-dispatches it). Only `dead` and
+  `pending_retry` tasks are requeueable. The backoff is applied as a best-effort delay
+  on the re-dispatched task; the guarantee that the re-enqueue *happens* is durable,
+  while the delay itself is not yet durable across a broker restart.
+- **Drop** removes a parked task from the active queue with an optional **note**. A
+  drop is a *soft* remove: the task moves to `dismissed` and the record — including the
+  note, the operator, and the timestamp — is **retained** for audit (nothing is
+  hard-deleted; see the "no silent discards" principle in
+  [Dead-letter Alerting](/administration/dead-letter-alerting)). Dropped rows are
+  reclaimed by the normal retention purge.
+
+The audit line for a requeued or dropped task (who, when, and any drop note) appears in
+the detail pane once the action has run.
+
+### Bulk actions over the current filter
+
+The list header offers **Requeue all** and **Drop all**, which apply the same action to
+**the current filter set** — for example, filter by task name to "all seven tasks routed
+to the vendor relay" and requeue them in one confirmation. Bulk actions are **bounded**:
+each run processes up to a fixed maximum (500 by default,
+`FAILED_TASK_BULK_ACTION_MAX`), oldest-first, so a "drop all" over a large parked queue
+cannot overload the database. When more tasks match than the cap, the result reports how
+many were processed and that the batch was capped — repeat the action to continue.
 
 ## API
 
-The console is API-first; both surfaces are admin-only (`IsAdminUser`):
+The console is API-first; every surface is admin-only (`IsAdminUser`):
 
 - `GET /api/v1/health/system/` — the aggregated overview payload (component statuses,
   Beat panel, configured schedule, dead-letter summary, retention config).
 - `GET /api/v1/admin/failed-tasks/` — the dead-letter list, filterable with
   `?status=`, `?task_name=`, `?failed_after=`, and `?failed_before=`.
 - `GET /api/v1/admin/failed-tasks/{id}/` — a single failed-task record, including its
-  payload and traceback.
-- `POST /api/v1/admin/failed-tasks/{id}/retry/` — re-enqueue the original task with its
-  stored args/kwargs.
-- `POST /api/v1/admin/failed-tasks/{id}/dismiss/` — mark a dead-lettered task as
-  dismissed (acknowledged, no retry).
+  payload, traceback, and (once acted on) the `resolution_note` / `resolved_at` audit.
+- `POST /api/v1/admin/failed-tasks/{id}/requeue/` — re-enqueue the task through the
+  durable workflow backend with an optional `{ "backoff_seconds": N }` (0–86400).
+- `POST /api/v1/admin/failed-tasks/{id}/drop/` — soft-remove the task (→ `dismissed`)
+  with an optional `{ "note": "…" }`.
+- `POST /api/v1/admin/failed-tasks/requeue_all/` and `.../drop_all/` — the bulk actions
+  over the current filter set (same query params as the list); bounded, returning
+  `{ processed, matched, capped }`.
 
 See the API reference for full schemas.
 

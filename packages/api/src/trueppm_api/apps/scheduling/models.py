@@ -147,6 +147,30 @@ class FailedTask(models.Model):
         default=FailedTaskStatus.DEAD,
         db_index=True,
     )
+    # Operator-action audit (ADR-0210). Stamped on both requeue and drop so every
+    # write action against a parked task is attributable (who/when), and drop can
+    # carry a free-text reason. Nullable/defaulted because the vast majority of
+    # rows are written by the automatic dead-letter path, which never resolves them
+    # — only an explicit operator action sets these. Retained (never hard-deleted)
+    # so the audit survives a drop; ADR-0084 "no silent discards".
+    resolution_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Operator's free-text note recorded when the task was dropped.",
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Workspace admin who requeued or dropped this task.",
+    )
+    resolved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an operator requeued or dropped this task.",
+    )
 
     class Meta:
         ordering = ["-last_failed_at"]
