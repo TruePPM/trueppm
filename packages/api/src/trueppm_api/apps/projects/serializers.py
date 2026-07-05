@@ -52,6 +52,7 @@ from trueppm_api.apps.projects.models import (
     DurationChangeSource,
     EstimateStatus,
     EstimationMode,
+    ExportJobStatus,
     ForecastSnapshot,
     InboundTaskLink,
     PhaseGateConfig,
@@ -59,6 +60,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     ProjectApiToken,
     ProjectCustomField,
+    ProjectExportJob,
     PulseResponse,
     RetroActionItem,
     RetroBoardItem,
@@ -900,6 +902,39 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
                 "methodology and estimation_mode."
             )
         return attrs
+
+
+class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
+    """Read serializer for an async project export job's status + download (ADR-0219).
+
+    Mirrors ``workspace.WorkspaceExportJobSerializer`` (ADR-0174): exposes the job
+    lifecycle and a ``download_url`` present only once the archive is ready. The URL
+    is a relative API path (never a raw storage URL) so the archive is always fetched
+    through the Admin-gated download endpoint.
+    """
+
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectExportJob
+        fields = [
+            "id",
+            "project",
+            "status",
+            "file_size",
+            "error_detail",
+            "expires_at",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "download_url",
+        ]
+        read_only_fields = fields
+
+    def get_download_url(self, obj: ProjectExportJob) -> str | None:
+        if obj.status != ExportJobStatus.SUCCESS:
+            return None
+        return f"/api/v1/projects/{obj.project_id}/export/jobs/{obj.id}/download/"
 
 
 class ProgramSerializer(serializers.ModelSerializer[Program]):

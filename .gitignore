@@ -71,3 +71,5 @@ packages/api/branding/
 
 # Workspace export test/runtime artifacts (written by export tests; never committed)
 packages/api/workspace-exports/
+# Project export bundle test/runtime artifacts (ADR-0219; never committed)
+packages/api/project-exports/
