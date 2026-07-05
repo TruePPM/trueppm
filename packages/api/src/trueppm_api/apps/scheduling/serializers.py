@@ -72,8 +72,12 @@ class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):
     """Read-only serializer for the failed-task dead-letter queue.
 
     Exposed by the admin API so operators can inspect and requeue or discard
-    tasks that exceeded their retry budget.
+    tasks that exceeded their retry budget. The ``resolution_*`` fields surface the
+    operator-action audit (ADR-0210): who requeued/dropped the task, when, and the
+    drop note.
     """
+
+    resolved_by_display = serializers.SerializerMethodField()
 
     class Meta:
         model = FailedTask
@@ -90,8 +94,54 @@ class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):
             "first_failed_at",
             "last_failed_at",
             "status",
+            "resolution_note",
+            "resolved_by_display",
+            "resolved_at",
         ]
         read_only_fields = fields
+
+    def get_resolved_by_display(self, obj: FailedTask) -> str | None:
+        """Display name of the operator who last acted, or None if unresolved."""
+        user: Any = obj.resolved_by
+        if user is None:
+            return None
+        full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
+        return full_name or user.get_username()
+
+
+class FailedTaskRequeueSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the requeue-with-backoff request body (ADR-0210).
+
+    ``backoff_seconds`` is the operator-chosen delay applied as a Celery
+    ``countdown`` on the re-dispatched task. Bounded to a day so a fat-fingered
+    value cannot park a task for a year; ``0`` means dispatch immediately.
+    """
+
+    backoff_seconds = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=86_400,
+        help_text="Backoff before re-dispatch, in seconds (0-86400). 0 = immediate.",
+    )
+
+
+class FailedTaskDropSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the drop-with-note request body (ADR-0210).
+
+    ``note`` is optional free-text audit context. Bounded and trimmed; stored as
+    data and rendered as text (never interpolated into task args), so it carries no
+    injection surface.
+    """
+
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=1000,
+        trim_whitespace=True,
+        help_text="Optional audit note recorded with the drop.",
+    )
 
 
 class VelocitySuggestionSerializer(serializers.ModelSerializer[VelocitySuggestion]):

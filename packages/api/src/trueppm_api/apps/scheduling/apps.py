@@ -32,6 +32,8 @@ class SchedulingConfig(AppConfig):
             celery_task_succeeded,
         )
 
+        self._register_workflows()
+
         @task_prerun.connect  # type: ignore[untyped-decorator]
         def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
             celery_task_started.send(
@@ -81,3 +83,23 @@ class SchedulingConfig(AppConfig):
                 attempt=getattr(request, "retries", 0),
                 exception=reason,
             )
+
+    @staticmethod
+    def _register_workflows() -> None:
+        """Register the scheduling app's durable workflow definitions (ADR-0080 §A).
+
+        The requeue-failed-task workflow (ADR-0210) is the first consumer of the
+        durable backend. Registered here from the owning app's ``ready()`` — the
+        scheduling app owns ``FailedTask`` and already bridges Celery signals in
+        ``ready()``, so the workflow lives with its domain rather than in the
+        backend-neutral engine app. Guarded against duplicate registration because
+        ``ready()`` can run more than once under the test runner and the registry
+        raises on a duplicate name.
+        """
+        from trueppm_api.workflows.consumers.requeue_failed_task import (
+            RequeueFailedTaskWorkflow,
+        )
+        from trueppm_api.workflows.registry import WORKFLOWS
+
+        if RequeueFailedTaskWorkflow.name not in WORKFLOWS.all():
+            WORKFLOWS.register(RequeueFailedTaskWorkflow())

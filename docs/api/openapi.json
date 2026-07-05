@@ -406,7 +406,7 @@
         "/api/v1/admin/failed-tasks/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_list",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/requeue/drop and the bulk ``requeue_all``/``drop_all``: admin users\nonly. The serializer exposes tracebacks, args, and kwargs which may contain\ninternal paths or partial secrets and must not be visible to unprivileged\nmembers.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).\n\nWrite actions (#695, ADR-0210):\n  - ``requeue`` re-enqueues a parked task with an operator-chosen backoff,\n    round-tripping through the durable workflow backend (ADR-0080) rather than\n    the old raw ``send_task`` side channel.\n  - ``drop`` soft-removes a parked task (→ DISMISSED) with an optional audit\n    note; the row is retained so the audit survives (ADR-0084 \"no silent\n    discards\").\n  - ``requeue_all`` / ``drop_all`` apply the same action across the *current\n    filter set*, bounded to ``FAILED_TASK_BULK_ACTION_MAX``.",
                 "parameters": [
                     {
                         "in": "query",
@@ -522,7 +522,7 @@
         "/api/v1/admin/failed-tasks/{id}/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_retrieve",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/requeue/drop and the bulk ``requeue_all``/``drop_all``: admin users\nonly. The serializer exposes tracebacks, args, and kwargs which may contain\ninternal paths or partial secrets and must not be visible to unprivileged\nmembers.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0172) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).\n\nWrite actions (#695, ADR-0210):\n  - ``requeue`` re-enqueues a parked task with an operator-chosen backoff,\n    round-tripping through the durable workflow backend (ADR-0080) rather than\n    the old raw ``send_task`` side channel.\n  - ``drop`` soft-removes a parked task (→ DISMISSED) with an optional audit\n    note; the row is retained so the audit survives (ADR-0084 \"no silent\n    discards\").\n  - ``requeue_all`` / ``drop_all`` apply the same action across the *current\n    filter set*, bounded to ``FAILED_TASK_BULK_ACTION_MAX``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -577,10 +577,11 @@
                 "summary": "Retrieve failed task"
             }
         },
-        "/api/v1/admin/failed-tasks/{id}/dismiss/": {
+        "/api/v1/admin/failed-tasks/{id}/drop/": {
             "post": {
-                "operationId": "v1_admin_failed_tasks_dismiss_create",
-                "description": "Mark a dead-lettered task as dismissed (acknowledged, no retry).",
+                "operationId": "v1_admin_failed_tasks_drop_create",
+                "description": "Soft-remove a parked task (→ DISMISSED) with an optional audit note.\n\nThe row is retained (not hard-deleted) so the note/operator/timestamp audit\nsurvives; it drops out of the operator's default ``dead``/``pending_retry``\nview. Re-dropping an already-dismissed task is an idempotent no-op.",
+                "summary": "Drop (dismiss) a dead-lettered task with an optional audit note",
                 "parameters": [
                     {
                         "in": "path",
@@ -596,6 +597,25 @@
                 "tags": [
                     "meta"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -631,14 +651,14 @@
                             }
                         }
                     }
-                },
-                "summary": "Dismiss failed task"
+                }
             }
         },
-        "/api/v1/admin/failed-tasks/{id}/retry/": {
+        "/api/v1/admin/failed-tasks/{id}/requeue/": {
             "post": {
-                "operationId": "v1_admin_failed_tasks_retry_create",
-                "description": "Re-enqueue the original task with stored args/kwargs.",
+                "operationId": "v1_admin_failed_tasks_requeue_create",
+                "description": "Re-enqueue a parked task via the durable workflow backend (ADR-0210).\n\nOnly ``dead``/``pending_retry`` tasks are requeueable; a terminal task is a\n400. The re-enqueue is durable (workflow outbox); the ``backoff_seconds`` is\na best-effort Celery countdown on the re-dispatched task.",
+                "summary": "Requeue a dead-lettered task with an operator-chosen backoff",
                 "parameters": [
                     {
                         "in": "path",
@@ -654,6 +674,25 @@
                 "tags": [
                     "meta"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -689,8 +728,123 @@
                             }
                         }
                     }
+                }
+            }
+        },
+        "/api/v1/admin/failed-tasks/drop_all/": {
+            "post": {
+                "operationId": "v1_admin_failed_tasks_drop_all_create",
+                "description": "Bulk-drop the current filter set, bounded (ADR-0210 §4).\n\nApplies the inspector's ``get_queryset`` filters, excludes already-dismissed\nrows, and dismisses at most ``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first) in\na single bounded ``UPDATE`` — no per-row loop. ``capped`` signals more remain.",
+                "summary": "Drop every task in the current filter set (bounded)",
+                "tags": [
+                    "meta"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskDropRequest"
+                            }
+                        }
+                    }
                 },
-                "summary": "Retry failed task"
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{processed, matched, capped}"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/failed-tasks/requeue_all/": {
+            "post": {
+                "operationId": "v1_admin_failed_tasks_requeue_all_create",
+                "description": "Bulk-requeue the current filter set, bounded (ADR-0210 §4).\n\nApplies the inspector's ``get_queryset`` filters, restricts to actionable\n(``dead``/``pending_retry``) tasks, and processes at most\n``FAILED_TASK_BULK_ACTION_MAX`` (oldest-first). ``capped`` in the response\nsignals that more remain and the operator should repeat.",
+                "summary": "Requeue every actionable task in the current filter set (bounded)",
+                "tags": [
+                    "meta"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FailedTaskRequeueRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "{processed, matched, capped}"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/auth/logout/": {
@@ -34758,7 +34912,7 @@
             },
             "FailedTask": {
                 "type": "object",
-                "description": "Read-only serializer for the failed-task dead-letter queue.\n\nExposed by the admin API so operators can inspect and requeue or discard\ntasks that exceeded their retry budget.",
+                "description": "Read-only serializer for the failed-task dead-letter queue.\n\nExposed by the admin API so operators can inspect and requeue or discard\ntasks that exceeded their retry budget. The ``resolution_*`` fields surface the\noperator-action audit (ADR-0210): who requeued/dropped the task, when, and the\ndrop note.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -34812,6 +34966,24 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "resolution_note": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Operator's free-text note recorded when the task was dropped."
+                    },
+                    "resolved_by_display": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display name of the operator who last acted, or None if unresolved.",
+                        "readOnly": true
+                    },
+                    "resolved_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When an operator requeued or dropped this task."
                     }
                 },
                 "required": [
@@ -34823,11 +34995,39 @@
                     "id",
                     "kwargs",
                     "last_failed_at",
+                    "resolution_note",
+                    "resolved_at",
+                    "resolved_by_display",
                     "status",
                     "task_id",
                     "task_name",
                     "traceback"
                 ]
+            },
+            "FailedTaskDropRequest": {
+                "type": "object",
+                "description": "Validate the drop-with-note request body (ADR-0210).\n\n``note`` is optional free-text audit context. Bounded and trimmed; stored as\ndata and rendered as text (never interpolated into task args), so it carries no\ninjection surface.",
+                "properties": {
+                    "note": {
+                        "type": "string",
+                        "default": "",
+                        "description": "Optional audit note recorded with the drop.",
+                        "maxLength": 1000
+                    }
+                }
+            },
+            "FailedTaskRequeueRequest": {
+                "type": "object",
+                "description": "Validate the requeue-with-backoff request body (ADR-0210).\n\n``backoff_seconds`` is the operator-chosen delay applied as a Celery\n``countdown`` on the re-dispatched task. Bounded to a day so a fat-fingered\nvalue cannot park a task for a year; ``0`` means dispatch immediately.",
+                "properties": {
+                    "backoff_seconds": {
+                        "type": "integer",
+                        "maximum": 86400,
+                        "minimum": 0,
+                        "default": 0,
+                        "description": "Backoff before re-dispatch, in seconds (0-86400). 0 = immediate."
+                    }
+                }
             },
             "FailedTaskStatusEnum": {
                 "enum": [
