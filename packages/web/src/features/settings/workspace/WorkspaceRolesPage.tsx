@@ -1,7 +1,5 @@
 import type { CSSProperties } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
-import { StubFieldset } from '../components/StubFieldset';
-import { StubPageBanner } from '../components/StubPageBanner';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { IDENTITY_VIOLET, tintedChipStyle } from '@/lib/identityColors';
 
@@ -151,129 +149,141 @@ function exportRolesMatrixCsv(): void {
 
 /** Workspace > Roles & permissions RBAC matrix. */
 export function WorkspaceRolesPage() {
-  // Enterprise-only rows carry an upsell badge (data-driven via Capability.ee).
-  // EnterpriseBadge self-gates on edition — it renders only under community, so
-  // no edition check is needed here.
+  // This is an intentional READ-ONLY reference, not a stub awaiting an API (#1649).
+  // The five-role model is fixed in the community edition; editing roles / custom
+  // roles is an Enterprise capability (two-repo rule), so there is no OSS write
+  // path to wire — a "changes won't be saved yet" banner would promise wiring that
+  // never lands. The Enterprise boundary is surfaced instead: the custom-roles
+  // affordance below and the per-capability EE badges (web-rule 121). EnterpriseBadge
+  // self-gates on edition — it renders only under community, so no edition check here.
   return (
-    <>
-      <StubPageBanner pageIssue={510} />
-      <div>
-        {/* The role data is fully static, so Export works even though the rest of
-          the page is stubbed (#594). The title + Export action sit OUTSIDE the
-          StubFieldset so the button stays clickable; only the editable matrix
-          body below is wrapped. */}
-        <SettingsPageTitle
-          title="Roles & permissions"
-          subtitle="Five built-in roles map cleanly to how project teams actually work. Custom roles, and the capabilities marked EE, are part of TruePPM Enterprise."
-          action={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={exportRolesMatrixCsv}
-                className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              >
-                Export matrix
-              </button>
-            </div>
-          }
-        />
-
-        <StubFieldset disabled>
-          {/* Role summary cards */}
-          <div className="px-6 py-4">
-            <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-              {ROLES.map((role) => {
-                const { count, hint } = ROLE_DESCRIPTIONS[role];
-                const { bg, text, style } = ROLE_PALETTE[role];
-                return (
-                  <div
-                    key={role}
-                    className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${bg} ${text}`}
-                        style={style}
-                      >
-                        {role}
-                      </span>
-                      <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-                        {count} people
-                      </span>
-                    </div>
-                    <p className="text-[12px] text-neutral-text-secondary leading-snug">{hint}</p>
-                  </div>
-                );
-              })}
-            </div>
+    <div>
+      <SettingsPageTitle
+        title="Roles & permissions"
+        subtitle="Five built-in roles map cleanly to how project teams actually work. This matrix is a read-only reference. Custom roles, and the capabilities marked EE, are part of TruePPM Enterprise."
+        action={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={exportRolesMatrixCsv}
+              className="px-3 py-1.5 rounded-control border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            >
+              Export matrix
+            </button>
           </div>
+        }
+      />
 
-          {/* Matrix */}
-          <div className="px-6 pb-8">
-            <div className="rounded-card border border-neutral-border overflow-hidden">
-              {/* Header */}
-              <div
-                className="grid gap-2 px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border"
-                style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
-              >
-                <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
-                  Capability
-                </span>
-                {ROLES.map((r) => (
-                  <span
-                    key={r}
-                    className="text-[12px] font-semibold text-neutral-text-primary text-center"
-                  >
-                    {r}
-                  </span>
-                ))}
-              </div>
+      {/* Custom-roles Enterprise affordance (web-rule 121). The badge IS the
+          reachable upsell link; it self-suppresses under the Enterprise edition,
+          where custom roles are actually available. */}
+      <div className="px-6 pt-1 pb-3">
+        <p className="max-w-[720px] text-[13px] text-neutral-text-secondary">
+          Need custom roles or per-capability permissions? Role definitions are fixed in the
+          community edition. Custom roles and granular permission editing are part of TruePPM
+          Enterprise.
+          <EnterpriseBadge />
+        </p>
+      </div>
 
-              {/* Sections */}
-              {SECTIONS.map((sec) => (
-                <div key={sec.label}>
-                  {/* Section label */}
-                  <div className="px-4 py-2 text-[11px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono">
-                    {sec.label}
-                  </div>
-
-                  {/* Capability rows */}
-                  {sec.capabilities.map((cap, ci) => (
-                    <div
-                      key={cap.label}
-                      className={[
-                        'grid gap-2 px-4 py-2.5 items-center',
-                        ci < sec.capabilities.length - 1 ? 'border-b border-neutral-border/55' : '',
-                      ].join(' ')}
-                      style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
+      <div>
+        {/* Read-only reference: the role model is static and permanently
+            uneditable in OSS, so the cards + matrix render directly (no disabled
+            fieldset, no preview banner). Export stays functional (#594). */}
+        {/* Role summary cards */}
+        <div className="px-6 py-4">
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+            {ROLES.map((role) => {
+              const { count, hint } = ROLE_DESCRIPTIONS[role];
+              const { bg, text, style } = ROLE_PALETTE[role];
+              return (
+                <div
+                  key={role}
+                  className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 flex flex-col gap-1.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold ${bg} ${text}`}
+                      style={style}
                     >
-                      <span className="text-[13px] text-neutral-text-primary">
-                        {cap.label}
-                        {cap.ee && <EnterpriseBadge />}
-                      </span>
-                      {cap.grants.map((granted, i) => (
-                        <span
-                          key={i}
-                          className="flex justify-center"
-                          aria-label={granted ? 'Granted' : 'Not granted'}
-                        >
-                          {granted ? (
-                            <span className="w-[18px] h-[18px] rounded-full bg-sage-500 text-navy-900 inline-flex items-center justify-center">
-                              <CheckIcon />
-                            </span>
-                          ) : (
-                            <span className="w-[18px] h-[18px] rounded-full border border-dashed border-neutral-border" />
-                          )}
-                        </span>
-                      ))}
-                    </div>
-                  ))}
+                      {role}
+                    </span>
+                    <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+                      {count} people
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-neutral-text-secondary leading-snug">{hint}</p>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Matrix */}
+        <div className="px-6 pb-8" data-testid="roles-matrix">
+          <div className="rounded-card border border-neutral-border overflow-hidden">
+            {/* Header */}
+            <div
+              className="grid gap-2 px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border"
+              style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
+            >
+              <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
+                Capability
+              </span>
+              {ROLES.map((r) => (
+                <span
+                  key={r}
+                  className="text-[12px] font-semibold text-neutral-text-primary text-center"
+                >
+                  {r}
+                </span>
               ))}
             </div>
+
+            {/* Sections */}
+            {SECTIONS.map((sec) => (
+              <div key={sec.label}>
+                {/* Section label */}
+                <div className="px-4 py-2 text-[11px] font-bold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface border-b border-neutral-border/55 font-mono">
+                  {sec.label}
+                </div>
+
+                {/* Capability rows */}
+                {sec.capabilities.map((cap, ci) => (
+                  <div
+                    key={cap.label}
+                    className={[
+                      'grid gap-2 px-4 py-2.5 items-center',
+                      ci < sec.capabilities.length - 1 ? 'border-b border-neutral-border/55' : '',
+                    ].join(' ')}
+                    style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
+                  >
+                    <span className="text-[13px] text-neutral-text-primary">
+                      {cap.label}
+                      {cap.ee && <EnterpriseBadge />}
+                    </span>
+                    {cap.grants.map((granted, i) => (
+                      <span
+                        key={i}
+                        className="flex justify-center"
+                        aria-label={granted ? 'Granted' : 'Not granted'}
+                      >
+                        {granted ? (
+                          <span className="w-[18px] h-[18px] rounded-full bg-sage-500 text-navy-900 inline-flex items-center justify-center">
+                            <CheckIcon />
+                          </span>
+                        ) : (
+                          <span className="w-[18px] h-[18px] rounded-full border border-dashed border-neutral-border" />
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
-        </StubFieldset>
+        </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -30,11 +30,21 @@ async function setup(page: Page, edition: 'community' | 'enterprise') {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: 'u1', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'a@x.io' }),
+      body: pj({
+        id: 'u1',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'a@x.io',
+      }),
     }),
   );
   await page.route('**/api/v1/projects/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }),
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ count: 0, next: null, previous: null, results: [] }),
+    }),
   );
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition }) }),
@@ -42,21 +52,32 @@ async function setup(page: Page, edition: 'community' | 'enterprise') {
 }
 
 test.describe('Roles matrix — Enterprise upsell (#541)', () => {
-  test('badges every Enterprise-only row and links it to the Enterprise page (community)', async ({ page }) => {
+  test('badges every Enterprise-only row and links it to the Enterprise page (community)', async ({
+    page,
+  }) => {
     await setup(page, 'community');
     await page.goto('/settings/roles');
 
     const roles = page.locator('[data-settings-section="roles"]');
     await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
 
-    // Scope to the roles section, not the whole document or <main>: the Sidebar
-    // carries an Enterprise upsell nav row, and on the consolidated settings page
-    // (#1248) every section mounts at once — other sections (e.g. methodology's
-    // lock-policy affordance) also link to the Enterprise page. This count is
-    // specifically the Enterprise-only rows of the roles matrix.
-    const badges = roles.getByRole('link', { name: /Available in TruePPM Enterprise/i });
+    // Scope to the matrix, not the whole roles section: the section now also
+    // carries a custom-roles upsell caption (#1649) whose badge links to the same
+    // Enterprise page, and on the consolidated settings page (#1248) every section
+    // mounts at once. This count is specifically the Enterprise-only matrix rows.
+    const matrix = roles.getByTestId('roles-matrix');
+    const badges = matrix.getByRole('link', { name: /Available in TruePPM Enterprise/i });
     await expect(badges).toHaveCount(5);
     await expect(badges.first()).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+
+    // The custom-roles upsell caption (#1649) is the reachable boundary affordance
+    // replacing the old stub banner — its EE badge links out too.
+    await expect(roles.getByText(/Need custom roles/i)).toBeVisible();
+    await expect(
+      roles
+        .getByText(/Need custom roles/i)
+        .getByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
   test('hides the EE badges when running the Enterprise edition', async ({ page }) => {
@@ -65,6 +86,8 @@ test.describe('Roles matrix — Enterprise upsell (#541)', () => {
 
     const roles = page.locator('[data-settings-section="roles"]');
     await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
-    await expect(roles.getByRole('link', { name: /Available in TruePPM Enterprise/i })).toHaveCount(0);
+    await expect(roles.getByRole('link', { name: /Available in TruePPM Enterprise/i })).toHaveCount(
+      0,
+    );
   });
 });

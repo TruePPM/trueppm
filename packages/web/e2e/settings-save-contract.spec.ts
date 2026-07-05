@@ -268,17 +268,21 @@ test.describe('Settings save contract (#536)', () => {
     await expect(page).not.toHaveURL(new RegExp(`/projects/${PROJECT_ID}/settings`));
   });
 
-  test('stub pages signal preview state for an unwired API', async ({ page }) => {
+  test('Roles & permissions is an intentional read-only reference, not a preview stub (#1649)', async ({
+    page,
+  }) => {
     await setup(page);
-    // Workspace Roles & permissions is still a stub (RBAC-matrix write path is
-    // tracked in #510). The Methodology pages, formerly stubs, are now wired by
-    // the cascade (issue 955 / issue 1169), so the preview signal moved here.
-    // The matrix body is wrapped in a `<fieldset disabled>` (read-only preview)
-    // and the page carries the stub banner; assert the banner as the canonical
-    // preview signal. Scope to the section — the consolidated page (#1248) mounts
-    // every section at once.
+    // Workspace Roles & permissions was the last stub carrying a preview banner
+    // (its RBAC-matrix write path was tracked in the long-closed #510). #1649 made
+    // it a read-only reference: the five-role model is fixed in OSS and editing
+    // roles is Enterprise, so there is no OSS write path to wire and a "preview,
+    // changes won't save" banner would promise wiring that never lands. It now
+    // carries no banner and reads as a deliberate reference. Scope to the section —
+    // the consolidated page (#1248) mounts every section at once.
     await page.goto('/settings/roles');
     const roles = page.locator('[data-settings-section="roles"]');
-    await expect(roles.getByTestId('stub-page-banner')).toBeVisible();
+    await expect(roles.getByRole('heading', { name: 'Roles & permissions' })).toBeVisible();
+    await expect(roles.getByTestId('stub-page-banner')).toHaveCount(0);
+    await expect(roles.getByText(/read-only reference/i)).toBeVisible();
   });
 });
