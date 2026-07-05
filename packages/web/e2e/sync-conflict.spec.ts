@@ -163,14 +163,18 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
   );
 }
 
-/** Open the task's edit modal via its card Actions menu → Edit. */
+/** Open the task's edit modal: card → info popover → Edit → TaskFormModal.
+ * The card's kebab "Actions" menu has Move/Reject but no Edit; the Edit
+ * affordance lives in the card popover footer (mirrors wave3-card-info-popover). */
 async function openEditModal(page: Page) {
   await page.goto(`${BASE_URL}/board`);
   // Gate on the card being rendered (board reads resolved) before touching chrome.
-  const actions = page.getByRole('button', { name: `Actions for ${TASK.name}` });
-  await expect(actions).toBeVisible({ timeout: 10_000 });
-  await actions.click();
-  await page.getByRole('menuitem', { name: 'Edit' }).click();
+  const card = page.getByRole('button', { name: /^Build feature, \d+% complete/ });
+  await expect(card).toBeVisible({ timeout: 10_000 });
+  await card.click();
+  // The card info popover (role=dialog, named after the task) exposes Edit.
+  const popover = page.getByRole('dialog', { name: /^Build feature$/ });
+  await popover.getByRole('button', { name: 'Edit' }).click();
   const dialog = page.getByRole('dialog', { name: /Build feature/ });
   await expect(dialog).toBeVisible();
   return dialog;

@@ -84,7 +84,8 @@ def reorder_by_anchor(
         ordered_ids.append(item_id)
     elif before_id is not None:
         ordered_ids.insert(ordered_ids.index(before_id), item_id)
-    else:  # after_id
+    else:  # after_id — non-None here: exactly one anchor, and it is neither to_end nor before_id
+        assert after_id is not None
         ordered_ids.insert(ordered_ids.index(after_id) + 1, item_id)
 
     # Assign dense ranks; only persist rows whose rank actually changes so the write

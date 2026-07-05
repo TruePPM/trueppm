@@ -2,7 +2,7 @@ import axios from 'axios';
 import { toast } from '@/components/Toast';
 
 /**
- * Sync conflict handling for stale-`server_version` writes (ADR-0217, #322).
+ * Sync conflict handling for stale-`server_version` writes (ADR-0217, issue 322).
  *
  * When a client PATCHes an entity it last saw at `base_version` and another
  * writer has since changed an overlapping field, the API returns `409` with a

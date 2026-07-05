@@ -508,7 +508,7 @@ export function TaskFormModal({
         await updateTask.mutateAsync({
           id: task.id,
           projectId,
-          // Opt into field-level merge (ADR-0217, #322): if another editor changed a
+          // Opt into field-level merge (ADR-0217, issue 322): if another editor changed a
           // disjoint field the server merges; an overlapping edit 409s with a toast.
           baseVersion: task.serverVersion,
           name: form.name.trim(),

@@ -113,7 +113,7 @@ export interface UpdateTaskPayload {
   blocker_type?: string;
   blocking_task?: string | null;
   /**
-   * The `serverVersion` this edit was based on (ADR-0217, #322). When provided,
+   * The `serverVersion` this edit was based on (ADR-0217, issue 322). When provided,
    * the server does field-level merge: a disjoint concurrent edit merges (200),
    * an overlapping one returns 409 and surfaces the "Someone else changed this"
    * toast. Omit for legacy last-writer-wins.
@@ -200,7 +200,7 @@ export function useUpdateTask() {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
       }
       // On an overlapping concurrent edit (409), surface the conflict toast with a
-      // Reload action that refetches the server's current state (ADR-0217, #322).
+      // Reload action that refetches the server's current state (ADR-0217, issue 322).
       handleSyncConflict(err, () => {
         void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
       });

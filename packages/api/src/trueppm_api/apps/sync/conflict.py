@@ -50,7 +50,7 @@ class MergeConflict(APIException):
     def __init__(self, detail: dict[str, Any]) -> None:
         # Bypass APIException's str-coercion of detail — we want the dict rendered
         # as the response body as-is.
-        self.detail = detail  # type: ignore[assignment]
+        self.detail = detail
 
 
 def parse_base_version(request: Request) -> int | None:
