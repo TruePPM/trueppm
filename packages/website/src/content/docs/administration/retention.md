@@ -65,6 +65,14 @@ Beat task (04:20 UTC) deletes both the `WorkspaceExportJob` row **and** its stor
 file. It is not folded into the retention coordinator above because it reaps a storage
 object, not just a database row.
 
+**Project export bundles share the same knob.** A completed project export bundle
+(Project → Settings → Lifecycle → *Export bundle*, ADR-0219) writes a per-project `.tar.gz`
+to object storage. It reuses `TRUEPPM_EXPORT_RETENTION_DAYS` (same default `7`; `None`
+disables) for its download-link validity, reaped by the standalone nightly
+`purge_expired_project_exports` Beat task (04:25 UTC) — which deletes both the
+`ProjectExportJob` row **and** its stored archive. The two export purges run five minutes
+apart and both honor the single `TRUEPPM_EXPORT_RETENTION_DAYS` setting.
+
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup
 window**: a re-uploaded batch carrying the same `client_batch_id` replays its stored
