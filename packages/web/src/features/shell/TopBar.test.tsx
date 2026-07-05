@@ -42,6 +42,9 @@ vi.mock('@/hooks/useNotifications', () => ({
 vi.mock('./HealthCluster', () => ({ HealthCluster: () => <div data-testid="health-cluster" /> }));
 vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
 vi.mock('./CurrentSprintButton', () => ({ CurrentSprintButton: () => null }));
+// The running-timer chip owns its own /me/timer/ query (covered by its own spec);
+// stub it so the structural TopBar tests don't fire that XHR (#1415).
+vi.mock('@/features/timer/TimerChip', () => ({ TimerChip: () => null }));
 vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
   ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));
