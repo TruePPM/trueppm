@@ -62,20 +62,6 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
 
   const tasks = [TASK];
 
-  // The task PATCH — the write under test. Registered first so it wins over the
-  // list-shaped '**/api/v1/tasks/**' catch below.
-  await page.route(`**/api/v1/tasks/${TASK.id}/`, (route) => {
-    if (route.request().method() === 'PATCH') {
-      patchHandler(route);
-      return;
-    }
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(TASK),
-    });
-  });
-
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
@@ -128,6 +114,23 @@ async function setup(page: Page, patchHandler: (route: Route) => void): Promise<
       body: JSON.stringify({ count: tasks.length, next: null, previous: null, results: tasks }),
     }),
   );
+  // The task PATCH — the write under test. Registered AFTER the list-shaped
+  // '**/api/v1/tasks/**' catch above: Playwright checks routes in reverse
+  // registration order (last-registered wins), so this more-specific handler
+  // must come last to intercept PATCH /tasks/t1/ before the catch-all returns
+  // a list shape. (Registering it first silently let the catch-all swallow the
+  // PATCH — the 409/200 patchHandler never ran and the conflict path went untested.)
+  await page.route(`**/api/v1/tasks/${TASK.id}/`, (route) => {
+    if (route.request().method() === 'PATCH') {
+      patchHandler(route);
+      return;
+    }
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(TASK),
+    });
+  });
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
