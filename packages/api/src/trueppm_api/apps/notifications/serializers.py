@@ -386,6 +386,11 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         # Rotate only when a non-empty password was submitted; blank keeps the
         # stored ciphertext untouched (never overwrite with b"").
         if password:
+            # This is a third-party SMTP relay credential (Fernet-encrypted at
+            # rest), not a Django auth password — validate_password() enforces
+            # user-account policy (min length, common-password blocklist) that is
+            # meaningless for a provider-issued secret the operator cannot change.
+            # nosemgrep: unvalidated-password
             instance.set_password(password)
         request = self.context.get("request")
         if request is not None and getattr(request, "user", None) is not None:
