@@ -352,7 +352,7 @@ def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> d
     return data
 
 
-class WorkspaceEmailSettingsView(APIView):
+class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
     """``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.
 
     Upgrades the #639 read-only status page to the writable surface (#712,
@@ -402,7 +402,7 @@ class WorkspaceEmailSettingsView(APIView):
         return Response(_email_settings_payload(obj, can_edit=True))
 
 
-class WorkspaceEmailTestView(APIView):
+class WorkspaceEmailTestView(IdempotencyMixin, APIView):
     """``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.
 
     Sends a fixed test message to the **requesting operator's own address only**
