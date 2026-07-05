@@ -3,17 +3,20 @@
 //
 // The v2 My Work spec leads the home surface with a time-aware greeting and
 // three risk-ranked focus cards (the same "worst signal leads" idea the project
-// Overview uses via overviewMetrics). My Work is *cross-program*, so the rich
-// project-level signals the spec's mockups reference — SPI, Monte-Carlo P80,
-// team utilization, a real sprint burndown — are NOT available here. This module
-// builds each card honestly from the data the /me/work/ payload actually
-// returns and degrades gracefully when a card has nothing to show (rule 120:
-// never fabricate a number). All functions are pure so they unit-test in
-// isolation from the React tree.
+// Overview uses via overviewMetrics). My Work is *cross-program*, so a card is
+// enriched with a rich project-level signal ONLY where a real server-side
+// computation backs it (#1236, ADR-0221): the /me/work/ `signals` block supplies
+// cross-program schedule health (SPI-proxy), a Monte-Carlo P80 ship-date
+// forecast, and a real per-day sprint burndown series. Team utilization is
+// deliberately absent — no cross-program per-user capacity computation exists, so
+// the "your load" card stays an honest open-task count rather than a fabricated
+// ratio (rule 120: never fabricate a number). Every card also degrades
+// gracefully when its signal is missing. All functions are pure so they
+// unit-test in isolation from the React tree.
 // ---------------------------------------------------------------------------
 
 import type { OverviewMetricVariant } from '@/features/project/overviewMetrics';
-import type { MyWorkTask, MyWorkActiveSprint } from '@/hooks/useMyWork';
+import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
 
 /** A single focus card on the My Work home. */
 export interface MyWorkFocusCard {
@@ -30,10 +33,29 @@ export interface MyWorkFocusCard {
   /**
    * Optional sparkline heights (0–1) for the sprint card. Rendered as a small
    * bar spark; absent on every other card. Honest only when derived from real
-   * progress — never random filler.
+   * progress — a real cross-program burndown series (#1236) when the server
+   * supplies one, else a direction-only completion ramp; never random filler.
    */
   spark?: number[];
+  /**
+   * Optional second labeled line beneath the value — a real server-computed
+   * figure the card enriches with (#1236): the cross-program schedule-health
+   * band on the "needs attention" card, or the sprint burn pace on the sprint
+   * card. Its own tone so it never inherits (or masks) the primary value color.
+   * The text carries the meaning; color is redundant (rule 6 / a11y).
+   */
+  detail?: { text: string; tone: OverviewMetricVariant };
 }
+
+/** Schedule-health band → focus-card tone + human label. */
+const HEALTH_BAND: Record<
+  NonNullable<MyWorkSignals['schedule_health']>['band'],
+  { tone: OverviewMetricVariant; label: string }
+> = {
+  on_track: { tone: 'on-track', label: 'On track' },
+  at_risk: { tone: 'at-risk', label: 'At risk' },
+  critical: { tone: 'critical', label: 'Critical' },
+};
 
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
@@ -102,9 +124,42 @@ function sprintSpark(completedShare: number): number[] {
   // A five-step rising ramp that ends at the real completion share. It encodes
   // direction (progress toward done), not a fabricated per-day series we don't
   // have cross-program. The final bar carries the true value so the spark never
-  // overstates progress.
+  // overstates progress. Used only as the honest fallback when the server does
+  // NOT supply a real burndown series (#1236).
   const end = Math.min(1, Math.max(0.08, completedShare));
   return [0.25 * end, 0.5 * end, 0.7 * end, 0.85 * end, end];
+}
+
+/**
+ * Heights for a REAL burndown spark from the server's per-day remaining series
+ * (#1236). Each bar is that day's remaining points as a share of the committed
+ * baseline (or the series peak when scope grew past commitment), so the spark
+ * literally is the sprint's burndown — the last bar is today's true remaining.
+ * Returns undefined for an empty series so the caller falls back honestly.
+ */
+export function burndownSpark(
+  series: { remaining_points: number }[],
+  committedPoints: number,
+): number[] | undefined {
+  if (series.length === 0) return undefined;
+  const peak = Math.max(committedPoints, ...series.map((p) => p.remaining_points), 1);
+  return series.map((p) => Math.max(0.06, p.remaining_points / peak));
+}
+
+/**
+ * Human burn-pace line for the sprint card detail (#1236) from the server's
+ * `burn_status` + signed `trend_points`. Returns undefined when there is no
+ * baseline to measure against (`no_data`), so no pace line is shown.
+ */
+export function burnPaceDetail(
+  status: 'ahead' | 'on_track' | 'behind' | 'no_data',
+  trendPoints: number | null,
+): { text: string; tone: OverviewMetricVariant } | undefined {
+  if (status === 'no_data' || trendPoints === null) return undefined;
+  const pts = Math.abs(trendPoints);
+  if (status === 'behind') return { text: `${pts} pt${pts === 1 ? '' : 's'} behind`, tone: 'at-risk' };
+  if (status === 'ahead') return { text: `${pts} pt${pts === 1 ? '' : 's'} ahead`, tone: 'on-track' };
+  return { text: 'On track', tone: 'neutral' };
 }
 
 /**
@@ -122,18 +177,24 @@ function sprintSpark(completedShare: number): number[] {
  *   with due-today as the delta. Dropped (returns 2 cards) only if the user has
  *   no open work at all, where a "0 open" load card is noise.
  *
- * No SPI / Monte-Carlo P80 / utilization is available cross-program, so those
- * spec signals are deliberately not rendered (would be fabricated — rule 120).
+ * When the server supplies real cross-program `signals` (#1236, ADR-0221) the
+ * cards are enriched *only* where a real computation backs the number (rule 120):
+ * the "needs attention" card gains a schedule-health (SPI-proxy) detail line, and
+ * the sprint card's spark becomes the real burndown series with a real pace line.
+ * Utilization stays honestly absent — there is no cross-program per-user capacity
+ * computation, so the "your load" card remains an open-task count, not a ratio.
  *
  * @param tasks        All loaded My Work tasks (across pages).
  * @param activeSprints The active-sprint cards from the first page.
  * @param dueTodayCount Server due-today count.
+ * @param signals      Optional cross-program aggregates (first page only, #1236).
  * @returns 2 or 3 cards, already in render order (worst signal leads).
  */
 export function buildMyWorkFocusCards(
   tasks: MyWorkTask[],
   activeSprints: MyWorkActiveSprint[],
   dueTodayCount: number,
+  signals?: MyWorkSignals,
 ): MyWorkFocusCard[] {
   const blockedCount = tasks.filter((t) => t.is_blocked).length;
   const criticalCount = tasks.filter((t) => t.is_critical).length;
@@ -158,6 +219,18 @@ export function buildMyWorkFocusCards(
     delta: attentionDelta,
     variant: attentionVariant,
   };
+  // Real cross-program schedule-health figure (#1236) as a labeled detail line —
+  // separate tone so it never masks the blocked/critical value color above it.
+  const health = signals?.schedule_health;
+  if (health) {
+    const band = HEALTH_BAND[health.band];
+    needsAttention.detail = {
+      text: `Schedule ${band.label.toLowerCase()} · ${health.project_count} project${
+        health.project_count === 1 ? '' : 's'
+      }`,
+      tone: band.tone,
+    };
+  }
 
   // ── Card 2: method-driven (sprint → critical-path fallback) ─────────────
   let methodCard: MyWorkFocusCard;
@@ -174,6 +247,13 @@ export function buildMyWorkFocusCards(
       : 0;
     const daysVariant: OverviewMetricVariant =
       sprint.days_remaining <= 1 ? 'at-risk' : 'neutral';
+    // Prefer the server's real burndown series (#1236) when it is for THIS lead
+    // sprint; else fall back to the honest direction-only completion ramp.
+    const burndown =
+      signals?.sprint_burndown?.sprint_id === sprint.id ? signals.sprint_burndown : undefined;
+    const realSpark = burndown
+      ? burndownSpark(burndown.series, burndown.committed_points)
+      : undefined;
     methodCard = {
       key: 'sprint',
       label: sprint.name,
@@ -185,7 +265,9 @@ export function buildMyWorkFocusCards(
             ? 'ends today'
             : 'days left',
       variant: daysVariant,
-      spark: sprintSpark(completedShare),
+      spark: realSpark ?? sprintSpark(completedShare),
+      // Real burn pace as the detail line — omitted when there's no baseline.
+      detail: burndown ? burnPaceDetail(burndown.burn_status, burndown.trend_points) : undefined,
     };
   } else {
     methodCard = {

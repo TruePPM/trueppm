@@ -74,6 +74,14 @@ export function MyWorkFocusCards({ cards }: { cards: MyWorkFocusCard[] }) {
               <span className="tppm-mono text-xs text-neutral-text-secondary">{card.delta}</span>
             )}
           </div>
+          {/* Second real figure (#1236): schedule-health on card 1, burn pace on
+              the sprint card. Its own tone; the text carries the meaning so the
+              signal is never color-only (a11y). */}
+          {card.detail && (
+            <span className={`tppm-mono text-xs font-medium ${VALUE_COLOR[card.detail.tone]}`}>
+              {card.detail.text}
+            </span>
+          )}
           {card.spark && <Spark heights={card.spark} />}
         </div>
       ))}

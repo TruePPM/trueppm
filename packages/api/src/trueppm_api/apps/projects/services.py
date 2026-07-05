@@ -1282,6 +1282,123 @@ def compute_sprint_burn_status(sprint: Any, snapshots: list[Any]) -> dict[str, A
     }
 
 
+def me_work_signals(
+    user: Any,
+    active_sprints: Iterable[Any],
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Cross-program aggregate signals for the My Work focus cards (#1236, ADR-0221).
+
+    Rolls up, over the requesting user's *own* member projects (the same scope as
+    the ``/me/work/`` task queryset), the signals for which a real server-side
+    computation already exists — and honestly omits the rest (rule 120: never
+    fabricate a number). Each key below is present **only** when it has real data;
+    an absent key tells the web to render that card as-is.
+
+    Backable signals surfaced here:
+      - ``schedule_health`` — worst-first reduce of the per-project SPI-proxy band
+        (:func:`program_rollup._schedule_health_by_project`). Omitted when every
+        member project is ``unknown`` (no baseline / CPM basis yet).
+      - ``forecast`` — the latest (max) Monte-Carlo P80 finish across the member
+        projects that have a persisted :class:`MonteCarloRun`. Omitted when none do.
+      - ``sprint_burndown`` — the real :class:`SprintBurnSnapshot` series for the
+        user's soonest-ending active sprint (the clock that matters most), plus the
+        server-computed burn pace. Omitted when the user has no active sprint with a
+        snapshot.
+
+    Deliberately **no utilization / capacity key**: there is no cross-program
+    per-user "load vs target" computation keyed off the user's assigned work
+    (the only capacity math is sprint-scoped and driven by ``TaskResource``
+    allocations, a different assignment axis than ``Task.assignee``). Surfacing one
+    would be fabrication-adjacent, so the "your load" card stays an honest count.
+
+    ``active_sprints`` is the already-materialized active-sprint queryset from the
+    view, passed in to avoid re-querying; the lead sprint is chosen from it. Pure
+    read — deterministic for a given DB state, safe to call on every GET.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership
+    from trueppm_api.apps.projects.models import AggregationPolicy, SprintBurnSnapshot
+    from trueppm_api.apps.projects.program_rollup import (
+        _reduce_health,
+        _schedule_health_by_project,
+    )
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    if today is None:
+        today = timezone.localdate()
+
+    signals: dict[str, Any] = {}
+
+    # The user's member projects — the aggregate scope. One query, reused below.
+    # Excludes soft-deleted projects so the signal scope mirrors the /me/work/
+    # task queryset exactly (a project dropped from the task list must not linger
+    # in its schedule-health / forecast rollup).
+    member_project_ids = list(
+        ProjectMembership.objects.filter(user=user, is_deleted=False, project__is_deleted=False)
+        .values_list("project_id", flat=True)
+        .distinct()
+    )
+    if not member_project_ids:
+        return signals
+
+    # ── Schedule health / SPI (worst-first) ─────────────────────────────────
+    bands_by_project = _schedule_health_by_project(member_project_ids, today)
+    band = _reduce_health(
+        list(bands_by_project.values()),
+        AggregationPolicy.WORST.value,
+        {},  # weights unused for the WORST policy
+        member_project_ids,
+    )
+    real_bands = sum(1 for b in bands_by_project.values() if b != "unknown")
+    if band != "unknown" and real_bands > 0:
+        signals["schedule_health"] = {"band": band, "project_count": real_bands}
+
+    # ── Monte-Carlo P80 ship-date forecast ──────────────────────────────────
+    # Latest run per member project via DISTINCT ON (one query), then the latest
+    # (max) P80 finish across them — the honest "when is everything I'm on done at
+    # 80% confidence". Projects with no run contribute nothing.
+    latest_runs = list(
+        MonteCarloRun.objects.filter(project_id__in=member_project_ids, p80__isnull=False)
+        .order_by("project_id", "-taken_at")
+        .distinct("project_id")
+        .select_related("project")
+    )
+    # p80 is non-null by the filter above; ``or date.min`` only satisfies the
+    # type-checker for the max key (the fallback can never be selected).
+    lead_run = max(latest_runs, key=lambda r: r.p80 or date.min, default=None)
+    if lead_run is not None and lead_run.p80 is not None:
+        signals["forecast"] = {
+            "p80_finish": lead_run.p80.isoformat(),
+            "project_id": str(lead_run.project_id),
+            "project_name": lead_run.project.name,
+            "as_of": lead_run.taken_at.isoformat(),
+        }
+
+    # ── Sprint burndown (soonest-ending active sprint) ──────────────────────
+    sprint_list = list(active_sprints)
+    lead_sprint = min(sprint_list, key=lambda s: s.finish_date, default=None)
+    if lead_sprint is not None:
+        snapshots = list(
+            SprintBurnSnapshot.objects.filter(sprint_id=lead_sprint.pk).order_by("snapshot_date")
+        )
+        if snapshots:
+            burn = compute_sprint_burn_status(lead_sprint, snapshots)
+            signals["sprint_burndown"] = {
+                "sprint_id": str(lead_sprint.pk),
+                "sprint_name": lead_sprint.name,
+                "committed_points": lead_sprint.committed_points or 0,
+                "series": [
+                    {"date": s.snapshot_date.isoformat(), "remaining_points": s.remaining_points}
+                    for s in snapshots
+                ],
+                "burn_status": burn["burn_status"],
+                "trend_points": burn["trend_points"],
+                "projected_finish_date": burn["projected_finish_date"],
+            }
+
+    return signals
+
+
 def _milestone_slip_for_sprint(sprint: Any) -> dict[str, Any] | None:
     """Realized schedule slip of the bound milestone vs its active baseline (#1098).
 

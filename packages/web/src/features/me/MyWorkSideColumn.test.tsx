@@ -68,10 +68,47 @@ describe('MyWorkSideColumn', () => {
     expect(screen.getByText('+2 more')).toBeInTheDocument();
   });
 
-  it('self-suppresses when there is no sprint and nothing critical', () => {
+  it('self-suppresses when there is no sprint, nothing critical, and no forecast', () => {
     const { container } = renderWithRouter(
       <MyWorkSideColumn tasks={[task()]} activeSprints={[]} />,
     );
     expect(container.firstChild).toBeNull();
+  });
+
+  it('renders the real Monte-Carlo P80 ship-date forecast panel (#1236)', () => {
+    renderWithRouter(
+      <MyWorkSideColumn
+        tasks={[task()]}
+        activeSprints={[]}
+        forecast={{
+          p80_finish: '2026-08-14',
+          project_id: 'p9',
+          project_name: 'Apollo Platform',
+          as_of: '2026-07-01T09:12:00Z',
+        }}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'Ship-date forecast' })).toBeInTheDocument();
+    // The date is real accessible text (not color-only), with confidence context.
+    expect(screen.getByText('Aug 14, 2026')).toBeInTheDocument();
+    expect(screen.getByText(/Apollo Platform · 80% confidence · as of/)).toBeInTheDocument();
+  });
+
+  it('renders the forecast panel even when the user has no sprint or critical work', () => {
+    const { container } = renderWithRouter(
+      <MyWorkSideColumn
+        tasks={[task()]}
+        activeSprints={[]}
+        forecast={{
+          p80_finish: '2026-08-14',
+          project_id: 'p9',
+          project_name: 'Apollo Platform',
+          as_of: '2026-07-01T09:12:00Z',
+        }}
+      />,
+    );
+    // The column no longer self-suppresses because a real forecast exists.
+    expect(container.firstChild).not.toBeNull();
+    expect(screen.getByRole('heading', { name: 'Ship-date forecast' })).toBeInTheDocument();
   });
 });

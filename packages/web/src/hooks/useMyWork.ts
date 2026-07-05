@@ -108,6 +108,47 @@ export interface MyWorkRetroActionItem {
   story_points: number | null;
 }
 
+/** One real burndown datapoint for the lead active sprint (#1236). */
+export interface MyWorkBurndownPoint {
+  date: string;
+  remaining_points: number;
+}
+
+/**
+ * Cross-program focus-card signals (#1236, ADR-0221). Each field is present only
+ * when a real server-side computation backs it (rule 120: never fabricated). An
+ * absent field means "no data source" — the corresponding card enrichment is
+ * honestly omitted rather than approximated. Utilization is deliberately never
+ * present: there is no cross-program per-user capacity computation to back it.
+ */
+export interface MyWorkSignals {
+  /** Worst-first SPI-proxy schedule-health band across the user's member projects. */
+  schedule_health?: {
+    band: 'on_track' | 'at_risk' | 'critical';
+    /** Projects contributing a real (non-unknown) band. */
+    project_count: number;
+  };
+  /** Latest Monte-Carlo P80 ship-date across the user's forecasted projects. */
+  forecast?: {
+    p80_finish: string;
+    project_id: string;
+    project_name: string;
+    /** ISO timestamp of the driving run — freshness of the forecast. */
+    as_of: string;
+  };
+  /** Real per-day burn series for the user's soonest-ending active sprint. */
+  sprint_burndown?: {
+    sprint_id: string;
+    sprint_name: string;
+    committed_points: number;
+    series: MyWorkBurndownPoint[];
+    burn_status: 'ahead' | 'on_track' | 'behind' | 'no_data';
+    /** Signed points vs the ideal line; positive = ahead. Null when no baseline. */
+    trend_points: number | null;
+    projected_finish_date: string | null;
+  };
+}
+
 export interface MyWorkPage {
   results: MyWorkTask[];
   next: string | null;
@@ -117,6 +158,11 @@ export interface MyWorkPage {
   server_version_high_water: number;
   /** Retro action items relevant to the requesting user (ADR-0071 §4c). */
   retro_action_items: MyWorkRetroActionItem[];
+  /**
+   * Cross-program focus-card aggregates (#1236). Present on the first page only;
+   * `undefined` on subsequent pages and when the payload predates this field.
+   */
+  signals?: MyWorkSignals;
 }
 
 /**
