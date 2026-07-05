@@ -74,6 +74,7 @@ from trueppm_api.apps.scheduling.services import (
     forecast_diagnostic,
     record_monte_carlo_run,
 )
+from trueppm_api.apps.scheduling.telemetry import monte_carlo_span
 from trueppm_api.workflows.consumers.requeue_failed_task import WORKFLOW_NAME as REQUEUE_WORKFLOW
 from trueppm_api.workflows.services import start_workflow
 
@@ -414,12 +415,15 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     )
 
     try:
-        mc_result = monte_carlo(
-            sched_project,
-            runs=n_simulations,
-            max_runs=cap,
-            max_tasks=settings.MC_TASK_CAP,
-        )
+        # Manual Monte Carlo span (#709): times the simulation inline in the request
+        # cycle and records the run count; a no-op span unless OTel is configured.
+        with monte_carlo_span(pk, simulation_count=n_simulations):
+            mc_result = monte_carlo(
+                sched_project,
+                runs=n_simulations,
+                max_runs=cap,
+                max_tasks=settings.MC_TASK_CAP,
+            )
     except SimulationCapExceeded as exc:
         return Response(
             {
@@ -862,22 +866,26 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             )
 
         try:
-            baseline_cpm = schedule(_make_project(baseline_tasks, cpm_status_date))
-            perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
-            baseline_mc = monte_carlo(
-                _make_project(baseline_tasks, mc_status_date),
-                runs=n_simulations,
-                seed=WHATIF_MC_SEED,
-                max_runs=cap,
-                max_tasks=settings.MC_TASK_CAP,
-            )
-            perturbed_mc = monte_carlo(
-                _make_project(perturbed_tasks, mc_status_date),
-                runs=n_simulations,
-                seed=WHATIF_MC_SEED,
-                max_runs=cap,
-                max_tasks=settings.MC_TASK_CAP,
-            )
+            # One shared Monte Carlo span (#709) over the full what-if computation —
+            # baseline + perturbed CPM and simulation — through the same helper the
+            # real forecast uses, so the span name and attributes cannot drift.
+            with monte_carlo_span(pk, simulation_count=n_simulations):
+                baseline_cpm = schedule(_make_project(baseline_tasks, cpm_status_date))
+                perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
+                baseline_mc = monte_carlo(
+                    _make_project(baseline_tasks, mc_status_date),
+                    runs=n_simulations,
+                    seed=WHATIF_MC_SEED,
+                    max_runs=cap,
+                    max_tasks=settings.MC_TASK_CAP,
+                )
+                perturbed_mc = monte_carlo(
+                    _make_project(perturbed_tasks, mc_status_date),
+                    runs=n_simulations,
+                    seed=WHATIF_MC_SEED,
+                    max_runs=cap,
+                    max_tasks=settings.MC_TASK_CAP,
+                )
         except SimulationCapExceeded as exc:
             return Response(
                 {"error": "simulation_cap_exceeded", "tier": "team", "message": str(exc)},

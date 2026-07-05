@@ -5,10 +5,11 @@ description: How to export TruePPM's traces and metrics to your own OpenTelemetr
 
 
 :::note[Lands in 0.4 (first beta)]
-The OpenTelemetry foundation described here **ships in TruePPM 0.4**, the first
-beta. It is the provider and configuration groundwork; richer business-logic spans
-across views, the ORM, Celery, and the scheduler engine follow in later 0.4 work
-(#707–#710).
+OpenTelemetry export **ships in TruePPM 0.4**, the first beta — both the provider
+and configuration groundwork and the first wave of **trace instrumentation**:
+spans for HTTP requests, database queries, Celery tasks, WebSocket connections,
+and the CPM / Monte Carlo scheduling engine (#707–#710). Metrics instrumentation
+follows in later 0.4 work.
 :::
 
 TruePPM will export distributed **traces** and **metrics** using
@@ -28,11 +29,14 @@ Telemetry is a deliberate operator choice, never a silent egress.
   API startup and wires the OTLP exporter — **only** when an endpoint is set.
 - The opt-in configuration surface below (environment variables + Helm values).
 - A stable `trueppm.*` span- and resource-attribute naming convention.
+- **Trace instrumentation** for HTTP requests, database queries, Celery tasks,
+  WebSocket connections, and the scheduling engine (see
+  [Instrumented spans](#instrumented-spans) below).
 
-Auto-instrumented spans for individual endpoints, database queries, and Celery
-tasks are **not** part of this foundation; they arrive in later 0.4 work. Once you
-configure a collector now, you will see TruePPM's resource identity and any spans
-emitted by instrumentation as it lands — without re-configuring anything.
+Metrics instrumentation (request/task counters, engine timings as metrics) arrives
+in later 0.4 work. Configure a collector now and you immediately see TruePPM's
+resource identity and the trace spans below; later signals light up without any
+reconfiguration.
 
 ## Turning it on
 
@@ -119,6 +123,28 @@ TruePPM-owned span attributes live under the reserved **`trueppm.*`** namespace
 can filter and group TruePPM signals cleanly in your backend. Attributes that
 follow OpenTelemetry's own semantic conventions (`http.*`, `db.*`, `messaging.*`)
 keep their standard keys.
+
+## Instrumented spans
+
+With a collector configured, TruePPM emits these spans out of the box. Every span
+is a child of the request or task that produced it, so a single trace links an
+HTTP request through its database queries and any Celery work it enqueues.
+
+| Source | What you get | Key attributes |
+|---|---|---|
+| **HTTP requests** (Django) | One server span per API request, with route, method, and status | `http.*` semantic conventions |
+| **Database** (psycopg) | One span per SQL statement | `db.*` semantic conventions. SQL is **never** modified — comment injection is off. |
+| **Celery tasks** | One span per task; trace context propagates from the enqueuing request into the worker, so a recompute links back to the request that triggered it | `messaging.*` semantic conventions |
+| **WebSocket** (Channels/ASGI) | One span per WebSocket connection | `http.*` (ASGI) semantic conventions |
+| **CPM recompute** | `schedule.cpm` span timing a full critical-path recompute | `trueppm.project.id`, `trueppm.schedule.recompute_reason`, `trueppm.schedule.task_count`, `trueppm.schedule.dependency_count`, `trueppm.schedule.critical_count` |
+| **Monte Carlo** | `schedule.monte_carlo` span timing a probabilistic forecast (including what-if) | `trueppm.project.id`, `trueppm.schedule.simulation_count` |
+
+:::note[Database spans dominate the volume]
+One span per SQL statement means the database is by far the largest span source.
+Export runs on a background batch processor and drops rather than blocks on a slow
+collector, so it never adds latency to a request — but size your collector's
+ingest for the query volume, or sample at the collector.
+:::
 
 ## Enterprise
 

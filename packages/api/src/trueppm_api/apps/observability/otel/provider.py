@@ -338,8 +338,15 @@ def reset_for_testing() -> None:
     not tear down any globally-installed OTel provider (the OTel API forbids
     replacing a set provider), so tests that need a clean global provider should
     run in a subprocess or assert on the returned context rather than the global.
+
+    Also reverses any Phase 1 auto-instrumentation (#709) so a subsequent
+    ``instrument()`` starts from an un-patched state. Imported lazily to avoid the
+    import cycle (``instrumentation`` depends on this module).
     """
     global _context, _bootstrapped
     _hooks.clear()
     _context = None
     _bootstrapped = False
+    from . import instrumentation
+
+    instrumentation.reset_for_testing()
