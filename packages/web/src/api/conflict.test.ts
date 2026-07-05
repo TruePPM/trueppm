@@ -6,10 +6,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AxiosError, AxiosHeaders } from 'axios';
 import { asSyncConflict, isSyncConflict, handleSyncConflict } from './conflict';
 
-const actionMock = vi.fn();
+const actionMock = vi.fn<(message: string, action: { label: string; onClick: () => void }) => void>();
 vi.mock('@/components/Toast', () => ({
   toast: {
-    action: (...args: unknown[]) => actionMock(...args),
+    action: (message: string, action: { label: string; onClick: () => void }): void => {
+      actionMock(message, action);
+    },
   },
 }));
 
