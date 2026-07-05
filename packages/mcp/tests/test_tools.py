@@ -29,6 +29,7 @@ from trueppm_mcp.tools import (
     _get_monte_carlo_forecast,
     _get_program_health,
     _get_project,
+    _get_schedule_derivation,
     _get_schedule_summary,
     _get_sprint,
     _get_task,
@@ -329,6 +330,25 @@ async def test_get_monte_carlo_forecast_returns_latest_run(settings: Settings) -
     async with _client(settings, routes) as client:
         result = await _get_monte_carlo_forecast(client, "p-1")
     assert result["p80"] == "2026-09-15"
+
+
+async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/schedule/derivation/": _json(
+            {
+                "task_id": "t-2",
+                "quantity": "early_start",
+                "value": "2026-03-06",
+                "pass": "forward",
+                "binding": {"kind": "predecessor_fs", "source_task_id": "t-1"},
+                "contributions": [{"kind": "predecessor_fs", "is_binding": True}],
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_schedule_derivation(client, "p-1", "t-2", "early_start")
+    assert result["binding"]["kind"] == "predecessor_fs"
+    assert result["pass"] == "forward"
 
 
 async def test_list_sprints_compacts_rows(settings: Settings) -> None:
