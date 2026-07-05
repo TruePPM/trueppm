@@ -308,7 +308,10 @@ export function TaskDetailDrawer({
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
           'bg-neutral-surface border-l border-neutral-border z-40',
           // v2 fluidity (ADR-0126, rule 185): slide on the brand ease (proto .26s).
-          'transition-transform duration-slow ease-brand',
+          // motion-safe so users (and e2e, #1655) with prefers-reduced-motion get
+          // an instant snap instead of a transform that Playwright's stability
+          // check races against.
+          'motion-safe:transition-transform duration-slow ease-brand',
           isOpen ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
       >
@@ -324,7 +327,7 @@ export function TaskDetailDrawer({
           'md:hidden fixed inset-x-0 bottom-0 z-40',
           'rounded-t-card bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
-          'transition-transform duration-200',
+          'motion-safe:transition-transform duration-200',
           isOpen ? 'translate-y-0' : 'translate-y-full',
         ].join(' ')}
       >
