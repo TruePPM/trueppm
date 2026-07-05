@@ -36,7 +36,7 @@ describe('ProgramTabs', () => {
     }
   });
 
-  it('links the Assets tab to the program-scoped assets path (ADR-0212)', () => {
+  it('links the Assets tab to the program-scoped assets path (ADR-0215)', () => {
     mockUseProgramId.mockReturnValue('prog-abc');
     renderWithRouter(<ProgramTabs />, { initialEntries: ['/programs/prog-abc/overview'] });
     expect(screen.getByRole('link', { name: /Assets/i })).toHaveAttribute(

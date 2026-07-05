@@ -1,5 +1,5 @@
 /**
- * Project Assets surface E2E (ADR-0212, #971).
+ * Project Assets surface E2E (ADR-0215, #971).
  *
  * Golden path: navigate to the Assets tab → the unified feed lists a file row and
  * a link row (reusing the #970 primitives) → a kind chip re-queries the server.

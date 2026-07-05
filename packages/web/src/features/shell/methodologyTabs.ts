@@ -108,7 +108,7 @@ function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
     {
       id: 'TRACK',
       label: 'Track',
-      // `assets` (ADR-0212) trails TRACK — the unified reference-material surface
+      // `assets` (ADR-0215) trails TRACK — the unified reference-material surface
       // (task files + external links), visible for every methodology.
       views: hasDeliver
         ? ['today', 'risk', 'reports', 'activity', 'assets']

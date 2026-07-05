@@ -1,5 +1,5 @@
 /**
- * Data hook + types for the unified Assets surface (ADR-0212, #971).
+ * Data hook + types for the unified Assets surface (ADR-0215, #971).
  *
  * Consumes `GET /{scope}/{id}/assets/` — a read-only, newest-first feed that
  * merges every task's files (`TaskAttachment`) and external links (`TaskLink`)
@@ -122,7 +122,7 @@ export const ASSET_PROVIDERS: { value: string; label: string }[] = [
  * never expose their raw storage path — the feed carries the signed-url action
  * target (`download_url`, prefixed `/api/v1`), which returns a short-lived signed
  * URL. Strip the API prefix so the auth-carrying `apiClient` (baseURL `/api/v1`)
- * doesn't double it. Reuses the exact attachment signed-url mechanism (ADR-0212).
+ * doesn't double it. Reuses the exact attachment signed-url mechanism (ADR-0215).
  */
 export async function openAssetDownload(downloadUrl: string): Promise<void> {
   const path = downloadUrl.replace(/^\/api\/v1/, '');

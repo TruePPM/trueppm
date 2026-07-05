@@ -37,7 +37,7 @@ HIDEABLE_VIEW_KEYS: frozenset[str] = frozenset(
         "risk",
         "reports",
         "activity",
-        # Unified Assets surface (#971, ADR-0212) — trails TRACK on the web.
+        # Unified Assets surface (#971, ADR-0215) — trails TRACK on the web.
         "assets",
         # PEOPLE group
         "resources",

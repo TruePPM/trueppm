@@ -210,7 +210,7 @@ class TaskLink(VersionedModel):
     )
     # Manual ordering within a task's link list (lower sorts first).
     display_order = models.PositiveIntegerField(default=0)
-    # Creation timestamp (#971, ADR-0212). VersionedModel deliberately carries no
+    # Creation timestamp (#971, ADR-0215). VersionedModel deliberately carries no
     # created/updated timestamps (sync uses ``server_version``), but the unified
     # Assets feed merges links with ``TaskAttachment`` on a shared ``(created_at,
     # id)`` keyset — links need a real creation time to place chronologically.
@@ -229,7 +229,7 @@ class TaskLink(VersionedModel):
             models.Index(fields=("task", "display_order"), name="integrations_link_task_order"),
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=("task", "server_version"), name="tasklink_serverver_idx"),
-            # Assets feed (#971, ADR-0212): each source is scanned newest-first with
+            # Assets feed (#971, ADR-0215): each source is scanned newest-first with
             # a small LIMIT before the Python keyset merge — index the sort key so
             # the per-source page is an index range scan, not a filesort.
             models.Index(fields=("-created_at", "-id"), name="tasklink_created_idx"),

@@ -659,7 +659,7 @@ urlpatterns = [
         ProgramApiTokenAuditView.as_view(),
         name="program-api-token-audit",
     ),
-    # Unified Assets feed (ADR-0212, #971) — read-only aggregation of every task's
+    # Unified Assets feed (ADR-0215, #971) — read-only aggregation of every task's
     # files + external links, per project and per program.
     path(
         "projects/<project_pk>/assets/",

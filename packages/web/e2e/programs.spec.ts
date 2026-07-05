@@ -250,7 +250,7 @@ test.describe('Programs — shell tabs', () => {
     const nav = page.getByRole('navigation', { name: 'Program' });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole('link', { name: /Backlog/i })).toBeVisible();
-    // Assets tab (ADR-0212, #971) is a discoverable top-bar tab too.
+    // Assets tab (ADR-0215, #971) is a discoverable top-bar tab too.
     await expect(nav.getByRole('link', { name: /Assets/i })).toBeVisible();
     await nav.getByRole('link', { name: /Settings/i }).click();
 

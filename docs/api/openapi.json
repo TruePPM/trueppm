@@ -7070,7 +7070,7 @@
         "/api/v1/programs/{program_pk}/assets/": {
             "get": {
                 "operationId": "v1_programs_assets_retrieve",
-                "description": "Unified Assets feed across a program's member projects (ADR-0212).\n\n``GET /api/v1/programs/{program_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny program member reaches the endpoint; results are narrowed to the caller's\n**readable** member projects (the audited ``ProgramViewSet.task_search``\npattern) so no asset from a project the caller cannot read leaks through. A\nprogram member with no readable child projects gets an empty list, never a\n403. Cross-program / portfolio rollups are Enterprise and out of scope.",
+                "description": "Unified Assets feed across a program's member projects (ADR-0215).\n\n``GET /api/v1/programs/{program_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny program member reaches the endpoint; results are narrowed to the caller's\n**readable** member projects (the audited ``ProgramViewSet.task_search``\npattern) so no asset from a project the caller cannot read leaks through. A\nprogram member with no readable child projects gets an empty list, never a\n403. Cross-program / portfolio rollups are Enterprise and out of scope.",
                 "summary": "Unified Assets feed for a program (files + external links across member projects)",
                 "parameters": [
                     {
@@ -15013,7 +15013,7 @@
         "/api/v1/projects/{project_pk}/assets/": {
             "get": {
                 "operationId": "v1_projects_assets_retrieve",
-                "description": "Unified Assets feed for a single project (ADR-0212).\n\n``GET /api/v1/projects/{project_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny project member (Viewer+) may read; a non-member gets 403 (membership is\nchecked at ``has_permission`` via the ``project_pk`` kwarg). Archived projects\nstay readable — this is a read-only browse surface (``IsProjectNotArchived`` is\ndeliberately omitted, matching the history/changelog reads).",
+                "description": "Unified Assets feed for a single project (ADR-0215).\n\n``GET /api/v1/projects/{project_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny project member (Viewer+) may read; a non-member gets 403 (membership is\nchecked at ``has_permission`` via the ``project_pk`` kwarg). Archived projects\nstay readable — this is a read-only browse surface (``IsProjectNotArchived`` is\ndeliberately omitted, matching the history/changelog reads).",
                 "summary": "Unified Assets feed for a project (files + external links, cursor-paginated)",
                 "parameters": [
                     {
@@ -32912,7 +32912,7 @@
             },
             "AssetFeedResponse": {
                 "type": "object",
-                "description": "Response envelope for the unified Assets feed (ADR-0212).",
+                "description": "Response envelope for the unified Assets feed (ADR-0215).",
                 "properties": {
                     "results": {
                         "type": "array",

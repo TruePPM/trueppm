@@ -1,4 +1,4 @@
-"""Unified Assets endpoints — project and program scope (ADR-0212, #971).
+"""Unified Assets endpoints — project and program scope (ADR-0215, #971).
 
 Read-only aggregation of every task's files (``TaskAttachment``) and external
 links (``TaskLink``) into one paginated, filterable ``AssetItem`` feed:
@@ -103,7 +103,7 @@ def _asset_response(entries: list[dict[str, Any]], next_cursor: Any) -> Response
 
 
 class ProjectAssetsView(APIView):
-    """Unified Assets feed for a single project (ADR-0212).
+    """Unified Assets feed for a single project (ADR-0215).
 
     ``GET /api/v1/projects/{project_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``
 
@@ -129,7 +129,7 @@ class ProjectAssetsView(APIView):
 
 
 class ProgramAssetsView(APIView):
-    """Unified Assets feed across a program's member projects (ADR-0212).
+    """Unified Assets feed across a program's member projects (ADR-0215).
 
     ``GET /api/v1/programs/{program_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``
 

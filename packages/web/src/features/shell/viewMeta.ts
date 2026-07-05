@@ -46,7 +46,7 @@ export const VIEW_TAB_META: Record<string, ViewMeta> = {
   reports: { label: 'Reports', Icon: BarChartIcon },
   // Unified project changelog — the "what changed" feed (ADR-0201).
   activity: { label: 'Activity', Icon: ActivityIcon },
-  // Unified Assets surface — aggregated task files + external links (ADR-0212).
+  // Unified Assets surface — aggregated task files + external links (ADR-0215).
   assets: { label: 'Assets', Icon: InboxIcon },
   resources: { label: 'Team', Icon: ResourcesIcon },
   // Settings — visible to all members (Viewer+); write controls are OWNER-gated

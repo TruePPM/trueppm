@@ -466,7 +466,7 @@ export const router = createBrowserRouter([
                 ),
               },
               {
-                // Unified Assets surface — task files + external links (ADR-0212, #971).
+                // Unified Assets surface — task files + external links (ADR-0215, #971).
                 path: 'assets',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
@@ -684,7 +684,7 @@ export const router = createBrowserRouter([
               },
               {
                 // Unified Assets surface across the program's readable member
-                // projects — files + external links (ADR-0212, #971).
+                // projects — files + external links (ADR-0215, #971).
                 path: 'assets',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>

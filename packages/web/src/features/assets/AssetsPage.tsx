@@ -1,5 +1,5 @@
 /**
- * Unified Assets surface (ADR-0212, #971) — a read-only, newest-first feed that
+ * Unified Assets surface (ADR-0215, #971) — a read-only, newest-first feed that
  * aggregates every task's files (`TaskAttachment`) and external links
  * (`TaskLink`) for a project, or across a program's readable member projects.
  *

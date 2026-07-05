@@ -1,4 +1,4 @@
-"""API + service tests for the unified Assets feed (ADR-0212, #971).
+"""API + service tests for the unified Assets feed (ADR-0215, #971).
 
 Covers: both sources aggregated (file + link) for a project; each filter
 (kind / label / provider / q) subsets correctly across BOTH sources; keyset

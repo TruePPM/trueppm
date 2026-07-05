@@ -1,4 +1,4 @@
-"""Unified project/program Assets aggregator (ADR-0212, #971).
+"""Unified project/program Assets aggregator (ADR-0215, #971).
 
 A read-only aggregator that merges two heterogeneous task-nested sources into one
 newest-first ``AssetItem`` feed:
@@ -32,7 +32,7 @@ changelog (``history/changelog.py``) documents for its cross-table cursor. UUID
 ordering is consistent between Postgres (byte compare) and Python
 (``UUID.int``), so the DB keyset predicate and the in-memory sort agree.
 
-Permission model (ADR-0212): both sources gate on the parent project's
+Permission model (ADR-0215): both sources gate on the parent project's
 membership (``IsProjectMember``) via their ``project_id`` property — there is no
 finer object-level ACL. The endpoints pass the already-authorized project id set,
 so this module trusts ``project_ids`` and never re-checks membership.
@@ -75,7 +75,7 @@ MAX_Q_LEN = 100
 
 @dataclass(frozen=True)
 class AssetCursor:
-    """Position in the ``(created_at, rank, id)`` total order (ADR-0212).
+    """Position in the ``(created_at, rank, id)`` total order (ADR-0215).
 
     Encoded as an opaque, URL-safe base64 JSON token, mirroring the changelog and
     sync cursors. The token is client-controlled, so every field is validated on
@@ -140,7 +140,7 @@ def _sources_for_kind(kind: str | None) -> list[str]:
 
 
 def _file_queryset(project_ids: Iterable[Any], *, q: str | None) -> QuerySet[Any]:
-    """DB-filtered, N+1-safe ``TaskAttachment`` source queryset (ADR-0212 §2)."""
+    """DB-filtered, N+1-safe ``TaskAttachment`` source queryset (ADR-0215 §2)."""
     from trueppm_api.apps.projects.models import TaskAttachment
 
     qs = TaskAttachment.objects.filter(
@@ -148,7 +148,7 @@ def _file_queryset(project_ids: Iterable[Any], *, q: str | None) -> QuerySet[Any
     ).select_related("task", "task__project", "uploaded_by")
     if q:
         # ``q`` is a shared filter — applied to BOTH sources so it never silently
-        # drops matches from one side (ADR-0212 risk). A file's searchable text is
+        # drops matches from one side (ADR-0215 risk). A file's searchable text is
         # its display title candidates (external_title / file_name) plus its URL.
         qs = qs.filter(
             Q(external_title__icontains=q)
@@ -161,7 +161,7 @@ def _file_queryset(project_ids: Iterable[Any], *, q: str | None) -> QuerySet[Any
 def _link_queryset(
     project_ids: Iterable[Any], *, q: str | None, label: str | None, provider: str | None
 ) -> QuerySet[Any]:
-    """DB-filtered, N+1-safe ``TaskLink`` source queryset (ADR-0212 §2)."""
+    """DB-filtered, N+1-safe ``TaskLink`` source queryset (ADR-0215 §2)."""
     from trueppm_api.apps.integrations.models import TaskLink
 
     qs = TaskLink.objects.filter(
@@ -252,7 +252,7 @@ def build_asset_feed(
     cursor: AssetCursor | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], AssetCursor | None]:
-    """Build one newest-first page of the unified Assets feed (ADR-0212).
+    """Build one newest-first page of the unified Assets feed (ADR-0215).
 
     Args:
         project_ids: the readable project ids to aggregate over. An empty
@@ -364,7 +364,7 @@ class AssetItemSerializer(serializers.Serializer[Any]):
 
 
 class AssetFeedResponseSerializer(serializers.Serializer[Any]):
-    """Response envelope for the unified Assets feed (ADR-0212)."""
+    """Response envelope for the unified Assets feed (ADR-0215)."""
 
     results = AssetItemSerializer(many=True)
     next_cursor = serializers.CharField(allow_null=True)

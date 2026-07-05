@@ -2,7 +2,7 @@
  * Shared presentation primitives for external-link / asset rows (#970, #971).
  *
  * Lifted out of `features/schedule/sections/ExternalLinksSection.tsx` so both the
- * per-task drawer section and the unified Assets surface (ADR-0212) render a
+ * per-task drawer section and the unified Assets surface (ADR-0215) render a
  * provider glyph, status badge, preview-type chip, and label pills identically —
  * one source of truth, no drift. Color is never the only cue (WCAG 1.4.1): every
  * badge/chip carries a text label and the glyph is decorative (aria-hidden).
