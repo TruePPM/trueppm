@@ -114,7 +114,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
-The server registers **14 read-only tools**, each mapping to one existing REST
+The server registers **15 read-only tools**, each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -145,6 +145,7 @@ the API.
 |------|-----------|---------|
 | `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count. |
 | `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. |
+| `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). Cite the reason, not just the number. |
 | `list_risks` | `project_id` | The project's risk register (impact, probability, status). |
 
 ### Sprints

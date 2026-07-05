@@ -8,23 +8,44 @@ This page describes the architecture of TruePPM as it exists today. The scheduli
 ## System diagram
 
 ```mermaid
-flowchart TB
-    client["React web (browser)"]
+flowchart LR
+    client["React web + mobile<br/>(API clients)"]
 
-    subgraph asgi["Django ASGI (uvicorn)"]
+    subgraph asgi["Django ASGI process (uvicorn)"]
+        direction TB
         drf["DRF ViewSets<br/>REST API"]
         channels["Django Channels<br/>WebSocket consumers"]
-        pg[("PostgreSQL 16<br/>ltree WBS hierarchy, GiST indexes")]
     end
 
-    worker["Celery worker<br/>CPM auto-scheduler<br/>(trueppm-scheduler)"]
-    valkey["Valkey<br/>broker + channel layer<br/>(Redis-compatible)"]
+    worker["Celery worker<br/>CPM auto-scheduler"]
 
-    client -->|REST / WebSocket| asgi
+    pg[("PostgreSQL 16")]
+    valkey[("Valkey")]
+
+    client -->|REST| drf
+    client <-->|WebSocket| channels
+
     drf --> pg
     channels --> pg
-    valkey --> worker
+    worker --> pg
+
+    drf -. enqueue .-> valkey
+    valkey -. task .-> worker
+    worker -. publish .-> valkey
+    valkey -. broadcast .-> channels
 ```
+
+**How to read it.** Solid arrows are direct **PostgreSQL** reads and writes;
+dotted arrows are asynchronous messages passed through **Valkey**, which is both
+the Celery broker and the Django Channels layer. **PostgreSQL** stores every
+project, task, and the WBS hierarchy as an `ltree` column with a GiST index for
+subtree and ancestor queries.
+
+Follow a schedule change end to end: a write through a **DRF ViewSet** enqueues
+a reschedule on the Valkey broker; the **Celery worker** runs the CPM engine,
+writes the new dates to PostgreSQL, and publishes the result back through
+Valkey; **Django Channels** picks that up off the channel layer and fans it out
+to every connected client over its **WebSocket**.
 
 ## Key design decisions
 
@@ -34,7 +55,7 @@ Every feature is a REST or WebSocket endpoint before it is a UI element. Web and
 
 ### Computed, not guessed
 
-*The AI-native foundation.* Every incumbent is bolting an LLM onto a project database and letting the model
+_The AI-native foundation._ Every incumbent is bolting an LLM onto a project database and letting the model
 guess dates. TruePPM takes the opposite stance, and it has a name: **computed,
 not guessed.** An AI-surfaced answer is never the language model's opinion — it is
 a CPM or Monte Carlo computation the engine performed, carrying a server-side
@@ -122,18 +143,23 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 ## Packages
 
 ### packages/scheduler
+
 Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`.
 
 ### packages/web
+
 React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
 
 ### packages/api
+
 Django 5.2 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Valkey (BSD-licensed Redis fork; wire-compatible). django-allauth + simplejwt. drf-spectacular (OpenAPI 3.0.3). PostgreSQL 16 with `ltree` for WBS hierarchy.
 
 ### packages/website
+
 This Astro Starlight site. Built with `npx astro build`; deploys to GitLab Pages.
 
 ### packages/helm
+
 Helm 3 chart with vendored first-party sub-charts for PostgreSQL and Valkey (under `packages/helm/charts/`, using the official `postgres` and `valkey/valkey` images). Separate `values-dev.yaml` and `values-prod.yaml` overlays.
 
 ## OSS / Enterprise boundary

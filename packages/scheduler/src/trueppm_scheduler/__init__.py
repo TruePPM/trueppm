@@ -11,6 +11,13 @@ try:
 except PackageNotFoundError:  # running from an un-installed source tree
     __version__ = "0.0.0+unknown"
 
+from trueppm_scheduler.derive import (
+    Derivation,
+    DerivationContribution,
+    Quantity,
+    UnknownTaskError,
+    derive_value,
+)
 from trueppm_scheduler.engine import (
     MAX_CALENDAR_EXCEPTIONS,
     MAX_CALENDAR_SCAN_DAYS,
@@ -65,15 +72,20 @@ __all__ = [
     "DeliveryMode",
     "Dependency",
     "DependencyType",
+    "Derivation",
+    "DerivationContribution",
     "InvalidScheduleInput",
     "MonteCarloResult",
     "Project",
+    "Quantity",
     "ScheduleResult",
     "SchedulerError",
     "SimulationCapExceeded",
     "SummaryExpansion",
     "Task",
     "TaskSensitivity",
+    "UnknownTaskError",
+    "derive_value",
     "expand_summary_dependencies",
     "find_cycle",
     "monte_carlo",

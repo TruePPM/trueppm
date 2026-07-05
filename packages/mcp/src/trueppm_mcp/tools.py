@@ -229,6 +229,20 @@ async def _get_monte_carlo_forecast(client: TruePPMClient, project_id: str) -> d
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _get_schedule_derivation(
+    client: TruePPMClient,
+    project_id: str,
+    task_id: str,
+    quantity: str,
+) -> dict[str, Any]:
+    """The server-computed *why* behind one computed schedule value (ADR-0218)."""
+    payload = await client.get(
+        f"projects/{project_id}/schedule/derivation/",
+        params={"task_id": task_id, "quantity": quantity},
+    )
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _list_sprints(client: TruePPMClient, project_id: str) -> list[dict[str, Any]]:
     """The project's sprints (aggregates only — no per-person velocity)."""
     payload = await client.get(f"projects/{project_id}/sprints/")
@@ -383,6 +397,31 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             project_id: The project's UUID.
         """
         return await _get_monte_carlo_forecast(client, project_id)
+
+    @server.tool()
+    async def get_schedule_derivation(
+        project_id: str, task_id: str, quantity: str
+    ) -> dict[str, Any]:
+        """The *why* behind a computed schedule value — cite the reason, not just the number.
+
+        Returns the server-computed derivation of one value: the driving
+        predecessor/successor, the binding constraint, each term's lag and
+        calendar-snap contribution, and which CPM pass (forward/backward/float)
+        set it. Computed from the engine's own pass data — never guessed — so an
+        agent can explain *why* a date, float, or forecast percentile is what it is.
+
+        Read-only. Use it to answer "why is this task's early start this date?" or
+        "what drives the P80 finish?" with a citable reason.
+
+        Args:
+            project_id: The project's UUID.
+            task_id: The task whose computed value is being explained. Required for
+                a CPM quantity; ignored for a Monte Carlo percentile.
+            quantity: A CPM quantity (early_start, early_finish, late_start,
+                late_finish, total_float, free_float) or a Monte Carlo percentile
+                (p50, p80, p95).
+        """
+        return await _get_schedule_derivation(client, project_id, task_id, quantity)
 
     @server.tool()
     async def list_sprints(project_id: str) -> list[dict[str, Any]]:
