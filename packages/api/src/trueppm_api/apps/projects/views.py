@@ -173,6 +173,7 @@ from trueppm_api.apps.projects.serializers import (
 )
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
+from trueppm_api.apps.sync.conflict import FieldLevelMergeMixin, check_field_conflict
 from trueppm_api.apps.webhooks.models import (
     DeliveryStatus,
     Webhook,
@@ -430,7 +431,9 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
         ],
     ),
 )
-class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
+class ProjectViewSet(
+    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Project]
+):
     """CRUD for projects.
 
     Any authenticated user can create a project; on creation the creator is
@@ -648,6 +651,10 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
 
     def perform_update(self, serializer: BaseSerializer[Project]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Field-level conflict gate (ADR-0217, #322): raises 409 on an overlapping
+        # stale write; returns the concurrently-changed fields for the response header.
+        self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
 
         # Capture the persisted calendar before save() mutates the instance in
         # place. CPM lag is calendar-aware (ADR-0027), so swapping the working
@@ -2947,7 +2954,9 @@ class ScheduleFetchPagination(pagination.PageNumberPagination):
         ],
     ),
 )
-class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
+class TaskViewSet(
+    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Task]
+):
     """CRUD for tasks within a project.
 
     CPM output fields (early_start, early_finish, late_start, late_finish,
@@ -2981,6 +2990,10 @@ class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         # the gate must be declared in this branch to take effect (rbac-check 🟡).
         if self.action == "split":
             return [IsAuthenticated(), IsProjectBacklogManager(), IsProjectNotArchived()]
+        # ADR-0217 §2: drag-reorder writes priority_rank → a board edit, gated to
+        # Team Member+ (Viewer must not reorder), consistent with create/queue-reorder.
+        if self.action == "reorder":
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     serializer_class = TaskSerializer
@@ -3221,6 +3234,10 @@ class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         # rules it recorded in validate() and surface them as response warnings
         # (ADR-0101). validate() ran before perform_update, so the attribute is set.
         self._last_task_serializer = serializer
+
+        # Field-level conflict gate (ADR-0217, #322): raises 409 on an overlapping
+        # stale write; returns the concurrently-changed fields for the response header.
+        self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
 
         # Snapshot the fields the granular webhook events compare on, BEFORE the
         # save mutates the instance. serializer.instance still holds the prior DB
@@ -3537,6 +3554,67 @@ class TaskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._handle_task_write(super().partial_update, request, *args, **kwargs)
+
+    @extend_schema(
+        summary="Reorder a board card relative to an anchor (server-computed rank)",
+        request=OpenApiTypes.OBJECT,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Moved card's new priority_rank plus any renormalized siblings.",
+            ),
+            400: OpenApiResponse(description="Malformed body or an anchor outside the column."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="reorder")
+    def reorder(self, request: Request, **kwargs: Any) -> Response:
+        """Reposition this task within its board column under a row lock (ADR-0217, #322).
+
+        Body: exactly one anchor — ``{"before_id": "<uuid>"}``, ``{"after_id": "<uuid>"}``,
+        or ``{"to_end": true}``. The sibling group is the project's *live* tasks in the
+        same status column; the new dense ``priority_rank`` is computed server-side under
+        ``SELECT ... FOR UPDATE`` so two concurrent drags cannot crisscross. Returns
+        ``200 {"id", "priority_rank", "renormalized": [...]}``; ``400`` on a bad anchor.
+        Replaces the old client-computed ``priority_rank`` PATCH for drag-reorder.
+        """
+        from trueppm_api.apps.projects.reorder_services import ReorderError, reorder_by_anchor
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        task = self.get_object()
+        body = request.data if isinstance(request.data, dict) else {}
+        before_id = body.get("before_id")
+        after_id = body.get("after_id")
+        to_end = bool(body.get("to_end", False))
+
+        for key, val in (("before_id", before_id), ("after_id", after_id)):
+            if val is not None and not isinstance(val, str):
+                return Response(
+                    {key: ["Must be a task UUID string."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # Sibling group = live tasks of this project sharing the moved card's column.
+        siblings = Task.objects.filter(
+            project_id=task.project_id, status=task.status, is_deleted=False
+        )
+        try:
+            result = reorder_by_anchor(
+                queryset=siblings,
+                item_id=str(task.pk),
+                before_id=before_id,
+                after_id=after_id,
+                to_end=to_end,
+            )
+        except ReorderError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Reuse the existing frozen `tasks_reordered` event (already handled on the
+        # web client as "reorder happened → refetch tasks"), so renormalized siblings
+        # and the moved card all refresh in one board invalidation. Deferred to commit
+        # and captures only the plain project id string.
+        project_id = str(task.project_id)
+        transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
+        return Response(result, status=status.HTTP_200_OK)
 
     def perform_destroy(self, instance: Task) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -5963,7 +6041,9 @@ def _record_risk_link_events(
         TaskActivityEvent.objects.bulk_create(rows)
 
 
-class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
+class RiskViewSet(
+    FieldLevelMergeMixin, McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Risk]
+):
     """CRUD for risks within a project.
 
     Permission matrix:
@@ -6067,6 +6147,10 @@ class RiskViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelView
         # (probability × impact) increases; risk.closed on the transition into
         # CLOSED. Both are read off the loaded instance before serializer.save()
         # overwrites it.
+        # Field-level conflict gate (ADR-0217, #322): raises 409 on an overlapping
+        # stale write; returns the concurrently-changed fields for the response header.
+        self._merge_concurrent_fields = check_field_conflict(self.request, serializer)
+
         old = cast(Risk, serializer.instance)
         old_status = old.status
         old_severity = old.probability * old.impact

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { handleSyncConflict } from '@/api/conflict';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,13 @@ export interface UpdateTaskPayload {
   blocked_reason?: string;
   blocker_type?: string;
   blocking_task?: string | null;
+  /**
+   * The `serverVersion` this edit was based on (ADR-0217, #322). When provided,
+   * the server does field-level merge: a disjoint concurrent edit merges (200),
+   * an overlapping one returns 409 and surfaces the "Someone else changed this"
+   * toast. Omit for legacy last-writer-wins.
+   */
+  baseVersion?: number;
 }
 
 /**
@@ -158,8 +166,21 @@ export function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, projectId: _projectId, ...data }: UpdateTaskPayload) => {
-      const res = await apiClient.patch<ApiTaskResponse>(`/tasks/${id}/`, data);
+    mutationFn: async ({
+      id,
+      projectId: _projectId,
+      baseVersion,
+      ...data
+    }: UpdateTaskPayload) => {
+      // Opt into field-level merge (ADR-0217) by declaring the version this edit was
+      // based on; the server merges a disjoint concurrent edit or 409s an overlap.
+      // Only pass a config arg when opting in, so the default LWW call shape is unchanged.
+      const res =
+        baseVersion !== undefined
+          ? await apiClient.patch<ApiTaskResponse>(`/tasks/${id}/`, data, {
+              headers: { 'X-Base-Version': String(baseVersion) },
+            })
+          : await apiClient.patch<ApiTaskResponse>(`/tasks/${id}/`, data);
       return res.data;
     },
     onMutate: async (variables) => {
@@ -174,10 +195,15 @@ export function useUpdateTask() {
       );
       return { snapshot };
     },
-    onError: (_err, variables, context) => {
+    onError: (err, variables, context) => {
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
       }
+      // On an overlapping concurrent edit (409), surface the conflict toast with a
+      // Reload action that refetches the server's current state (ADR-0217, #322).
+      handleSyncConflict(err, () => {
+        void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      });
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });

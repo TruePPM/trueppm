@@ -75,6 +75,48 @@ Every synced model has a `server_version` field:
 
 `since=0` returns all rows (every row has `server_version ≥ 1`).
 
+## Conflict resolution
+
+By default a stale write resolves last-writer-wins on `server_version`: whoever saves
+last wins the whole row. For the records people most often co-edit — **task, project,
+and risk** — the API instead does **field-level merge** so two people editing
+*different* fields of the same record both keep their work (ADR-0217).
+
+A client opts in by sending the version it last saw as the `X-Base-Version` request
+header (or a `base_version` body key) on a `PATCH`:
+
+- If no one else has changed the record since that version, the write applies normally.
+- If someone changed **different** fields, the edits merge: the write applies, and the
+  response carries an `X-Merged-Concurrent-Fields` header naming what the other writer
+  changed so the client can reconcile its cache.
+- If someone changed the **same** field, the API returns `409 Conflict` with a
+  structured body — the client shows a "Someone else changed this" prompt with a Reload
+  action rather than silently discarding either edit:
+
+```json
+{
+  "code": "sync_conflict",
+  "detail": "Someone else changed this. Reload to see their changes.",
+  "conflict_fields": ["name"],
+  "server_value": { "name": "Their edit" },
+  "client_value": { "name": "My edit" },
+  "server_version": 6
+}
+```
+
+Omitting `X-Base-Version` preserves the legacy last-writer-wins behavior, so the change
+is fully backward compatible. `server_value` is drawn from the record's representation
+for the requesting user, so it never exposes a field the caller cannot otherwise read.
+
+### Reordering
+
+Board-card order is computed **server-side** under a row lock via
+`POST /api/v1/tasks/{id}/reorder/` with a single anchor — `{"before_id": "…"}`,
+`{"after_id": "…"}`, or `{"to_end": true}`. Because the new position is computed while
+the sibling group is locked, two simultaneous drag-reorders serialize into a
+deterministic order instead of crisscrossing. Reordering requires Team Member+ (a Viewer
+cannot reorder).
+
 ## TOCTOU safety
 
 The server snapshots `max(server_version)` across all synced tables **before** running the delta queries. This prevents the race where a write lands between the version-snapshot and the row-queries, causing a row to be included in `updated` but the `timestamp` to be set too low — making the client miss it on the next sync.

@@ -29080,6 +29080,93 @@
                 "summary": "Retrieve duration event"
             }
         },
+        "/api/v1/tasks/{id}/reorder/": {
+            "post": {
+                "operationId": "v1_tasks_reorder_create",
+                "description": "Reposition this task within its board column under a row lock (ADR-0217, #322).\n\nBody: exactly one anchor — ``{\"before_id\": \"<uuid>\"}``, ``{\"after_id\": \"<uuid>\"}``,\nor ``{\"to_end\": true}``. The sibling group is the project's *live* tasks in the\nsame status column; the new dense ``priority_rank`` is computed server-side under\n``SELECT ... FOR UPDATE`` so two concurrent drags cannot crisscross. Returns\n``200 {\"id\", \"priority_rank\", \"renormalized\": [...]}``; ``400`` on a bad anchor.\nReplaces the old client-computed ``priority_rank`` PATCH for drag-reorder.",
+                "summary": "Reorder a board card relative to an anchor (server-computed rank)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Moved card's new priority_rank plus any renormalized siblings."
+                    },
+                    "400": {
+                        "description": "Malformed body or an anchor outside the column."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/scope/": {
             "get": {
                 "operationId": "v1_tasks_scope_retrieve",
