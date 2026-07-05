@@ -11576,8 +11576,8 @@
         "/api/v1/projects/{id}/export/": {
             "get": {
                 "operationId": "v1_projects_export_retrieve",
-                "description": "Export this project as a downloadable canonical JSON seed file (#967).\n\nMirrors program export (#616): a synchronous JSON attachment built from\n``export_project`` + ``dump_seed``. The seed wraps the single project in a\nminimal synthesized program block (ADR-0109 #967 addendum) so it re-imports\nwithout clobbering any live parent program. Read-only, open to any project\nmember, available on archived projects too (see get_permissions).",
-                "summary": "Export project as canonical JSON seed",
+                "description": "GET: synchronous JSON seed (#967). POST: queue the async bundle (#1266).\n\nThe GET path mirrors program export (#616): a synchronous JSON attachment built\nfrom ``export_project`` + ``dump_seed``, open to any project member, available on\narchived projects. The POST path (ADR-0219) enqueues the richer async ``.tar.gz``\nbundle and returns ``202`` with the job row; it is Admin+ (see get_permissions).",
+                "summary": "Export project as canonical JSON seed (synchronous)",
                 "parameters": [
                     {
                         "in": "path",
@@ -11615,6 +11615,316 @@
                             }
                         },
                         "description": "A downloadable canonical JSON seed document (ADR-0109) describing this single project inside a synthesized single-project program wrapper. Round-trips back through the importer."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_export_create",
+                "description": "GET: synchronous JSON seed (#967). POST: queue the async bundle (#1266).\n\nThe GET path mirrors program export (#616): a synchronous JSON attachment built\nfrom ``export_project`` + ``dump_seed``, open to any project member, available on\narchived projects. The POST path (ADR-0219) enqueues the richer async ``.tar.gz``\nbundle and returns ``202`` with the job row; it is Admin+ (see get_permissions).",
+                "summary": "Queue a richer asynchronous project export bundle",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectExportJob"
+                                }
+                            }
+                        },
+                        "description": "An async export job (ADR-0219, #1266). The job builds a .tar.gz bundle containing the JSON seed, MS Project XML (MSPDI), task attachments, time entries, and the project audit/change history. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/export/jobs/": {
+            "get": {
+                "operationId": "v1_projects_export_jobs_list",
+                "description": "List recent async export jobs for this project (#1266, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a complete\none. Scoped to the resolved (membership-checked) project, so no cross-project rows\nleak.",
+                "summary": "List this project's async export jobs",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectExportJobList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/export/jobs/{job_id}/": {
+            "get": {
+                "operationId": "v1_projects_export_jobs_retrieve",
+                "description": "Poll an async export job (#1266, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved project, so a ``job_id`` belonging\nto another project 404s rather than leaking (object-level IDOR guard).",
+                "summary": "Poll one async export job's status",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f-]{36}$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectExportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/export/jobs/{job_id}/download/": {
+            "get": {
+                "operationId": "v1_projects_export_jobs_download_retrieve",
+                "description": "Stream a completed export bundle (#1266, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole project including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL. ``409``\nif not ready, ``410 Gone`` once the link has expired. The job is project-scoped\nso a ``job_id`` from another project 404s (object-level IDOR guard).",
+                "summary": "Download a completed async export bundle",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f-]{36}$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": "The project export .tar.gz as a file attachment."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Export is not ready yet."
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Download link has expired."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -38276,6 +38586,37 @@
                     }
                 }
             },
+            "PaginatedProjectExportJobList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectExportJob"
+                        }
+                    }
+                }
+            },
             "PaginatedProjectForecastSnapshotList": {
                 "type": "object",
                 "required": [
@@ -42534,6 +42875,79 @@
                     "unresolved_assignee_count"
                 ]
             },
+            "ProjectExportJob": {
+                "type": "object",
+                "description": "Read serializer for an async project export job's status + download (ADR-0219).\n\nMirrors ``workspace.WorkspaceExportJobSerializer`` (ADR-0174): exposes the job\nlifecycle and a ``download_url`` present only once the archive is ready. The URL\nis a relative API path (never a raw storage URL) so the archive is always fetched\nthrough the Admin-gated download endpoint.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusA93Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "file_size": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "completed_at",
+                    "created_at",
+                    "download_url",
+                    "error_detail",
+                    "expires_at",
+                    "file_size",
+                    "id",
+                    "project",
+                    "started_at",
+                    "status"
+                ]
+            },
             "ProjectForecast": {
                 "type": "object",
                 "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary`` payload (avg ± 1σ + the\nper-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses\nthe series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``\nand the milestone velocity band — for readers below the velocity audience, so\nthose fields are nullable. ``sprints_to_complete_*`` is the remaining committed\nbacklog re-paced by the velocity band into a sprint count range; ``milestones``\nis the latest snapshot per bound milestone.",
@@ -45104,6 +45518,16 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
+            },
+            "StatusA93Enum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "success",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
             },
             "SyncPullResponse": {
                 "type": "object",
@@ -47982,7 +48406,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
+                                "$ref": "#/components/schemas/StatusA93Enum"
                             }
                         ],
                         "readOnly": true
@@ -48037,16 +48461,6 @@
                     "started_at",
                     "status"
                 ]
-            },
-            "WorkspaceExportJobStatusEnum": {
-                "enum": [
-                    "pending",
-                    "running",
-                    "success",
-                    "failed"
-                ],
-                "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
             },
             "WorkspaceInvite": {
                 "type": "object",

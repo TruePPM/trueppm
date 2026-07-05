@@ -33,7 +33,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.expressions import RawSQL
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
@@ -97,9 +97,11 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     EstimateStatus,
     EstimationMode,
+    ExportJobStatus,
     Project,
     ProjectApiToken,
     ProjectCustomField,
+    ProjectExportJob,
     RetroBoardItem,
     Risk,
     RiskComment,
@@ -149,6 +151,7 @@ from trueppm_api.apps.projects.serializers import (
     ProjectApiTokenSerializer,
     ProjectCustomFieldSerializer,
     ProjectDetailSerializer,
+    ProjectExportJobSerializer,
     ProjectForecastSerializer,
     ProjectSerializer,
     ReforecastPreviewSerializer,
@@ -512,7 +515,21 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         # non-destructive and packages only data a member can already read, so it
         # is not Owner-gated.
         if self.action == "export":
+            # GET is the sync JSON seed (#967): any member (Viewer+). POST queues the
+            # richer async .tar.gz bundle (#1266, ADR-0219) — a deliberate step up to
+            # Admin+, because the bundle aggregates the full audit/change history,
+            # every member's time entries, and all attachment binaries, so bulk-
+            # exfiltrating it in one archive is an Admin-tier action.
+            if self.request.method == "POST":
+                return [IsAuthenticated(), IsProjectAdmin()]
             return [IsAuthenticated(), IsProjectMember()]
+        # Export-job list / poll / download (#1266, ADR-0219): Admin+, matching the
+        # POST enqueue. Like the sync export these stay available on archived projects
+        # (portability for archival/forensics), so they skip IsProjectNotArchived.
+        # Object-level cross-project IDOR (a job_id from another project) is closed in
+        # the action bodies via project-scoped lookups.
+        if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
+            return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     queryset = Project.objects.select_related("calendar", "lead", "program").order_by(
@@ -1443,7 +1460,8 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
-        summary="Export project as canonical JSON seed",
+        methods=["GET"],
+        summary="Export project as canonical JSON seed (synchronous)",
         responses={
             200: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
@@ -1455,24 +1473,140 @@ class ProjectViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelV
             ),
         },
     )
-    @action(detail=True, methods=["get"], url_path="export")
+    @extend_schema(
+        methods=["POST"],
+        summary="Queue a richer asynchronous project export bundle",
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=ProjectExportJobSerializer,
+                description=(
+                    "An async export job (ADR-0219, #1266). The job builds a .tar.gz "
+                    "bundle containing the JSON seed, MS Project XML (MSPDI), task "
+                    "attachments, time entries, and the project audit/change history. "
+                    "Poll GET .../export/jobs/{job_id}/ until status is 'success', then "
+                    "fetch download_url. Admin+ only; an in-flight job is returned rather "
+                    "than queuing a duplicate build."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["get", "post"], url_path="export")
     def export(self, request: Request, pk: str | None = None) -> HttpResponse:
-        """Export this project as a downloadable canonical JSON seed file (#967).
+        """GET: synchronous JSON seed (#967). POST: queue the async bundle (#1266).
 
-        Mirrors program export (#616): a synchronous JSON attachment built from
-        ``export_project`` + ``dump_seed``. The seed wraps the single project in a
-        minimal synthesized program block (ADR-0109 #967 addendum) so it re-imports
-        without clobbering any live parent program. Read-only, open to any project
-        member, available on archived projects too (see get_permissions).
+        The GET path mirrors program export (#616): a synchronous JSON attachment built
+        from ``export_project`` + ``dump_seed``, open to any project member, available on
+        archived projects. The POST path (ADR-0219) enqueues the richer async ``.tar.gz``
+        bundle and returns ``202`` with the job row; it is Admin+ (see get_permissions).
         """
+        project = self.get_object()
+
+        if request.method == "POST":
+            from trueppm_api.apps.projects.services import enqueue_project_export
+
+            job = enqueue_project_export(project=project, requested_by=request.user)
+            return Response(ProjectExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_project
 
-        project = self.get_object()
         body = dump_seed(export_project(project))
         filename = f"{project.code or project.pk}.json"
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @extend_schema(
+        summary="List this project's async export jobs",
+        responses={200: ProjectExportJobSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="export/jobs")
+    def export_jobs(self, request: Request, pk: str | None = None) -> Response:
+        """List recent async export jobs for this project (#1266, ADR-0219). Admin+.
+
+        Page-number envelope so an integrator can tell a truncated list from a complete
+        one. Scoped to the resolved (membership-checked) project, so no cross-project rows
+        leak.
+        """
+        project = self.get_object()
+        jobs = ProjectExportJob.objects.filter(project=project)
+        paginator = pagination.PageNumberPagination()
+        page = paginator.paginate_queryset(jobs, request, view=self)
+        data = ProjectExportJobSerializer(page if page is not None else jobs, many=True).data
+        return paginator.get_paginated_response(data)
+
+    @extend_schema(
+        summary="Poll one async export job's status",
+        responses={200: ProjectExportJobSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"export/jobs/(?P<job_id>[0-9a-f-]{36})",
+    )
+    def export_job_detail(
+        self, request: Request, pk: str | None = None, job_id: str | None = None
+    ) -> Response:
+        """Poll an async export job (#1266, ADR-0219). Admin+.
+
+        The job is looked up scoped to the resolved project, so a ``job_id`` belonging
+        to another project 404s rather than leaking (object-level IDOR guard).
+        """
+        project = self.get_object()
+        job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
+        return Response(ProjectExportJobSerializer(job).data)
+
+    @extend_schema(
+        summary="Download a completed async export bundle",
+        responses={
+            (200, "application/gzip"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="The project export .tar.gz as a file attachment.",
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Export is not ready yet."
+            ),
+            410: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Download link has expired."
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"export/jobs/(?P<job_id>[0-9a-f-]{36})/download",
+    )
+    def export_job_download(
+        self, request: Request, pk: str | None = None, job_id: str | None = None
+    ) -> Any:
+        """Stream a completed export bundle (#1266, ADR-0219). Admin+.
+
+        Authenticated — the archive contains the whole project including its audit
+        history, so it is never served from a raw, unauthenticated storage URL. ``409``
+        if not ready, ``410 Gone`` once the link has expired. The job is project-scoped
+        so a ``job_id`` from another project 404s (object-level IDOR guard).
+        """
+        from django.core.files.storage import default_storage
+
+        project = self.get_object()
+        job = get_object_or_404(ProjectExportJob, pk=job_id, project=project)
+        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
+            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
+        if job.expires_at is not None and job.expires_at < timezone.now():
+            return Response(
+                {"detail": "This export has expired. Request a new one."},
+                status=status.HTTP_410_GONE,
+            )
+        try:
+            handle = default_storage.open(job.file_path, "rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("Export archive is no longer available.") from exc
+        return FileResponse(
+            handle,
+            as_attachment=True,
+            filename=f"project-{project.code or project.pk}.tar.gz",
+            content_type="application/gzip",
+        )
 
     @extend_schema(
         parameters=[

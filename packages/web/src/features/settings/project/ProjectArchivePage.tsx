@@ -12,6 +12,11 @@ import {
   useUnarchiveProject,
 } from '@/hooks/useProjectMutations';
 import { useExportProjectSeed } from '@/hooks/useProgramSeedIo';
+import {
+  downloadProjectExport,
+  useProjectExportJob,
+  useStartProjectExport,
+} from '../hooks/useProjectExport';
 import { SettingsPageTitle } from '../SettingsShell';
 import { TransferOwnershipDialog } from '../components/TransferOwnershipDialog';
 
@@ -81,6 +86,109 @@ function LifecycleCard({
       {error ? (
         <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
           {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Async export bundle card (#1266, ADR-0219): queue a richer .tar.gz (JSON seed +
+ * MS Project XML + attachments + time entries + audit history), poll queued →
+ * running → ready-to-download / failed, then download through the authenticated
+ * endpoint. Distinct from the synchronous JSON-seed "Export project" card above:
+ * this bundle is Admin-gated and assembled off the request thread.
+ */
+function ExportBundleCard({
+  projectId,
+  code,
+}: {
+  projectId: string;
+  code?: string | null;
+}) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const start = useStartProjectExport(projectId);
+  const { data: job } = useProjectExportJob(projectId, jobId);
+
+  const startError = start.error instanceof Error ? start.error.message : null;
+  const building = job?.status === 'pending' || job?.status === 'running';
+  const ready = job?.status === 'success' && job.downloadUrl != null;
+  const failed = job?.status === 'failed';
+  const busy = start.isPending || building;
+
+  const statusLabel = start.isPending
+    ? 'Queuing…'
+    : job?.status === 'pending'
+      ? 'Queued…'
+      : job?.status === 'running'
+        ? 'Building bundle…'
+        : null;
+
+  const onStart = () => {
+    setDownloadError(null);
+    start.mutate(undefined as void, { onSuccess: (j) => setJobId(j.id) });
+  };
+
+  const onDownload = () => {
+    if (!job) return;
+    setDownloadError(null);
+    downloadProjectExport(projectId, job, code).catch(() => {
+      setDownloadError('Download failed — the link may have expired. Build a new bundle.');
+    });
+  };
+
+  return (
+    <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4">
+      <h2 className="text-[13px] font-semibold text-neutral-text-primary mb-1">Export bundle</h2>
+      <p className="text-[12px] text-neutral-text-secondary mb-2 leading-relaxed">
+        A complete, portable archive of this project as a downloadable .tar.gz — the JSON seed,
+        an MS Project XML file (opens in MS Project), every task attachment, all time entries,
+        and the project change history. Built in the background; large projects may take a moment.
+      </p>
+      <ul className="list-disc pl-4 mb-3 space-y-0.5">
+        <li className="text-[11px] text-neutral-text-secondary">
+          Admin+ only. The download link expires after a few days.
+        </li>
+        <li className="text-[11px] text-neutral-text-secondary">
+          MS Project artifact is XML (.xml) — binary .mpp is not generated.
+        </li>
+      </ul>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={ready ? onDownload : onStart}
+          disabled={busy}
+          className={[
+            'px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium',
+            'text-neutral-text-primary hover:bg-neutral-surface-sunken',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
+          ].join(' ')}
+        >
+          {busy ? 'Working…' : ready ? 'Download bundle' : 'Export bundle…'}
+        </button>
+        {statusLabel ? (
+          <span className="text-[11px] text-neutral-text-secondary" role="status">
+            {statusLabel}
+          </span>
+        ) : null}
+        {ready ? (
+          <button
+            type="button"
+            onClick={onStart}
+            className="text-[11px] text-neutral-text-secondary underline hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+          >
+            Rebuild
+          </button>
+        ) : null}
+      </div>
+      {startError || failed || downloadError ? (
+        <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+          {downloadError ??
+            (failed
+              ? `Export failed${job?.errorDetail ? `: ${job.errorDetail}` : ''}. Try again.`
+              : startError)}
         </p>
       ) : null}
     </div>
@@ -249,6 +357,8 @@ export function ProjectArchivePage() {
           busy={exportSeed.isPending}
           error={exportError}
         />
+
+        {projectId ? <ExportBundleCard projectId={projectId} code={project?.code} /> : null}
 
         <LifecycleCard
           title="Move to Trash"

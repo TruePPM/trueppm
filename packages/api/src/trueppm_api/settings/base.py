@@ -417,6 +417,19 @@ CELERY_BEAT_SCHEDULE = {
         # 04:20 UTC — after purge-stale-invites.
         "schedule": crontab(hour=4, minute=20),
     },
+    # Re-dispatch project export bundle jobs orphaned by a broker outage at on_commit
+    # (ADR-0219 §Durable Execution item 2; 5-min orphan window inside the task).
+    "drain-project-exports": {
+        "task": "projects.drain_project_exports",
+        "schedule": 30.0,
+    },
+    # Nightly: delete project export jobs past their download-link expiry and their
+    # files (ADR-0219 §Durable Execution item 6; shares TRUEPPM_EXPORT_RETENTION_DAYS).
+    "purge-expired-project-exports": {
+        "task": "projects.purge_expired_project_exports",
+        # 04:25 UTC — after the workspace export purge.
+        "schedule": crontab(hour=4, minute=25),
+    },
     # Lazily materialize upcoming recurring-task occurrences within the
     # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
     # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.
