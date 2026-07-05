@@ -6,7 +6,7 @@
  * actions. Selected task id lives in the URL as ?selected={id} so links are
  * shareable.
  *
- * Write actions (#695, ADR-0210): requeue-with-backoff and drop-with-note, single
+ * Write actions (issue 695, ADR-0210): requeue-with-backoff and drop-with-note, single
  * and bulk-over-the-current-filter. Requeue round-trips through the durable
  * workflow backend server-side; drop soft-removes (→ dismissed) but retains the
  * row for audit. All actions are workspace-admin gated server-side.

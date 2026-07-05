@@ -1,5 +1,5 @@
 /**
- * DeadLetterActionDialog — unit tests (#695, ADR-0210).
+ * DeadLetterActionDialog — unit tests (issue 695, ADR-0210).
  *
  * The one dialog drives all four operator actions. Covers: the requeue variant
  * shows a backoff select and passes the chosen seconds; the drop variant shows a

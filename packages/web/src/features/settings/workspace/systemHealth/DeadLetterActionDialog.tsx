@@ -1,5 +1,5 @@
 /**
- * Confirm dialog for the dead-letter write actions (#695, ADR-0210).
+ * Confirm dialog for the dead-letter write actions (issue 695, ADR-0210).
  *
  * One component drives all four operator actions — requeue / drop, single / bulk:
  *  - **requeue** shows an operator-chosen backoff select; the primary confirm
