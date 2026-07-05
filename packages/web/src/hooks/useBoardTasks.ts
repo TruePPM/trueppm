@@ -1,30 +1,42 @@
+import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast/toast';
 import type { TaskStatus } from '@/types';
+import { queueOfflineCardStatus } from '@/features/board/offline/useBoardOffline';
+import type { CardStatusVars } from '@/features/board/offline/cardStatusQueue';
 
-/** PATCH /api/v1/tasks/{id}/ — update task status and optionally reparent (used by Kanban board drag-and-drop and keyboard move). */
-export function useUpdateTaskStatus() {
+/** The move a caller requests — `useUpdateTaskStatus().mutate(vars)`. */
+type UpdateTaskStatusVars = CardStatusVars;
+
+export interface UpdateTaskStatusHandle {
+  /** Move a card. When offline the write is queued to IndexedDB (ADR-0220); when
+   *  online it PATCHes immediately, preserving the ADR-0205 SyncStatusBadge signal. */
+  mutate: (vars: UpdateTaskStatusVars) => void;
+  /** True while the online PATCH is in flight (unchanged online-path semantics). */
+  isPending: boolean;
+}
+
+/**
+ * PATCH /api/v1/tasks/{id}/ — update task status and optionally reparent (used by
+ * Kanban board drag-and-drop and keyboard move).
+ *
+ * Connectivity-aware (ADR-0220) without changing its call sites: online it runs
+ * the network mutation unchanged (so board moves stay server-authoritative and
+ * remain visible to the shell SyncStatusBadge); offline it applies an optimistic
+ * update and queues the move to a durable IndexedDB outbox that flushes on
+ * reconnect. Only card-status moves diverge from ADR-0205's in-memory pause.
+ */
+export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
   const queryClient = useQueryClient();
 
-  return useMutation({
-    mutationFn: async ({
-      taskId,
-      status,
-      parentId,
-      sprintId,
-    }: {
-      projectId: string;
-      taskId: string;
-      status: TaskStatus;
-      parentId?: string | null;
-      /** #429: set when a card is dragged into a phase under a sprint view, to
-       *  assign it to that sprint. The backend flags sprint_pending for an
-       *  ACTIVE sprint (ADR-0102). Omitted for Project view. */
-      sprintId?: string | null;
-    }) => {
+  const netMutation = useMutation({
+    mutationFn: async ({ taskId, status, parentId, sprintId }: UpdateTaskStatusVars) => {
       const body: Record<string, unknown> = { status };
       if (parentId !== undefined) body['parent_id'] = parentId === 'root' ? null : parentId;
+      // #429: sprintId is set when a card is dragged into a phase under a sprint
+      // view, to assign it to that sprint. The backend flags sprint_pending for an
+      // ACTIVE sprint (ADR-0102). Omitted for Project view.
       if (sprintId !== undefined) body['sprint_id'] = sprintId;
       const res = await apiClient.patch<{ id: string; status: TaskStatus }>(
         `/tasks/${taskId}/`,
@@ -44,4 +56,19 @@ export function useUpdateTaskStatus() {
       toast.error("Couldn't move the card — try again.");
     },
   });
+
+  const mutate = useCallback(
+    (vars: UpdateTaskStatusVars) => {
+      // Read connectivity at call time (not render time) so a card dragged the
+      // instant after going offline still queues rather than racing a dead request.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        queueOfflineCardStatus(queryClient, vars);
+        return;
+      }
+      netMutation.mutate(vars);
+    },
+    [queryClient, netMutation],
+  );
+
+  return { mutate, isPending: netMutation.isPending };
 }

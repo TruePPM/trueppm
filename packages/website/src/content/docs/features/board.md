@@ -55,6 +55,14 @@ Drag a card to a new column to change its status. The status change is optimisti
 
 **Keyboard alternative**: every card's `···` overflow menu includes a **Move to…** item with a submenu. Arrow keys navigate the submenu; Enter commits. An `aria-live` region announces the move.
 
+### Moving cards offline
+
+The board keeps working with no signal. If you change a card's status while offline — by drag, the **Move to…** menu, or the keyboard — the card moves immediately and the change is saved to a durable on-device queue that survives a page reload. Each queued card shows a **Pending** badge so you can see at a glance what has not yet reached the server.
+
+When you reconnect, the queued moves are sent automatically and the **Pending** badges clear. Moves apply last-write-wins per card: only the most recent status you set for a card is sent. If a card changed on the server while you were offline, your queued move is reverted to the server's latest state and a toast explains what happened, rather than silently overwriting someone else's change.
+
+The board also renders from its last successful fetch when you reopen it offline, so you can review the current state without a connection. Offline support currently covers card status changes only — creating tasks, editing card details, and reordering phases still require a connection.
+
 ## Toolbar
 
 The board toolbar (top of the board) groups its controls into these clusters:

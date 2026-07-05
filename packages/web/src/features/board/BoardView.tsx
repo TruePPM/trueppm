@@ -73,6 +73,7 @@ import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
+import { useBoardOffline } from './offline/useBoardOffline';
 import { MobileColumnStrip, type MobileColumnStripSegment } from './MobileColumnStrip';
 import { LaneMeta } from './LaneMeta';
 import { WorkshopBanner } from './WorkshopBanner';
@@ -597,7 +598,6 @@ const BOARD_ZOOM_VARS: Record<BoardZoom, CSSProperties> = {
   } as CSSProperties,
 };
 
-
 // Shared empty-array fallbacks (issue 1520). A per-render `?? []` literal is a new
 // identity every render, which would defeat the React.memo on BoardCell/BoardCard;
 // a single frozen constant keeps the prop reference-stable for empty cells/lanes.
@@ -913,7 +913,15 @@ function PhaseLaneImpl({
         "before:absolute before:inset-[-11px] before:content-['']",
       ].join(' ')}
     >
-      <svg aria-hidden="true" width={13} height={13} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <svg
+        aria-hidden="true"
+        width={13}
+        height={13}
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+      >
         <circle cx="8" cy="8" r="2.2" />
         <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
       </svg>
@@ -1047,10 +1055,7 @@ function PhaseLaneImpl({
         {/* Drag the bottom edge to resize this lane's height (issue 285). Expanded
             lanes only — a collapsed lane has no resizable body. */}
         {!collapsed && (
-          <PhaseResizeHandle
-            label={phase.name}
-            onResize={(px) => onResizeHeight(phase.id, px)}
-          />
+          <PhaseResizeHandle label={phase.name} onResize={(px) => onResizeHeight(phase.id, px)} />
         )}
       </div>
     </div>
@@ -1405,11 +1410,7 @@ function MobileBoard({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-neutral-surface-sunken">
       <div className="flex-shrink-0 bg-neutral-surface border-b border-neutral-border">
-        <MobileColumnStrip
-          segments={segments}
-          activeIndex={activeIndex}
-          onJump={jumpToColumn}
-        />
+        <MobileColumnStrip segments={segments} activeIndex={activeIndex} onJump={jumpToColumn} />
       </div>
       <div
         ref={scrollerRef}
@@ -1421,8 +1422,7 @@ function MobileBoard({
           const cards = tasksByStatus[col.status] ?? [];
           // Shared wipState() so the mobile column header shows the at-limit
           // breach chip too, not only over-limit (issue 1358 F6).
-          const wipBand =
-            col.wipLimit != null ? wipState(cards.length, col.wipLimit) : 'none';
+          const wipBand = col.wipLimit != null ? wipState(cards.length, col.wipLimit) : 'none';
           return (
             <section
               key={col.status}
@@ -1438,16 +1438,11 @@ function MobileBoard({
                 <h2 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
                   {col.label}
                 </h2>
-                <span className="text-xs text-neutral-text-disabled tppm-mono">
-                  {cards.length}
-                </span>
+                <span className="text-xs text-neutral-text-disabled tppm-mono">{cards.length}</span>
                 {(() => {
                   // WIP-creep arrow (issue 1213) + breach chip share the trailing
                   // cluster on mobile, same left-to-right order as desktop.
-                  const trend = wipTrend(
-                    wipTrendSeriesByStatus[col.status] ?? [],
-                    col.wipLimit,
-                  );
+                  const trend = wipTrend(wipTrendSeriesByStatus[col.status] ?? [], col.wipLimit);
                   const breached = wipBand === 'over' || wipBand === 'at';
                   if (!trend && !breached) return null;
                   return (
@@ -1472,9 +1467,7 @@ function MobileBoard({
                   <div
                     key={task.id}
                     onPointerDown={() => onCardFocus(task.id, col.status, task.parentId ?? 'root')}
-                    onFocusCapture={() =>
-                      onCardFocus(task.id, col.status, task.parentId ?? 'root')
-                    }
+                    onFocusCapture={() => onCardFocus(task.id, col.status, task.parentId ?? 'root')}
                   >
                     <BoardCard
                       task={task}
@@ -1514,6 +1507,10 @@ export function BoardView() {
   const updateStatus = useUpdateTaskStatus();
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
+  // Board offline (ADR-0220): hydrate the offline card-status queue, seed the
+  // board from the last cached fetch when opened offline, and flush queued moves
+  // on reconnect. Scoped to card-status moves; all other writes keep ADR-0205.
+  useBoardOffline(projectId || null);
   const { data: workshopSession } = useWorkshopSession(projectId || null);
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
@@ -1949,13 +1946,7 @@ export function BoardView() {
   const wipTrendSeriesByStatus = useMemo(() => {
     const map: Partial<Record<TaskStatus, number[]>> = {};
     if (!flowMetrics || flowMetrics.flow_metrics_suppressed) return map;
-    const cfdStatuses = [
-      'BACKLOG',
-      'NOT_STARTED',
-      'IN_PROGRESS',
-      'REVIEW',
-      'COMPLETE',
-    ] as const;
+    const cfdStatuses = ['BACKLOG', 'NOT_STARTED', 'IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const;
     for (const status of cfdStatuses) {
       map[status] = flowMetrics.cfd.map((row) => row.counts[status]);
     }
@@ -2948,10 +2939,7 @@ export function BoardView() {
               (never display:none — html-to-image must render it) and aria-hidden
               so it's invisible to assistive tech and pointer input. */}
           {exportRequested && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -left-[99999px] top-0"
-            >
+            <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
               <BoardPrintLayout ref={boardPrintRef} data={boardPrintData} />
             </div>
           )}
@@ -3042,7 +3030,15 @@ export function BoardView() {
               role="status"
               data-testid="focus-banner"
             >
-              <svg aria-hidden="true" width={12} height={12} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <svg
+                aria-hidden="true"
+                width={12}
+                height={12}
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
                 <circle cx="8" cy="8" r="2.2" />
                 <path d="M8 1v2.4M8 12.6V15M1 8h2.4M12.6 8H15" strokeLinecap="round" />
               </svg>
@@ -3166,7 +3162,9 @@ export function BoardView() {
                               <span
                                 aria-hidden="true"
                                 className={`tppm-mono text-xs font-bold ${
-                                  band === 'over' ? 'text-semantic-critical' : 'text-semantic-at-risk'
+                                  band === 'over'
+                                    ? 'text-semantic-critical'
+                                    : 'text-semantic-at-risk'
                                 }`}
                               >
                                 {totalByStatus[col.status]}/{col.wipLimit}
@@ -3221,10 +3219,10 @@ export function BoardView() {
               header={
                 projectId ? (
                   <SprintPanel
-                  projectId={projectId}
-                  methodology={projectDetail?.methodology}
-                  boardCadence={projectDetail?.board_cadence}
-                />
+                    projectId={projectId}
+                    methodology={projectDetail?.methodology}
+                    boardCadence={projectDetail?.board_cadence}
+                  />
                 ) : null
               }
             />
@@ -3314,10 +3312,10 @@ export function BoardView() {
                 no active sprint. */}
                 {projectId && (
                   <SprintPanel
-                  projectId={projectId}
-                  methodology={projectDetail?.methodology}
-                  boardCadence={projectDetail?.board_cadence}
-                />
+                    projectId={projectId}
+                    methodology={projectDetail?.methodology}
+                    boardCadence={projectDetail?.board_cadence}
+                  />
                 )}
                 {/* Flow analytics (ADR-0137, issue 1188) — collapsed by default;
                 team-private behind the ADR-0104 flow_metrics signal. */}
@@ -3439,7 +3437,17 @@ export function BoardView() {
                               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                               before:absolute before:inset-[-13px] before:content-['']"
                           >
-                            <svg aria-hidden="true" width={11} height={11} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
+                            <svg
+                              aria-hidden="true"
+                              width={11}
+                              height={11}
+                              viewBox="0 0 12 12"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={1.6}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
                               <path d="M7.5 2.5L4 6l3.5 3.5M11 2.5L7.5 6 11 9.5" />
                             </svg>
                           </button>
@@ -3461,7 +3469,10 @@ export function BoardView() {
                     // render only that lane. Filtering to one lane supersedes
                     // every other lane-visibility rule below. A stale ?focus=
                     // (phase no longer present) falls through and shows all.
-                    if (focusedLanePhaseId && sortedPhases.some((p) => p.id === focusedLanePhaseId)) {
+                    if (
+                      focusedLanePhaseId &&
+                      sortedPhases.some((p) => p.id === focusedLanePhaseId)
+                    ) {
                       return phase.id === focusedLanePhaseId;
                     }
                     const phaseCells = phaseTaskMap.get(phase.id);
