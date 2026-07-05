@@ -211,7 +211,7 @@ def test_smtp_status_for_org_admin(client: APIClient) -> None:
     resp = client.get("/api/v1/workspace/email-settings/")
     assert resp.status_code == 200, resp.data
     assert "from_email" in resp.data
-    assert "transport" in resp.data
+    assert "transport_mode" in resp.data
     # Never expose the password / username.
     assert "password" not in resp.data
     assert "EMAIL_HOST_PASSWORD" not in resp.data
