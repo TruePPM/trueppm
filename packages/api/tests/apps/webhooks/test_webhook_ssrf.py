@@ -10,7 +10,6 @@ integrations egress chokepoint (``assert_url_allowed``, ADR-0049 §3).
 from __future__ import annotations
 
 import contextlib
-import urllib.request
 from datetime import date
 from unittest.mock import patch
 
@@ -86,6 +85,13 @@ def test_deliver_webhook_blocked_url_fails_without_request(project: Project) -> 
     A webhook can reach a blocked URL even when registration validation is
     bypassed (e.g. a row created directly, or DNS rebinding after registration),
     so the delivery-time guard is the authoritative SSRF defense.
+
+    The invariant is that ``assert_url_allowed`` rejects the URL *before* the
+    delivery opener is ever touched. We mock ``_no_redirect_opener.open`` (the
+    opener ``deliver_webhook`` actually POSTs through since #808) and assert it is
+    never called — mocking ``urllib.request.urlopen`` would prove nothing because
+    the code path does not call it, and it would leave the test one leaked guard
+    away from a real 10s socket connect to 169.254.169.254 (#1652).
     """
     user = User.objects.create_user(username="ssrf_owner", password="pw")
     webhook = Webhook.objects.create(
@@ -99,12 +105,25 @@ def test_deliver_webhook_blocked_url_fails_without_request(project: Project) -> 
         webhook=webhook, event_type="task.created", payload={"id": "t1"}
     )
 
+    from trueppm_api.apps.integrations.http import assert_url_allowed
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(urllib.request, "urlopen") as mock_urlopen:
+    # Pin the REAL guard for this test. Sibling webhook tests mock
+    # ``wh_tasks.assert_url_allowed`` away for their own purposes; if one of those
+    # module-level patches fails to unwind (e.g. a worker interrupted mid-test
+    # under xdist), the mock bleeds into this worker and the guard silently no-ops
+    # here — which is exactly how this test reached a real socket on CI (#1652).
+    # Binding the real function makes the test exercise the guard regardless of
+    # ambient state. The opener is stubbed as a fail-loud safety net: a genuine
+    # bypass makes open() get called and assert_not_called fail deterministically,
+    # instead of hanging 10s on a live connection to the metadata endpoint.
+    with (
+        patch.object(wh_tasks, "assert_url_allowed", assert_url_allowed),
+        patch.object(wh_tasks._no_redirect_opener, "open") as mock_open,
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
-    mock_urlopen.assert_not_called()
+    mock_open.assert_not_called()
     delivery.refresh_from_db()
     assert delivery.status == DeliveryStatus.FAILED
     assert delivery.attempt_count == 1
