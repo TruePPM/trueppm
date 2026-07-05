@@ -40,6 +40,8 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+
 from . import providers
 from .encryption import encrypt_secret
 from .external_sources import EXTERNAL_TASK_SOURCES, ExternalTaskSource
@@ -163,7 +165,7 @@ def _summary(label: str, row: IntegrationCredential | None) -> dict[str, Any]:
 
 
 @extend_schema(tags=["me"])
-class ExternalConnectionView(APIView):
+class ExternalConnectionView(IdempotencyMixin, APIView):
     """Manage the authenticated user's connection to one external task source.
 
     Routes (``<source>`` is an ``EXTERNAL_TASK_SOURCES`` key, e.g. ``jira``):
