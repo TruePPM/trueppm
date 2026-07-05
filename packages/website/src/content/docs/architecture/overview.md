@@ -8,19 +8,19 @@ This page describes the architecture of TruePPM as it exists today. The scheduli
 ## System diagram
 
 ```mermaid
-flowchart LR
+flowchart TB
     client["React web + mobile<br/>(API clients)"]
 
     subgraph asgi["Django ASGI process (uvicorn)"]
-        direction TB
+        direction LR
         drf["DRF ViewSets<br/>REST API"]
         channels["Django Channels<br/>WebSocket consumers"]
+        drf ~~~ channels
     end
 
-    worker["Celery worker<br/>CPM auto-scheduler"]
-
-    pg[("PostgreSQL 16")]
     valkey[("Valkey")]
+    worker["Celery worker<br/>CPM auto-scheduler"]
+    pg[("PostgreSQL 16")]
 
     client -->|REST| drf
     client <-->|WebSocket| channels
