@@ -50,6 +50,34 @@ random token (or the dev `demo` default) is printed.
 The command is **idempotent** — re-running clears any prior "Platform Migration"
 project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.
 
+## `seed_ga_launch_program`
+
+Builds the **"1.0 GA Launch"** hybrid sample *program* — one OSS program of four
+workstream projects (Platform Hardening & Scale, SOC 2 Type II Readiness, Security
+Pen-Test & Remediation, and GA Marketing & Launch) that together ship a single
+outcome. Where `seed_demo_project` tells a standalone-project story, this seed
+demonstrates what only a program can: **real accepted cross-project dependencies**
+that form a critical path running *across* projects, and **shared people who
+over-allocate in overlapping windows**. The critical path is genuinely computed by
+the program-scoped CPM pass — it stays correct when a task is dragged, rather than
+being hard-coded.
+
+Alongside the four projects it seeds seven persona accounts and their linked
+resources, the per-project **5-role RBAC matrix** (Owner/Admin/Scheduler/Member/
+Viewer), two sprints on the Marketing project (a closed one with a burndown and a
+live one bound to the go-live milestone), a Kanban board on the Security project,
+and a shared 5-day calendar with one company holiday. Every project is flagged as
+**sample data**.
+
+| Flag | Effect |
+|------|--------|
+| `--with-personas` | Gives the seven persona accounts the resolved demo password so they are loginable — same resolution as `seed_demo_project` (`TRUEPPM_DEMO_PASSWORD` if set, otherwise `demo` under `DEBUG=True`, otherwise a random token printed once at seed time) |
+
+Without `--with-personas` the persona accounts still exist — the RBAC matrix,
+project leads, and task assignees reference them — but they carry unusable passwords
+and cannot be logged into. The command is **idempotent**: re-running clears any prior
+"1.0 GA Launch" program and re-seeds it, so it is safe to run repeatedly.
+
 ## Sample data & JSON seed
 
 Three commands cover bundled sample projects and the canonical JSON seed format
