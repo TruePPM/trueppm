@@ -79,6 +79,45 @@ a split-brain between the URL string and the running database.
 {{- end }}
 
 {{/*
+OpenTelemetry env vars, rendered from the structured observability.otlp.* values
+into the standard OTEL_* / TRUEPPM_OTEL_* variables the API reads (ADR-0223, #708).
+Included in the api AND celery-worker deployments so traces/metrics from the
+Beat-driven worker carry the same resource attributes as the web tier. Emits
+NOTHING when observability.otlp.endpoint is empty (the default) — telemetry is
+opt-in with no default endpoint, so the provider stays a strict no-op. The
+optional headers Secret keeps auth tokens (e.g. a SaaS OTLP bearer token) out of
+the rendered manifest.
+*/}}
+{{- define "trueppm.observabilityEnv" -}}
+{{- with .Values.observability.otlp }}
+{{- if .endpoint }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ .endpoint | quote }}
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: {{ .protocol | default "grpc" | quote }}
+- name: OTEL_SERVICE_NAME
+  value: {{ .serviceName | default "trueppm-api" | quote }}
+- name: TRUEPPM_OTEL_ENABLED
+  value: {{ .enabled | default true | quote }}
+- name: TRUEPPM_OTEL_TRACES_ENABLED
+  value: {{ .tracesEnabled | default true | quote }}
+- name: TRUEPPM_OTEL_METRICS_ENABLED
+  value: {{ .metricsEnabled | default true | quote }}
+{{- if .headersSecret.name }}
+- name: OTEL_EXPORTER_OTLP_HEADERS
+  valueFrom:
+    secretKeyRef:
+      name: {{ .headersSecret.name }}
+      key: {{ .headersSecret.key | default "headers" }}
+{{- else if .headers }}
+- name: OTEL_EXPORTER_OTLP_HEADERS
+  value: {{ .headers | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Name of the chart-owned Secret holding the connection URLs (DATABASE_URL,
 REDIS_URL) and the raw DB/cache passwords. Derived from `.Release.Name` only —
 NOT from trueppm.fullname — so the bundled subcharts (which can't see the

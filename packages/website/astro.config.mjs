@@ -238,6 +238,7 @@ export default defineConfig({
             { slug: "administration/redis-ha" },
             { slug: "administration/dead-letter-alerting" },
             { slug: "administration/system-health" },
+            { slug: "administration/observability" },
             { slug: "administration/retention" },
             { slug: "administration/email" },
             { slug: "administration/msproject-configuration" },
