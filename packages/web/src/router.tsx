@@ -9,6 +9,7 @@ import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
 import { SectionRedirect } from '@/features/settings/SectionRedirect';
+import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.
@@ -288,11 +289,13 @@ function ProjectIndexRedirect() {
 export const router = createBrowserRouter([
   {
     path: '/login',
+    errorElement: <RouteErrorBoundary />,
     element: <LoginPage />,
   },
   // Public route — no auth required. Handles workspace invite token redemption.
   {
     path: '/invite/accept',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <InviteAcceptPage />
@@ -304,6 +307,7 @@ export const router = createBrowserRouter([
   // sits outside RequireAuth.
   {
     path: '/forgot-password',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ForgotPasswordPage />
@@ -312,6 +316,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/forgot-password/sent',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ForgotPasswordSentPage />
@@ -320,6 +325,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/reset-password/confirm/:uid/:token',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ResetPasswordConfirmPage />
@@ -328,6 +334,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/reset-password/done',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ResetPasswordDonePage />
@@ -336,6 +343,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/reset-password/expired',
+    errorElement: <RouteErrorBoundary />,
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ResetPasswordExpiredPage />
@@ -344,6 +352,11 @@ export const router = createBrowserRouter([
   },
   {
     element: <RequireAuth />,
+    // Whole-app safety net (issue 1654): any lazy-chunk load failure or render
+    // throw in an authed route degrades to the branded RouteErrorBoundary instead
+    // of React Router's raw "Unexpected Application Error" screen. The ProjectShell
+    // / ProgramShell boundaries below catch closer (keeping the sidebar) first.
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: '/',
@@ -353,6 +366,10 @@ export const router = createBrowserRouter([
           {
             path: 'projects/:projectId',
             element: <ProjectShell />,
+            // Shell-preserving boundary (issue 1654): a single project view failing
+            // (e.g. a stale lazy chunk) is caught here, so AppShell's sidebar stays
+            // painted and the user can navigate away rather than losing the whole app.
+            errorElement: <RouteErrorBoundary />,
             children: [
               // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
               // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
@@ -659,6 +676,8 @@ export const router = createBrowserRouter([
                 <ProgramShell />
               </Suspense>
             ),
+            // Shell-preserving boundary (issue 1654) — see the ProjectShell note.
+            errorElement: <RouteErrorBoundary />,
             children: [
               { index: true, element: <Navigate to="overview" replace /> },
               {
