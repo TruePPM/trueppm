@@ -6,6 +6,7 @@ import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useCalendars } from '@/hooks/useCalendars';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
@@ -61,9 +62,10 @@ const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: st
  *
  * All seven editable fields (name, description, code, health, visibility,
  * timezone, default_view) are wired to PATCH /api/v1/projects/:id/. The
- * `calendar` FK toggles between inherited (null) and override; the picker UI
- * for choosing a specific calendar is tracked in #968, so the "+ Override"
- * button stays disabled when no calendar is currently assigned.
+ * `calendar` FK toggles between inherited (null) and override: "Inherit from
+ * workspace" clears it, and the picker (#968) sets it to a chosen org-level
+ * calendar from GET /api/v1/calendars/. Either way the change flows through the
+ * same save bar as every other field.
  *
  * The save bar appears on the first dirty edit and submits the whole payload
  * as a single PATCH on confirm; useDirtyForm handles the visibility + reset.
@@ -71,6 +73,7 @@ const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: st
 export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
+  const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
 
@@ -629,47 +632,68 @@ export function ProjectGeneralPage() {
 
           <FieldRow
             label="Working calendar"
-            hint="Override the workspace work-week and holidays. Picker UI ships with a follow-up issue."
+            hint="Override the workspace work-week and holidays for this project. Inherit to follow the workspace default."
           >
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCalendarId(null)}
-                  aria-pressed={calendarInherited}
-                  className={[
-                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    calendarInherited
-                      ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                  ].join(' ')}
+            {/* Inherit (calendar = null) ↔ override (calendar = chosen id). Both the
+                toggle and the picker are native form controls, so the enclosing
+                StubFieldset disables them below Admin (issue 1084) — no per-control
+                canEdit gate needed. Selecting a calendar arms the save bar like any
+                other field; the PATCH path landed in #520. */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCalendarId(null)}
+                aria-pressed={calendarInherited}
+                className={[
+                  'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  calendarInherited
+                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                ].join(' ')}
+              >
+                Inherit from workspace
+              </button>
+              <div className="relative inline-block w-[240px]">
+                <select
+                  value={calendarId ?? ''}
+                  onChange={(e) => setCalendarId(e.target.value === '' ? null : e.target.value)}
+                  aria-label="Working calendar override"
+                  // Disable while loading or if the fetch failed — an enabled empty
+                  // picker would be indistinguishable from "no calendars exist".
+                  disabled={calendarsLoading || !!calendarsError}
+                  className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
                 >
-                  Inherit from workspace
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  aria-pressed={!calendarInherited}
-                  title="Calendar picker isn't available yet — tracked in #968"
-                  className={[
-                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                    'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
-                    !calendarInherited
-                      ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                  ].join(' ')}
+                  <option value="">
+                    {calendarsLoading
+                      ? 'Loading calendars…'
+                      : calendarsError
+                        ? "Couldn't load calendars"
+                        : 'Override with a calendar…'}
+                  </option>
+                  {/* Keep the current override selectable even if it isn't in the
+                      fetched list yet (still loading, or the calendar was removed),
+                      so the <select> stays controlled without a value/option mismatch. */}
+                  {calendarId && !calendars.some((c) => c.id === calendarId) && (
+                    <option value={calendarId}>Current override</option>
+                  )}
+                  {calendars.map((cal) => (
+                    <option key={cal.id} value={cal.id}>
+                      {cal.name}
+                    </option>
+                  ))}
+                </select>
+                <svg
+                  className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+                  width="11"
+                  height="11"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
                 >
-                  + Override
-                </button>
+                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
               </div>
-              {/* The per-project calendar picker isn't wired yet (#968); give the user a
-              path forward instead of a dead disabled button (#668, Sarah/PM). */}
-              <p className="text-[12px] text-neutral-text-secondary">
-                Workaround: set the work week per task under Task → Calendar until the project-level
-                calendar picker ships.
-              </p>
             </div>
           </FieldRow>
 

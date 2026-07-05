@@ -33,6 +33,18 @@ vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({ members: [], isLoading: false }),
 }));
 
+// The calendar override picker fetches the org-level calendar list (#968); stub it
+// so the test makes no network call and can drive the loaded / error states.
+const useCalendars = vi.fn();
+vi.mock('@/hooks/useCalendars', () => ({
+  useCalendars: () =>
+    useCalendars() as { calendars: unknown[]; isLoading: boolean; error: unknown },
+}));
+const DEFAULT_CALENDARS = [
+  { id: 'cal-1', name: 'Standard 5-day', working_days: [1, 2, 3, 4, 5], hours_per_day: 8 },
+  { id: 'cal-2', name: 'Six-day site week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 },
+];
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -95,6 +107,7 @@ beforeEach(() => {
   // Default to Admin so the existing editable-field expectations hold; the
   // read-only tests override this with a sub-Admin role (#1084).
   useCurrentUserRole.mockReturnValue({ role: 300, isLoading: false });
+  useCalendars.mockReturnValue({ calendars: DEFAULT_CALENDARS, isLoading: false, error: null });
 });
 
 describe('ProjectGeneralPage', () => {
@@ -189,18 +202,43 @@ describe('ProjectGeneralPage', () => {
     expect(inherit).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('shows a workaround hint for the still-stubbed calendar override (#668)', () => {
+  it('lists working calendars in the override picker and reflects the current override (#968)', () => {
     renderPage();
-    expect(
-      screen.getByText(/Workaround: set the work week per task under Task . Calendar/i),
-    ).toBeInTheDocument();
+    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
+    // Seed override is cal-1 → the picker shows it and Inherit starts unpressed.
+    expect(picker).toHaveValue('cal-1');
+    // Every fetched calendar is offered as an option.
+    expect(within(picker).getByRole('option', { name: 'Standard 5-day' })).toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: 'Six-day site week' })).toBeInTheDocument();
   });
 
-  it('disables the calendar "+ Override" button with the #968 picker reference', () => {
+  it('selecting a calendar sets the project override (#968)', () => {
     renderPage();
-    const override = screen.getByRole('button', { name: '+ Override' });
-    expect(override).toBeDisabled();
-    expect(override).toHaveAttribute('title', expect.stringContaining('#968'));
+    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
+    fireEvent.change(picker, { target: { value: 'cal-2' } });
+    expect(picker).toHaveValue('cal-2');
+    // Choosing an override clears the Inherit pressed state.
+    expect(
+      screen.getByRole('button', { name: /inherit from workspace/i }),
+    ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('inherit toggle clears the picker back to the workspace default (#968)', () => {
+    renderPage();
+    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
+    fireEvent.click(screen.getByRole('button', { name: /inherit from workspace/i }));
+    // Empty value = the "Override with a calendar…" placeholder (calendar = null).
+    expect(picker).toHaveValue('');
+  });
+
+  it('disables the picker with a "couldn\'t load" placeholder when the calendar fetch fails (#968)', () => {
+    // A failed fetch must not read as "no calendars exist" — the enabled empty
+    // picker would be indistinguishable. Disable it and signal the error.
+    useCalendars.mockReturnValue({ calendars: [], isLoading: false, error: new Error('boom') });
+    renderPage();
+    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
+    expect(picker).toBeDisabled();
+    expect(screen.getByRole('option', { name: "Couldn't load calendars" })).toBeInTheDocument();
   });
 
   it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
