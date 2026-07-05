@@ -94,7 +94,13 @@ function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
     // and Board falls to TRACK), so no "Deliver" label ever appears on a schedule-first
     // project. The label is the fixed word "Deliver", never the configurable iteration term.
     ...(hasDeliver
-      ? [{ id: 'DELIVER' as const, label: 'Deliver', views: ['product-backlog', 'sprints', 'board'] }]
+      ? [
+          {
+            id: 'DELIVER' as const,
+            label: 'Deliver',
+            views: ['product-backlog', 'sprints', 'board'],
+          },
+        ]
       : []),
     // `today` leads TRACK — the Unified Today split view (ADR-0180). Visible for every
     // methodology (the board it embeds already is); it degrades gracefully with no active
@@ -102,9 +108,11 @@ function viewGroupsFor(methodology: Methodology): readonly ViewGroupDef[] {
     {
       id: 'TRACK',
       label: 'Track',
+      // `assets` (ADR-0215) trails TRACK — the unified reference-material surface
+      // (task files + external links), visible for every methodology.
       views: hasDeliver
-        ? ['today', 'risk', 'reports', 'activity']
-        : ['today', 'board', 'risk', 'reports', 'activity'],
+        ? ['today', 'risk', 'reports', 'activity', 'assets']
+        : ['today', 'board', 'risk', 'reports', 'activity', 'assets'],
     },
     { id: 'PEOPLE', label: 'People', views: ['resources'] },
   ];

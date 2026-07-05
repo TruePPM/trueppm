@@ -6,6 +6,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.integrations.views import TaskLinkViewSet
+from trueppm_api.apps.projects.asset_views import ProgramAssetsView, ProjectAssetsView
 from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
 from trueppm_api.apps.projects.board_activity_views import BoardActivityView
 from trueppm_api.apps.projects.ceremony_views import (
@@ -669,6 +670,18 @@ urlpatterns = [
         "programs/<program_pk>/api-token-audit/",
         ProgramApiTokenAuditView.as_view(),
         name="program-api-token-audit",
+    ),
+    # Unified Assets feed (ADR-0215, #971) — read-only aggregation of every task's
+    # files + external links, per project and per program.
+    path(
+        "projects/<project_pk>/assets/",
+        ProjectAssetsView.as_view(),
+        name="project-assets",
+    ),
+    path(
+        "programs/<program_pk>/assets/",
+        ProgramAssetsView.as_view(),
+        name="program-assets",
     ),
     # Task collaboration endpoints (ADR-0075, #310 #311)
     path(

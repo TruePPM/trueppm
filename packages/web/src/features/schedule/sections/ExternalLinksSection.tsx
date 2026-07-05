@@ -17,9 +17,16 @@ import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import { detectProvider } from '@/lib/detectProvider';
 import type { DetectedProvider } from '@/lib/detectProvider';
-import { previewTypeGlyph, previewTypeLabel } from '@/lib/previewType';
+import { previewTypeGlyph } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
+import {
+  isFileProvider,
+  LabelPills,
+  providerIcon,
+  StatusBadge,
+  TypeChip,
+} from '@/components/linkPresentation';
 import {
   linkDisplayTitle,
   useCreateTaskLink,
@@ -29,33 +36,6 @@ import {
   useTaskLinks,
 } from '@/hooks/useTaskLinks';
 import type { TaskExternalLink } from '@/hooks/useTaskLinks';
-import {
-  LINK_STATUS_DOT_CLASS,
-  LINK_STATUS_LABEL,
-  LINK_STATUS_TEXT_CLASS,
-} from '@/lib/linkStatus';
-import type { ExternalLinkStatus } from '@/lib/linkStatus';
-
-/** Provider glyph — Unicode for zero icon-library cost (matches AttachmentSection).
- *  File providers (issue 571, ADR-0163) get distinct glyphs; the icon is decorative
- *  (aria-hidden) — the link title carries the meaning. */
-function providerIcon(provider: string): string {
-  if (provider === 'github') return '🐙';
-  if (provider === 'gitlab') return '🦊';
-  if (provider === 'google_drive') return '📂';
-  if (provider === 'dropbox') return '🗄️';
-  if (provider === 'box') return '📦';
-  if (provider === 'onedrive') return '☁️';
-  return '🔗';
-}
-
-/** Cloud-file providers whose right-slot is a preview-type chip, not a git status
- *  badge — a file has no PR/MR lifecycle (issue 571, ADR-0163). */
-const FILE_PROVIDERS = new Set(['google_drive', 'dropbox', 'box', 'onedrive']);
-
-function isFileProvider(provider: string): boolean {
-  return FILE_PROVIDERS.has(provider);
-}
 
 /** Live "provider detected" hint for the add-link field (issues 637, 571). */
 function addHint(detected: DetectedProvider | null): string {
@@ -77,49 +57,6 @@ function addHint(detected: DetectedProvider | null): string {
     default:
       return '';
   }
-}
-
-// Color/label tokens come from the shared linkStatus module (issue 767, ADR-0155) so the
-// per-link badge here, the at-a-glance list-row glyph, and the Gantt dot stay in
-// lockstep. Color is never the only signal — the uppercase label is always present
-// (WCAG 1.4.1). No `info`/purple token exists, so MERGED maps to brand-primary (the
-// "landed/positive-terminal" color) and DRAFT to at-risk (orange).
-
-interface StatusBadgeProps {
-  status: ExternalLinkStatus;
-  /** Generic links have no lifecycle status — show a neutral em dash. */
-  provider: string;
-}
-
-/** Colored-dot + uppercase-label status pill (mirrors the Connected Accounts pill). */
-export function StatusBadge({ status, provider }: StatusBadgeProps) {
-  const isGenericUnknown = provider === 'generic' && status === 'unknown';
-  const label = isGenericUnknown ? '—' : LINK_STATUS_LABEL[status];
-  return (
-    <span
-      className={`inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide ${LINK_STATUS_TEXT_CLASS[status]}`}
-      aria-label={`Status: ${isGenericUnknown ? 'not applicable' : status}`}
-    >
-      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${LINK_STATUS_DOT_CLASS[status]}`} />
-      {label}
-    </span>
-  );
-}
-
-/** Neutral preview-type chip for a cloud-file link (issue 571, ADR-0163). Distinct
- *  from `StatusBadge` — status pills are reserved for git lifecycle states; a
- *  file has no lifecycle, so its right-slot describes its *type*. */
-function TypeChip({ type }: { type: string }) {
-  const label = previewTypeLabel(type);
-  return (
-    <span
-      className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
-        text-[11px] font-medium text-neutral-text-secondary"
-      aria-label={`File type: ${label}`}
-    >
-      {label}
-    </span>
-  );
 }
 
 /** Right-aligned slot: a type chip for previewed file links, a git status badge
@@ -168,10 +105,7 @@ function FilePreview({ link }: { link: TaskExternalLink }) {
         )}
       </div>
       {link.description && (
-        <p
-          className="text-xs text-neutral-text-secondary line-clamp-2"
-          title={link.description}
-        >
+        <p className="text-xs text-neutral-text-secondary line-clamp-2" title={link.description}>
           {link.description}
         </p>
       )}
@@ -191,24 +125,6 @@ function shortRef(link: TaskExternalLink): string {
   } catch {
     return link.url;
   }
-}
-
-/** Read-only label chips on a link row. Text is the signal (no color coding). */
-function LabelPills({ labels }: { labels: string[] }) {
-  if (labels.length === 0) return null;
-  return (
-    <ul className="flex flex-wrap gap-1 list-none" aria-label="Labels">
-      {labels.map((label, i) => (
-        <li
-          key={`${label}-${i}`}
-          className="inline-flex items-center rounded-chip bg-neutral-surface-sunken px-1.5 py-0.5
-            text-xs text-neutral-text-secondary"
-        >
-          {label}
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 interface LabelChipInputProps {
@@ -688,9 +604,7 @@ export function ExternalLinksSection({
         </ul>
       )}
 
-      {!isLoading && !error && canEdit && (
-        <AddLinkInput projectId={projectId} taskId={taskId} />
-      )}
+      {!isLoading && !error && canEdit && <AddLinkInput projectId={projectId} taskId={taskId} />}
     </div>
   );
 }

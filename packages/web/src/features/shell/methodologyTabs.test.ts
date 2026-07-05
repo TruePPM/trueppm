@@ -87,7 +87,7 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     const byId = (id: string) => groups.find((g) => g.id === id)?.visibleViews;
     expect(byId('PLAN')).toEqual(['schedule', 'grid', 'calendar']);
     expect(byId('DELIVER')).toEqual(['product-backlog', 'sprints', 'board']);
-    expect(byId('TRACK')).toEqual(['today', 'risk', 'reports', 'activity']);
+    expect(byId('TRACK')).toEqual(['today', 'risk', 'reports', 'activity', 'assets']);
     expect(byId('PEOPLE')).toEqual(['resources']);
   });
 
@@ -98,7 +98,15 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     const deliver = VIEW_GROUPS.find((g) => g.id === 'DELIVER');
     expect(deliver?.label).toBe('Deliver');
     // No group label may be a configurable iteration term.
-    const iterationTerms = ['Sprint', 'Sprints', 'Iteration', 'Iterations', 'Cycle', 'Cycles', 'PI'];
+    const iterationTerms = [
+      'Sprint',
+      'Sprints',
+      'Iteration',
+      'Iterations',
+      'Cycle',
+      'Cycles',
+      'PI',
+    ];
     for (const g of VIEW_GROUPS) {
       expect(iterationTerms).not.toContain(g.label);
     }
@@ -122,7 +130,14 @@ describe('groupedVisibleViews (ADR-0128)', () => {
     expect(groups.map((g) => g.id)).toEqual(['PLAN', 'TRACK', 'PEOPLE']);
     expect(groups.find((g) => g.id === 'DELIVER')).toBeUndefined();
     const track = groups.find((g) => g.id === 'TRACK');
-    expect(track?.visibleViews).toEqual(['today', 'board', 'risk', 'reports', 'activity']);
+    expect(track?.visibleViews).toEqual([
+      'today',
+      'board',
+      'risk',
+      'reports',
+      'activity',
+      'assets',
+    ]);
   });
 
   it('today (ADR-0180) leads the TRACK group and is visible for every methodology', () => {

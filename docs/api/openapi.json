@@ -7289,6 +7289,110 @@
                 "summary": "Delete api token"
             }
         },
+        "/api/v1/programs/{program_pk}/assets/": {
+            "get": {
+                "operationId": "v1_programs_assets_retrieve",
+                "description": "Unified Assets feed across a program's member projects (ADR-0215).\n\n``GET /api/v1/programs/{program_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny program member reaches the endpoint; results are narrowed to the caller's\n**readable** member projects (the audited ``ProgramViewSet.task_search``\npattern) so no asset from a project the caller cannot read leaks through. A\nprogram member with no readable child projects gets an empty list, never a\n403. Cross-program / portfolio rollups are Enterprise and out of scope.",
+                "summary": "Unified Assets feed for a program (files + external links across member projects)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to a single kind: 'file' or 'link'. Default: both."
+                    },
+                    {
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links carrying this exact label (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links from this provider (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against title/url on both sources."
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AssetFeedResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{program_pk}/backlog-items/": {
             "get": {
                 "operationId": "v1_programs_backlog_items_list",
@@ -15126,6 +15230,110 @@
                     }
                 },
                 "summary": "Delete api token"
+            }
+        },
+        "/api/v1/projects/{project_pk}/assets/": {
+            "get": {
+                "operationId": "v1_projects_assets_retrieve",
+                "description": "Unified Assets feed for a single project (ADR-0215).\n\n``GET /api/v1/projects/{project_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny project member (Viewer+) may read; a non-member gets 403 (membership is\nchecked at ``has_permission`` via the ``project_pk`` kwarg). Archived projects\nstay readable — this is a read-only browse surface (``IsProjectNotArchived`` is\ndeliberately omitted, matching the history/changelog reads).",
+                "summary": "Unified Assets feed for a project (files + external links, cursor-paginated)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to a single kind: 'file' or 'link'. Default: both."
+                    },
+                    {
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links carrying this exact label (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links from this provider (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against title/url on both sources."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AssetFeedResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/projects/{project_pk}/baselines/": {
@@ -33705,6 +33913,128 @@
                     "token_prefix"
                 ]
             },
+            "AssetFeedResponse": {
+                "type": "object",
+                "description": "Response envelope for the unified Assets feed (ADR-0215).",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AssetItem"
+                        }
+                    },
+                    "next_cursor": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "next_cursor",
+                    "results"
+                ]
+            },
+            "AssetItem": {
+                "type": "object",
+                "description": "One unified asset — a file (``TaskAttachment``) or a link (``TaskLink``).\n\nThe instance is a plain dict from :func:`build_asset_feed`. Link-only fields\n(``provider``/``status``/``preview_type``) are null on files; ``labels`` is\n``[]`` on files; ``download_url`` is the signed-url action target on stored\nfiles and null on external-URL attachments and links; ``added_by`` is null on\nlinks (``TaskLink`` has no uploader).",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/KindEnum"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "provider": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "preview_type": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "task": {
+                        "$ref": "#/components/schemas/AssetTaskRef"
+                    },
+                    "added_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssetUser"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "added_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "added_at",
+                    "added_by",
+                    "download_url",
+                    "id",
+                    "kind",
+                    "labels",
+                    "preview_type",
+                    "provider",
+                    "status",
+                    "task",
+                    "title",
+                    "url"
+                ]
+            },
+            "AssetTaskRef": {
+                "type": "object",
+                "description": "The owning task reference on an asset row (click-through target).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "AssetUser": {
+                "type": "object",
+                "description": "Minimal actor representation — who added the asset (files only).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id"
+                ]
+            },
             "AuditEvent": {
                 "type": "object",
                 "description": "Read serializer for an operational audit row (ADR-0157, #859).\n\nExposes both the actor FK id and the denormalized ``actor_label`` so the row\nstays readable after the user is deleted (the FK then resolves to null). The\ninteger ``actor_id`` is the stock ``auth.User`` PK (TruePPM has no custom user\nmodel); ``target_id`` is a nullable UUID best-effort pointer.",
@@ -36165,6 +36495,14 @@
                 ],
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
+            },
+            "KindEnum": {
+                "enum": [
+                    "file",
+                    "link"
+                ],
+                "type": "string",
+                "description": "* `file` - file\n* `link` - link"
             },
             "Landing": {
                 "type": "object",
