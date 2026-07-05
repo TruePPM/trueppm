@@ -28947,6 +28947,79 @@
                 }
             }
         },
+        "/api/v1/sync/user/programs/": {
+            "get": {
+                "operationId": "v1_sync_user_programs_retrieve",
+                "description": "Pull-only delta sync for the caller's Program + ProgramMembership rows.\n\nThe project-scoped :class:`ProjectSyncView` cannot reach user-scoped Program\nrows (ADR-0070 §Sync): the ``Project.program`` FK syncs offline so the program\nbadge renders on cached projects, but the program list itself does not — on a\njob site the program layer vanishes and the user falls back to a flat project\nlist. This endpoint closes that gap, delivering Program and ProgramMembership\ndeltas for every program the caller is a member of. It is the 0.4 follow-up\nADR-0070 §Sync flagged; no new ADR (see the updated §Sync note).\n\nScope is derived entirely from the caller's own live memberships, so — unlike\nthe project endpoint — there is **no path parameter to tamper with**: no IDOR\nsurface. All co-members of the caller's programs are returned (parity with the\nproject endpoint, which returns every ``ProjectMembership`` for the project),\nwhich lets the client enforce offline program RBAC and render the roster.\n\nTombstones: a program soft-deleted while the caller is still a member, and any\nco-member membership soft-deleted, are delivered as ``deleted`` ids.\n\nKnown v1 limitation (mirrors ``ProjectSyncView``): if the caller's *own*\nmembership is soft-deleted (they are removed from a program), that row drops\nout of the accessible set and its tombstone is never delivered — the online\npath 403s on the next access and the client evicts the stale program on a full\nre-sync. Full write-side offline for programs is out of scope for v1 (reads\nfirst, per #561).\n\nUsage:\n    GET /api/v1/sync/user/programs/?since=0",
+                "summary": "Pull the offline sync delta for the caller's programs",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `has_more` is false, then adopt `timestamp` as the next `since`."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Maximum rows returned across both collections in one page. Defaults to `TRUEPPM_SYNC_PULL_PAGE_SIZE`; clamped to `TRUEPPM_SYNC_PULL_MAX_PAGE_SIZE`."
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "integer",
+                            "default": 0
+                        },
+                        "description": "WatermelonDB high-water mark. Returns only Program / ProgramMembership rows whose `server_version` is strictly greater than this value. Omit (or pass `0`) for a full initial sync; adopt the previous response's `timestamp` for the delta."
+                    }
+                ],
+                "tags": [
+                    "sync"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SyncPullResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/task-resources/": {
             "get": {
                 "operationId": "v1_task_resources_list",

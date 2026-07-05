@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from trueppm_api.apps.access.models import ProjectMembership
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
 from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
     RetroActionItem,
     Risk,
@@ -127,6 +128,47 @@ class SyncMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):
     class Meta:
         model = ProjectMembership
         fields = ["id", "server_version", "project", "user", "role"]
+
+
+class SyncProgramSerializer(serializers.ModelSerializer[Program]):
+    """Sync payload for Program (ADR-0070 §Sync, #561).
+
+    Minimal shape the offline store needs to render the program list card and
+    header when the device has no signal: name/description/code/methodology plus
+    the display accents (health, color, target_date, lead). Rollup KPIs, sharing
+    overrides, and ceremony config are intentionally excluded — they are online-
+    only surfaces. Delivered by the user-scoped :class:`UserProgramSyncView`, the
+    endpoint ADR-0070 §Sync flagged as the 0.4 follow-up.
+    """
+
+    class Meta:
+        model = Program
+        fields = [
+            "id",
+            "server_version",
+            "name",
+            "description",
+            "code",
+            "methodology",
+            "health",
+            "color",
+            "target_date",
+            "lead",
+        ]
+
+
+class SyncProgramMembershipSerializer(serializers.ModelSerializer[ProgramMembership]):
+    """Sync payload for ProgramMembership — lets clients enforce offline program RBAC.
+
+    Mirrors :class:`SyncMembershipSerializer` (project membership) exactly: only
+    ``(program, user, role)`` plus the sync bookkeeping fields. The User table is
+    not synced, so ``user`` is the FK id — the client resolves display names from
+    its own cached roster, identical to the project-membership sync behaviour.
+    """
+
+    class Meta:
+        model = ProgramMembership
+        fields = ["id", "server_version", "program", "user", "role"]
 
 
 class SyncSprintSerializer(serializers.ModelSerializer[Sprint]):

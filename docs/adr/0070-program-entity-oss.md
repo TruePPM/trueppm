@@ -205,16 +205,26 @@ existing project-scoped sync endpoint:
 
 - `projects_project` — `program` FK added to `SyncProjectSerializer` so mobile
   can render the program badge offline.
-- `projects_program`, `access_program_membership` — **not yet wired into mobile
-  sync.** The existing endpoint at `/api/v1/projects/{pk}/sync/` is
-  project-scoped and cannot reach user-scoped Program rows. Mobile clients use
-  the REST endpoints online and rely on the cached project rows (with the
-  `program` FK) offline. A user-scoped sync endpoint that delivers Program /
-  ProgramMembership deltas is tracked as a 0.4 mobile follow-up.
+- `projects_program`, `access_program_membership` — delivered by the user-scoped
+  endpoint `GET /api/v1/sync/user/programs/` (#561). The project-scoped endpoint
+  at `/api/v1/projects/{pk}/sync/` cannot reach user-scoped Program rows, so this
+  sibling endpoint returns Program + ProgramMembership deltas for every program
+  the caller is a member of, mirroring the same delta protocol (cursor pagination
+  #1013, `server_version` watermark, tombstones). Scope is derived from the
+  caller's own live memberships — no path parameter, so no IDOR surface. All
+  co-members of the caller's programs are returned, for offline program RBAC and
+  roster rendering.
+
+  **v1 scope (reads first, #561):** pull only. The full write-side offline path
+  for programs (queued program creates/updates flushing on reconnect) is a later
+  follow-up. **Known limitation** (identical to `ProjectSyncView`): if the
+  caller's *own* membership is soft-deleted, that row drops out of the accessible
+  set and its tombstone is not delivered — the online path 403s and the client
+  evicts the stale program on a full re-sync.
 
 This split keeps the model architecturally clean (both extend VersionedModel
-for future sync) while deferring the user-scoped sync endpoint plumbing to the
-mobile milestone.
+for sync) — the model foundation shipped with #502, the user-scoped endpoint
+with #561.
 
 ### Real-time broadcast
 
@@ -294,7 +304,8 @@ receive the update without a refresh.
 ## Tracking
 
 Tracking (follow-up): the user-scoped sync endpoint for Program / ProgramMembership
-(target 0.4 mobile) is deferred — not yet filed.
+is delivered by #561 (0.4) — see §Sync above. The write-side offline path for
+programs remains a later follow-up.
 
 ---
 
