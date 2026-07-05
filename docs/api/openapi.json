@@ -3492,6 +3492,228 @@
                 }
             }
         },
+        "/api/v1/me/api-tokens/": {
+            "get": {
+                "operationId": "v1_me_api_tokens_list",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0214).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0214 §Durable Execution).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedMyApiTokenList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List api tokens"
+            },
+            "post": {
+                "operationId": "v1_me_api_tokens_create",
+                "description": "Mint a personal token and return the raw value once.\n\nEnforces the active-token cap before generating anything so a user at the\ncap gets a clear 400 rather than a token they cannot keep. After the\nresponse is sent the raw token is not retrievable.",
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MyApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create api token"
+            }
+        },
+        "/api/v1/me/api-tokens/{id}/": {
+            "get": {
+                "operationId": "v1_me_api_tokens_retrieve",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0214).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0214 §Durable Execution).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MyApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve api token"
+            },
+            "delete": {
+                "operationId": "v1_me_api_tokens_destroy",
+                "description": "Revoke (soft-revoke) a personal token. Idempotent — re-revoking no-ops.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete api token"
+            }
+        },
         "/api/v1/me/credentials/": {
             "get": {
                 "operationId": "v1_me_credentials_list",
@@ -4000,7 +4222,7 @@
         "/api/v1/me/notifications/": {
             "get": {
                 "operationId": "v1_me_notifications_list",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "query",
@@ -4009,6 +4231,20 @@
                             "type": "boolean"
                         },
                         "description": "When `true` (or `1`), return only archived notifications. The default list (neither param set) excludes archived rows."
+                    },
+                    {
+                        "in": "query",
+                        "name": "category",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "mentions",
+                                "project",
+                                "signals",
+                                "tasks"
+                            ]
+                        },
+                        "description": "Filter to one derived category: `mentions`, `tasks`, `signals`, or `project`. Orthogonal to the read-state filters. `mentions` also matches mention-sourced rows."
                     },
                     {
                         "name": "ordering",
@@ -4036,6 +4272,14 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "snoozed",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When `true` (or `1`), return only currently-snoozed rows (`snoozed_until` in the future). Every other view EXCLUDES currently-snoozed rows — including the unread-count query — so a deferred notification does not increment the bell badge."
                     },
                     {
                         "in": "query",
@@ -4091,7 +4335,7 @@
         "/api/v1/me/notifications/{id}/": {
             "get": {
                 "operationId": "v1_me_notifications_retrieve",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "path",
@@ -4146,7 +4390,7 @@
             },
             "patch": {
                 "operationId": "v1_me_notifications_partial_update",
-                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
                 "parameters": [
                     {
                         "in": "path",
@@ -4217,6 +4461,87 @@
                     }
                 },
                 "summary": "Partially update notification"
+            }
+        },
+        "/api/v1/me/notifications/{id}/snooze/": {
+            "post": {
+                "operationId": "v1_me_notifications_snooze_create",
+                "description": "Snooze (or un-snooze) a single notification (ADR-0216 §1).\n\nBody accepts EITHER ``{\"preset\": \"1h\"|\"3h\"|\"tomorrow\"}`` OR\n``{\"until\": \"<iso datetime>\"}``. Pass ``{\"until\": null}`` (or an empty\nbody) to un-snooze — clearing ``snoozed_until`` returns the row to the\ninbox immediately. Idempotent: re-snoozing overwrites the timestamp.\n\nLooks the row up recipient-scoped directly (not via the filtered\nget_queryset) so a currently-snoozed row can still be re-snoozed or\nun-snoozed — the default queryset hides snoozed rows.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "preset": {
+                                        "type": "string",
+                                        "enum": [
+                                            "1h",
+                                            "3h",
+                                            "tomorrow"
+                                        ]
+                                    },
+                                    "until": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Notification"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Snooze notification"
             }
         },
         "/api/v1/me/notifications/mark-all-read/": {
@@ -7065,6 +7390,110 @@
                     }
                 },
                 "summary": "Delete api token"
+            }
+        },
+        "/api/v1/programs/{program_pk}/assets/": {
+            "get": {
+                "operationId": "v1_programs_assets_retrieve",
+                "description": "Unified Assets feed across a program's member projects (ADR-0215).\n\n``GET /api/v1/programs/{program_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny program member reaches the endpoint; results are narrowed to the caller's\n**readable** member projects (the audited ``ProgramViewSet.task_search``\npattern) so no asset from a project the caller cannot read leaks through. A\nprogram member with no readable child projects gets an empty list, never a\n403. Cross-program / portfolio rollups are Enterprise and out of scope.",
+                "summary": "Unified Assets feed for a program (files + external links across member projects)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to a single kind: 'file' or 'link'. Default: both."
+                    },
+                    {
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links carrying this exact label (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links from this provider (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against title/url on both sources."
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AssetFeedResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/programs/{program_pk}/backlog-items/": {
@@ -14906,6 +15335,110 @@
                 "summary": "Delete api token"
             }
         },
+        "/api/v1/projects/{project_pk}/assets/": {
+            "get": {
+                "operationId": "v1_projects_assets_retrieve",
+                "description": "Unified Assets feed for a single project (ADR-0215).\n\n``GET /api/v1/projects/{project_pk}/assets/?kind=&label=&provider=&q=&cursor=&page_size=``\n\nAny project member (Viewer+) may read; a non-member gets 403 (membership is\nchecked at ``has_permission`` via the ``project_pk`` kwarg). Archived projects\nstay readable — this is a read-only browse surface (``IsProjectNotArchived`` is\ndeliberately omitted, matching the history/changelog reads).",
+                "summary": "Unified Assets feed for a project (files + external links, cursor-paginated)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to a single kind: 'file' or 'link'. Default: both."
+                    },
+                    {
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links carrying this exact label (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links from this provider (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against title/url on both sources."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AssetFeedResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/baselines/": {
             "get": {
                 "operationId": "v1_projects_baselines_list",
@@ -16825,6 +17358,635 @@
                     }
                 },
                 "summary": "Delete member"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/": {
+            "get": {
+                "operationId": "v1_projects_mention_groups_list",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedUserDefinedMentionGroupReadList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List mention groups"
+            },
+            "post": {
+                "operationId": "v1_projects_mention_groups_create",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UserDefinedMentionGroupWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create mention group"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/{id}/": {
+            "get": {
+                "operationId": "v1_projects_mention_groups_retrieve",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve mention group"
+            },
+            "patch": {
+                "operationId": "v1_projects_mention_groups_partial_update",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserDefinedMentionGroupWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update mention group"
+            },
+            "delete": {
+                "operationId": "v1_projects_mention_groups_destroy",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete mention group"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/{id}/add-member/": {
+            "post": {
+                "operationId": "v1_projects_mention_groups_add_member_create",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Add member mention group"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/{id}/mute/": {
+            "post": {
+                "operationId": "v1_projects_mention_groups_mute_create",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Mute mention group"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/{id}/remove-member/": {
+            "post": {
+                "operationId": "v1_projects_mention_groups_remove_member_create",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Remove member mention group"
+            }
+        },
+        "/api/v1/projects/{project_pk}/mention-groups/{id}/unmute/": {
+            "post": {
+                "operationId": "v1_projects_mention_groups_unmute_create",
+                "description": "Nested CRUD for user-defined @mention groups (ADR-0212, #515).\n\nURL: ``/api/v1/projects/{project_pk}/mention-groups/``\n     ``/api/v1/projects/{project_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0212 §3):\n  list / retrieve            — any project member (Viewer+)\n  create / update / destroy  — Project Admin+  (group lifecycle is a PM act)\n  add-member / remove-member — Project Scheduler+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Unmute mention group"
             }
         },
         "/api/v1/projects/{project_pk}/phases/": {
@@ -30594,7 +31756,7 @@
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
-                "description": "``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.\n\nSurfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is\nconfigured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,\n``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —\nnever the SMTP password or username — for the workspace admin to confirm the\nFrom identity and that a host is configured. Org-admin gated. The writable SMTP\nconfig (transport switch, BYO credentials) is #712.",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
                 "tags": [
                     "workspace"
                 ],
@@ -30628,6 +31790,158 @@
                     }
                 },
                 "summary": "Retrieve email setting"
+            },
+            "put": {
+                "operationId": "v1_workspace_email_settings_update",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update email setting"
+            },
+            "patch": {
+                "operationId": "v1_workspace_email_settings_partial_update",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update email setting"
+            }
+        },
+        "/api/v1/workspace/email-settings/health/": {
+            "get": {
+                "operationId": "v1_workspace_email_settings_health_retrieve",
+                "description": "``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.\n\nLive, bounded DNS TXT lookups on the persisted From-address domain (never a\ndomain from request input). Operator-gated and tightly throttled — the\nlookups are an egress surface (ADR-0213 §4, security review M4/H3).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve health"
+            }
+        },
+        "/api/v1/workspace/email-settings/send-test/": {
+            "post": {
+                "operationId": "v1_workspace_email_settings_send_test_create",
+                "description": "``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.\n\nSends a fixed test message to the **requesting operator's own address only**\n(server-derived — never a recipient from the request body, which would make\nthis an authenticated open relay, security review M5) through the resolved\ntransport. Synchronous so the admin gets immediate pass/fail feedback; a\ntransport failure returns 502 with a generic message.",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Send test email settings"
             }
         },
         "/api/v1/workspace/export/": {
@@ -32787,6 +34101,128 @@
                     "source_ip",
                     "token",
                     "token_prefix"
+                ]
+            },
+            "AssetFeedResponse": {
+                "type": "object",
+                "description": "Response envelope for the unified Assets feed (ADR-0215).",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AssetItem"
+                        }
+                    },
+                    "next_cursor": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "next_cursor",
+                    "results"
+                ]
+            },
+            "AssetItem": {
+                "type": "object",
+                "description": "One unified asset — a file (``TaskAttachment``) or a link (``TaskLink``).\n\nThe instance is a plain dict from :func:`build_asset_feed`. Link-only fields\n(``provider``/``status``/``preview_type``) are null on files; ``labels`` is\n``[]`` on files; ``download_url`` is the signed-url action target on stored\nfiles and null on external-URL attachments and links; ``added_by`` is null on\nlinks (``TaskLink`` has no uploader).",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/KindEnum"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "url": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "provider": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "preview_type": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "task": {
+                        "$ref": "#/components/schemas/AssetTaskRef"
+                    },
+                    "added_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssetUser"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "added_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "added_at",
+                    "added_by",
+                    "download_url",
+                    "id",
+                    "kind",
+                    "labels",
+                    "preview_type",
+                    "provider",
+                    "status",
+                    "task",
+                    "title",
+                    "url"
+                ]
+            },
+            "AssetTaskRef": {
+                "type": "object",
+                "description": "The owning task reference on an asset row (click-through target).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "AssetUser": {
+                "type": "object",
+                "description": "Minimal actor representation — who added the asset (files only).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id"
                 ]
             },
             "AuditEvent": {
@@ -35250,6 +36686,14 @@
                 "type": "string",
                 "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS\n* `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` - TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS"
             },
+            "KindEnum": {
+                "enum": [
+                    "file",
+                    "link"
+                ],
+                "type": "string",
+                "description": "* `file` - file\n* `link` - link"
+            },
             "Landing": {
                 "type": "object",
                 "properties": {
@@ -35706,6 +37150,81 @@
                 "type": "integer",
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
             },
+            "MyApiToken": {
+                "type": "object",
+                "description": "Read serializer for a user's own Personal Access Tokens (ADR-0214).\n\nScoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user\nso it is not exposed. The raw token and ``token_hash`` are never serialized;\nthe caller sees ``token_prefix`` only (enough to tell tokens apart) plus the\nlifecycle state it needs to render the list (expiry, revocation, last use).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Human-readable label (e.g. 'Jira Production').  Not unique."
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 8 hex chars of the raw token (for audit identification)."
+                    },
+                    "scopes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopesEnum"
+                        },
+                        "readOnly": true,
+                        "description": "Capabilities this token grants. 'legacy:full' is the historical unrestricted scope (and a superset satisfying any read scope); 'mcp:read' grants read-only access to the MCP-wrapped viewsets and is rejected at every write path."
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Updated by the authenticator on each successful inbound request."
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Optional expiry (ADR-0214). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected."
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when an Admin/PM revokes the token.  Non-null = inactive."
+                    },
+                    "is_revoked": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_expired": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "expires_at",
+                    "id",
+                    "is_expired",
+                    "is_revoked",
+                    "last_used_at",
+                    "name",
+                    "revoked_at",
+                    "scopes",
+                    "token_prefix"
+                ]
+            },
             "Notification": {
                 "type": "object",
                 "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
@@ -35750,6 +37269,16 @@
                     "is_archived": {
                         "type": "boolean"
                     },
+                    "snoozed_until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "category": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -35774,6 +37303,7 @@
                 },
                 "required": [
                     "body",
+                    "category",
                     "created_at",
                     "event_type",
                     "id",
@@ -35782,6 +37312,7 @@
                     "read_at",
                     "recipient",
                     "snippet",
+                    "snoozed_until",
                     "subject",
                     "task_id"
                 ]
@@ -36535,6 +38066,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MeWorkTask"
+                        }
+                    }
+                }
+            },
+            "PaginatedMyApiTokenList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MyApiToken"
                         }
                     }
                 }
@@ -37403,6 +38965,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TrashProjectList"
+                        }
+                    }
+                }
+            },
+            "PaginatedUserDefinedMentionGroupReadList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UserDefinedMentionGroupRead"
                         }
                     }
                 }
@@ -38909,6 +40502,24 @@
                     "note": {
                         "type": "string",
                         "maxLength": 500
+                    }
+                }
+            },
+            "PatchedUserDefinedMentionGroupWriteRequest": {
+                "type": "object",
+                "description": "Write serializer for create/rename/edit — ``project`` is injected from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -45797,6 +47408,105 @@
                 ],
                 "type": "string",
                 "description": "* `days` - days\n* `hours` - hours"
+            },
+            "UserDefinedMentionGroupRead": {
+                "type": "object",
+                "description": "Response serializer for a user-defined @mention group (ADR-0212, #515).\n\n``members`` is the curated member set (summary detail); ``member_count`` is a\nconvenience for the list UI. ``muted_by_me`` reflects whether the *requesting*\nuser has muted this group — the per-user override that suppresses its\nmentions for them.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "email_default_on": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "members": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_UserSummary"
+                        },
+                        "readOnly": true
+                    },
+                    "member_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "muted_by_me": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "description",
+                    "email_default_on",
+                    "id",
+                    "member_count",
+                    "members",
+                    "muted_by_me",
+                    "name",
+                    "project",
+                    "server_version"
+                ]
+            },
+            "UserDefinedMentionGroupWrite": {
+                "type": "object",
+                "description": "Write serializer for create/rename/edit — ``project`` is injected from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "UserDefinedMentionGroupWriteRequest": {
+                "type": "object",
+                "description": "Write serializer for create/rename/edit — ``project`` is injected from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "name"
+                ]
             },
             "UserProfile": {
                 "type": "object",

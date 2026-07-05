@@ -5,10 +5,12 @@ from __future__ import annotations
 from django.urls import path
 
 from .views import (
-    EmailSettingsStatusView,
     NotificationPreferenceViewSet,
     NotificationViewSet,
     ProjectNotificationPreferenceView,
+    WorkspaceEmailHealthView,
+    WorkspaceEmailSettingsView,
+    WorkspaceEmailTestView,
 )
 
 urlpatterns = [
@@ -22,6 +24,14 @@ urlpatterns = [
         "me/notifications/<uuid:pk>/",
         NotificationViewSet.as_view({"get": "retrieve", "patch": "partial_update"}),
         name="me-notifications-detail",
+    ),
+    # Per-notification snooze / un-snooze (ADR-0216 §1). Explicit path because
+    # this app wires the viewset with as_view() rather than a router, so @action
+    # isn't auto-routed.
+    path(
+        "me/notifications/<uuid:pk>/snooze/",
+        NotificationViewSet.as_view({"post": "snooze"}),
+        name="me-notifications-snooze",
     ),
     path(
         "me/notifications/mark-all-read/",
@@ -52,10 +62,21 @@ urlpatterns = [
         ProjectNotificationPreferenceView.as_view(),
         name="project-notification-preferences",
     ),
-    # Workspace Email & SMTP status — read-only (#639, ADR-0085 §5)
+    # Workspace Email & SMTP — writable transport config (#712, ADR-0213),
+    # upgrading the #639 read-only status surface at the same path.
     path(
         "workspace/email-settings/",
-        EmailSettingsStatusView.as_view(),
+        WorkspaceEmailSettingsView.as_view(),
         name="workspace-email-settings",
+    ),
+    path(
+        "workspace/email-settings/send-test/",
+        WorkspaceEmailTestView.as_view(),
+        name="workspace-email-settings-send-test",
+    ),
+    path(
+        "workspace/email-settings/health/",
+        WorkspaceEmailHealthView.as_view(),
+        name="workspace-email-settings-health",
     ),
 ]

@@ -23,6 +23,11 @@ describe('SampleDataBanner', () => {
     expect(screen.getByText(/your own projects are not affected/i)).toBeInTheDocument();
   });
 
+  it('advertises the 60 days of bundled history (#376)', () => {
+    renderBanner();
+    expect(screen.getByText(/includes 60 days of history/i)).toBeInTheDocument();
+  });
+
   it('hides the teardown control when the user cannot remove', () => {
     renderBanner(false);
     expect(screen.queryByRole('button', { name: /remove sample data/i })).not.toBeInTheDocument();

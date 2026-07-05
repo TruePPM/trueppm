@@ -216,9 +216,22 @@ def send_password_reset_email(user: Any) -> bool:
         return False
 
     subject, text_body, html_body = _render_password_reset_email(user, reset_url)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "notifications@trueppm.local")
+    # Route through the workspace SMTP transport (#712, ADR-0213) so BYO-SMTP
+    # installs deliver reset mail on the same transport as everything else; a
+    # no-op fall back to the global backend when the workspace is unconfigured.
+    from trueppm_api.apps.notifications.email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+        resolve_reply_to,
+    )
+
     msg = EmailMultiAlternatives(
-        subject=subject, body=text_body, from_email=from_email, to=[recipient]
+        subject=subject,
+        body=text_body,
+        from_email=resolve_from_email(),
+        to=[recipient],
+        reply_to=resolve_reply_to() or None,
+        connection=resolve_email_connection(),
     )
     msg.attach_alternative(html_body, "text/html")
     try:
@@ -362,7 +375,10 @@ class PasswordResetConfirmView(APIView):
         # transaction so the account can never end up password-changed-but-sessions-
         # live (or vice versa) — defense in depth that does not rely solely on the
         # global ATOMIC_REQUESTS setting.
-        from trueppm_api.apps.access.services import revoke_all_refresh_tokens
+        from trueppm_api.apps.access.services import (
+            revoke_all_personal_access_tokens,
+            revoke_all_refresh_tokens,
+        )
 
         with transaction.atomic():
             # Password already validated above by enforce_reset_password_policy(),
@@ -372,6 +388,13 @@ class PasswordResetConfirmView(APIView):
             user.set_password(new_password)
             user.save(update_fields=["password"])
             revoke_all_refresh_tokens(user)
+            # A password change also invalidates the user's Personal Access Tokens
+            # (ADR-0214): a PAT bears the user's full authority, so a "my credentials
+            # may be compromised" reset must cut off long-lived personal credentials,
+            # not just live sessions. Project/program tokens are org assets and are
+            # deliberately left untouched. Same atomic block so password-changed and
+            # PAT-revoked commit together or not at all.
+            revoke_all_personal_access_tokens(user)
 
         return Response(
             {"detail": "Your password has been reset. Please sign in with your new password."},

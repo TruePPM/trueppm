@@ -134,7 +134,50 @@
           "description": "Bitmask Mon=1..Sun=64. Default 31 (Mon-Fri)."
         },
         "hours_per_day": { "type": "number", "exclusiveMinimum": 0, "maximum": 24 },
-        "timezone": { "type": "string", "maxLength": 64 }
+        "timezone": { "type": "string", "maxLength": 64 },
+        "exceptions": {
+          "type": "array",
+          "description": "Non-working date ranges (holidays, shutdowns, PTO). Materialized as CalendarException rows and also treated as non-working days by the relative-date resolver (a date snapped forward will skip these).",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["exc_start", "exc_end"],
+            "properties": {
+              "exc_start": { "$ref": "#/$defs/seedDate" },
+              "exc_end": { "$ref": "#/$defs/seedDate" },
+              "description": { "type": "string", "maxLength": 255 }
+            }
+          }
+        }
+      }
+    },
+    "forecastHistory": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Backfill parameters for ProjectForecastSnapshot history (#376, ADR-0211). Synthesizes one snapshot per day across `days`, drifting the CPM finish and each Monte Carlo percentile from its `*_start` to its `*_end` date while `commitment_finish` stays fixed — so the forecast-trend chart shows a real slip and total-float pressure turning negative. Deterministic (seeded on program + project). MC percentiles are all-or-none: provide the full p50/p80/p95 start+end set, or omit them for a CPM-only history (MC lines stay null until someone runs Monte Carlo).",
+      "required": ["days", "commitment_finish", "cpm_start", "cpm_end"],
+      "properties": {
+        "days": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "commitment_finish": {
+          "$ref": "#/$defs/seedDate",
+          "description": "The promised finish date that does NOT move over the window; total_float_days is derived as (commitment_finish - cpm_finish) each day."
+        },
+        "cpm_start": { "$ref": "#/$defs/seedDate" },
+        "cpm_end": { "$ref": "#/$defs/seedDate" },
+        "p50_start": { "$ref": "#/$defs/seedDate" },
+        "p50_end": { "$ref": "#/$defs/seedDate" },
+        "p80_start": { "$ref": "#/$defs/seedDate" },
+        "p80_end": { "$ref": "#/$defs/seedDate" },
+        "p95_start": { "$ref": "#/$defs/seedDate" },
+        "p95_end": { "$ref": "#/$defs/seedDate" },
+        "mc_iterations": { "type": "integer", "minimum": 1 },
+        "completion_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of tasks complete by the newest snapshot; completed_task_count ramps 0 -> round(completion_ratio * task_count) across the window. Default 0.5."
+        }
       }
     },
     "resource": {
@@ -366,6 +409,7 @@
         "default_view": { "enum": ["SCHEDULE", "BOARD", "TABLE", "OVERVIEW"] },
         "estimation_mode": { "enum": ["open", "suggest_approve", "pm_only"] },
         "agile_features": { "type": "boolean" },
+        "forecast_history": { "$ref": "#/$defs/forecastHistory" },
         "board_columns": {
           "type": "array",
           "description": "Kanban column labels, in order.",

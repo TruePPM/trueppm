@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import VersionedModel
@@ -171,3 +172,80 @@ class ProgramMembership(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.user} — {self.program} ({Role(self.role).label})"
+
+
+class UserDefinedMentionGroup(VersionedModel):
+    """Admin-curated, project-scoped ``@mention`` group (ADR-0212, #515).
+
+    Complements the RBAC-derived auto-groups (``@admins``, ``@scrum-team``, …)
+    resolved in ``access/groups.py`` with workflow-shaped groupings a PM defines
+    by hand — e.g. ``@subcontractors``, ``@inspectors``, ``@team-private`` — that
+    do not map onto a role band.
+
+    ``name`` is the mention key *without* the leading ``@`` and is bounded to 32
+    chars so it fits ``notifications.Mention.mentioned_group_key``. It is
+    case-insensitively unique per project and may not collide with an auto-group
+    key (validated in the serializer against ``KNOWN_GROUP_KEYS``).
+
+    Mention resolution snapshots the member list at write time — the same
+    semantics as the auto-group resolver — so members added after a mention are
+    not retroactively notified and departed members are not re-pinged.
+    """
+
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.PROTECT,
+        related_name="mention_groups",
+    )
+    # The mention key without the leading @ (e.g. "subcontractors").
+    name = models.CharField(max_length=32)
+    # Optional one-line purpose shown in the manager UI. DJ001: "" not NULL.
+    description = models.CharField(max_length=140, blank=True, default="")
+    # Per-group email default (ADR-0212 §5). Default OFF preserves the un-opted-
+    # email hard-NO (ADR-0075 V2); the group manager flips it on.
+    email_default_on = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_mention_groups",
+    )
+    # Curated members. Plain M2M (no sync stream): resolution is server-side at
+    # comment-write time, so offline clients never resolve groups.
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="mention_groups",
+        blank=True,
+    )
+    # Per-user override / per-group mute (ADR-0212 §5). A member who mutes a group
+    # receives neither in-app nor email for that group's mentions; a direct
+    # @user mention still reaches them (mute is group-scoped).
+    muted_by = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="muted_mention_groups",
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "access_user_defined_mention_group"
+        constraints = [
+            # Case-insensitive project-unique name, enforced only across LIVE rows
+            # (condition mirrors the serializer's is_deleted=False uniqueness check).
+            # A soft-deleted group therefore frees its name for reuse rather than
+            # reserving it — without the condition, re-creating a name after delete
+            # would pass serializer validation but hit the DB constraint as a 500.
+            models.UniqueConstraint(
+                "project",
+                Lower("name"),
+                condition=models.Q(is_deleted=False),
+                name="uniq_mention_group_project_name_ci",
+            ),
+        ]
+        indexes = [
+            # Sync delta pull: WHERE project_id = X AND server_version > since.
+            models.Index(fields=["project", "server_version"], name="udmg_proj_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"@{self.name} ({self.project_id})"

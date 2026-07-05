@@ -125,6 +125,18 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
   await page.route('**/api/v1/users/search/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_SEARCH_RESULTS) }),
   );
+
+  // Mention groups (#515) — MembersTab mounts MentionGroupsSection, which reads
+  // this list endpoint. It returns a bare array (not a DRF page), so it MUST be
+  // mocked explicitly; the catch-all's {count,results} object shape would crash
+  // the section (CLAUDE object-endpoint rule). Empty by default; the
+  // mention-groups describe below overrides it with fixtures.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (r) => {
+    if (r.request().method() === 'GET') {
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) });
+    }
+    return r.continue();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +324,88 @@ test.describe('Members Settings — invite form', () => {
 // ---------------------------------------------------------------------------
 // Leave project
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// User-defined @mention groups (#515)
+// ---------------------------------------------------------------------------
+
+const FIXTURE_GROUP = {
+  id: 'grp-subs',
+  server_version: 1,
+  project: PROJECT_ID,
+  name: 'subcontractors',
+  description: 'Site subs',
+  email_default_on: false,
+  members: [{ id: BOB_ID, username: 'bob', email: 'bob@example.com' }],
+  member_count: 1,
+  muted_by_me: false,
+};
+
+test.describe('Members Settings — mention groups', () => {
+  test('empty state renders when no groups exist', async ({ page }) => {
+    // alice is OWNER (>= ADMIN) so the create hint shows.
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    await expect(page.getByRole('heading', { name: /mention groups/i })).toBeVisible();
+    await expect(page.getByText(/No mention groups yet/i)).toBeVisible();
+  });
+
+  test('renders an existing group with its @name, member count, and Mute', async ({ page }) => {
+    await setup(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (r) => {
+      if (r.request().method() === 'GET') {
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([FIXTURE_GROUP]),
+        });
+      }
+      return r.continue();
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    const row = page.getByRole('list', { name: 'Mention groups' }).locator('li').first();
+    await expect(row.getByText('@subcontractors')).toBeVisible();
+    await expect(row.getByRole('button', { name: /^Mute$/ })).toBeVisible();
+  });
+
+  test('POST dispatched when creating a group', async ({ page }) => {
+    await setup(page);
+    let postBody: unknown;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (r) => {
+      if (r.request().method() === 'POST') {
+        postBody = r.request().postDataJSON();
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...FIXTURE_GROUP, name: 'inspectors', members: [], member_count: 0 }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    await page.getByLabel('Group name').fill('inspectors');
+    await page.getByRole('button', { name: /new group/i }).click();
+    await expect.poll(() => postBody).toMatchObject({ name: 'inspectors' });
+  });
+
+  test('reserved-name error surfaces inline (error state)', async ({ page }) => {
+    await setup(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/mention-groups/`, (r) => {
+      if (r.request().method() === 'POST') {
+        return r.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ name: ["'@admins' is a reserved automatic group and cannot be used."] }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    await page.getByLabel('Group name').fill('admins');
+    await page.getByRole('button', { name: /new group/i }).click();
+    await expect(page.getByRole('alert').filter({ hasText: /reserved automatic group/i })).toBeVisible();
+  });
+});
 
 test.describe('Members Settings — leave project', () => {
   test('sole owner sees "Can\'t leave" instead of Leave button', async ({ page }) => {

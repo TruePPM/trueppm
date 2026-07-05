@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 # django-stubs needs a real class for type annotations; get_user_model() returns
@@ -306,6 +307,12 @@ def resolve_parsed_mentions(
 
     - User mentions are filtered to current project members; non-members go to
       `skipped_users` so the caller can surface a structured 400.
+    - A `@name` that resolves to neither a member nor a `KNOWN_GROUP_KEYS`
+      auto-group is reinterpreted as a **user-defined group** (ADR-0212, #515):
+      the parser is pure and cannot know a name is a group, so this project-aware
+      step promotes it to a group target when a live
+      `UserDefinedMentionGroup` with that name exists in the project. A real
+      member always wins on an exact name collision.
     - Group mentions go through `resolve_group_members`; `@all` requires
       actor_role >= ADMIN (ADR-0075 locked constraint #2). Oversized groups
       land in `skipped_groups` with a structured marker.
@@ -329,9 +336,39 @@ def resolve_parsed_mentions(
             )
         )
         resolved_by_name = {u.username: u for u in member_users}
+        # Names that are not current project members may be user-defined groups
+        # (ADR-0212). Batch-resolve them in ONE query set (not per-token) so a
+        # comment with many unknown @tokens never fans into an N+1 on the
+        # synchronous comment-create path. Snapshot the members at write time,
+        # filtered to those still on the project.
+        unresolved = [name for name in requested_usernames if name not in resolved_by_name]
+        groups_by_lower: dict[str, list[UserType]] = {}
+        if unresolved:
+            from trueppm_api.apps.access.models import UserDefinedMentionGroup
+
+            active_member_ids = set(
+                ProjectMembership.objects.filter(
+                    project_id=project_id, is_deleted=False
+                ).values_list("user_id", flat=True)
+            )
+            udg_groups = (
+                UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+                .filter(
+                    project_id=project_id,
+                    name_lower__in=[name.lower() for name in unresolved],
+                    is_deleted=False,
+                )
+                .prefetch_related("members")
+            )
+            for group in udg_groups:
+                groups_by_lower[group.name.lower()] = [
+                    member for member in group.members.all() if member.pk in active_member_ids
+                ]
         for name in requested_usernames:
             if name in resolved_by_name:
                 user_targets.append(resolved_by_name[name])
+            elif name.lower() in groups_by_lower:
+                group_targets.append((name.lower(), groups_by_lower[name.lower()]))
             else:
                 skipped_users.append(name)
 
@@ -418,6 +455,36 @@ def create_mention_notifications(
         )
         group_member_index[group_key] = members
 
+    # User-defined group routing (ADR-0212 §5). Load the email-default and mute
+    # sets for any mentioned key that is a live user-defined group in this
+    # project. Auto-group keys (@admins, @scrum-team, …) simply don't match and
+    # keep their existing global-toggle behavior. udg_email_default maps a group
+    # name to its manager-set email default; udg_mutes is the set of
+    # (user_id, group_name) pairs whose owner muted that group.
+    from trueppm_api.apps.access.models import UserDefinedMentionGroup
+
+    # Keys in group_member_index are lowercased (see resolve_parsed_mentions), so
+    # match on Lower(name) — group names are case-insensitive mention keys even
+    # though the display name preserves the manager's casing.
+    udg_email_default: dict[str, bool] = {}
+    udg_mutes: set[tuple[int | str, str]] = set()
+    mentioned_group_keys = list(group_member_index.keys())
+    if mentioned_group_keys:
+        udg_groups = (
+            UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+            .filter(
+                project_id=project_id,
+                name_lower__in=mentioned_group_keys,
+                is_deleted=False,
+            )
+            .prefetch_related("muted_by")
+        )
+        for group in udg_groups:
+            key = group.name.lower()
+            udg_email_default[key] = group.email_default_on
+            for muter in group.muted_by.all():
+                udg_mutes.add((muter.pk, key))
+
     if not mentions:
         return 0
 
@@ -433,9 +500,15 @@ def create_mention_notifications(
             recipients[mention.mentioned_user_id] = mention
     for mention in mentions:
         if mention.mentioned_group_key:
-            for member in group_member_index[mention.mentioned_group_key]:
+            group_key = mention.mentioned_group_key
+            for member in group_member_index[group_key]:
                 if member.pk == mentioner.pk:
                     continue  # Don't notify yourself
+                # Per-group mute (ADR-0212): a member who muted THIS user-defined
+                # group is skipped for it. They may still be added by a different,
+                # un-muted group (setdefault below) or a direct @mention above.
+                if (member.pk, group_key) in udg_mutes:
+                    continue
                 recipients.setdefault(member.pk, mention)
     # Drop the mentioner from direct mentions too (don't ping yourself)
     recipients.pop(mentioner.pk, None)
@@ -492,13 +565,29 @@ def create_mention_notifications(
             if source_mention.mentioned_user_id
             else NotificationEventType.MENTION_GROUP.value
         )
-        email_pending = _preference_allows(
-            pref,
-            event_type=event_type_project,
-            channel=ProjectNotificationChannel.EMAIL.value,
-            now=now,
-            tz=project_tz,
-        ) and global_email.get(user_id, {}).get(global_event, False)
+        # Email gate. The project matrix (comment_mention/email) + quiet hours are
+        # the common baseline. The per-user opt-in then differs by source:
+        #   - user-defined group (ADR-0212 §5): the group manager's per-group
+        #     email default is the self-contained opt-in — a mute already removed
+        #     the recipient from the in-app gate above, so reaching here means
+        #     un-muted; email follows the group default.
+        #   - direct mention / auto-group: the existing global per-user toggle
+        #     (#311) — MENTION_INDIVIDUAL / MENTION_GROUP — governs, default OFF.
+        source_group_key = source_mention.mentioned_group_key
+        if source_group_key and source_group_key in udg_email_default:
+            per_user_opt_in = udg_email_default[source_group_key]
+        else:
+            per_user_opt_in = global_email.get(user_id, {}).get(global_event, False)
+        email_pending = (
+            _preference_allows(
+                pref,
+                event_type=event_type_project,
+                channel=ProjectNotificationChannel.EMAIL.value,
+                now=now,
+                tz=project_tz,
+            )
+            and per_user_opt_in
+        )
         notifications.append(
             Notification(
                 recipient_id=user_id,

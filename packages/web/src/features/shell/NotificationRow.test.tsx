@@ -4,10 +4,14 @@ import { renderWithRouter } from '@/test/utils';
 import { NotificationRow } from './NotificationRow';
 
 const mutateMock = vi.hoisted(() => vi.fn());
+const snoozeMock = vi.hoisted(() => vi.fn());
+const muteMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useNotifications', () => ({
   useUpdateNotification: () => ({ mutate: mutateMock, isPending: false }),
+  useSnoozeNotification: () => ({ mutate: snoozeMock, isPending: false }),
+  useMuteNotificationType: () => ({ mutate: muteMock, isPending: false }),
 }));
 
 vi.mock('react-router', async () => {
@@ -34,6 +38,8 @@ function row(overrides = {}) {
     project: 'p1',
     is_read: false,
     is_archived: false,
+    snoozed_until: null,
+    category: 'mentions',
     created_at: '2026-05-19T00:00:00Z',
     read_at: null,
     snippet: 'Take a look',
@@ -199,5 +205,66 @@ describe('NotificationRow', () => {
       <NotificationRow notification={row({ is_archived: true })} />,
     );
     expect(screen.queryByText('Archive')).toBeNull();
+  });
+
+  // -- Snooze (ADR-0216 §1) --------------------------------------------------
+
+  it('opens the snooze menu and snoozes with the chosen preset', () => {
+    renderWithRouter(<NotificationRow notification={row()} />);
+    // Menu is closed initially.
+    expect(screen.queryByRole('menu', { name: 'Snooze options' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze' }));
+    const menu = screen.getByRole('menu', { name: 'Snooze options' });
+    expect(menu).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: '1 hour' }));
+    expect(snoozeMock).toHaveBeenCalledWith(
+      { id: 'n1', preset: '1h' },
+      expect.anything(),
+    );
+  });
+
+  it('offers all three snooze presets', () => {
+    renderWithRouter(<NotificationRow notification={row()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Snooze' }));
+    expect(screen.getByRole('menuitem', { name: '1 hour' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: '3 hours' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Tomorrow' })).toBeTruthy();
+  });
+
+  it('shows Un-snooze (not Snooze) for a currently-snoozed row and clears it', () => {
+    renderWithRouter(
+      <NotificationRow notification={row({ snoozed_until: '2099-01-01T00:00:00Z' })} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Snooze' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Un-snooze' }));
+    expect(snoozeMock).toHaveBeenCalledWith(
+      { id: 'n1', until: null },
+      expect.anything(),
+    );
+  });
+
+  // -- Mute a type (ADR-0216 §2) ---------------------------------------------
+
+  it('mutes the type for an event-sourced row', () => {
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'task.assigned',
+          subject: 'Assigned: Wire HVAC',
+          body: 'You were assigned a task.',
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Mute notifications like this'));
+    expect(muteMock).toHaveBeenCalledWith(
+      { eventType: 'task.assigned', mute: true },
+      expect.anything(),
+    );
+  });
+
+  it('omits the mute action for a mention row (you mute a type, not a person)', () => {
+    renderWithRouter(<NotificationRow notification={row()} />);
+    expect(screen.queryByText('Mute notifications like this')).toBeNull();
   });
 });

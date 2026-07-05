@@ -18,8 +18,9 @@ ADR-0075 locked constraints enforced by this module:
     @all cardinality cap: 200 (raises GroupTooLargeError above)
     @all role gate:       ADMIN+ (enforced by the parser, not this module)
 
-User-defined groups (#515 / #516) are NOT resolved here — those land later
-with their own management UI and a separate resolver path.
+User-defined groups (#515, ADR-0212) are curated per project and resolved by
+the separate ``resolve_user_defined_group_members`` path below — distinct from
+the RBAC-derived auto-groups above.
 """
 
 from __future__ import annotations
@@ -144,3 +145,64 @@ def resolve_group_members(
 
     # Unreachable — KNOWN_GROUP_KEYS membership was checked above.
     raise InvalidGroupKeyError(group_key)  # pragma: no cover
+
+
+def resolve_user_defined_group_members(
+    project_id: uuid.UUID | str,
+    name: str,
+) -> list[uuid.UUID] | None:
+    """Snapshot-resolve a user-defined group name to its member user UUIDs.
+
+    The "separate resolver path" this module's header defers to #515 (ADR-0212).
+    Distinct from :func:`resolve_group_members`, which resolves the RBAC-derived
+    auto-groups: this looks up an admin-curated
+    :class:`~trueppm_api.apps.access.models.UserDefinedMentionGroup` by its
+    case-insensitive name within the project and returns its current members,
+    filtered to those who are still active project members.
+
+    Snapshot semantics match the auto-group resolver: the returned list is the
+    membership *at the moment of the mention*; later membership changes do not
+    retroactively notify.
+
+    Args:
+        project_id: The project the mention was written in.
+        name: The group name without the leading ``@`` (case-insensitive).
+
+    Returns:
+        A deduplicated list of member user UUIDs, or ``None`` if no live group
+        with that name exists in the project (so the caller can fall through to
+        treating the token as an unresolved user mention).
+    """
+    from django.db.models.functions import Lower
+
+    from trueppm_api.apps.access.models import (
+        ProjectMembership,
+        UserDefinedMentionGroup,
+    )
+
+    key = name.strip().lstrip("@").lower()
+    # Filter on Lower(name) rather than name__iexact so the case-insensitive
+    # unique index (uniq_mention_group_project_name_ci, on Lower(name)) is usable.
+    group = (
+        UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+        .filter(
+            project_id=project_id,
+            name_lower=key,
+            is_deleted=False,
+        )
+        .prefetch_related("members")
+        .first()
+    )
+    if group is None:
+        return None
+
+    # Only notify members who still have an active project membership — a member
+    # who left the project should not receive the ping even if the M2M row lingers.
+    active_member_ids = set(
+        ProjectMembership.objects.filter(
+            project_id=project_id,
+            is_deleted=False,
+        ).values_list("user_id", flat=True)
+    )
+    member_ids = [member.pk for member in group.members.all() if member.pk in active_member_ids]
+    return cast(list[uuid.UUID], list(dict.fromkeys(member_ids)))

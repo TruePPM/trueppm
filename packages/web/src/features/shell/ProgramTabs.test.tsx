@@ -18,7 +18,7 @@ describe('ProgramTabs', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders the program nav with all seven tabs (incl. Schedule + Resources + Settings)', () => {
+  it('renders the program nav with all eight tabs (incl. Schedule + Resources + Assets + Settings)', () => {
     mockUseProgramId.mockReturnValue('prog-1');
     renderWithRouter(<ProgramTabs />, { initialEntries: ['/programs/prog-1/overview'] });
     expect(screen.getByRole('navigation', { name: 'Program' })).toBeInTheDocument();
@@ -29,17 +29,33 @@ describe('ProgramTabs', () => {
       'Schedule',
       'Resources',
       'Members',
+      'Assets',
       'Settings',
     ]) {
       expect(screen.getByRole('link', { name: new RegExp(label, 'i') })).toBeInTheDocument();
     }
   });
 
+  it('links the Assets tab to the program-scoped assets path (ADR-0215)', () => {
+    mockUseProgramId.mockReturnValue('prog-abc');
+    renderWithRouter(<ProgramTabs />, { initialEntries: ['/programs/prog-abc/overview'] });
+    expect(screen.getByRole('link', { name: /Assets/i })).toHaveAttribute(
+      'href',
+      '/programs/prog-abc/assets',
+    );
+  });
+
   it('links use program-scoped paths', () => {
     mockUseProgramId.mockReturnValue('prog-abc');
     renderWithRouter(<ProgramTabs />, { initialEntries: ['/programs/prog-abc/overview'] });
-    expect(screen.getByRole('link', { name: /Backlog/i })).toHaveAttribute('href', '/programs/prog-abc/backlog');
-    expect(screen.getByRole('link', { name: /Settings/i })).toHaveAttribute('href', '/programs/prog-abc/settings');
+    expect(screen.getByRole('link', { name: /Backlog/i })).toHaveAttribute(
+      'href',
+      '/programs/prog-abc/backlog',
+    );
+    expect(screen.getByRole('link', { name: /Settings/i })).toHaveAttribute(
+      'href',
+      '/programs/prog-abc/settings',
+    );
   });
 
   it('marks the Backlog tab active on /backlog', () => {

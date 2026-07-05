@@ -201,6 +201,37 @@ def assert_url_allowed(url: str) -> None:
             raise EgressBlocked(f"host {host!r} resolves to non-public address {addr}")
 
 
+def assert_host_allowed(host: str, port: int) -> None:
+    """Raise :class:`EgressBlocked` / :class:`EgressError` if ``host`` is unsafe.
+
+    Scheme-free sibling of :func:`assert_url_allowed` for non-HTTP egress —
+    e.g. an SMTP relay host (#712). It runs the same deny-list check (every
+    resolved address must be globally routable) but without the ``http``/
+    ``https`` scheme gate, which would reject an SMTP target outright. Reused by
+    the workspace-SMTP serializer (validate-at-save) *and* the connection
+    resolver (re-validate at send, closing the DNS-rebinding gap — ADR-0213 §4).
+
+    Raises:
+        EgressBlocked: Missing host or a resolved address is private /
+            loopback / link-local / reserved (SSRF to metadata / internal svc).
+        EgressError: The host could not be resolved (DNS failure).
+    """
+    if not host:
+        raise EgressBlocked("SMTP host is empty")
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise EgressError(f"could not resolve host {host!r}") from exc
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:  # pragma: no cover — getaddrinfo returns valid IPs
+            raise EgressBlocked(f"unparseable address {addr!r}") from None
+        if _is_blocked_ip(ip):
+            raise EgressBlocked(f"host {host!r} resolves to non-public address {addr}")
+
+
 def get(
     url: str,
     *,

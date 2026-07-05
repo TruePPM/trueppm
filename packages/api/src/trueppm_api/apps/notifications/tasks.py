@@ -21,12 +21,17 @@ Three Beat-scheduled tasks:
 
 from __future__ import annotations
 
+import contextlib
 import html
 import logging
 import textwrap
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from trueppm_api.core.idempotent import idempotent_task
+
+if TYPE_CHECKING:
+    from django.core.mail.backends.base import BaseEmailBackend
 
 logger = logging.getLogger(__name__)
 
@@ -156,35 +161,71 @@ def _do_drain_emails() -> None:
     if not pending:
         return
 
+    # Resolve the workspace transport + From identity ONCE per batch — the config
+    # is constant across the batch, so building it per message would be N SMTP
+    # connections + N single-row reads per tick (#712 perf, ADR-0213). A build
+    # failure here (e.g. a corrupt row) falls back to the global backend inside
+    # resolve_email_connection, so the batch never dead-letters on config alone.
+    from .email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+        resolve_reply_to,
+    )
+    from .models import WorkspaceEmailSettings
+
+    email_settings = WorkspaceEmailSettings.load()
+    connection = resolve_email_connection(email_settings)
+    from_email = resolve_from_email(email_settings)
+    reply_to = resolve_reply_to(email_settings)
+
+    # Open the shared connection once so all N sends reuse one socket/TLS
+    # handshake. Best-effort: if the transport is down, each per-message send
+    # still attempts (and fails) on its own, preserving the attempt/retry count.
+    try:
+        connection.open()
+    except Exception:
+        logger.warning("drain_notification_emails: could not open mail transport", exc_info=True)
+
     sent = 0
     failed = 0
-    for notif in pending:
-        try:
-            ok = _send_email_for_notification(notif)
-        except Exception:
-            logger.exception("drain_notification_emails: unexpected error for notif %s", notif.pk)
-            ok = False
+    try:
+        for notif in pending:
+            try:
+                ok = _send_email_for_notification(
+                    notif,
+                    connection=connection,
+                    from_email=from_email,
+                    reply_to=reply_to,
+                )
+            except Exception:
+                logger.exception(
+                    "drain_notification_emails: unexpected error for notif %s", notif.pk
+                )
+                ok = False
 
-        if ok:
-            Notification.objects.filter(pk=notif.pk).update(
-                email_pending=False,
-                email_sent_at=timezone.now(),
-            )
-            sent += 1
-        else:
-            # Increment attempts atomically; on attempt N=max, clear email_pending
-            # so the row is no longer eligible for retry.
-            from django.db.models import F
+            if ok:
+                Notification.objects.filter(pk=notif.pk).update(
+                    email_pending=False,
+                    email_sent_at=timezone.now(),
+                )
+                sent += 1
+            else:
+                # Increment attempts atomically; on attempt N=max, clear
+                # email_pending so the row is no longer eligible for retry.
+                from django.db.models import F
 
-            new_attempts = notif.email_attempts + 1
-            update_fields: dict[str, object] = {
-                "email_attempts": F("email_attempts") + 1,
-                "email_failed_at": timezone.now(),
-            }
-            if new_attempts >= EMAIL_MAX_RETRIES:
-                update_fields["email_pending"] = False
-            Notification.objects.filter(pk=notif.pk).update(**update_fields)
-            failed += 1
+                new_attempts = notif.email_attempts + 1
+                update_fields: dict[str, object] = {
+                    "email_attempts": F("email_attempts") + 1,
+                    "email_failed_at": timezone.now(),
+                }
+                if new_attempts >= EMAIL_MAX_RETRIES:
+                    update_fields["email_pending"] = False
+                Notification.objects.filter(pk=notif.pk).update(**update_fields)
+                failed += 1
+    finally:
+        with contextlib.suppress(Exception):
+            connection.close()
 
     logger.info(
         "drain_notification_emails: sent=%d failed=%d candidates=%d",
@@ -218,16 +259,32 @@ def _do_archive() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _send_email_for_notification(notif: object) -> bool:
+def _send_email_for_notification(
+    notif: object,
+    *,
+    connection: BaseEmailBackend | None = None,
+    from_email: str | None = None,
+    reply_to: list[str] | None = None,
+) -> bool:
     """Render and send the email for a single Notification.
 
     Returns True on successful SMTP delivery, False on any failure (SMTP error,
     missing user email, missing source mention). The caller increments the
     attempt counter — this function is pure-attempt, no state mutation.
+
+    The workspace transport (``connection``), ``from_email``, and ``reply_to``
+    are resolved **once per drain batch** and passed in (#712 perf: the config is
+    constant across a batch, so a per-message ``load()`` + SMTP connect would be
+    50 redundant DB reads and SMTP/TLS handshakes per tick). When omitted they are
+    resolved here so a direct/one-off caller still works.
     """
-    from django.conf import settings
     from django.core.mail import EmailMessage
 
+    from .email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+        resolve_reply_to,
+    )
     from .models import Notification
 
     notif_obj: Notification = notif  # type: ignore[assignment]
@@ -248,13 +305,24 @@ def _send_email_for_notification(notif: object) -> bool:
     if not subject or not body:
         return False
 
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@trueppm.local")
+    # Dynamic transport + From identity from the workspace SMTP config (#712,
+    # ADR-0213). Falls back to the global backend / DEFAULT_FROM_EMAIL when the
+    # workspace transport is unconfigured (cloud), so this is a no-op for installs
+    # that never touch the writable config.
+    if connection is None:
+        connection = resolve_email_connection()
+    if from_email is None:
+        from_email = resolve_from_email()
+    if reply_to is None:
+        reply_to = resolve_reply_to()
     msg = EmailMessage(
         subject=subject,
         body=body,
         from_email=from_email,
         to=[recipient_email],
+        reply_to=reply_to or None,
         headers=_unsubscribe_headers() or None,
+        connection=connection,
     )
     try:
         msg.send(fail_silently=False)

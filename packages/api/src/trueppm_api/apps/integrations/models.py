@@ -22,6 +22,7 @@ from typing import Any, ClassVar
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 from trueppm_api.apps.projects.models import VersionedModel
 
@@ -209,6 +210,16 @@ class TaskLink(VersionedModel):
     )
     # Manual ordering within a task's link list (lower sorts first).
     display_order = models.PositiveIntegerField(default=0)
+    # Creation timestamp (#971, ADR-0215). VersionedModel deliberately carries no
+    # created/updated timestamps (sync uses ``server_version``), but the unified
+    # Assets feed merges links with ``TaskAttachment`` on a shared ``(created_at,
+    # id)`` keyset — links need a real creation time to place chronologically.
+    # ``default=timezone.now`` (not ``auto_now_add``) so the additive migration
+    # backfills existing rows without an interactive one-off default; the value is
+    # write-once in practice (nothing mutates it) and never exposed for client
+    # write. Not added to ``TaskLinkSerializer`` — the sync/mobile shape is
+    # unchanged.
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     class Meta:
         ordering = ("display_order", "id")
@@ -218,6 +229,10 @@ class TaskLink(VersionedModel):
             models.Index(fields=("task", "display_order"), name="integrations_link_task_order"),
             # Sync delta pull joins via task then filters server_version (#810).
             models.Index(fields=("task", "server_version"), name="tasklink_serverver_idx"),
+            # Assets feed (#971, ADR-0215): each source is scanned newest-first with
+            # a small LIMIT before the Python keyset merge — index the sort key so
+            # the per-source page is an index range scan, not a filesort.
+            models.Index(fields=("-created_at", "-id"), name="tasklink_created_idx"),
         ]
         verbose_name = "Task link"
         verbose_name_plural = "Task links"

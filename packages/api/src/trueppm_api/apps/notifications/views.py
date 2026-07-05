@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import datetime
+import logging
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
@@ -14,33 +20,74 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import IsOrgAdmin, IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsOrgAdmin,
+    IsProjectMember,
+    IsWorkspaceOperator,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
+from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     SIGNAL_ONLY_EVENTS,
+    EmailTransportMode,
     Notification,
     NotificationChannel,
     NotificationPreference,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    WorkspaceEmailSettings,
 )
 from .serializers import (
     NotificationPreferenceSerializer,
     NotificationSerializer,
     ProjectNotificationPreferenceSerializer,
+    WorkspaceEmailSettingsSerializer,
 )
 from .services import get_or_create_default_preferences
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
     from rest_framework.request import Request
+
+
+# Snooze presets (ADR-0216 §1). The client may send a preset key OR an explicit
+# `until` ISO datetime; presets are resolved server-side so the "tomorrow 9am"
+# anchor stays consistent and testable.
+SNOOZE_PRESETS: tuple[str, ...] = ("1h", "3h", "tomorrow")
+
+
+def _resolve_snooze_preset(preset: str, now: datetime.datetime) -> datetime.datetime | None:
+    """Resolve a snooze preset key to an absolute datetime, or None if unknown.
+
+    ``1h`` / ``3h`` are relative to ``now``; ``tomorrow`` is the next day at 09:00
+    in the workspace timezone (``settings.TIME_ZONE``), returned as an aware UTC
+    datetime. The workspace tz is used because the default ``auth.User`` carries
+    no per-user timezone.
+    """
+    if preset == "1h":
+        return now + datetime.timedelta(hours=1)
+    if preset == "3h":
+        return now + datetime.timedelta(hours=3)
+    if preset == "tomorrow":
+        try:
+            tz = datetime.UTC if not settings.TIME_ZONE else ZoneInfo(settings.TIME_ZONE)
+        except Exception:
+            tz = datetime.UTC
+        local_tomorrow = (now.astimezone(tz) + datetime.timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        return local_tomorrow.astimezone(datetime.UTC)
+    return None
 
 
 @extend_schema_view(
@@ -66,6 +113,30 @@ if TYPE_CHECKING:
                     "The default list (neither param set) excludes archived rows."
                 ),
             ),
+            OpenApiParameter(
+                name="snoozed",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When `true` (or `1`), return only currently-snoozed rows "
+                    "(`snoozed_until` in the future). Every other view EXCLUDES "
+                    "currently-snoozed rows — including the unread-count query — "
+                    "so a deferred notification does not increment the bell badge."
+                ),
+            ),
+            OpenApiParameter(
+                name="category",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=list(CATEGORIES),
+                description=(
+                    "Filter to one derived category: `mentions`, `tasks`, "
+                    "`signals`, or `project`. Orthogonal to the read-state "
+                    "filters. `mentions` also matches mention-sourced rows."
+                ),
+            ),
         ],
     ),
 )
@@ -78,9 +149,10 @@ class NotificationViewSet(
 ):
     """Per-user notification inbox.
 
-    GET    /me/notifications/                     ?unread_only=true&limit=50
+    GET    /me/notifications/            ?unread_only=true&archived=true&snoozed=true&category=tasks
     GET    /me/notifications/{id}/
     PATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }
+    POST   /me/notifications/{id}/snooze/         { until: iso } | { preset: 1h|3h|tomorrow }
     POST   /me/notifications/mark-all-read/
 
     All reads/writes are auto-scoped to the authenticated user — no cross-user
@@ -102,16 +174,112 @@ class NotificationViewSet(
             "mention__mentioned_user",
             "project",
         )
-        unread_only = self.request.query_params.get("unread_only", "").lower() in ("1", "true")
-        if unread_only:
-            qs = qs.filter(is_read=False, is_archived=False)
-        archived_only = self.request.query_params.get("archived", "").lower() in ("1", "true")
-        if archived_only:
-            qs = qs.filter(is_archived=True)
-        elif not unread_only:
-            # Default list excludes archived
-            qs = qs.filter(is_archived=False)
+        params = self.request.query_params
+        now = timezone.now()
+        snoozed_only = params.get("snoozed", "").lower() in ("1", "true")
+        unread_only = params.get("unread_only", "").lower() in ("1", "true")
+        archived_only = params.get("archived", "").lower() in ("1", "true")
+
+        if snoozed_only:
+            # The "Snoozed" chip: rows deferred to the future, still active.
+            qs = qs.filter(snoozed_until__gt=now, is_archived=False)
+        else:
+            # Every non-snoozed view hides rows still inside their snooze window;
+            # they reappear automatically once snoozed_until passes (pure query-
+            # time filter, ADR-0216 §1). Applied BEFORE the read-state branch so
+            # the unread-count path (unread_only=true) also excludes snoozed rows
+            # — otherwise a deferred notification would still light the bell badge.
+            qs = qs.filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lte=now))
+            if unread_only:
+                qs = qs.filter(is_read=False, is_archived=False)
+            elif archived_only:
+                qs = qs.filter(is_archived=True)
+            else:
+                # Default list excludes archived
+                qs = qs.filter(is_archived=False)
+
+        # Derived category filter (ADR-0216 §3). The mapping lives in
+        # categories.py so this filter and the serializer's category field share
+        # one source of truth. `mentions` additionally matches mention-sourced
+        # rows (blank event_type + mention FK). An unknown category maps to an
+        # empty event-type set → matches nothing.
+        category = params.get("category", "").strip().lower()
+        if category:
+            event_types = event_types_for_category(category)
+            category_q = Q(event_type__in=event_types)
+            if category == CATEGORY_MENTIONS:
+                category_q |= Q(mention__isnull=False)
+            qs = qs.filter(category_q)
+
         return qs.order_by("-created_at")
+
+    @extend_schema(
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "preset": {"type": "string", "enum": list(SNOOZE_PRESETS)},
+                    "until": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": True,
+                    },
+                },
+            }
+        },
+        responses=NotificationSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path="snooze")
+    def snooze(self, request: Request, pk: str | None = None) -> Response:
+        """Snooze (or un-snooze) a single notification (ADR-0216 §1).
+
+        Body accepts EITHER ``{"preset": "1h"|"3h"|"tomorrow"}`` OR
+        ``{"until": "<iso datetime>"}``. Pass ``{"until": null}`` (or an empty
+        body) to un-snooze — clearing ``snoozed_until`` returns the row to the
+        inbox immediately. Idempotent: re-snoozing overwrites the timestamp.
+
+        Looks the row up recipient-scoped directly (not via the filtered
+        get_queryset) so a currently-snoozed row can still be re-snoozed or
+        un-snoozed — the default queryset hides snoozed rows.
+        """
+        user = request.user
+        notification = get_object_or_404(Notification, pk=pk, recipient=user)
+        now = timezone.now()
+
+        preset = request.data.get("preset")
+        if preset:
+            until = _resolve_snooze_preset(preset, now)
+            if until is None:
+                return Response(
+                    {"detail": f"preset must be one of {list(SNOOZE_PRESETS)}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif "until" in request.data:
+            raw = request.data.get("until")
+            if raw in (None, ""):
+                until = None  # explicit un-snooze
+            else:
+                parsed = parse_datetime(raw) if isinstance(raw, str) else None
+                if parsed is None:
+                    return Response(
+                        {"detail": "until must be an ISO 8601 datetime or null."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Anchor a naive timestamp to the current timezone rather than
+                # letting Django emit a naive-datetime warning / compare wrong.
+                if timezone.is_naive(parsed):
+                    parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+                until = parsed
+        else:
+            return Response(
+                {"detail": "Provide a 'preset' or an 'until' datetime (null to un-snooze)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notification.snoozed_until = until
+        notification.save(update_fields=["snoozed_until"])
+        serializer = self.get_serializer(notification)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_update(self, serializer: Any) -> None:
         instance: Notification = serializer.instance
@@ -325,41 +493,143 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class EmailSettingsStatusView(APIView):
-    """``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.
+def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> dict[str, Any]:
+    """Serialize the singleton for the client, adding the read-only status flags.
 
-    Surfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is
-    configured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,
-    ``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —
-    never the SMTP password or username — for the workspace admin to confirm the
-    From identity and that a host is configured. Org-admin gated. The writable SMTP
-    config (transport switch, BYO credentials) is #712.
+    The password is never included (write-only serializer field); the response
+    carries only ``password_is_set``. ``configured_via`` and ``host_configured``
+    preserve back-compat with the #639 read-only status hook.
+    """
+    data: dict[str, Any] = dict(WorkspaceEmailSettingsSerializer(obj).data)
+    data["can_edit"] = can_edit
+    data["configured_via"] = (
+        "database" if obj.transport_mode != EmailTransportMode.CLOUD else "environment"
+    )
+    data["host_configured"] = bool(obj.host)
+    return data
+
+
+class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
+    """``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.
+
+    Upgrades the #639 read-only status page to the writable surface (#712,
+    ADR-0213). ``GET`` is org-admin readable so any workspace admin can see the
+    posture; **writes** (``PUT``/``PATCH``) require the install operator
+    (superuser) because the transport is installation-global — a single-project
+    admin must not be able to repoint all outbound mail at an attacker relay
+    (security review C1). The password is write-only and never echoed. A save is
+    rejected (400) if the candidate transport can't be opened, so a bad config
+    can't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).
     """
 
     permission_classes = [IsAuthenticated, IsOrgAdmin]
 
-    def get(self, request: Request) -> Response:
-        from django.conf import settings
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in ("PUT", "PATCH"):
+            return [IsAuthenticated(), IsWorkspaceOperator()]
+        return [IsAuthenticated(), IsOrgAdmin()]
 
-        backend = getattr(settings, "EMAIL_BACKEND", "") or ""
-        host = getattr(settings, "EMAIL_HOST", "") or ""
-        if "smtp" in backend.lower():
-            transport = "smtp"
-        elif "console" in backend.lower():
-            transport = "console"
-        elif "locmem" in backend.lower():
-            transport = "in-memory"
-        else:
-            transport = backend.rsplit(".", 1)[-1] or "unknown"
-        return Response(
-            {
-                "transport": transport,
-                "host": host,
-                "host_configured": bool(host),
-                "port": getattr(settings, "EMAIL_PORT", None),
-                "use_tls": bool(getattr(settings, "EMAIL_USE_TLS", False)),
-                "use_ssl": bool(getattr(settings, "EMAIL_USE_SSL", False)),
-                "from_email": getattr(settings, "DEFAULT_FROM_EMAIL", "") or "",
-                "configured_via": "environment",
-            }
+    def get_throttles(self) -> list[Any]:
+        # Throttle only the write path (each write re-opens a candidate SMTP
+        # connection); GET is a cheap read the settings page polls.
+        if self.request.method in ("PUT", "PATCH"):
+            throttle = ScopedRateThrottle()
+            throttle.scope = "email_settings"
+            return [throttle]
+        return super().get_throttles()
+
+    def get(self, request: Request) -> Response:
+        obj = WorkspaceEmailSettings.load()
+        return Response(_email_settings_payload(obj, can_edit=bool(request.user.is_superuser)))
+
+    def put(self, request: Request) -> Response:
+        return self._update(request, partial=False)
+
+    def patch(self, request: Request) -> Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: Request, *, partial: bool) -> Response:
+        obj = WorkspaceEmailSettings.load()
+        serializer = WorkspaceEmailSettingsSerializer(
+            obj, data=request.data, partial=partial, context={"request": request}
         )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        obj.refresh_from_db()
+        return Response(_email_settings_payload(obj, can_edit=True))
+
+
+class WorkspaceEmailTestView(IdempotencyMixin, APIView):
+    """``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.
+
+    Sends a fixed test message to the **requesting operator's own address only**
+    (server-derived — never a recipient from the request body, which would make
+    this an authenticated open relay, security review M5) through the resolved
+    transport. Synchronous so the admin gets immediate pass/fail feedback; a
+    transport failure returns 502 with a generic message.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOperator]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_settings_probe"
+
+    def post(self, request: Request) -> Response:
+        from django.core.mail import EmailMessage
+
+        from .email_backend import (
+            resolve_email_connection,
+            resolve_from_email,
+            resolve_reply_to,
+        )
+
+        recipient = (getattr(request.user, "email", "") or "").strip()
+        if not recipient:
+            return Response(
+                {"sent": False, "error": "Your account has no email address on file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        obj = WorkspaceEmailSettings.load()
+        try:
+            connection = resolve_email_connection(obj)
+            EmailMessage(
+                subject="TruePPM test email",
+                body=(
+                    "This is a test message from your TruePPM workspace email "
+                    "configuration. If you received it, outbound mail is working."
+                ),
+                from_email=resolve_from_email(obj),
+                to=[recipient],
+                reply_to=resolve_reply_to(obj) or None,
+                connection=connection,
+            ).send(fail_silently=False)
+        except Exception:
+            # Never surface the underlying transport exception (may echo creds).
+            logger.warning("send-test: transport failed for %s", obj.transport_mode)
+            return Response(
+                {
+                    "sent": False,
+                    "error": "Could not send the test email. Check the transport configuration.",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"sent": True, "recipient": recipient})
+
+
+class WorkspaceEmailHealthView(APIView):
+    """``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.
+
+    Live, bounded DNS TXT lookups on the persisted From-address domain (never a
+    domain from request input). Operator-gated and tightly throttled — the
+    lookups are an egress surface (ADR-0213 §4, security review M4/H3).
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOperator]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_settings_probe"
+
+    def get(self, request: Request) -> Response:
+        from .email_health import check_deliverability
+
+        obj = WorkspaceEmailSettings.load()
+        return Response(check_deliverability(obj.from_email, obj.dkim_selector))

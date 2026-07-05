@@ -986,6 +986,26 @@ class IsOrgAdmin(BasePermission):
         ).exists()
 
 
+class IsWorkspaceOperator(BasePermission):
+    """Install-operator gate for workspace-global infrastructure config (#712).
+
+    Stricter than :class:`IsOrgAdmin`. Some workspace settings — the outbound
+    mail transport being the first — govern the *entire installation*, not one
+    project. ``IsOrgAdmin`` grants write access off a single project's ADMIN
+    role, which would let a low-trust project admin repoint every outbound
+    message (including reset/invite mail) at an attacker relay (ADR-0213 C1).
+    Mail-transport writes therefore require the install operator: a Django
+    superuser. In OSS there is no separate org-operator entity, so superuser is
+    the correct and only such principal; Enterprise may widen this via a
+    registered override without changing the OSS baseline.
+    """
+
+    message = "Only a workspace operator (superuser) may change this setting."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
 class CanAssignResource(BasePermission):
     """Allow Resource Manager (2) or above to assign resources to tasks.
 

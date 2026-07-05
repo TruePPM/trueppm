@@ -374,18 +374,30 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
           body: JSON.stringify({ count: unreadCount, next: null, previous: null, results: [] }),
         });
       }
-      // Filtered list.
-      const filter: 'all' | 'unread' | 'archived' =
-        url.searchParams.get('archived') === 'true'
-          ? 'archived'
-          : url.searchParams.get('unread_only') === 'true'
-            ? 'unread'
-            : 'all';
-      let results = notifications;
-      if (filter === 'unread')
-        results = notifications.filter((n) => !(n as { is_read: boolean }).is_read);
-      if (filter === 'archived')
-        results = notifications.filter((n) => (n as { is_archived: boolean }).is_archived);
+      // Filtered list. Mirrors the server (ADR-0216): snoozed rows are hidden
+      // from every view except ?snoozed=true; category is orthogonal.
+      const now = Date.now();
+      const isSnoozed = (n: unknown) => {
+        const until = (n as { snoozed_until: string | null }).snoozed_until;
+        return until != null && new Date(until).getTime() > now;
+      };
+      let results: unknown[];
+      if (url.searchParams.get('snoozed') === 'true') {
+        results = notifications.filter(isSnoozed);
+      } else {
+        results = notifications.filter((n) => !isSnoozed(n));
+        if (url.searchParams.get('archived') === 'true') {
+          results = results.filter((n) => (n as { is_archived: boolean }).is_archived);
+        } else if (url.searchParams.get('unread_only') === 'true') {
+          results = results.filter((n) => !(n as { is_read: boolean }).is_read);
+        } else {
+          results = results.filter((n) => !(n as { is_archived: boolean }).is_archived);
+        }
+      }
+      const category = url.searchParams.get('category');
+      if (category) {
+        results = results.filter((n) => (n as { category: string }).category === category);
+      }
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -423,6 +435,34 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
         });
       }
       return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+    }
+    if (req.method() === 'POST' && url.pathname.endsWith('/snooze/')) {
+      // /me/notifications/{id}/snooze/ — set (or clear) snoozed_until.
+      const segments = url.pathname.split('/').filter(Boolean);
+      const id = segments[segments.length - 2]; // .../{id}/snooze/
+      const body = req.postDataJSON() as { preset?: string; until?: string | null };
+      const row = notifications.find((n) => (n as { id: string }).id === id) as
+        | Record<string, unknown>
+        | undefined;
+      if (!row) {
+        return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      }
+      let until: string | null;
+      if (body.preset) {
+        const hours = body.preset === '3h' ? 3 : body.preset === 'tomorrow' ? 20 : 1;
+        until = new Date(Date.now() + hours * 3_600_000).toISOString();
+      } else {
+        until = body.until ?? null;
+      }
+      // A snoozed, still-unread row leaves the unread badge (server excludes it).
+      if (until && !row.is_read) unreadCount = Math.max(0, unreadCount - 1);
+      if (!until && !row.is_read) unreadCount += 1;
+      row.snoozed_until = until;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(row),
+      });
     }
     if (req.method() === 'POST' && url.pathname.endsWith('/mark-all-read/')) {
       let updated = 0;
@@ -799,6 +839,8 @@ const FIXTURE_NOTIFICATION = {
   project: PROJECT_ID,
   is_read: false,
   is_archived: false,
+  snoozed_until: null,
+  category: 'mentions',
   created_at: '2026-05-19T12:00:00Z',
   read_at: null,
   snippet: 'Heads up — can you review the load calcs?',
@@ -818,6 +860,8 @@ const FIXTURE_EVENT_NOTIFICATION = {
   project: PROJECT_ID,
   is_read: false,
   is_archived: false,
+  snoozed_until: null,
+  category: 'tasks',
   created_at: '2026-05-19T12:00:00Z',
   read_at: null,
   snippet: '',
@@ -908,6 +952,60 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(panel).toBeVisible();
     // Default filter is "Unread"; the empty-state copy below.
     await expect(panel.getByText(/Caught up/i)).toBeVisible();
+  });
+
+  test('category selector filters the feed (ADR-0216 §3)', async ({ page }) => {
+    await bootProjectPage(page, {
+      notifications: [FIXTURE_NOTIFICATION, FIXTURE_EVENT_NOTIFICATION],
+      unreadCount: 2,
+    });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /Notifications, 2 unread/ }).click();
+    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    await expect(panel).toBeVisible();
+
+    // Both rows show under the default (All-category) view.
+    await expect(panel.getByText(/load calcs/)).toBeVisible();
+    await expect(panel.getByText('Wire HVAC controls rescheduled in Sprint 4')).toBeVisible();
+
+    // Filter to Tasks → only the event row remains; the mention drops out.
+    await panel.getByRole('radio', { name: 'Tasks' }).click();
+    await expect(panel.getByText('Wire HVAC controls rescheduled in Sprint 4')).toBeVisible();
+    await expect(panel.getByText(/load calcs/)).toHaveCount(0);
+
+    // Filter to Mentions → the mention returns and the task event drops out.
+    await panel.getByRole('radio', { name: 'Mentions' }).click();
+    await expect(panel.getByText(/load calcs/)).toBeVisible();
+    await expect(panel.getByText('Wire HVAC controls rescheduled in Sprint 4')).toHaveCount(0);
+  });
+
+  test('snoozing a row removes it from the unread view (ADR-0216 §1)', async ({ page }) => {
+    await bootProjectPage(page, {
+      notifications: [FIXTURE_NOTIFICATION],
+      unreadCount: 1,
+    });
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
+    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText(/load calcs/)).toBeVisible();
+
+    // Open the row's snooze menu and pick a preset.
+    await panel.getByRole('button', { name: 'Snooze' }).click();
+    await panel.getByRole('menuitem', { name: '1 hour' }).click();
+
+    // The snoozed row leaves the default (unread) view — the friendly empty
+    // state takes over — and the bell count clears (snoozed rows don't count).
+    await expect(panel.getByText(/load calcs/)).toHaveCount(0);
+    await expect(panel.getByText(/caught up/i)).toBeVisible();
+
+    // It resurfaces under the Snoozed tab.
+    await panel.getByRole('tab', { name: 'Snoozed' }).click();
+    await expect(panel.getByText(/load calcs/)).toBeVisible();
   });
 });
 

@@ -153,6 +153,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "member_added",
         "member_removed",
         "member_role_changed",
+        "mention_group_changed",
         "milestone_forecast_updated",
         "milestone_rollup_updated",
         "phases_reordered",

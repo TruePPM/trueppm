@@ -743,6 +743,14 @@ REST_FRAMEWORK = {
         # "Resend all" is one request → one bucket hit, so it cannot be looped past
         # the cap.
         "invite_resend": "5/min",
+        # Workspace SMTP config (#712, ADR-0213). Writes re-open a candidate SMTP
+        # connection (validate-before-persist); "probe" covers the two outbound
+        # amplifiers — send-test (opens a real SMTP socket) and the deliverability
+        # health check (fires live DNS TXT lookups). Both are blind-SSRF / egress
+        # oracles if unbounded, so cap them tightly (security review H3). An admin
+        # configuring mail never trips these; a script probing hosts does.
+        "email_settings": "12/min",
+        "email_settings_probe": "6/min",
         # SSO domain discovery (ADR-0187). Unauthenticated; reveals only whether a
         # *domain* uses SSO (never whether an account exists), but the rate still
         # bounds bulk domain-probing. Loose enough for the interactive login page.
