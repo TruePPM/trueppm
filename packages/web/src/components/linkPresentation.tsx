@@ -1,5 +1,5 @@
 /**
- * Shared presentation primitives for external-link / asset rows (#970, #971).
+ * Shared presentation primitives for external-link / asset rows (issue 970, issue 971).
  *
  * Lifted out of `features/schedule/sections/ExternalLinksSection.tsx` so both the
  * per-task drawer section and the unified Assets surface (ADR-0215) render a

@@ -88,7 +88,7 @@ test.describe('Project Assets surface', () => {
 
     // "Page rendered" signal — the Assets heading only appears once the feed read
     // resolves and the page mounts (gate before asserting rows).
-    await expect(page.getByRole('heading', { name: 'Assets' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Assets', exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Link row: title as an external anchor, plus its label pill.
     const link = page.getByRole('link', { name: /PR 7/ });
@@ -104,7 +104,7 @@ test.describe('Project Assets surface', () => {
   test('a kind chip re-queries the server', async ({ page }) => {
     const assetUrls = await setup(page);
     await page.goto(`${BASE_URL}/assets`);
-    await expect(page.getByRole('heading', { name: 'Assets' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Assets', exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('requirements.pdf')).toBeVisible();
 
     await page.getByRole('radio', { name: 'Files' }).click();
@@ -116,7 +116,7 @@ test.describe('Project Assets surface', () => {
   test('shows the empty state when there are no assets', async ({ page }) => {
     await setup(page, EMPTY_FEED);
     await page.goto(`${BASE_URL}/assets`);
-    await expect(page.getByRole('heading', { name: 'Assets' })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole('heading', { name: 'Assets', exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('No assets yet')).toBeVisible();
   });
 });

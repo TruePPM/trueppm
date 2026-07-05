@@ -1,12 +1,12 @@
 /**
- * Unified Assets surface (ADR-0215, #971) — a read-only, newest-first feed that
+ * Unified Assets surface (ADR-0215, issue 971) — a read-only, newest-first feed that
  * aggregates every task's files (`TaskAttachment`) and external links
  * (`TaskLink`) for a project, or across a program's readable member projects.
  *
  * Chip filters (kind / provider) + a debounced search box drive server-side
  * filtering; a flat chronological list is the default with a group-by-task
  * toggle. Pagination walks the stable opaque keyset cursor via TanStack Query's
- * infinite query ("Load more"). Rows reuse the #970 presentation primitives
+ * infinite query ("Load more"). Rows reuse the issue 970 presentation primitives
  * (provider glyph, status badge, type chip, label pills) so the Assets surface
  * and the task drawer render links identically.
  */
@@ -268,7 +268,7 @@ export function groupItemsByTask(items: AssetItem[]): AssetGroup[] {
   return order.map((id) => byTask.get(id)!);
 }
 
-/** One asset row — a file or a link, rendered with the shared #970 primitives. */
+/** One asset row — a file or a link, rendered with the shared issue 970 primitives. */
 function AssetRow({ item, showTask }: { item: AssetItem; showTask: boolean }) {
   const when = formatRelative(new Date(item.added_at));
   const glyph = item.kind === 'link' ? providerIcon(item.provider ?? 'generic') : '📎';

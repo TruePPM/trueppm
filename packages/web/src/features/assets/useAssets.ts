@@ -1,5 +1,5 @@
 /**
- * Data hook + types for the unified Assets surface (ADR-0215, #971).
+ * Data hook + types for the unified Assets surface (ADR-0215, issue 971).
  *
  * Consumes `GET /{scope}/{id}/assets/` — a read-only, newest-first feed that
  * merges every task's files (`TaskAttachment`) and external links (`TaskLink`)
