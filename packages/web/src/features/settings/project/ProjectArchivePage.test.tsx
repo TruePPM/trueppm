@@ -38,6 +38,15 @@ vi.mock('@/hooks/useProjectMembers', () => ({
 vi.mock('@/features/programs/hooks/useProgramMembers', () => ({
   useProgramMembers: () => ({ data: [], isLoading: false }),
 }));
+// The async bundle card's hooks use TanStack Query directly; stub them so the
+// page renders without a QueryClientProvider. The bundle behavior itself is
+// covered by useProjectExport.test.ts and the project-export-bundle E2E spec.
+const startBundleMutation = { mutate: vi.fn(), isPending: false, error: null };
+vi.mock('../hooks/useProjectExport', () => ({
+  useStartProjectExport: () => startBundleMutation,
+  useProjectExportJob: () => ({ data: undefined }),
+  downloadProjectExport: vi.fn(),
+}));
 
 function renderPage() {
   return render(
