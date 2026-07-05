@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { WorkspaceRolesPage, buildRolesMatrixCsv } from './WorkspaceRolesPage';
 
@@ -44,7 +44,7 @@ describe('WorkspaceRolesPage', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps the Export matrix button enabled (lifted out of the stub fieldset)', () => {
+  it('keeps the Export matrix button enabled', () => {
     render(<WorkspaceRolesPage />);
     expect(screen.getByRole('button', { name: 'Export matrix' })).toBeEnabled();
   });
@@ -68,15 +68,22 @@ describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
     'Export workspace data',
   ];
 
-  it('renders an EE badge on every Enterprise-only row in the community edition', () => {
+  it('renders an EE badge on every Enterprise-only matrix row in the community edition', () => {
     render(<WorkspaceRolesPage />);
-    const badges = screen.getAllByRole('link', { name: /Available in TruePPM Enterprise/i });
+    // Scope to the matrix — the custom-roles upsell caption (#1649) carries its
+    // own EE badge outside the matrix, so a whole-document count would be 6.
+    const matrix = screen.getByTestId('roles-matrix');
+    const badges = within(matrix).getAllByRole('link', {
+      name: /Available in TruePPM Enterprise/i,
+    });
     expect(badges).toHaveLength(EE_ROWS.length);
   });
 
   it('points each EE badge at the Enterprise page (no dead cells)', () => {
     render(<WorkspaceRolesPage />);
     const badges = screen.getAllByRole('link', { name: /Available in TruePPM Enterprise/i });
+    // Matrix rows (5) + the custom-roles caption (1).
+    expect(badges).toHaveLength(EE_ROWS.length + 1);
     for (const badge of badges) {
       expect(badge).toHaveAttribute('href', 'https://trueppm.com/enterprise');
       expect(badge).toHaveTextContent('EE');
@@ -94,9 +101,48 @@ describe('WorkspaceRolesPage — Enterprise upsell (#541)', () => {
     // "View tasks" (granted to everyone) is OSS — its row must not carry a badge.
     const viewTasks = screen.getByText('View tasks');
     expect(viewTasks.querySelector('a')).toBeNull();
-    // Exactly the five Workspace-section rows are badged.
-    expect(screen.getAllByRole('link', { name: /Available in TruePPM Enterprise/i })).toHaveLength(
-      EE_ROWS.length,
-    );
+    // Exactly the five Workspace-section rows are badged inside the matrix.
+    const matrix = screen.getByTestId('roles-matrix');
+    expect(
+      within(matrix).getAllByRole('link', { name: /Available in TruePPM Enterprise/i }),
+    ).toHaveLength(EE_ROWS.length);
+  });
+});
+
+describe('WorkspaceRolesPage — read-only reference framing (#1649)', () => {
+  it('renders no stub preview banner', () => {
+    render(<WorkspaceRolesPage />);
+    expect(screen.queryByTestId('stub-page-banner')).toBeNull();
+  });
+
+  it('shows no "changes will not be saved" preview copy', () => {
+    render(<WorkspaceRolesPage />);
+    expect(screen.queryByText(/changes will not be saved/i)).toBeNull();
+    expect(screen.queryByText(/preview/i)).toBeNull();
+  });
+
+  it('frames the matrix as a read-only reference', () => {
+    render(<WorkspaceRolesPage />);
+    expect(screen.getByText(/read-only reference/i)).toBeInTheDocument();
+  });
+
+  it('surfaces a reachable custom-roles Enterprise upsell in the community edition', () => {
+    render(<WorkspaceRolesPage />);
+    expect(screen.getByText(/Need custom roles/i)).toBeInTheDocument();
+    // The upsell badge lives outside the matrix and is a real link, not a tooltip.
+    const matrix = screen.getByTestId('roles-matrix');
+    const allBadges = screen.getAllByRole('link', { name: /Available in TruePPM Enterprise/i });
+    const captionBadge = allBadges.find((b) => !matrix.contains(b));
+    expect(captionBadge).toBeDefined();
+    expect(captionBadge).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+    expect(captionBadge).toHaveAttribute('target', '_blank');
+  });
+
+  it('suppresses the custom-roles upsell under the enterprise edition', () => {
+    mockUseEdition.mockReturnValue({ edition: 'enterprise', isLoading: false });
+    render(<WorkspaceRolesPage />);
+    // The explanatory copy stays, but the EE badge (the upsell link) is gone.
+    expect(screen.getByText(/Need custom roles/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Available in TruePPM Enterprise/i })).toBeNull();
   });
 });
