@@ -138,6 +138,43 @@ def enqueue_recalculate(
         )
 
 
+def redispatch_dead_lettered_task(
+    task_name: str,
+    args: list[Any] | tuple[Any, ...],
+    kwargs: dict[str, Any],
+    countdown: int = 0,
+) -> str:
+    """Re-enqueue a dead-lettered Celery task, optionally after a backoff.
+
+    The engine boundary for the requeue workflow (ADR-0210): the
+    ``scheduling.requeue_failed_task`` consumer activity calls this rather than
+    importing ``celery`` itself (ADR-0080 §E consumer import discipline). By the
+    time execution reaches here the requeue has already round-tripped through the
+    durable workflow outbox, so this is the final best-effort hop that puts the
+    original task back on the broker.
+
+    ``countdown`` is the operator-chosen backoff in seconds, applied as a Celery
+    ``countdown`` (best-effort, broker-side — ADR-0210 §2). ``0`` means dispatch
+    immediately. Returns the Celery ``AsyncResult`` id of the re-dispatched task so
+    the workflow can record it in history.
+    """
+    from celery import current_app
+
+    async_result = current_app.send_task(
+        task_name,
+        args=list(args) if args else [],
+        kwargs=dict(kwargs) if kwargs else {},
+        countdown=countdown or None,
+    )
+    logger.info(
+        "redispatch_dead_lettered_task: re-enqueued %s (countdown=%ss) as %s",
+        task_name,
+        countdown,
+        async_result.id,
+    )
+    return str(async_result.id)
+
+
 # ---------------------------------------------------------------------------
 # Monte Carlo run history — ADR-0175 (#961)
 # ---------------------------------------------------------------------------

@@ -34,3 +34,12 @@ schema:TokenObtainPair
 # no redirect shim; the new paths are present, only the old segments are removed.
 /api/v1/projects/{project_pk}/signal-privacy/raise_ceiling/
 /api/v1/projects/{project_pk}/signal-privacy/ratchet_down/
+
+# #695 (ADR-0210) — dead-letter write-action rename: the legacy retry/dismiss
+# actions (raw send_task side channel + note-less dismiss) are replaced by
+# requeue (durable workflow-backend round-trip + operator backoff) and drop
+# (soft-remove + audit note), plus the new bulk requeue_all/drop_all. The old
+# actions had no shipped consumers (#694 was read-only); the new paths are
+# present, only the old segments are removed.
+/api/v1/admin/failed-tasks/{id}/retry/
+/api/v1/admin/failed-tasks/{id}/dismiss/
