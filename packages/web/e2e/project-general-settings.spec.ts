@@ -11,6 +11,8 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * - Editing fields arms the save bar.
  * - Clicking Save issues a PATCH carrying every dirty field in one payload.
  * - Server validation errors (e.g. lowercase code) surface back to the user.
+ * - The working-calendar override picker (#968) seeds the current calendar,
+ *   PATCHes a new selection, and clears to null via "Inherit from workspace".
  */
 
 const ME_ID = 'user-alice';
@@ -49,6 +51,13 @@ const FIXTURE_PROJECT = {
   inherited_public_sharing: false,
   inherited_allow_guests: true,
 };
+
+// Org-level working calendars the override picker (#968) chooses from. Paginated
+// envelope — the endpoint uses the global PageNumberPagination default.
+const FIXTURE_CALENDARS = [
+  { id: 'cal-default', name: 'Workspace standard', working_days: [1, 2, 3, 4, 5], hours_per_day: 8 },
+  { id: 'cal-site', name: 'Site 6-day week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 },
+];
 
 type Page = import('@playwright/test').Page;
 type Route = import('@playwright/test').Route;
@@ -93,6 +102,14 @@ async function setup(
       status: 200,
       contentType: 'application/json',
       body: pj({ results: [], count: 0, next: null, previous: null }),
+    }),
+  );
+  // Working-calendar list feeding the override picker (#968).
+  await page.route('**/api/v1/calendars/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: FIXTURE_CALENDARS, count: FIXTURE_CALENDARS.length, next: null, previous: null }),
     }),
   );
   await page.route('**/api/v1/projects/', (r) =>
@@ -252,6 +269,52 @@ test.describe('Project Settings → General', () => {
       public_sharing: true,
       allow_guests: false,
     });
+  });
+
+  // #968: the working-calendar override picker. Seeds the current calendar id,
+  // lists the org calendars, and PATCHes the chosen id on save.
+  test('override picker seeds the current calendar and PATCHes a new selection on save', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // Seeds from FIXTURE_PROJECT.calendar = 'cal-default'.
+    const picker = section.getByLabel('Working calendar override');
+    await expect(picker).toHaveValue('cal-default');
+
+    await picker.selectOption('cal-site');
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({ calendar: 'cal-site' });
+  });
+
+  test('Inherit from workspace clears the calendar override to null on save (#968)', async ({
+    page,
+  }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const section = page.locator('[data-settings-section="general"]');
+    await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // Gate on the seeded override before clicking Inherit — the heading renders
+    // before the project GET resolves, and clicking pre-seed would set null over
+    // an already-null initial value (no dirty change, save bar never arms).
+    const picker = section.getByLabel('Working calendar override');
+    await expect(picker).toHaveValue('cal-default');
+
+    await section.getByRole('button', { name: 'Inherit from workspace' }).click();
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => captures.patch).toBeDefined();
+    expect(captures.patch).toMatchObject({ calendar: null });
   });
 
   // (c) Edge / read-only: a Member (role 100 < ADMIN) cannot override sharing.
