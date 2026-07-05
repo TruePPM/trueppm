@@ -304,6 +304,7 @@ export default defineConfig({
                 { slug: "features/velocity-calibration" },
                 { slug: "features/retrospective" },
                 { slug: "features/my-work" },
+                { slug: "features/timesheet" },
                 { slug: "features/multi-team-lens" },
               ],
             },

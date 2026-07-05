@@ -10,6 +10,7 @@ from trueppm_api.apps.timetracking.views import (
     MeTimerStartView,
     MeTimerStopView,
     MeTimerView,
+    MeTimesheetSubmitView,
     TaskTimeEntryView,
 )
 
@@ -32,6 +33,12 @@ urlpatterns = [
         "me/time-entries/<uuid:pk>/",
         MeTimeEntryDetailView.as_view(),
         name="me-time-entry-detail",
+    ),
+    # Weekly submission marker — submit / un-submit (ADR-0224).
+    path(
+        "me/timesheets/<str:week_start>/submit",
+        MeTimesheetSubmitView.as_view(),
+        name="me-timesheet-submit",
     ),
     # Running timer (user singleton).
     path("me/timer/", MeTimerView.as_view(), name="me-timer"),

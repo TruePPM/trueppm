@@ -79,6 +79,10 @@ const MyWorkPage = lazy(() =>
   import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage })),
 );
 
+const TimesheetPage = lazy(() =>
+  import('@/features/timesheet/TimesheetPage').then((m) => ({ default: m.TimesheetPage })),
+);
+
 const NotificationListPage = lazy(() =>
   import('@/features/me/NotificationListPage').then((m) => ({ default: m.NotificationListPage })),
 );
@@ -579,6 +583,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <MyWorkPage />
+              </Suspense>
+            ),
+          },
+          // Timesheet — weekly cross-project entry + submit (#1435, ADR-0224).
+          {
+            path: 'me/timesheet',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <TimesheetPage />
               </Suspense>
             ),
           },

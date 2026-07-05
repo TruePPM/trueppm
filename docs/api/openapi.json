@@ -4612,7 +4612,7 @@
         "/api/v1/me/time-entries/": {
             "get": {
                 "operationId": "v1_me_time_entries_retrieve",
-                "description": "``/api/v1/me/time-entries/?from=&to=`` — weekly cross-project rollup (ADR-0185 §4).\n\nDrives both the #1435 grid and the #1234 header rollup. Returns the caller's entries\nin the window across **all accessible projects**, plus precomputed totals (by_day,\nby_cell, today, week). The membership re-check (defence-in-depth, mirrors\n``/me/work``) drops entries on projects the user was removed from. ``select_related``\non task→project keeps the read N+1-bounded (asserted by ``assertNumQueries``); the\ntotals are folded from the already-fetched rows, adding no query.",
+                "description": "``/api/v1/me/time-entries/?from=&to=`` — weekly cross-project rollup (ADR-0185 §4).\n\nDrives both the #1435 grid and the #1234 header rollup. Returns the caller's entries\nin the window across **all accessible projects**, plus precomputed totals (by_day,\nby_cell, today, week) and the week's ``submission`` marker (ADR-0224). The membership\nre-check (defence-in-depth, mirrors ``/me/work``) drops entries on projects the user was\nremoved from. ``select_related`` on task→project keeps the read N+1-bounded (asserted by\n``assertNumQueries``); the totals are folded from the already-fetched rows, and the\nsubmission is a single indexed lookup, so the read stays a small constant of queries.",
                 "parameters": [
                     {
                         "in": "query",
@@ -4652,7 +4652,7 @@
                                 }
                             }
                         },
-                        "description": "Caller's entries in [from, to] across accessible projects with totals: {results: [<weekly entry>], totals: {by_day, by_cell, today_minutes, week_minutes}}."
+                        "description": "Caller's entries in [from, to] across accessible projects with totals: {results: [<weekly entry>], totals: {by_day, by_cell, today_minutes, week_minutes}, submission: {week_start, submitted, submitted_at}}. 'submission' reflects the Monday of 'from' (#1435 always requests a full Mon-Sun week)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -4967,6 +4967,110 @@
                     }
                 },
                 "summary": "Stop timer"
+            }
+        },
+        "/api/v1/me/timesheets/{week_start}/submit": {
+            "post": {
+                "operationId": "v1_me_timesheets_submit_create",
+                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nA per-user-per-week submission marker with no approver: entries stay editable after\nsubmit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The\nmarker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no\nother user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project\nto run ``CanLogTime`` against, and a marker with no entries is inert.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert\n(``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204\neven when no marker exists).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Week submitted: {week_start, submitted_at}."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Submit timesheet"
+            },
+            "delete": {
+                "operationId": "v1_me_timesheets_submit_destroy",
+                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nA per-user-per-week submission marker with no approver: entries stay editable after\nsubmit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The\nmarker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no\nother user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project\nto run ``CanLogTime`` against, and a marker with no entries is inert.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert\n(``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204\neven when no marker exists).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Week un-submitted; empty body."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete submit"
             }
         },
         "/api/v1/me/work/": {

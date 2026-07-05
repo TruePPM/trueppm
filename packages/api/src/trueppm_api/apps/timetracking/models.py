@@ -107,3 +107,40 @@ class ActiveTimer(models.Model):
 
     def __str__(self) -> str:
         return f"ActiveTimer({self.user_id} -> {self.task_id})"
+
+
+class TimesheetSubmission(models.Model):
+    """A contributor's "I marked this week done" signal — a per-user-per-week marker (ADR-0224).
+
+    Deliberately **not** a :class:`VersionedModel` (mirrors :class:`ActiveTimer`): submitting a
+    week is an inherently *online* action on a web-first surface, and the row carries no field a
+    client edits offline, so WatermelonDB version/tombstone machinery would churn sync for a
+    boolean-shaped signal. It is the whole submission state machine 0.4 ships — no approver, no
+    lock, no return; the 0.5 approval epic (#100) reads or extends this row's existence +
+    ``submitted_at`` as its "Submitted" signal without migrating :class:`TimeEntry`.
+
+    ``week_start`` is canonicalized to the ISO Monday by the view before write, so the
+    ``(user, week_start)`` uniqueness cannot fragment into off-by-a-day rows. Un-submit hard-
+    deletes the row (no tombstone — not sync-eligible).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="timesheet_submissions",
+    )
+    week_start = models.DateField()
+    submitted_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "timetracking_timesheet_submission"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "week_start"],
+                name="uniq_timesheet_submission_user_week",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"TimesheetSubmission({self.user_id}, week of {self.week_start})"
