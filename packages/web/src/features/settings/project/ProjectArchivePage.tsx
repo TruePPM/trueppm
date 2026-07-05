@@ -93,7 +93,7 @@ function LifecycleCard({
 }
 
 /**
- * Async export bundle card (#1266, ADR-0219): queue a richer .tar.gz (JSON seed +
+ * Async export bundle card (issue 1266, ADR-0219): queue a richer .tar.gz (JSON seed +
  * MS Project XML + attachments + time entries + audit history), poll queued →
  * running → ready-to-download / failed, then download through the authenticated
  * endpoint. Distinct from the synchronous JSON-seed "Export project" card above:

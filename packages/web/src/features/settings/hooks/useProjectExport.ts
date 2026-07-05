@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 
 /**
- * Async project export bundle hooks (#1266, ADR-0219). Mirrors the workspace
+ * Async project export bundle hooks (issue 1266, ADR-0219). Mirrors the workspace
  * export hooks (useWorkspaceLifecycle) at the project grain: POST enqueues a job,
  * a polled GET tracks status pending → running → success/failed, and a blob GET
  * streams the authenticated download. The richer counterpart to the synchronous
