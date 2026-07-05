@@ -30507,7 +30507,7 @@
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
-                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
                 "tags": [
                     "workspace"
                 ],
@@ -30544,7 +30544,7 @@
             },
             "put": {
                 "operationId": "v1_workspace_email_settings_update",
-                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
                 "tags": [
                     "workspace"
                 ],
@@ -30581,7 +30581,7 @@
             },
             "patch": {
                 "operationId": "v1_workspace_email_settings_partial_update",
-                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0211). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).",
+                "description": "``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.\n\nUpgrades the #639 read-only status page to the writable surface (#712,\nADR-0213). ``GET`` is org-admin readable so any workspace admin can see the\nposture; **writes** (``PUT``/``PATCH``) require the install operator\n(superuser) because the transport is installation-global — a single-project\nadmin must not be able to repoint all outbound mail at an attacker relay\n(security review C1). The password is write-only and never echoed. A save is\nrejected (400) if the candidate transport can't be opened, so a bad config\ncan't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).",
                 "tags": [
                     "workspace"
                 ],
@@ -30620,7 +30620,7 @@
         "/api/v1/workspace/email-settings/health/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_health_retrieve",
-                "description": "``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.\n\nLive, bounded DNS TXT lookups on the persisted From-address domain (never a\ndomain from request input). Operator-gated and tightly throttled — the\nlookups are an egress surface (ADR-0211 §4, security review M4/H3).",
+                "description": "``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.\n\nLive, bounded DNS TXT lookups on the persisted From-address domain (never a\ndomain from request input). Operator-gated and tightly throttled — the\nlookups are an egress surface (ADR-0213 §4, security review M4/H3).",
                 "tags": [
                     "workspace"
                 ],

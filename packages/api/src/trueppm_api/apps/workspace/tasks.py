@@ -305,7 +305,7 @@ def _send_export_ready_email(job_id: str) -> bool:
         resolve_from_email,
     )
 
-    # Send on the workspace SMTP transport (#712, ADR-0211); no-op fall back to
+    # Send on the workspace SMTP transport (#712, ADR-0213); no-op fall back to
     # the global backend when unconfigured.
     msg = EmailMessage(
         subject=subject,
@@ -391,7 +391,7 @@ def _send_invite_email(invite: object) -> bool:
         resolve_from_email,
     )
 
-    # Send on the workspace SMTP transport (#712, ADR-0211); no-op fall back to
+    # Send on the workspace SMTP transport (#712, ADR-0213); no-op fall back to
     # the global backend when unconfigured.
     msg = EmailMessage(
         subject=subject,

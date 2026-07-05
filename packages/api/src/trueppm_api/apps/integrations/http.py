@@ -209,7 +209,7 @@ def assert_host_allowed(host: str, port: int) -> None:
     resolved address must be globally routable) but without the ``http``/
     ``https`` scheme gate, which would reject an SMTP target outright. Reused by
     the workspace-SMTP serializer (validate-at-save) *and* the connection
-    resolver (re-validate at send, closing the DNS-rebinding gap — ADR-0211 §4).
+    resolver (re-validate at send, closing the DNS-rebinding gap — ADR-0213 §4).
 
     Raises:
         EgressBlocked: Missing host or a resolved address is private /

@@ -1,6 +1,6 @@
 """Deliverability (SPF / DKIM / DMARC) health checks for the From domain.
 
-Live DNS TXT lookups for the workspace From-address domain (#712, ADR-0211 §4).
+Live DNS TXT lookups for the workspace From-address domain (#712, ADR-0213 §4).
 Bounded and defensive per the security review (M4): a short per-query timeout, a
 capped number of records, TXT-only lookups (never opens a connection to the
 domain), and the target domain is derived solely from the *persisted, validated*

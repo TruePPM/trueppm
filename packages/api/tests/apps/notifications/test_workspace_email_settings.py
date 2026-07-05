@@ -1,4 +1,4 @@
-"""Tests for the writable workspace SMTP configuration (#712, ADR-0211).
+"""Tests for the writable workspace SMTP configuration (#712, ADR-0213).
 
 Covers the security-critical contracts from the pre-build review: password
 encrypted at rest + never echoed, superuser-only writes (C1), validate-before-

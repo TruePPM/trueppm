@@ -1,4 +1,4 @@
-"""Dynamic outbound-mail connection resolution (#712, ADR-0211).
+"""Dynamic outbound-mail connection resolution (#712, ADR-0213).
 
 All transactional mail is sent through a connection returned by
 :func:`resolve_email_connection`, which reads the writable
@@ -8,7 +8,7 @@ process-global ``EMAIL_BACKEND`` when a transport is configured. When the
 workspace transport is ``cloud`` (the unconfigured default) it falls back to the
 global backend, so a fresh install behaves exactly as it did before #712.
 
-Security posture (ADR-0211 §4, security review C1/H1/H2/M1):
+Security posture (ADR-0213 §4, security review C1/H1/H2/M1):
 - The custom SMTP / SES host is SSRF-checked with ``assert_host_allowed`` both
   at save (serializer) *and* here at send time — closing the DNS-rebinding
   window where a host resolves public at save and private at send.
@@ -38,7 +38,7 @@ _SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 
 # Provider-fixed relay parameters. SendGrid's SMTP relay uses a constant host and
 # the literal username "apikey" (the API key travels as the password); SES uses a
-# region-specific host that the UI composes into ``host`` (ADR-0211 §2). Both are
+# region-specific host that the UI composes into ``host`` (ADR-0213 §2). Both are
 # STARTTLS on 587, so 0.4 needs no backend class beyond Django's SMTP backend.
 SENDGRID_HOST = "smtp.sendgrid.net"
 SENDGRID_PORT = 587
@@ -121,7 +121,7 @@ def build_smtp_connection(
 
 
 def _assert_host_public(host: str, port: int) -> None:
-    """SSRF guard for the SMTP relay host (ADR-0211 §4). Blocks internal targets.
+    """SSRF guard for the SMTP relay host (ADR-0213 §4). Blocks internal targets.
 
     A DNS-resolution failure is allowed through (the host may resolve later and
     the actual connect will fail cleanly), mirroring the webhook-URL validator;
@@ -154,7 +154,7 @@ def probe_transport(
 ) -> None:
     """Open and immediately close a candidate SMTP connection, or raise.
 
-    The validate-before-persist gate (ADR-0211 §3): a bad transport must be
+    The validate-before-persist gate (ADR-0213 §3): a bad transport must be
     rejected *before* the row is written so the workspace can't be locked out of
     mail. Raises :class:`EmailTransportError` with a **generic** message on any
     build or connect failure — the underlying ``smtplib`` exception (which can
@@ -198,7 +198,7 @@ def resolve_email_connection(
     On a decrypt failure (e.g. the encryption key rotated out from under a
     stored row) this logs a distinct warning and falls back to the global
     backend rather than letting one corrupt row dead-letter the whole drain
-    batch (ADR-0211 §Durable-Execution 8, security review L3).
+    batch (ADR-0213 §Durable-Execution 8, security review L3).
     """
     from .models import EmailTransportMode, WorkspaceEmailSettings
 

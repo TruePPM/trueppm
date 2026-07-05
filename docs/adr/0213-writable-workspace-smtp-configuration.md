@@ -1,4 +1,4 @@
-# ADR-0211: Writable Workspace SMTP Configuration
+# ADR-0213: Writable Workspace SMTP Configuration
 
 ## Status
 Accepted (2026-07-04) — implemented in #712

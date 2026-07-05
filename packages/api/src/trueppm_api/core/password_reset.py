@@ -216,7 +216,7 @@ def send_password_reset_email(user: Any) -> bool:
         return False
 
     subject, text_body, html_body = _render_password_reset_email(user, reset_url)
-    # Route through the workspace SMTP transport (#712, ADR-0211) so BYO-SMTP
+    # Route through the workspace SMTP transport (#712, ADR-0213) so BYO-SMTP
     # installs deliver reset mail on the same transport as everything else; a
     # no-op fall back to the global backend when the workspace is unconfigured.
     from trueppm_api.apps.notifications.email_backend import (

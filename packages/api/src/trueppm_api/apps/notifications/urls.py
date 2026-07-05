@@ -54,7 +54,7 @@ urlpatterns = [
         ProjectNotificationPreferenceView.as_view(),
         name="project-notification-preferences",
     ),
-    # Workspace Email & SMTP — writable transport config (#712, ADR-0211),
+    # Workspace Email & SMTP — writable transport config (#712, ADR-0213),
     # upgrading the #639 read-only status surface at the same path.
     path(
         "workspace/email-settings/",

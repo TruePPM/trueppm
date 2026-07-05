@@ -743,7 +743,7 @@ REST_FRAMEWORK = {
         # "Resend all" is one request → one bucket hit, so it cannot be looped past
         # the cap.
         "invite_resend": "5/min",
-        # Workspace SMTP config (#712, ADR-0211). Writes re-open a candidate SMTP
+        # Workspace SMTP config (#712, ADR-0213). Writes re-open a candidate SMTP
         # connection (validate-before-persist); "probe" covers the two outbound
         # amplifiers — send-test (opens a real SMTP socket) and the deliverability
         # health check (fires live DNS TXT lookups). Both are blind-SSRF / egress

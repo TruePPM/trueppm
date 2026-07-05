@@ -591,7 +591,7 @@ class ProjectNotificationPreference(models.Model):
 
 
 # ---------------------------------------------------------------------------
-# Workspace SMTP configuration (#712, ADR-0211)
+# Workspace SMTP configuration (#712, ADR-0213)
 # ---------------------------------------------------------------------------
 
 
@@ -602,7 +602,7 @@ class EmailTransportMode(models.TextChoices):
     process-global Django ``EMAIL_BACKEND`` (Helm env), so a fresh install
     behaves exactly as it did before #712. The other three build an SMTP
     connection from this row; ``SENDGRID`` / ``SES`` are SMTP relays with a
-    provider-fixed host so 0.4 needs no new backend class (ADR-0211 §2).
+    provider-fixed host so 0.4 needs no new backend class (ADR-0213 §2).
     """
 
     CLOUD = "cloud", "TruePPM cloud (Django settings)"
@@ -620,7 +620,7 @@ class EmailSecurity(models.TextChoices):
 
 
 class WorkspaceEmailSettings(models.Model):
-    """Singleton writable SMTP configuration for the workspace (#712, ADR-0211).
+    """Singleton writable SMTP configuration for the workspace (#712, ADR-0213).
 
     Installation config, not a synced/board-scoped resource, so there is no
     ``server_version``. Single-row is enforced by the unique ``singleton_key``

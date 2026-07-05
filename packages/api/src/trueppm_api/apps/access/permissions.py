@@ -993,7 +993,7 @@ class IsWorkspaceOperator(BasePermission):
     mail transport being the first — govern the *entire installation*, not one
     project. ``IsOrgAdmin`` grants write access off a single project's ADMIN
     role, which would let a low-trust project admin repoint every outbound
-    message (including reset/invite mail) at an attacker relay (ADR-0211 C1).
+    message (including reset/invite mail) at an attacker relay (ADR-0213 C1).
     Mail-transport writes therefore require the install operator: a Django
     superuser. In OSS there is no separate org-operator entity, so superuser is
     the correct and only such principal; Enterprise may widen this via a

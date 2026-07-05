@@ -232,7 +232,7 @@ class ProjectNotificationPreferenceSerializer(
 
 
 class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmailSettings]):
-    """Read/write serializer for the workspace SMTP singleton (#712, ADR-0211).
+    """Read/write serializer for the workspace SMTP singleton (#712, ADR-0213).
 
     The password is **write-only** and never echoed — the response carries only
     ``password_is_set``. On update, an omitted/blank ``password`` keeps the

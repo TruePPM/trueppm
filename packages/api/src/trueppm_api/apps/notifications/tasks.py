@@ -163,7 +163,7 @@ def _do_drain_emails() -> None:
 
     # Resolve the workspace transport + From identity ONCE per batch — the config
     # is constant across the batch, so building it per message would be N SMTP
-    # connections + N single-row reads per tick (#712 perf, ADR-0211). A build
+    # connections + N single-row reads per tick (#712 perf, ADR-0213). A build
     # failure here (e.g. a corrupt row) falls back to the global backend inside
     # resolve_email_connection, so the batch never dead-letters on config alone.
     from .email_backend import (
@@ -306,7 +306,7 @@ def _send_email_for_notification(
         return False
 
     # Dynamic transport + From identity from the workspace SMTP config (#712,
-    # ADR-0211). Falls back to the global backend / DEFAULT_FROM_EMAIL when the
+    # ADR-0213). Falls back to the global backend / DEFAULT_FROM_EMAIL when the
     # workspace transport is unconfigured (cloud), so this is a no-op for installs
     # that never touch the writable config.
     if connection is None:

@@ -356,13 +356,13 @@ class WorkspaceEmailSettingsView(APIView):
     """``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.
 
     Upgrades the #639 read-only status page to the writable surface (#712,
-    ADR-0211). ``GET`` is org-admin readable so any workspace admin can see the
+    ADR-0213). ``GET`` is org-admin readable so any workspace admin can see the
     posture; **writes** (``PUT``/``PATCH``) require the install operator
     (superuser) because the transport is installation-global — a single-project
     admin must not be able to repoint all outbound mail at an attacker relay
     (security review C1). The password is write-only and never echoed. A save is
     rejected (400) if the candidate transport can't be opened, so a bad config
-    can't lock the workspace out of mail (validate-before-persist, ADR-0211 §3).
+    can't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).
     """
 
     permission_classes = [IsAuthenticated, IsOrgAdmin]
@@ -464,7 +464,7 @@ class WorkspaceEmailHealthView(APIView):
 
     Live, bounded DNS TXT lookups on the persisted From-address domain (never a
     domain from request input). Operator-gated and tightly throttled — the
-    lookups are an egress surface (ADR-0211 §4, security review M4/H3).
+    lookups are an egress surface (ADR-0213 §4, security review M4/H3).
     """
 
     permission_classes = [IsAuthenticated, IsWorkspaceOperator]

@@ -1,5 +1,5 @@
 /**
- * Writable workspace Email & SMTP configuration (#712, ADR-0211).
+ * Writable workspace Email & SMTP configuration (#712, ADR-0213).
  *
  * Upgrades the #639 read-only status hook to the writable surface: the transport
  * (TruePPM cloud / custom SMTP / SendGrid / SES), From identity, DKIM, delivery

@@ -1,5 +1,5 @@
 /**
- * Workspace → Settings → Email & SMTP — writable transport config (#712, ADR-0211).
+ * Workspace → Settings → Email & SMTP — writable transport config (#712, ADR-0213).
  *
  * Upgrades the #639 read-only status page to the writable admin surface: pick a
  * transport (TruePPM cloud / custom SMTP / SendGrid / SES), enter credentials
