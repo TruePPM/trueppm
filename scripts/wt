@@ -7,6 +7,15 @@
 #                                         comment) so parallel agents don't grab it;
 #                                         refuses an already-checked-out issue unless
 #                                         --force is passed to take it over.
+#                                         Auto-reserves an ADR number for feat/*
+#                                         branches (--no-adr to skip; --adr to force
+#                                         on any branch).
+#   scripts/wt reserve adr                Atomically reserve the next free ADR number
+#                                         and print it, so parallel worktrees can't
+#                                         claim the same one. Recorded in a shared
+#                                         ledger + the worktree's .wt-reservation.
+#   scripts/wt reserve migration <app>    Same, for the next migration number in the
+#                                         given Django app.
 #   scripts/wt claim <issue> [--force]    Check out an issue WITHOUT creating a
 #                                         worktree yet (you picked it up but haven't
 #                                         started). Same lock as `new`.
@@ -79,6 +88,21 @@ WT_GRACE_MIN="${TRUEPPM_WT_GRACE_MIN:-30}"
 WT_GRACE_SEC=$(( WT_GRACE_MIN * 60 ))
 # Per-worktree owner/liveness marker, stamped at creation (see write_owner_marker).
 WT_OWNER_FILE=".wt-owner"
+# Per-worktree number-reservation marker (untracked). Records the ADR / migration
+# numbers this worktree holds so the agent working in it can see them. Treated as
+# auto-created by the remove/prune dirty checks, alongside .envrc and .wt-owner.
+WT_RESERVATION_FILE=".wt-reservation"
+# Shared number-reservation ledger + its lock, kept in the git COMMON dir so every
+# worktree of this repo reads and writes the SAME file (a per-worktree file would
+# defeat the whole point). GIT_COMMON_DIR may be relative (".git" in the main
+# checkout) or absolute (in a secondary worktree); resolve to an absolute path the
+# same way REPO_ROOT is derived above.
+GIT_COMMON_DIR_ABS="$(cd "$CURRENT_TOPLEVEL" && cd "$GIT_COMMON_DIR" && pwd)"
+WT_LEDGER="${GIT_COMMON_DIR_ABS}/trueppm-wt-reservations.tsv"
+WT_LEDGER_LOCK="${GIT_COMMON_DIR_ABS}/trueppm-wt-reservations.lock"
+# A crashed reservation leaves the mkdir-lock behind; break it once it's older
+# than this (seconds) so the ledger can never wedge permanently.
+WT_LEDGER_LOCK_STALE_SEC="${TRUEPPM_WT_LOCK_STALE_SEC:-30}"
 
 # ---------------------------------------------------------------------------
 # Output helpers
@@ -239,6 +263,120 @@ branch_pushed() {
 }
 
 # ---------------------------------------------------------------------------
+# Number reservation ledger
+# ---------------------------------------------------------------------------
+#
+# Parallel worktree agents each computed "next ADR = max(on main) + 1" and all
+# landed on the SAME number, so the CI collision gate had to bounce the 2nd/3rd
+# MR to renumber (the recurring three-way ADR / double-migration collisions). This
+# ledger makes collisions structurally impossible for concurrent LOCAL worktrees:
+# reserving a number is an atomic claim recorded in a shared file — kept in the git
+# common dir so every worktree sees it — guarded by a portable mkdir-lock (flock(1)
+# is absent on macOS). The next number is one past the max seen across three
+# sources: the working tree, origin/main, and outstanding reservations. Collisions
+# across machines / open MRs still fall to the CI lint:adr-collisions gate; this is
+# the local first line of defense, not a replacement for it.
+#
+# Ledger rows are TSV: <kind>\t<key>\t<number>\t<branch>\t<iso8601>
+#   kind   = adr | migration
+#   key    = "-" for adr (one global sequence); the app name for migration (per-app)
+#   number = zero-padded 4-digit string, e.g. 0217
+
+# Acquire the ledger lock. `mkdir` is atomic on POSIX, so it doubles as the lock.
+# Breaks a lock left behind by a crashed process once it is older than the stale
+# window. Returns non-zero (with a warning) rather than blocking forever, so a
+# wedged lock degrades to a possibly-racy reservation instead of a hang.
+ledger_lock() {
+  local waited=0 lock_age now
+  while ! mkdir "$WT_LEDGER_LOCK" 2>/dev/null; do
+    lock_age="$(stat -c %Y "$WT_LEDGER_LOCK" 2>/dev/null || stat -f %m "$WT_LEDGER_LOCK" 2>/dev/null || true)"
+    now="$(date +%s)"
+    if [[ "$lock_age" =~ ^[0-9]+$ ]] && (( now - lock_age > WT_LEDGER_LOCK_STALE_SEC )); then
+      rmdir "$WT_LEDGER_LOCK" 2>/dev/null || true
+      continue
+    fi
+    waited=$(( waited + 1 ))
+    if (( waited > 100 )); then
+      warn "reservation ledger lock busy >10s; proceeding without it (reservation may race)"
+      return 1
+    fi
+    sleep 0.1
+  done
+  return 0
+}
+
+ledger_unlock() { rmdir "$WT_LEDGER_LOCK" 2>/dev/null || true; }
+
+# Max integer read from stdin (one per line); 0 if empty. `$1+0` coerces the field
+# numerically so a zero-padded "0217" reads as decimal 217 — awk does not treat a
+# leading-zero string field as octal, so this is safe.
+max_int() { awk '{ n=$1+0; if (n>m) m=n } END { print m+0 }'; }
+
+# Highest 4-digit LEADING number among the basenames on stdin. Full paths are ok:
+# the dir prefix is stripped first, so a 4-digit run inside a title (e.g. a year)
+# can never outrank the real leading sequence number.
+max_leading_number() { sed -E 's#.*/##' | grep -oE '^[0-9]{4}' | max_int; }
+
+# All reserved numbers currently in the ledger for a kind+key.
+ledger_numbers() {
+  local kind="$1" key="$2"
+  [[ -f "$WT_LEDGER" ]] || return 0
+  awk -F'\t' -v k="$kind" -v key="$key" '$1==k && $2==key { print $3 }' "$WT_LEDGER" 2>/dev/null || true
+}
+
+# Next free ADR number (global sequence) as a zero-padded 4-digit string.
+next_adr_number() {
+  local max=0 n
+  n="$( { ls "$REPO_ROOT/docs/adr" 2>/dev/null || true; } | max_leading_number || true )";                          (( n > max )) && max="$n"
+  n="$( git -C "$REPO_ROOT" ls-tree -r --name-only origin/main -- docs/adr/ 2>/dev/null | max_leading_number || true )"; (( n > max )) && max="$n"
+  n="$( ledger_numbers adr - | max_int || true )";                                                                   (( n > max )) && max="$n"
+  printf '%04d' $(( max + 1 ))
+}
+
+# Next free migration number for a Django app as a zero-padded 4-digit string.
+next_migration_number() {
+  local app="$1" max=0 n
+  local mig="packages/api/src/trueppm_api/apps/${app}/migrations"
+  n="$( { ls "$REPO_ROOT/$mig" 2>/dev/null || true; } | max_leading_number || true )";                       (( n > max )) && max="$n"
+  n="$( git -C "$REPO_ROOT" ls-tree -r --name-only origin/main -- "$mig/" 2>/dev/null | max_leading_number || true )"; (( n > max )) && max="$n"
+  n="$( ledger_numbers migration "$app" | max_int || true )";                                                (( n > max )) && max="$n"
+  printf '%04d' $(( max + 1 ))
+}
+
+# Append a reservation row. Caller holds the lock.
+ledger_record() {
+  local kind="$1" key="$2" number="$3" branch="$4" ts
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$kind" "$key" "$number" "$branch" "$ts" >> "$WT_LEDGER"
+}
+
+# Drop every reservation row for a branch — called when its worktree is removed or
+# pruned, so a reserved-but-unused number is freed for reuse.
+ledger_release_branch() {
+  local branch="$1"
+  [[ -f "$WT_LEDGER" ]] || return 0
+  ledger_lock || true
+  local tmp="${WT_LEDGER}.$$.tmp"
+  if awk -F'\t' -v b="$branch" '$4 != b' "$WT_LEDGER" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$WT_LEDGER"
+  else
+    rm -f "$tmp"
+  fi
+  ledger_unlock
+}
+
+# Record a reservation into a worktree's untracked .wt-reservation marker so the
+# agent working there can see which number it holds.
+stamp_reservation() {
+  local wt_path="$1" kind="$2" number="$3" key="${4:-}"
+  if [[ "$kind" == "migration" ]]; then
+    printf 'migration.%s=%s\n' "$key" "$number" >> "$wt_path/$WT_RESERVATION_FILE" 2>/dev/null || true
+  else
+    printf '%s=%s\n' "$kind" "$number" >> "$wt_path/$WT_RESERVATION_FILE" 2>/dev/null || true
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Issue check-out lock
 # ---------------------------------------------------------------------------
 #
@@ -329,14 +467,16 @@ assert_claimable() {
 # ---------------------------------------------------------------------------
 
 cmd_new() {
-  local input="" force=""
+  local input="" force="" adr_flag="" no_adr=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --force) force="1"; shift ;;
-      *)       [[ -z "$input" ]] && input="$1"; shift ;;
+      --force)  force="1"; shift ;;
+      --adr)    adr_flag="1"; shift ;;
+      --no-adr) no_adr="1"; shift ;;
+      *)        [[ -z "$input" ]] && input="$1"; shift ;;
     esac
   done
-  [[ -n "$input" ]] || die "usage: wt new <issue|branch-name> [--force]"
+  [[ -n "$input" ]] || die "usage: wt new <issue|branch-name> [--force] [--adr|--no-adr]"
   local branch
   branch="$(derive_branch_name "$input")"
   local short_name="${branch##*/}"
@@ -427,6 +567,24 @@ EOF
   # column so a parallel agent's fresh worktree is visibly, structurally protected.
   write_owner_marker "$target_path" "$branch" "$issue"
 
+  # Auto-reserve an ADR for feature branches — the collision-prone case, since each
+  # parallel feature agent's architect step writes an ADR. fix/chore/docs skip it
+  # (they rarely add one) unless --adr; --no-adr suppresses it for a feature branch
+  # that won't. Reserving here, at creation, is what makes the number collision-free
+  # before the agent ever runs architect.
+  local reserve_adr=""
+  case "$branch" in feat/*) reserve_adr="1" ;; esac
+  [[ -n "$adr_flag" ]] && reserve_adr="1"
+  [[ -n "$no_adr" ]] && reserve_adr=""
+  if [[ -n "$reserve_adr" ]]; then
+    ledger_lock || true
+    local adr_num; adr_num="$(next_adr_number)"
+    ledger_record adr - "$adr_num" "$branch"
+    ledger_unlock
+    stamp_reservation "$target_path" adr "$adr_num"
+    ok "reserved ADR-$adr_num for this worktree (use it for docs/adr/${adr_num}-<slug>.md)"
+  fi
+
   # Check out the issue now that the worktree exists (best-effort GitLab lock).
   if [[ -n "$issue" ]] && lock_available; then
     apply_lock "$issue" "$branch" "$target_path"
@@ -467,6 +625,14 @@ cmd_list() {
     printf "  %-50s  %-6s  %-4s  %-6s  %s\n" \
       "$branch" "$issue" "$(humanize_age "$(worktree_age_seconds "$path")")" "$pushed" "$path"
   done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+
+  # Outstanding ADR / migration reservations held by active branches.
+  if [[ -s "$WT_LEDGER" ]]; then
+    say ""
+    printf "  %-9s  %-14s  %-6s  %s\n" "RESERVED" "APP" "NUMBER" "BRANCH"
+    awk -F'\t' '{ printf "  %-9s  %-14s  %-6s  %s\n", $1, ($2=="-"?"—":$2), $3, $4 }' "$WT_LEDGER"
+  fi
+
   say ""
   if (( count == 0 )); then
     dim "  (none — use 'wt new <issue>' to create one)"
@@ -503,7 +669,7 @@ cmd_remove() {
     # script. Trailing `|| true` keeps the count at 0 in the clean case.
     unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
       | awk '/^\?\? / {print $2}' \
-      | grep -Ev '^(\.envrc|\.wt-owner|packages/api/\.venv|packages/web/node_modules)$' \
+      | grep -Ev '^(\.envrc|\.wt-owner|\.wt-reservation|packages/api/\.venv|packages/web/node_modules)$' \
       || true ) | wc -l | tr -d ' ')"
     if (( unexpected_untracked > 0 )) && [[ "$force" != "--force" ]]; then
       die "$path has $unexpected_untracked untracked file(s) beyond the auto-created set. Stash/commit them, or re-run with --force."
@@ -514,6 +680,9 @@ cmd_remove() {
   # "untracked" from git's POV and would otherwise block removal.
   git -C "$REPO_ROOT" worktree remove --force "$path"
   ok "removed worktree $path"
+
+  # Free any ADR / migration numbers this branch reserved but may not have used.
+  [[ -n "$rm_branch" ]] && ledger_release_branch "$rm_branch"
 
   # Release the issue check-out (best-effort).
   if [[ -n "$rm_issue" ]] && lock_available; then
@@ -586,7 +755,7 @@ cmd_prune() {
     tracked_dirty="$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
     unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
       | awk '/^\?\? / {print $2}' \
-      | grep -Ev '^(\.envrc|\.wt-owner|packages/api/\.venv|packages/web/node_modules)$' \
+      | grep -Ev '^(\.envrc|\.wt-owner|\.wt-reservation|packages/api/\.venv|packages/web/node_modules)$' \
       || true ) | wc -l | tr -d ' ')"
 
     if [[ "$force" != "--force" ]] && (( tracked_dirty > 0 || unexpected_untracked > 0 )); then
@@ -597,6 +766,9 @@ cmd_prune() {
 
     git -C "$REPO_ROOT" worktree remove --force "$path"
     ok "  $branch: removed (merged to main, remote gone)"
+    # Free any numbers this branch reserved (merged ADRs/migrations are now on disk;
+    # unused reservations should not linger and block reuse).
+    ledger_release_branch "$branch"
     # Release the issue check-out for the pruned branch (best-effort).
     local prune_issue
     prune_issue="$(issue_from_branch "$branch")"
@@ -693,6 +865,43 @@ cmd_release() {
   ok "released check-out of #$issue"
 }
 
+# Reserve the next free ADR or migration number atomically. The reserved number is
+# printed on STDOUT (zero-padded, nothing else) and the human context on STDERR, so
+# it composes cleanly:  NUM="$(scripts/wt reserve adr)". Records the claim in the
+# shared ledger and the current worktree's .wt-reservation marker.
+cmd_reserve() {
+  local kind="${1:-}" branch number
+  branch="$(git -C "$CURRENT_TOPLEVEL" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')"
+  case "$kind" in
+    adr)
+      ledger_lock || true
+      number="$(next_adr_number)"
+      ledger_record adr - "$number" "$branch"
+      ledger_unlock
+      stamp_reservation "$CURRENT_TOPLEVEL" adr "$number"
+      printf "wt: reserved ADR-%s for %s — create docs/adr/%s-<slug>.md\n" "$number" "$branch" "$number" >&2
+      printf '%s\n' "$number"
+      ;;
+    migration)
+      local app="${2:-}"
+      [[ -n "$app" ]] || die "usage: wt reserve migration <app>"
+      [[ -d "$REPO_ROOT/packages/api/src/trueppm_api/apps/${app}/migrations" ]] \
+        || die "unknown app '$app' (no packages/api/src/trueppm_api/apps/${app}/migrations)"
+      ledger_lock || true
+      number="$(next_migration_number "$app")"
+      ledger_record migration "$app" "$number" "$branch"
+      ledger_unlock
+      stamp_reservation "$CURRENT_TOPLEVEL" migration "$number" "$app"
+      printf "wt: reserved %s migration %s for %s\n" "$app" "$number" "$branch" >&2
+      printf '%s\n' "$number"
+      ;;
+    ""|help|-h|--help)
+      die "usage: wt reserve <adr | migration <app>>" ;;
+    *)
+      die "unknown reserve kind '$kind' (expected: adr | migration <app>)" ;;
+  esac
+}
+
 cmd_help() {
   sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
 }
@@ -703,6 +912,7 @@ cmd_help() {
 
 case "${1:-help}" in
   new)     shift; cmd_new "$@" ;;
+  reserve) shift; cmd_reserve "$@" ;;
   claim)   shift; cmd_claim "$@" ;;
   release) shift; cmd_release "$@" ;;
   list|ls) cmd_list ;;

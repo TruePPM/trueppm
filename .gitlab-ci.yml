@@ -430,9 +430,11 @@ scripts:test:
   #   - release-preflight — the pre-tag image Trivy scan, incl. the TRIVY_VERSION
   #     lockstep with this file (#1391). That lockstep is why .gitlab-ci.yml is a
   #     trigger below: a Trivy bump here that forgets release.sh must fail here.
-  # There is no other test harness for the release scripts, so guard the logic
+  #   - wt — the worktree helper's ADR/migration number reservation (the atomic
+  #     claim that stops parallel agents colliding on the same number).
+  # There is no other test harness for these scripts, so guard the logic
   # directly. Pinned python image (bash + python3, zero installs), ~5s. Only runs
-  # when the release tooling it covers — or the CI Trivy pin — changes.
+  # when the tooling it covers — or the CI Trivy pin — changes.
   #
   # Note: this image runs bash 5, so it cannot catch a bash-3.2 regression on the
   # macOS release machine; assemble-changelog.test.sh guards that statically.
@@ -444,26 +446,31 @@ scripts:test:
         - scripts/rotate-scheduler-changelog.sh
         - scripts/assemble-changelog.sh
         - scripts/release.sh
+        - scripts/wt
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-reserve.test.sh
         - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == "main"'
       changes:
         - scripts/rotate-scheduler-changelog.sh
         - scripts/assemble-changelog.sh
         - scripts/release.sh
+        - scripts/wt
         - scripts/tests/rotate-scheduler-changelog.test.sh
         - scripts/tests/assemble-changelog.test.sh
         - scripts/tests/release-staging.test.sh
         - scripts/tests/release-preflight.test.sh
+        - scripts/tests/wt-reserve.test.sh
         - .gitlab-ci.yml
   script:
     - bash scripts/tests/rotate-scheduler-changelog.test.sh
     - bash scripts/tests/assemble-changelog.test.sh
     - bash scripts/tests/release-staging.test.sh
     - bash scripts/tests/release-preflight.test.sh
+    - bash scripts/tests/wt-reserve.test.sh
 
 boundary:check:
   extends: .fast-job
