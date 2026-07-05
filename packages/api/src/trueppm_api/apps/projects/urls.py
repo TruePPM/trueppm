@@ -49,6 +49,7 @@ from trueppm_api.apps.projects.views import (
     FlowMetricsView,
     MeActiveSprintsView,
     MeWorkView,
+    MyApiTokenViewSet,
     PhaseReorderView,
     PhaseViewSet,
     ProgramApiTokenAuditView,
@@ -614,6 +615,17 @@ urlpatterns = [
         "me/work/",
         MeWorkView.as_view(),
         name="me-work",
+    ),
+    # Personal Access Tokens — user-scoped API credentials (ADR-0214, issue #648)
+    path(
+        "me/api-tokens/",
+        MyApiTokenViewSet.as_view({"get": "list", "post": "create"}),
+        name="me-api-tokens-list",
+    ),
+    path(
+        "me/api-tokens/<pk>/",
+        MyApiTokenViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="me-api-tokens-detail",
     ),
     # Inbound task-sync — ADR-0068 (ADR-0065 Gap 3, issue #500)
     path(

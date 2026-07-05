@@ -5770,6 +5770,69 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         return value
 
 
+class MyApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
+    """Read serializer for a user's own Personal Access Tokens (ADR-0214).
+
+    Scoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user
+    so it is not exposed. The raw token and ``token_hash`` are never serialized;
+    the caller sees ``token_prefix`` only (enough to tell tokens apart) plus the
+    lifecycle state it needs to render the list (expiry, revocation, last use).
+    """
+
+    is_revoked = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectApiToken
+        fields = [
+            "id",
+            "name",
+            "token_prefix",
+            "scopes",
+            "created_at",
+            "last_used_at",
+            "expires_at",
+            "revoked_at",
+            "is_revoked",
+            "is_expired",
+        ]
+        read_only_fields = fields
+
+    def get_is_revoked(self, obj: ProjectApiToken) -> bool:
+        return obj.revoked_at is not None
+
+    def get_is_expired(self, obj: ProjectApiToken) -> bool:
+        return obj.is_expired
+
+
+class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
+    """Write serializer for minting a Personal Access Token (ADR-0214).
+
+    Accepts ``name`` (required) and an optional ``expires_at``. Scopes are fixed
+    to ``['legacy:full']`` server-side — v1 PATs are full-access, acting as the
+    user, so there is no scope picker (the ``scopes`` field is deferred to a
+    future Enterprise scoping layer on the same column). The raw token is
+    generated in the viewset and returned once via a separate response shape.
+    """
+
+    class Meta:
+        model = ProjectApiToken
+        fields = ["name", "expires_at"]
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("name is required.")
+        return value
+
+    def validate_expires_at(self, value: Any) -> Any:
+        # An expiry in the past would mint a token that is dead on arrival — reject
+        # it so the caller gets a clear error instead of a silently-useless token.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future.")
+        return value
+
+
 _INBOUND_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
