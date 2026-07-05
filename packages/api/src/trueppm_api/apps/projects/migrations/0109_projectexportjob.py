@@ -9,7 +9,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0107_task_activity_event"),
+        ("projects", "0108_remove_apitoken_api_token_scope_xor_and_more"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
