@@ -5,7 +5,7 @@
  * Click → navigate to source task; mark read on the way. Per-row [Mark read]
  * and [Archive] buttons keep the bulk actions discoverable. Inline [Snooze]
  * (presets) and [Mute notifications like this] surface the noise controls where
- * the noise is felt (ADR-0216, #1558) so a contributor never has to leave the
+ * the noise is felt (ADR-0216, issue 1558) so a contributor never has to leave the
  * panel for the settings page to turn a noisy type down.
  */
 
