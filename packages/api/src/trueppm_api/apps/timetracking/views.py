@@ -33,7 +33,7 @@ from trueppm_api.apps.access.permissions import CanLogTime
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.timetracking import services
-from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry
+from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry, TimesheetSubmission
 from trueppm_api.apps.timetracking.serializers import (
     ActiveTimerSerializer,
     TimeEntrySerializer,
@@ -173,15 +173,26 @@ def _parse_iso_date(raw: str, field: str) -> date:
         raise ValidationError({field: "Must be an ISO date (YYYY-MM-DD)."}) from err
 
 
+def _monday_of(d: date) -> date:
+    """Canonicalize a date to the Monday of its ISO week (ADR-0224).
+
+    The submission unit is *a week*; normalizing to Monday (rather than rejecting a
+    non-Monday) is forgiving of client drift and makes the ``(user, week_start)`` marker
+    impossible to fragment into off-by-a-day rows.
+    """
+    return d - timedelta(days=d.weekday())
+
+
 class MeTimeEntryWeeklyView(APIView):
     """``/api/v1/me/time-entries/?from=&to=`` — weekly cross-project rollup (ADR-0185 §4).
 
     Drives both the #1435 grid and the #1234 header rollup. Returns the caller's entries
     in the window across **all accessible projects**, plus precomputed totals (by_day,
-    by_cell, today, week). The membership re-check (defence-in-depth, mirrors
-    ``/me/work``) drops entries on projects the user was removed from. ``select_related``
-    on task→project keeps the read N+1-bounded (asserted by ``assertNumQueries``); the
-    totals are folded from the already-fetched rows, adding no query.
+    by_cell, today, week) and the week's ``submission`` marker (ADR-0224). The membership
+    re-check (defence-in-depth, mirrors ``/me/work``) drops entries on projects the user was
+    removed from. ``select_related`` on task→project keeps the read N+1-bounded (asserted by
+    ``assertNumQueries``); the totals are folded from the already-fetched rows, and the
+    submission is a single indexed lookup, so the read stays a small constant of queries.
     """
 
     permission_classes = [IsAuthenticated]
@@ -197,7 +208,9 @@ class MeTimeEntryWeeklyView(APIView):
                 description=(
                     "Caller's entries in [from, to] across accessible projects with "
                     "totals: {results: [<weekly entry>], totals: {by_day, by_cell, "
-                    "today_minutes, week_minutes}}."
+                    "today_minutes, week_minutes}, submission: {week_start, submitted, "
+                    "submitted_at}}. 'submission' reflects the Monday of 'from' (#1435 always "
+                    "requests a full Mon-Sun week)."
                 ),
             )
         },
@@ -245,6 +258,16 @@ class MeTimeEntryWeeklyView(APIView):
             if e.entry_date == today:
                 today_minutes += e.minutes
 
+        # Fold the week's submission marker (ADR-0224) so the grid needs no second
+        # round-trip. The grid always requests a full Mon-Sun window, so the Monday of
+        # 'start' is the well-defined submission key.
+        week_start = _monday_of(start)
+        submission = (
+            TimesheetSubmission.objects.filter(user=user, week_start=week_start)
+            .values_list("submitted_at", flat=True)
+            .first()
+        )
+
         return Response(
             {
                 "results": TimeEntryWeeklySerializer(entries, many=True).data,
@@ -254,8 +277,62 @@ class MeTimeEntryWeeklyView(APIView):
                     "today_minutes": today_minutes,
                     "week_minutes": week_minutes,
                 },
+                "submission": {
+                    "week_start": week_start.isoformat(),
+                    "submitted": submission is not None,
+                    "submitted_at": submission.isoformat() if submission is not None else None,
+                },
             }
         )
+
+
+class MeTimesheetSubmitView(APIView):
+    """``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).
+
+    A per-user-per-week submission marker with no approver: entries stay editable after
+    submit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The
+    marker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no
+    other user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project
+    to run ``CanLogTime`` against, and a marker with no entries is inert.
+
+    ``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the
+    ``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert
+    (``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204
+    even when no marker exists).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Week submitted: {week_start, submitted_at}.",
+            )
+        },
+    )
+    def post(self, request: Request, week_start: str) -> Response:
+        user = cast("_User", request.user)
+        monday = _monday_of(_parse_iso_date(week_start, "week_start"))
+        submission, _ = TimesheetSubmission.objects.update_or_create(
+            user=user,
+            week_start=monday,
+            defaults={"submitted_at": timezone.now()},
+        )
+        return Response(
+            {
+                "week_start": monday.isoformat(),
+                "submitted_at": submission.submitted_at.isoformat(),
+            }
+        )
+
+    @extend_schema(responses={204: OpenApiResponse(description="Week un-submitted; empty body.")})
+    def delete(self, request: Request, week_start: str) -> Response:
+        user = cast("_User", request.user)
+        monday = _monday_of(_parse_iso_date(week_start, "week_start"))
+        TimesheetSubmission.objects.filter(user=user, week_start=monday).delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class MeTimerView(APIView):

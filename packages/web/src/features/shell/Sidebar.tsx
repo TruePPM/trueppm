@@ -233,6 +233,18 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             )}
           </NavLink>
           <NavLink
+            to="/me/timesheet"
+            aria-label="Timesheet"
+            onClick={() => isDrawer && onClose?.()}
+            className={({ isActive }) => rowClass(isActive)}
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true" className="shrink-0">
+              <rect x="1.5" y="2" width="11" height="10" rx="1" />
+              <path d="M1.5 5h11M5 5v7M9 5v7" />
+            </svg>
+            {showFull && <span className="min-w-0 truncate">Timesheet</span>}
+          </NavLink>
+          <NavLink
             to="/me/notifications"
             aria-label="Inbox"
             onClick={() => isDrawer && onClose?.()}
