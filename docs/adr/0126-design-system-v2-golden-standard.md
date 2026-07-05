@@ -85,6 +85,11 @@ this list claims, no more (the script header carries the same contract):
 2. **Raw hex literals in component source** (rule 8) — ratchet; the tree carries
    pre-existing debt, so the count may not exceed the baseline and trends to zero.
    New code adds zero (a net-new literal pushes the count over baseline and fails).
+   Only hex in a **color context** counts — quoted (`'#f59e0b'`), a Tailwind
+   arbitrary value (`bg-[#7C3AED]`), or a CSS value after a colon (`stroke: #fff`).
+   A bare `#1236`-style **issue reference** in a comment is not a color and is not
+   counted; write issue refs freely (this fixed the false-positive class that used
+   to fail unrelated MRs the moment they cited an issue number in a comment).
 3. **Off-token box-shadow** — named `shadow-{sm,md,lg,…}` utilities *and* arbitrary
    `shadow-[…]` values (the `shadow-card` / `shadow-pop` pop-surface tokens are the
    sanctioned form and are exempt). Ratchet — v2 is borders-over-shadows (rule 1).
