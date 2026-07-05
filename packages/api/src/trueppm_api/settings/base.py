@@ -417,6 +417,19 @@ CELERY_BEAT_SCHEDULE = {
         # 04:20 UTC — after purge-stale-invites.
         "schedule": crontab(hour=4, minute=20),
     },
+    # Re-dispatch project export bundle jobs orphaned by a broker outage at on_commit
+    # (ADR-0219 §Durable Execution item 2; 5-min orphan window inside the task).
+    "drain-project-exports": {
+        "task": "projects.drain_project_exports",
+        "schedule": 30.0,
+    },
+    # Nightly: delete project export jobs past their download-link expiry and their
+    # files (ADR-0219 §Durable Execution item 6; shares TRUEPPM_EXPORT_RETENTION_DAYS).
+    "purge-expired-project-exports": {
+        "task": "projects.purge_expired_project_exports",
+        # 04:25 UTC — after the workspace export purge.
+        "schedule": crontab(hour=4, minute=25),
+    },
     # Lazily materialize upcoming recurring-task occurrences within the
     # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
     # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.
@@ -1233,5 +1246,14 @@ SPECTACULAR_SETTINGS = {
         # hash-disambiguate or rename existing components (same regression class as
         # ScopeChangeStatus above — project memory project_drf_enum_name_collision).
         "BlockerTypeEnum": "trueppm_api.apps.projects.models.BlockerType",
+        # ADR-0219 (#1266): ProjectExportJob.status introduces a second export-job
+        # status choice set with the SAME members (pending|running|success|failed)
+        # as workspace.ExportJobStatus. drf-spectacular unifies identical value-sets
+        # into ONE component, and without a pin it hash-disambiguates and DROPS the
+        # existing WorkspaceExportJobStatusEnum (a schema-drift regression — project
+        # memory project_drf_enum_name_collision). Pin the shared value-set to the
+        # already-published WorkspaceExportJobStatusEnum name so no component is
+        # removed; the project export field simply reuses that stable component.
+        "WorkspaceExportJobStatusEnum": "trueppm_api.apps.workspace.models.ExportJobStatus",
     },
 }

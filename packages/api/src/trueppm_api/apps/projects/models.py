@@ -5555,3 +5555,84 @@ class ForecastSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"ForecastSnapshot({self.milestone_id} @ {self.taken_at:%Y-%m-%d} {self.basis})"
+
+
+class ExportJobStatus(models.TextChoices):
+    """Lifecycle of an async project export bundle (ADR-0219, #1266).
+
+    Deliberately a *local* copy of the same four states used by
+    ``workspace.models.ExportJobStatus`` (ADR-0174): the dependency direction is
+    one-way ``workspace → projects`` (workspace imports Project), so importing the
+    enum back the other way would create a circular import. A four-value enum is
+    cheaper to duplicate than a circular-import risk is to carry.
+    """
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+
+
+class ProjectExportJob(models.Model):
+    """Tracks one asynchronous *project* export bundle (ADR-0219, #1266).
+
+    The richer, async counterpart to the synchronous JSON seed export (#967): a
+    ``.tar.gz`` containing the JSON seed, MS Project XML, task attachments, time
+    entries, and the project's change/audit history. Mirrors
+    ``workspace.WorkspaceExportJob`` (ADR-0174) — the status/timestamp/file shape
+    is identical — but is scoped to one ``project`` rather than the workspace
+    singleton, so it carries a ``project`` FK and its indexes lead with it.
+
+    Plain (non-synced) model: an export job is server-side bookkeeping, never a
+    mobile-offline entity, so it has no ``server_version``. The row itself is the
+    audit record of who triggered the export (``requested_by`` + ``created_at``).
+    The drain re-dispatches ``pending`` rows whose ``celery_task_id`` never got set
+    (broker down at ``on_commit``); the nightly purge deletes rows past
+    ``expires_at`` and their stored files.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="export_jobs",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="project_exports",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=ExportJobStatus.choices,
+        default=ExportJobStatus.PENDING,
+        db_index=True,
+    )
+    celery_task_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Storage key (relative to the configured default storage), populated on success.
+    file_path = models.CharField(max_length=512, blank=True, default="")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    error_detail = models.TextField(blank=True, default="")
+    # Download-link validity; past this the purge deletes the row + file (410 Gone).
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_export_job"
+        ordering = ["-created_at"]
+        indexes = [
+            # Drives the per-project drain scan: pending rows awaiting (re-)dispatch.
+            models.Index(
+                fields=["project", "status", "created_at"],
+                name="projexport_proj_status_idx",
+            ),
+            # Drives the nightly purge scan of expired download links.
+            models.Index(fields=["expires_at"], name="projexport_expires_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectExportJob({self.id}, {self.project_id}, {self.status})"
