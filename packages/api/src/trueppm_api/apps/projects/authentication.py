@@ -81,7 +81,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         except ValueError as exc:
             raise exceptions.AuthenticationFailed("Invalid token.") from exc
 
-        # Expiry filter (ADR-0211): a Personal Access Token past its ``expires_at``
+        # Expiry filter (ADR-0214): a Personal Access Token past its ``expires_at``
         # is treated as if it did not exist — no row, generic 401, no enumeration
         # signal. Applies uniformly: project/program tokens leave ``expires_at``
         # null and match the ``isnull`` branch, so they are unaffected. Folding
@@ -106,7 +106,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
         # specific use is written by the view (which holds the URL kwargs).
         ProjectApiToken.objects.filter(pk=token.pk).update(last_used_at=timezone.now())
 
-        # request.user resolution (ADR-0211):
+        # request.user resolution (ADR-0214):
         #   - Personal Access Token → the ``owner`` (the acting user). Because
         #     request.user becomes the owner, ALL downstream DRF object-level RBAC
         #     applies exactly as that user's own session — a PAT is not a superuser

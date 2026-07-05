@@ -155,7 +155,7 @@ class TestProjectApiTokenAuthenticationFailures:
 
 @pytest.mark.django_db
 class TestPersonalAccessTokenAuthentication:
-    """Personal Access Tokens (ADR-0211): owner resolution + expiry filter.
+    """Personal Access Tokens (ADR-0214): owner resolution + expiry filter.
 
     A PAT sets ``request.user`` to its ``owner`` (the acting user), so all
     downstream RBAC applies exactly as that user's session. A token past its

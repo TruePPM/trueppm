@@ -5771,7 +5771,7 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
 
 
 class MyApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
-    """Read serializer for a user's own Personal Access Tokens (ADR-0211).
+    """Read serializer for a user's own Personal Access Tokens (ADR-0214).
 
     Scoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user
     so it is not exposed. The raw token and ``token_hash`` are never serialized;
@@ -5806,7 +5806,7 @@ class MyApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
 
 
 class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
-    """Write serializer for minting a Personal Access Token (ADR-0211).
+    """Write serializer for minting a Personal Access Token (ADR-0214).
 
     Accepts ``name`` (required) and an optional ``expires_at``. Scopes are fixed
     to ``['legacy:full']`` server-side — v1 PATs are full-access, acting as the

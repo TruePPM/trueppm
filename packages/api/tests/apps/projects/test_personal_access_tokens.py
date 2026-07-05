@@ -1,4 +1,4 @@
-"""Tests for user-scoped Personal Access Tokens (ADR-0211, issue #648).
+"""Tests for user-scoped Personal Access Tokens (ADR-0214, issue #648).
 
 Covers MyApiTokenViewSet at ``/api/v1/me/api-tokens/`` (create with one-time
 reveal, the 10-active-token cap, expiry-aware "active" accounting, owner-scoped

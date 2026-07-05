@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * /me/settings/api-tokens — Personal Access Tokens (#648, ADR-0211).
+ * /me/settings/api-tokens — Personal Access Tokens (#648, ADR-0214).
  *
  * The page reads the paginated /api/v1/me/api-tokens/ list and mutates it via
  * POST (one-time raw-token reveal) and DELETE (revoke). The raw token is never

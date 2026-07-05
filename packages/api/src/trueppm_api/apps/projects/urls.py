@@ -616,7 +616,7 @@ urlpatterns = [
         MeWorkView.as_view(),
         name="me-work",
     ),
-    # Personal Access Tokens — user-scoped API credentials (ADR-0211, issue #648)
+    # Personal Access Tokens — user-scoped API credentials (ADR-0214, issue #648)
     path(
         "me/api-tokens/",
         MyApiTokenViewSet.as_view({"get": "list", "post": "create"}),

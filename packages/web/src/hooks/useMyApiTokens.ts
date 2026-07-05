@@ -1,5 +1,5 @@
 /**
- * Personal Access Token (PAT) CRUD hooks (#648, ADR-0211).
+ * Personal Access Token (PAT) CRUD hooks (#648, ADR-0214).
  *
  * A PAT is a user-scoped API credential: it authenticates a script *as you*, so
  * it carries exactly your RBAC — never more. These hooks target the auto-scoped

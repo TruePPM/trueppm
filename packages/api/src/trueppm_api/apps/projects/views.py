@@ -2464,7 +2464,7 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     aggregate active count. Revoked tokens are intentionally hidden from the summary —
     they remain visible on the dedicated API token page for audit purposes.
     """
-    # owner__isnull=True keeps user-scoped Personal Access Tokens (ADR-0211) out
+    # owner__isnull=True keeps user-scoped Personal Access Tokens (ADR-0214) out
     # of the project/program integration summary — ApiToken is now polymorphic
     # across project/program/owner scopes, and a personal token must never surface
     # on a project's or program's token list even though the scope_filter already
@@ -11524,7 +11524,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         return self._get_project_or_404(self.kwargs[self._scope_kwarg])
 
     def get_queryset(self) -> QuerySet[Any]:
-        # owner__isnull=True excludes user-scoped Personal Access Tokens (ADR-0211)
+        # owner__isnull=True excludes user-scoped Personal Access Tokens (ADR-0214)
         # — they share the ApiToken table but must never appear on a project's or
         # program's token list.
         return (
@@ -11696,7 +11696,7 @@ class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
 
 
 class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
-    """``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).
+    """``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0214).
 
     A PAT authenticates a script *as the requesting user*: it acts with exactly
     their RBAC, never more (the authenticator sets ``request.user`` to the token's
@@ -11710,7 +11710,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
     - ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.
 
     No WebSocket broadcast: a personal token has no board channel, so the audit row
-    is the durable record (ADR-0211 §Durable Execution).
+    is the durable record (ADR-0214 §Durable Execution).
     """
 
     # Exempt from the generic Idempotency-Key path (ADR-0170): the create response
@@ -11771,7 +11771,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         write_serializer = MyApiTokenCreateSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
 
-        # Cap gate (ADR-0211): count only ACTIVE tokens (not revoked, not expired,
+        # Cap gate (ADR-0214): count only ACTIVE tokens (not revoked, not expired,
         # not deleted) so revoking or letting one expire frees a slot. Mirrors the
         # per-task comment count-gate precedent.
         active_count = ApiToken.active_personal_tokens_for(caller).count()
@@ -11793,7 +11793,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             token = ProjectApiToken.objects.create(
                 owner=caller,
                 name=write_serializer.validated_data["name"],
-                # v1 PATs are full-access — the scope picker is deferred (ADR-0211).
+                # v1 PATs are full-access — the scope picker is deferred (ADR-0214).
                 scopes=[SCOPE_LEGACY_FULL],
                 expires_at=write_serializer.validated_data.get("expires_at"),
                 token_prefix=token_prefix,
@@ -11810,7 +11810,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 source_ip=_client_ip(request),
                 detail={"name": token.name},
             )
-            # No WS broadcast — a personal token has no board channel (ADR-0211).
+            # No WS broadcast — a personal token has no board channel (ADR-0214).
 
         # Single-shot response: the raw token field is present here, never on reads.
         read_data = MyApiTokenSerializer(token).data

@@ -411,7 +411,7 @@ def revoke_all_refresh_tokens(user: Any) -> int:
 
 
 def revoke_all_personal_access_tokens(user: Any) -> int:
-    """Soft-revoke every active Personal Access Token owned by ``user`` (ADR-0211).
+    """Soft-revoke every active Personal Access Token owned by ``user`` (ADR-0214).
 
     Why this exists: a Personal Access Token is a *full-authority* bearer of the
     user's own credentials — a script authenticating with it acts exactly as the

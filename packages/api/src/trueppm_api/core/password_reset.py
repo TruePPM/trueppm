@@ -376,7 +376,7 @@ class PasswordResetConfirmView(APIView):
             user.save(update_fields=["password"])
             revoke_all_refresh_tokens(user)
             # A password change also invalidates the user's Personal Access Tokens
-            # (ADR-0211): a PAT bears the user's full authority, so a "my credentials
+            # (ADR-0214): a PAT bears the user's full authority, so a "my credentials
             # may be compromised" reset must cut off long-lived personal credentials,
             # not just live sessions. Project/program tokens are org assets and are
             # deliberately left untouched. Same atomic block so password-changed and

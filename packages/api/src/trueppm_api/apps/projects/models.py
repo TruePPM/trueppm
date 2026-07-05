@@ -4386,7 +4386,7 @@ API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
 # Cap on the number of *active* personal access tokens (PATs) a single user may
-# hold at once (ADR-0211, issue #648). "Active" = owner-scoped, not revoked, not
+# hold at once (ADR-0214, issue #648). "Active" = owner-scoped, not revoked, not
 # soft-deleted, not past expiry. Bounds the blast radius of a leaked account and
 # keeps the /me/api-tokens/ list navigable; mirrors the count-gate precedent used
 # for per-task comments. Enterprise can later raise/lower this via policy.
@@ -4487,7 +4487,7 @@ class ApiToken(VersionedModel):
         null=True,
         blank=True,
         related_name="personal_api_tokens",
-        help_text="Set for a user-scoped Personal Access Token (ADR-0211). The "
+        help_text="Set for a user-scoped Personal Access Token (ADR-0214). The "
         "token acts as this user, so RBAC applies exactly as their session would. "
         "CASCADE — a deleted account takes its full-access credentials with it. "
         "Exactly one of project/program/owner is non-null (DB constraint).",
@@ -4508,7 +4508,7 @@ class ApiToken(VersionedModel):
     expires_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Optional expiry (ADR-0211). Null = non-expiring. The "
+        help_text="Optional expiry (ADR-0214). Null = non-expiring. The "
         "authenticator rejects a token whose expiry is in the past; project/program "
         "tokens leave this null and are unaffected.",
     )
@@ -4529,7 +4529,7 @@ class ApiToken(VersionedModel):
         ]
         constraints = [
             models.CheckConstraint(
-                # Three-way scope XOR (ADR-0211): exactly one of project / program /
+                # Three-way scope XOR (ADR-0214): exactly one of project / program /
                 # owner is non-null. This is a *relaxation* of the original
                 # project-XOR-program rule — every existing (project XOR program) row
                 # still satisfies it, so it is safe on shipped data with no data
@@ -4559,7 +4559,7 @@ class ApiToken(VersionedModel):
 
     @property
     def is_personal(self) -> bool:
-        """True when this is a user-scoped Personal Access Token (ADR-0211)."""
+        """True when this is a user-scoped Personal Access Token (ADR-0214)."""
         return self.owner_id is not None
 
     @property
@@ -4574,7 +4574,7 @@ class ApiToken(VersionedModel):
 
     @classmethod
     def active_personal_tokens_for(cls, user: Any) -> models.QuerySet[ApiToken]:
-        """Return a user's currently-active Personal Access Tokens (ADR-0211).
+        """Return a user's currently-active Personal Access Tokens (ADR-0214).
 
         "Active" means owner-scoped to ``user``, not revoked, not soft-deleted, and
         not past its expiry — the exact set the ``/me/api-tokens/`` cap counts and
@@ -4737,7 +4737,7 @@ class ApiTokenAuditEntry(models.Model):
         blank=True,
     )
     # owner-scoped audit rows record Personal Access Token mint/revoke events
-    # (ADR-0211). CASCADE so a deleted account's audit trail dies with it, matching
+    # (ADR-0214). CASCADE so a deleted account's audit trail dies with it, matching
     # ApiToken.owner. Existing rows are all project/program-scoped (owner null).
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -4779,7 +4779,7 @@ class ApiTokenAuditEntry(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                # Three-way scope XOR — mirrors ApiToken (ADR-0211): exactly one of
+                # Three-way scope XOR — mirrors ApiToken (ADR-0214): exactly one of
                 # project / program / owner is non-null. A pure relaxation of the
                 # original project-XOR-program rule; every shipped row (all
                 # project/program-scoped) still satisfies it, so no data migration.

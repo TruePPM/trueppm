@@ -3495,7 +3495,7 @@
         "/api/v1/me/api-tokens/": {
             "get": {
                 "operationId": "v1_me_api_tokens_list",
-                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0211 §Durable Execution).",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0214).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0214 §Durable Execution).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -3614,7 +3614,7 @@
         "/api/v1/me/api-tokens/{id}/": {
             "get": {
                 "operationId": "v1_me_api_tokens_retrieve",
-                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0211).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0211 §Durable Execution).",
+                "description": "``/api/v1/me/api-tokens/`` — a user's own Personal Access Tokens (ADR-0214).\n\nA PAT authenticates a script *as the requesting user*: it acts with exactly\ntheir RBAC, never more (the authenticator sets ``request.user`` to the token's\n``owner``). This viewset is auto-scoped to ``owner=request.user`` — a user can\nonly ever see, create, or revoke their own tokens.\n\n- ``list`` / ``retrieve`` never expose the raw token or hash.\n- ``create`` generates the raw token, returns it **once** in a ``token`` field,\n  writes a MINTED audit row, and enforces the ``MAX_PERSONAL_ACCESS_TOKENS``\n  active-token cap. Full-access only in v1 (scopes fixed to ``legacy:full``).\n- ``destroy`` soft-revokes and writes a REVOKED audit row; idempotent.\n\nNo WebSocket broadcast: a personal token has no board channel, so the audit row\nis the durable record (ADR-0214 §Durable Execution).",
                 "parameters": [
                     {
                         "in": "path",
@@ -35843,7 +35843,7 @@
             },
             "MyApiToken": {
                 "type": "object",
-                "description": "Read serializer for a user's own Personal Access Tokens (ADR-0211).\n\nScoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user\nso it is not exposed. The raw token and ``token_hash`` are never serialized;\nthe caller sees ``token_prefix`` only (enough to tell tokens apart) plus the\nlifecycle state it needs to render the list (expiry, revocation, last use).",
+                "description": "Read serializer for a user's own Personal Access Tokens (ADR-0214).\n\nScoped to ``/api/v1/me/api-tokens/`` — the owner is always the requesting user\nso it is not exposed. The raw token and ``token_hash`` are never serialized;\nthe caller sees ``token_prefix`` only (enough to tell tokens apart) plus the\nlifecycle state it needs to render the list (expiry, revocation, last use).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -35885,7 +35885,7 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Optional expiry (ADR-0211). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected."
+                        "description": "Optional expiry (ADR-0214). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected."
                     },
                     "revoked_at": {
                         "type": "string",

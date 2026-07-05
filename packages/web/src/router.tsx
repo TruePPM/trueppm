@@ -551,7 +551,7 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
           },
-          // Per-user Personal Access Tokens (#648, ADR-0211).
+          // Per-user Personal Access Tokens (#648, ADR-0214).
           {
             path: 'me/settings/api-tokens',
             element: (

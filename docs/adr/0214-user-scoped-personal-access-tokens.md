@@ -1,4 +1,4 @@
-# ADR-0211: User-scoped Personal Access Tokens
+# ADR-0214: User-scoped Personal Access Tokens
 
 ## Status
 Accepted

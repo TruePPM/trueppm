@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
             name="expires_at",
             field=models.DateTimeField(
                 blank=True,
-                help_text="Optional expiry (ADR-0211). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected.",
+                help_text="Optional expiry (ADR-0214). Null = non-expiring. The authenticator rejects a token whose expiry is in the past; project/program tokens leave this null and are unaffected.",
                 null=True,
             ),
         ),
@@ -34,7 +34,7 @@ class Migration(migrations.Migration):
             name="owner",
             field=models.ForeignKey(
                 blank=True,
-                help_text="Set for a user-scoped Personal Access Token (ADR-0211). The token acts as this user, so RBAC applies exactly as their session would. CASCADE — a deleted account takes its full-access credentials with it. Exactly one of project/program/owner is non-null (DB constraint).",
+                help_text="Set for a user-scoped Personal Access Token (ADR-0214). The token acts as this user, so RBAC applies exactly as their session would. CASCADE — a deleted account takes its full-access credentials with it. Exactly one of project/program/owner is non-null (DB constraint).",
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="personal_api_tokens",

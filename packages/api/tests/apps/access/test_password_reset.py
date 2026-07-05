@@ -180,7 +180,7 @@ def test_confirm_revokes_all_other_sessions(user) -> None:
 
 @pytest.mark.django_db
 def test_confirm_revokes_personal_access_tokens_but_not_project_tokens(user) -> None:
-    """A password reset revokes the user's PATs but leaves org tokens alone (ADR-0211)."""
+    """A password reset revokes the user's PATs but leaves org tokens alone (ADR-0214)."""
     from datetime import date
 
     from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
