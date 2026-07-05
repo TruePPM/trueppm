@@ -8,6 +8,17 @@ import {
 import { apiClient } from '@/api/client';
 import type { Program } from '@/api/types';
 
+/**
+ * Client-side soft cap for a native TruePPM seed upload, in MB.
+ *
+ * Mirrors the server's authoritative `SEED_MAX_UPLOAD_MB` (default 5 MB), which
+ * `POST /programs/import/` enforces. The dropzone uses this only to reject an
+ * over-size file early with a friendly message; the server remains the source of
+ * truth. Deliberately smaller than the MS Project cap (50 MB) — a JSON seed is
+ * text and compresses far denser than a binary schedule file.
+ */
+export const SEED_MAX_UPLOAD_MB = 5;
+
 export interface SampleInfo {
   key: string;
   title: string;

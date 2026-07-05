@@ -99,6 +99,45 @@ def test_import_does_not_mint_users(user: Any) -> None:
     assert Task.objects.get(name="Build auth").assignee is None
 
 
+def test_project_export_round_trips_through_program_import(user: Any) -> None:
+    """A #967 project seed export re-imports through POST /programs/import/ (#1611).
+
+    This is the exact contract the create-from-import "TruePPM" format tile relies
+    on (ADR-0220): a project exported as canonical JSON re-materializes as a fresh
+    program (the #967 single-project wrapper) with freshly-minted ids, never
+    clobbering the source. Uploaded as multipart, mirroring the web flow.
+    """
+    program = import_seed(_seed(), owner=user, create_users=False)
+    source_project = program.projects.order_by("name").first()
+    assert source_project is not None
+    source_task_ids = set(Task.objects.filter(project=source_project).values_list("id", flat=True))
+    programs_before = Program.objects.filter(is_deleted=False).count()
+
+    client = _client(user)
+    export_resp = client.get(f"/api/v1/projects/{source_project.pk}/export/")
+    assert export_resp.status_code == 200, export_resp.content
+    body = b"".join(export_resp.streaming_content) if export_resp.streaming else export_resp.content
+
+    upload = SimpleUploadedFile("project.json", body, content_type="application/json")
+    import_resp = client.post(IMPORT_URL, data={"file": upload}, format="multipart")
+    assert import_resp.status_code == 201, import_resp.content
+
+    # A brand-new program was created (the synthesized single-project wrapper),
+    # distinct from the source — not an in-place overwrite of it.
+    assert Program.objects.filter(is_deleted=False).count() == programs_before + 1
+    new_program = Program.objects.get(pk=import_resp.data["id"])
+    assert new_program.pk != program.pk
+    assert new_program.projects.count() == 1
+
+    new_project = new_program.projects.get()
+    assert new_project.name == source_project.name
+    assert new_project.pk != source_project.pk
+    # id remapping: the re-imported tasks are fresh rows, not the source ids.
+    new_task_ids = set(Task.objects.filter(project=new_project).values_list("id", flat=True))
+    assert new_task_ids
+    assert new_task_ids.isdisjoint(source_task_ids)
+
+
 # --- export ----------------------------------------------------------------
 
 
