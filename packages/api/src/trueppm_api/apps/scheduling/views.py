@@ -1637,3 +1637,237 @@ class VelocitySuggestionViewSet(
         # get_serializer injects request context so the serializer's ADR-0104
         # velocity gate fires on these action responses too (#949).
         return Response(self.get_serializer(suggestion).data)
+
+
+# ---------------------------------------------------------------------------
+# Schedule value derivation (ADR-0218, #1058)
+# ---------------------------------------------------------------------------
+
+# The CPM quantities the derivation endpoint can explain. Mirrors
+# trueppm_scheduler.Quantity so the API contract and the engine cannot drift.
+_CPM_DERIVATION_QUANTITIES = frozenset(
+    {
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "total_float",
+        "free_float",
+    }
+)
+# The Monte Carlo percentile quantities, whose derivation is the risk premium over
+# the deterministic CPM finish plus the ADR-0140 sensitivity drivers (#987).
+_MC_DERIVATION_QUANTITIES = frozenset({"p50", "p80", "p95"})
+
+
+def _build_cpm_sched_project(project: Project, pk: str) -> Any:
+    """Assemble the scheduler ``Project`` for a deterministic CPM derivation run.
+
+    Mirrors the input construction of :func:`run_monte_carlo` exactly — the same
+    shared converters (``build_sched_calendar`` / ``build_sched_tasks``), the same
+    committed-only task set, the same cross-project/non-committed edge drop, and the
+    same data-date and velocity inputs — so the schedule the derivation explains is
+    the *same* schedule the forecast is anchored on. Keeping one construction path
+    is what stops the derivation from explaining a different network than the one
+    the engine actually scheduled.
+    """
+    from trueppm_scheduler.models import Dependency as SchedDependency
+    from trueppm_scheduler.models import DependencyType as SchedDependencyType
+    from trueppm_scheduler.models import Project as SchedProject
+
+    from trueppm_api.apps.projects.services import scheduler_velocity_inputs
+
+    sched_calendar = build_sched_calendar(project.calendar)
+    db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
+    suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
+    sched_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
+
+    included_ids = {str(t.id) for t in db_tasks}
+    db_deps = list(
+        Dependency.objects.filter(predecessor__project_id=pk).select_related(
+            "predecessor", "successor"
+        )
+    )
+    sched_deps = [
+        SchedDependency(
+            predecessor_id=str(d.predecessor_id),
+            successor_id=str(d.successor_id),
+            dep_type=SchedDependencyType(d.dep_type),
+            lag=timedelta(days=d.lag),
+        )
+        for d in db_deps
+        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
+    ]
+
+    velocity_samples, sprint_length_days = scheduler_velocity_inputs(
+        project.pk, sched_calendar.working_days
+    )
+
+    return SchedProject(
+        id=str(project.pk),
+        name=project.name,
+        start_date=project.start_date,
+        tasks=sched_tasks,
+        dependencies=sched_deps,
+        calendar=sched_calendar,
+        status_date=project.status_date or timezone.localdate(),
+        velocity_samples=velocity_samples or None,
+        sprint_length_days=sprint_length_days,
+    )
+
+
+class ScheduleDerivationView(McpReadableViewMixin, APIView):
+    """The server-computed *why* behind a computed schedule value (ADR-0218, #1058).
+
+    ``GET /projects/<pk>/schedule/derivation/?task_id=<id>&quantity=<quantity>``
+
+    Returns the derivation of a single computed value — the driving predecessor/
+    successor chain, the binding constraint, each term's lag and calendar-snap
+    contribution, and which CPM pass (forward/backward/float) set it. The
+    derivation is computed server-side from the engine's own pass data by
+    :func:`trueppm_scheduler.derive_value`; it is never recomputed in the browser
+    and nothing is fabricated (rule 120) — a contribution is emitted only for a
+    constraint the engine actually evaluates.
+
+    For a Monte Carlo percentile quantity (``p50``/``p80``/``p95``) the "why" is
+    the deterministic ``cpm_finish``, the signed ``delta_vs_cpm`` risk premium, and
+    the ADR-0140 sensitivity drivers of the latest persisted run (#987) — the
+    existing engine output surfaced honestly, not a second recomputation.
+
+    RBAC: any project member (Viewer+) may read a derivation; ``McpReadableViewMixin``
+    additionally exposes it to an ``mcp:read`` API token confined to safe methods,
+    so an AI/MCP agent can cite the *why* alongside the value.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+
+    @extend_schema(
+        operation_id="project_schedule_derivation",
+        summary="Derivation (the why) of a computed schedule value",
+        parameters=[
+            OpenApiParameter(
+                name="task_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="The task whose computed value is being explained.",
+            ),
+            OpenApiParameter(
+                name="quantity",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Which computed value to explain: a CPM quantity "
+                    "(early_start, early_finish, late_start, late_finish, "
+                    "total_float, free_float) or a Monte Carlo percentile "
+                    "(p50, p80, p95). CPM quantities return {task_id, task_name, "
+                    "quantity, value, pass, is_critical, binding, contributions[]}, "
+                    "each contribution carrying its source task, dep_type, lag_days, "
+                    "imposed_date, calendar_days_added, slack_days, and is_binding. "
+                    "Percentiles return {quantity, value, cpm_finish, "
+                    "delta_vs_cpm_days, drivers[]} from the latest simulation."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description="The derivation of the requested value."),
+            400: OpenApiResponse(
+                description="Missing/unknown quantity, or invalid schedule input."
+            ),
+            404: OpenApiResponse(
+                description="Unknown project or task, or no simulation available."
+            ),
+        },
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_scheduler.derive import UnknownTaskError, derive_value
+        from trueppm_scheduler.engine import CyclicDependencyError
+
+        quantity = request.query_params.get("quantity")
+        if not quantity:
+            return Response(
+                {"detail": "The 'quantity' query parameter is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if quantity not in _CPM_DERIVATION_QUANTITIES and quantity not in _MC_DERIVATION_QUANTITIES:
+            allowed = ", ".join(sorted(_CPM_DERIVATION_QUANTITIES | _MC_DERIVATION_QUANTITIES))
+            return Response(
+                {"detail": f"Unknown quantity {quantity!r}; must be one of: {allowed}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project = get_object_or_404(
+            Project.objects.select_related("calendar").prefetch_related(
+                "tasks", "calendar__exceptions"
+            ),
+            pk=pk,
+            is_deleted=False,
+        )
+        # 404 (not 403) for a non-member: the object-scope oracle keeps a project's
+        # existence from leaking to a non-member (mirrors MonteCarloLatestView).
+        self.check_object_permissions(request, project)
+
+        if quantity in _MC_DERIVATION_QUANTITIES:
+            return self._monte_carlo_derivation(pk, quantity)
+
+        task_id = request.query_params.get("task_id")
+        if not task_id:
+            return Response(
+                {"detail": "The 'task_id' query parameter is required for a CPM quantity."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sched_project = _build_cpm_sched_project(project, pk)
+        if not sched_project.tasks:
+            return Response(
+                {"detail": "Project has no committed tasks to schedule."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            derivation = derive_value(sched_project, task_id, quantity)
+        except UnknownTaskError:
+            return Response(
+                {"detail": f"Task {task_id!r} is not in the scheduled network."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except (CyclicDependencyError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except OverflowError:
+            return Response(
+                {"detail": "Project schedule exceeds the representable date range."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(derivation.to_dict())
+
+    def _monte_carlo_derivation(self, pk: str, quantity: str) -> Response:
+        """Derive a Monte Carlo percentile from the latest persisted run (#987).
+
+        The percentile's "why" is the deterministic ``cpm_finish`` it is measured
+        against, the signed ``delta_vs_cpm`` days of risk premium, and the ADR-0140
+        sensitivity drivers (the tasks whose duration most moves the finish). All
+        three are already computed and persisted on the run — this surfaces them,
+        it does not recompute the forecast.
+        """
+        latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
+        if latest is None:
+            return Response(
+                {"detail": "No simulation result available; run a Monte Carlo forecast first."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        percentile_date = {"p50": latest.p50, "p80": latest.p80, "p95": latest.p95}[quantity]
+        dist = latest.distribution or {}
+        return Response(
+            {
+                "quantity": quantity,
+                "value": percentile_date.isoformat() if percentile_date else None,
+                "pass": "monte_carlo",
+                "cpm_finish": latest.cpm_finish.isoformat() if latest.cpm_finish else None,
+                "delta_vs_cpm_days": _delta_vs_cpm_days(percentile_date, latest.cpm_finish),
+                # ADR-0140 tornado: the tasks whose duration variance drives the
+                # finish — the honest "why" behind a probabilistic date.
+                "drivers": dist.get("sensitivity", []),
+                "runs": latest.n_simulations,
+                "last_run_at": latest.taken_at.isoformat(),
+            }
+        )
