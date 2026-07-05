@@ -51,6 +51,13 @@ export interface ExportResult {
   byteSize: number;
   /** True when the export was aborted via the signal before saving. */
   canceled: boolean;
+  /**
+   * Object URL for the saved PDF blob, backing the issue 1438 "Open in viewer"
+   * action. `null` when the blob is unavailable (jsdom/tests, or `createObjectURL`
+   * unsupported) — the dialog hides "Open in viewer" in that case. The caller owns
+   * the URL and MUST `URL.revokeObjectURL` it when done (the dialog revokes on close).
+   */
+  blobUrl: string | null;
 }
 
 /** Load a data-URL into an HTMLImageElement, resolving once decoded. */
@@ -64,18 +71,33 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 function canceledResult(fileName: string, paper: SchedulePaper): ExportResult {
-  return { fileName, pageCount: 0, paper, byteSize: 0, canceled: true };
+  return { fileName, pageCount: 0, paper, byteSize: 0, canceled: true, blobUrl: null };
 }
 
-/** Best-effort byte size of the rendered PDF (the mock has no `output`). */
-function pdfByteSize(pdf: { output: (type: string) => unknown }): number {
+/**
+ * Save the PDF and, best-effort, materialize its blob ONCE to derive both the
+ * output size and the "Open in viewer" object URL (issue 1438). The blob call is
+ * absent in jsdom/mock and `createObjectURL` is unimplemented there, so both are
+ * guarded — `byteSize` falls back to 0 and `blobUrl` to null, and the download
+ * still fires via `pdf.save` (mock-friendly, unchanged from the issue-1437 path).
+ */
+function finalizePdf(
+  pdf: { output: (type: string) => unknown; save: (name: string) => void },
+  fileName: string,
+): { byteSize: number; blobUrl: string | null } {
+  let byteSize = 0;
+  let blobUrl: string | null = null;
   try {
-    const blob = pdf.output('blob') as { size?: number };
-    if (blob && typeof blob.size === 'number') return blob.size;
+    const blob = pdf.output('blob') as Blob & { size?: number };
+    if (blob && typeof blob.size === 'number') byteSize = blob.size;
+    if (blob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      blobUrl = URL.createObjectURL(blob);
+    }
   } catch {
-    /* jsdom / mock: no real blob — fall through. */
+    /* jsdom / mock: no real blob or no createObjectURL — leave defaults. */
   }
-  return 0;
+  pdf.save(fileName);
+  return { byteSize, blobUrl };
 }
 
 /**
@@ -121,8 +143,8 @@ export async function exportSchedulePdf(
     onProgress?.({ phase: 'paginate', done: 0, total: 1 });
     pdf.addImage(dataUrl, 'PNG', 0, 0, columnWidth * scale, img.height * scale);
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    pdf.save(fileName);
-    return { fileName, pageCount: 1, paper, byteSize: pdfByteSize(pdf), canceled: false };
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
   }
 
   // Multi-band: slice the bitmap into a col × row grid via an offscreen canvas.
@@ -133,8 +155,8 @@ export async function exportSchedulePdf(
     // page rather than failing the export outright (mirrors the board helper).
     pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, img.height * scale);
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    pdf.save(fileName);
-    return { fileName, pageCount: 1, paper, byteSize: pdfByteSize(pdf), canceled: false };
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
   }
 
   let placed = 0;
@@ -161,8 +183,8 @@ export async function exportSchedulePdf(
 
   if (signal?.aborted) return canceledResult(fileName, paper);
   onProgress?.({ phase: 'finalize', done: total, total });
-  pdf.save(fileName);
-  return { fileName, pageCount: placed, paper, byteSize: pdfByteSize(pdf), canceled: false };
+  const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+  return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
 }
 
 /**

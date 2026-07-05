@@ -113,6 +113,10 @@ interface SchedulePrintLayoutProps {
   paper?: SchedulePaper;
   /** Optional ISO data-date ("now" line); drawn only when within the span. */
   dataDate?: string;
+  /** issue 1438 "Include" toggles. Default on, so the issue-1437 call is unchanged. */
+  includeArrows?: boolean;
+  includeOwnerColumn?: boolean;
+  includeCpSummary?: boolean;
 }
 
 /**
@@ -121,12 +125,25 @@ interface SchedulePrintLayoutProps {
  * node to html-to-image.
  */
 export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayoutProps>(
-  function SchedulePrintLayout({ data, paper = 'letter', dataDate }, ref) {
+  function SchedulePrintLayout(
+    {
+      data,
+      paper = 'letter',
+      dataDate,
+      includeArrows = true,
+      includeOwnerColumn = true,
+      includeCpSummary = true,
+    },
+    ref,
+  ) {
     const watermark = scheduleExportFooterWatermark();
     const { rows, links, kpis, cpChain, masthead, footer } = data;
 
     const printWidth = PRINT_WIDTH_PX[paper];
-    const chartTargetW = printWidth - LABEL_COL_PX - SHEET_PAD_PX * 2;
+    // Hiding the owner column narrows the label gutter and yields the width to the
+    // chart, so bars stay legible when owners are dropped (issue 1438).
+    const labelColPx = includeOwnerColumn ? LABEL_COL_PX : LABEL_COL_PX - 40;
+    const chartTargetW = printWidth - labelColPx - SHEET_PAD_PX * 2;
 
     const layout = useMemo(() => {
       const span = projectSpan(rows);
@@ -136,7 +153,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       return { scales, rowIndex, chartW: scales.totalWidth };
     }, [rows, chartTargetW]);
 
-    const sheetWidth = layout ? LABEL_COL_PX + layout.chartW + SHEET_PAD_PX * 2 : printWidth;
+    const sheetWidth = layout ? labelColPx + layout.chartW + SHEET_PAD_PX * 2 : printWidth;
     const rowsAreaH = rows.length * ROW_H;
 
     const dataDateX =
@@ -202,7 +219,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
           <div className="flex border border-neutral-border">
             {/* Label column */}
             <div
-              style={{ width: LABEL_COL_PX }}
+              style={{ width: labelColPx }}
               className="flex-shrink-0 border-r border-neutral-border"
             >
               <div
@@ -210,7 +227,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 className="flex items-end border-b border-neutral-border px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary"
               >
                 <span className="flex-1">Activity</span>
-                <span className="w-10 text-right">Owner</span>
+                {includeOwnerColumn && <span className="w-10 text-right">Owner</span>}
               </div>
               {rows.map((row) => (
                 <div
@@ -232,7 +249,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   <span className="flex-1 truncate" title={`${row.wbsCode} ${row.name}`}>
                     <span className="text-neutral-text-secondary">{row.wbsCode}</span> {row.name}
                   </span>
-                  {row.ownerInitials && (
+                  {includeOwnerColumn && row.ownerInitials && (
                     <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-secondary">
                       {row.ownerInitials}
                     </span>
@@ -333,39 +350,41 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   />
                 )}
 
-                {/* Dependency-arrow overlay */}
-                <svg
-                  className="pointer-events-none absolute left-0 top-0"
-                  width={layout.chartW}
-                  height={rowsAreaH}
-                  aria-hidden="true"
-                >
-                  {links.map((link) => {
-                    const fi = layout.rowIndex.get(link.fromId);
-                    const ti = layout.rowIndex.get(link.toId);
-                    if (fi == null || ti == null) return null;
-                    const from = barBox(rows[fi], fi * ROW_H + ROW_H / 2, layout.scales);
-                    const to = barBox(rows[ti], ti * ROW_H + ROW_H / 2, layout.scales);
-                    const d = fsConnectorPath(from, to);
-                    return (
-                      <g key={link.id}>
-                        <path
-                          d={d}
-                          fill="none"
-                          strokeWidth={1}
-                          strokeDasharray={link.hard ? undefined : '3 2'}
-                          className={arrowStrokeClass(link.hard)}
-                        />
-                        <polygon
-                          points={`${to.left - 5},${to.centerY - 3} ${to.left},${to.centerY} ${
-                            to.left - 5
-                          },${to.centerY + 3}`}
-                          className={arrowFillClass(link.hard)}
-                        />
-                      </g>
-                    );
-                  })}
-                </svg>
+                {/* Dependency-arrow overlay (issue 1438: hidden when the toggle is off) */}
+                {includeArrows && (
+                  <svg
+                    className="pointer-events-none absolute left-0 top-0"
+                    width={layout.chartW}
+                    height={rowsAreaH}
+                    aria-hidden="true"
+                  >
+                    {links.map((link) => {
+                      const fi = layout.rowIndex.get(link.fromId);
+                      const ti = layout.rowIndex.get(link.toId);
+                      if (fi == null || ti == null) return null;
+                      const from = barBox(rows[fi], fi * ROW_H + ROW_H / 2, layout.scales);
+                      const to = barBox(rows[ti], ti * ROW_H + ROW_H / 2, layout.scales);
+                      const d = fsConnectorPath(from, to);
+                      return (
+                        <g key={link.id}>
+                          <path
+                            d={d}
+                            fill="none"
+                            strokeWidth={1}
+                            strokeDasharray={link.hard ? undefined : '3 2'}
+                            className={arrowStrokeClass(link.hard)}
+                          />
+                          <polygon
+                            points={`${to.left - 5},${to.centerY - 3} ${to.left},${to.centerY} ${
+                              to.left - 5
+                            },${to.centerY + 3}`}
+                            className={arrowFillClass(link.hard)}
+                          />
+                        </g>
+                      );
+                    })}
+                  </svg>
+                )}
               </div>
             </div>
           </div>
@@ -400,15 +419,15 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               bordered card — a lightweight form of Layout B's activity register.
               Each entry shows its WBS + name and inclusive date range; the header
               states that this chain drives the project finish (float = 0). */}
-          {cpChain.length > 0 && (
+          {includeCpSummary && cpChain.length > 0 && (
             <div className="mt-3 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2">
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
                   Critical path chain
                 </span>
                 <span className="text-xs text-neutral-text-secondary">
-                  {cpChain.length} {cpChain.length === 1 ? 'activity drives' : 'activities drive'} the
-                  finish date
+                  {cpChain.length} {cpChain.length === 1 ? 'activity drives' : 'activities drive'}{' '}
+                  the finish date
                 </span>
               </div>
               <ol className="grid grid-cols-2 gap-x-6 gap-y-0.5">

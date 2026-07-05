@@ -384,6 +384,19 @@ export interface BuildSchedulePrintArgs {
    * {@link scheduleContentSha} (issue 1437); pass a value only to pin it in a test.
    */
   contentSha?: string | null;
+  /**
+   * Inclusive ISO date bounds for the "Visible window" timeline range (issue 1438).
+   * When both are set, only rows whose [start, finish] overlaps the window are
+   * charted; dangling links prune automatically. Rows with no dates are dropped
+   * from a windowed export. KPIs and the CP chain still describe the whole project.
+   */
+  windowStart?: string | null;
+  windowEnd?: string | null;
+  /**
+   * When true, chart only critical-path rows (issue 1438 "Non-critical tasks" off ⇒
+   * the driving chain only). KPIs and the CP-chain summary are unaffected.
+   */
+  criticalOnly?: boolean;
 }
 
 const DEFAULT_METHOD_SUBTITLE = 'Critical Path Method schedule';
@@ -394,10 +407,37 @@ const DEFAULT_METHOD_SUBTITLE = 'Critical Path Method schedule';
  * masthead/footer context — all derived from already-loaded data.
  */
 export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePrintData {
-  const rows = args.tasks
+  const allRows = args.tasks
     .slice()
     .sort((a, b) => compareWbs(a.wbs, b.wbs))
     .map(toPrintRow);
+
+  // KPIs and the critical-path chain describe the WHOLE project — they are the
+  // report's "project facts" and must not shift when the chart is decluttered
+  // ("Non-critical tasks" off) or clipped to a viewport window (issue 1438). Only
+  // the charted rows below honor the options.
+  const kpis = buildKpis(allRows, args.forecast);
+  const cpChain = buildCpChain(allRows);
+
+  let rows = allRows;
+  if (args.windowStart && args.windowEnd) {
+    // ISO YYYY-MM-DD strings compare lexicographically; overlap = start ≤ windowEnd
+    // AND finish ≥ windowStart. Slice to the date so a stored time component can't
+    // push a same-day boundary row out of the window. Undated rows have no
+    // placement, so drop them from a windowed export.
+    const ws = args.windowStart.slice(0, 10);
+    const we = args.windowEnd.slice(0, 10);
+    rows = rows.filter(
+      (r) =>
+        r.start != null &&
+        r.finish != null &&
+        r.start.slice(0, 10) <= we &&
+        r.finish.slice(0, 10) >= ws,
+    );
+  }
+  if (args.criticalOnly) {
+    rows = rows.filter((r) => r.isCritical);
+  }
 
   const rowIds = new Set(rows.map((r) => r.id));
   // Drop dangling links (an endpoint filtered out of the visible set) so the
@@ -412,13 +452,11 @@ export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePr
       hard: classifyLinkHardness(l),
     }));
 
-  const kpis = buildKpis(rows, args.forecast);
-
   return {
     rows,
     links,
     kpis,
-    cpChain: buildCpChain(rows),
+    cpChain,
     masthead: {
       projectName: args.projectName,
       methodSubtitle: args.methodSubtitle ?? DEFAULT_METHOD_SUBTITLE,
