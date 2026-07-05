@@ -433,13 +433,18 @@ scripts:test:
   #   - wt — the worktree helper's ADR/migration number reservation (the atomic
   #     claim that stops parallel agents colliding on the same number).
   # There is no other test harness for these scripts, so guard the logic
-  # directly. Pinned python image (bash + python3, zero installs), ~5s. Only runs
-  # when the tooling it covers — or the CI Trivy pin — changes.
+  # directly. Pinned python image (bash + python3), ~5s. The wt-reserve test
+  # stages real throwaway git repos and runs scripts/wt against them, so this
+  # otherwise-zero-install image needs git — installed in before_script below.
+  # Only runs when the tooling it covers — or the CI Trivy pin — changes.
   #
   # Note: this image runs bash 5, so it cannot catch a bash-3.2 regression on the
   # macOS release machine; assemble-changelog.test.sh guards that statically.
   stage: lint
   image: python:3.11-slim@sha256:ae52c5bef62a6bdd42cd1e8dffef86b9cd284bde9427da79839de7a4b983e7ca
+  before_script:
+    # wt-reserve.test.sh needs a real git binary (it stages sandbox repos).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
