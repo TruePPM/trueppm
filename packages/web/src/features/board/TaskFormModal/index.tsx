@@ -3,6 +3,7 @@ import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast';
+import { isSyncConflict } from '@/api/conflict';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
@@ -507,6 +508,9 @@ export function TaskFormModal({
         await updateTask.mutateAsync({
           id: task.id,
           projectId,
+          // Opt into field-level merge (ADR-0217, issue 322): if another editor changed a
+          // disjoint field the server merges; an overlapping edit 409s with a toast.
+          baseVersion: task.serverVersion,
           name: form.name.trim(),
           duration: form.duration,
           percent_complete: form.progress,
@@ -548,6 +552,13 @@ export function TaskFormModal({
       }
       onClose();
     } catch (err) {
+      // A sync conflict (ADR-0217) already surfaced the "Someone else changed this"
+      // toast with a Reload action via the mutation's onError; close the modal so the
+      // toast is unobstructed rather than stacking a redundant inline error.
+      if (isSyncConflict(err)) {
+        onClose();
+        return;
+      }
       const anchorErr = parseProgressAnchorError(err);
       if (anchorErr) {
         setSubmitError(
