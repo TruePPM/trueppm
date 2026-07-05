@@ -216,9 +216,22 @@ def send_password_reset_email(user: Any) -> bool:
         return False
 
     subject, text_body, html_body = _render_password_reset_email(user, reset_url)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "notifications@trueppm.local")
+    # Route through the workspace SMTP transport (#712, ADR-0213) so BYO-SMTP
+    # installs deliver reset mail on the same transport as everything else; a
+    # no-op fall back to the global backend when the workspace is unconfigured.
+    from trueppm_api.apps.notifications.email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+        resolve_reply_to,
+    )
+
     msg = EmailMultiAlternatives(
-        subject=subject, body=text_body, from_email=from_email, to=[recipient]
+        subject=subject,
+        body=text_body,
+        from_email=resolve_from_email(),
+        to=[recipient],
+        reply_to=resolve_reply_to() or None,
+        connection=resolve_email_connection(),
     )
     msg.attach_alternative(html_body, "text/html")
     try:

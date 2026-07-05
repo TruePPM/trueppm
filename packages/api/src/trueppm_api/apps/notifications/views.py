@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -14,9 +15,14 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import IsOrgAdmin, IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsOrgAdmin,
+    IsProjectMember,
+    IsWorkspaceOperator,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
@@ -24,19 +30,24 @@ from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     SIGNAL_ONLY_EVENTS,
+    EmailTransportMode,
     Notification,
     NotificationChannel,
     NotificationPreference,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    WorkspaceEmailSettings,
 )
 from .serializers import (
     NotificationPreferenceSerializer,
     NotificationSerializer,
     ProjectNotificationPreferenceSerializer,
+    WorkspaceEmailSettingsSerializer,
 )
 from .services import get_or_create_default_preferences
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -325,41 +336,143 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class EmailSettingsStatusView(APIView):
-    """``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.
+def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> dict[str, Any]:
+    """Serialize the singleton for the client, adding the read-only status flags.
 
-    Surfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is
-    configured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,
-    ``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —
-    never the SMTP password or username — for the workspace admin to confirm the
-    From identity and that a host is configured. Org-admin gated. The writable SMTP
-    config (transport switch, BYO credentials) is #712.
+    The password is never included (write-only serializer field); the response
+    carries only ``password_is_set``. ``configured_via`` and ``host_configured``
+    preserve back-compat with the #639 read-only status hook.
+    """
+    data: dict[str, Any] = dict(WorkspaceEmailSettingsSerializer(obj).data)
+    data["can_edit"] = can_edit
+    data["configured_via"] = (
+        "database" if obj.transport_mode != EmailTransportMode.CLOUD else "environment"
+    )
+    data["host_configured"] = bool(obj.host)
+    return data
+
+
+class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
+    """``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.
+
+    Upgrades the #639 read-only status page to the writable surface (#712,
+    ADR-0213). ``GET`` is org-admin readable so any workspace admin can see the
+    posture; **writes** (``PUT``/``PATCH``) require the install operator
+    (superuser) because the transport is installation-global — a single-project
+    admin must not be able to repoint all outbound mail at an attacker relay
+    (security review C1). The password is write-only and never echoed. A save is
+    rejected (400) if the candidate transport can't be opened, so a bad config
+    can't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).
     """
 
     permission_classes = [IsAuthenticated, IsOrgAdmin]
 
-    def get(self, request: Request) -> Response:
-        from django.conf import settings
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in ("PUT", "PATCH"):
+            return [IsAuthenticated(), IsWorkspaceOperator()]
+        return [IsAuthenticated(), IsOrgAdmin()]
 
-        backend = getattr(settings, "EMAIL_BACKEND", "") or ""
-        host = getattr(settings, "EMAIL_HOST", "") or ""
-        if "smtp" in backend.lower():
-            transport = "smtp"
-        elif "console" in backend.lower():
-            transport = "console"
-        elif "locmem" in backend.lower():
-            transport = "in-memory"
-        else:
-            transport = backend.rsplit(".", 1)[-1] or "unknown"
-        return Response(
-            {
-                "transport": transport,
-                "host": host,
-                "host_configured": bool(host),
-                "port": getattr(settings, "EMAIL_PORT", None),
-                "use_tls": bool(getattr(settings, "EMAIL_USE_TLS", False)),
-                "use_ssl": bool(getattr(settings, "EMAIL_USE_SSL", False)),
-                "from_email": getattr(settings, "DEFAULT_FROM_EMAIL", "") or "",
-                "configured_via": "environment",
-            }
+    def get_throttles(self) -> list[Any]:
+        # Throttle only the write path (each write re-opens a candidate SMTP
+        # connection); GET is a cheap read the settings page polls.
+        if self.request.method in ("PUT", "PATCH"):
+            throttle = ScopedRateThrottle()
+            throttle.scope = "email_settings"
+            return [throttle]
+        return super().get_throttles()
+
+    def get(self, request: Request) -> Response:
+        obj = WorkspaceEmailSettings.load()
+        return Response(_email_settings_payload(obj, can_edit=bool(request.user.is_superuser)))
+
+    def put(self, request: Request) -> Response:
+        return self._update(request, partial=False)
+
+    def patch(self, request: Request) -> Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: Request, *, partial: bool) -> Response:
+        obj = WorkspaceEmailSettings.load()
+        serializer = WorkspaceEmailSettingsSerializer(
+            obj, data=request.data, partial=partial, context={"request": request}
         )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        obj.refresh_from_db()
+        return Response(_email_settings_payload(obj, can_edit=True))
+
+
+class WorkspaceEmailTestView(IdempotencyMixin, APIView):
+    """``POST /api/v1/workspace/email-settings/send-test/`` — send a test email.
+
+    Sends a fixed test message to the **requesting operator's own address only**
+    (server-derived — never a recipient from the request body, which would make
+    this an authenticated open relay, security review M5) through the resolved
+    transport. Synchronous so the admin gets immediate pass/fail feedback; a
+    transport failure returns 502 with a generic message.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOperator]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_settings_probe"
+
+    def post(self, request: Request) -> Response:
+        from django.core.mail import EmailMessage
+
+        from .email_backend import (
+            resolve_email_connection,
+            resolve_from_email,
+            resolve_reply_to,
+        )
+
+        recipient = (getattr(request.user, "email", "") or "").strip()
+        if not recipient:
+            return Response(
+                {"sent": False, "error": "Your account has no email address on file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        obj = WorkspaceEmailSettings.load()
+        try:
+            connection = resolve_email_connection(obj)
+            EmailMessage(
+                subject="TruePPM test email",
+                body=(
+                    "This is a test message from your TruePPM workspace email "
+                    "configuration. If you received it, outbound mail is working."
+                ),
+                from_email=resolve_from_email(obj),
+                to=[recipient],
+                reply_to=resolve_reply_to(obj) or None,
+                connection=connection,
+            ).send(fail_silently=False)
+        except Exception:
+            # Never surface the underlying transport exception (may echo creds).
+            logger.warning("send-test: transport failed for %s", obj.transport_mode)
+            return Response(
+                {
+                    "sent": False,
+                    "error": "Could not send the test email. Check the transport configuration.",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"sent": True, "recipient": recipient})
+
+
+class WorkspaceEmailHealthView(APIView):
+    """``GET /api/v1/workspace/email-settings/health/`` — SPF/DKIM/DMARC posture.
+
+    Live, bounded DNS TXT lookups on the persisted From-address domain (never a
+    domain from request input). Operator-gated and tightly throttled — the
+    lookups are an egress surface (ADR-0213 §4, security review M4/H3).
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOperator]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "email_settings_probe"
+
+    def get(self, request: Request) -> Response:
+        from .email_health import check_deliverability
+
+        obj = WorkspaceEmailSettings.load()
+        return Response(check_deliverability(obj.from_email, obj.dkim_selector))

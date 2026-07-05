@@ -291,7 +291,6 @@ def _do_purge_expired_exports() -> None:
 
 def _send_export_ready_email(job_id: str) -> bool:
     """Notify the owner their export is ready. Best-effort (returns success)."""
-    from django.conf import settings
     from django.core.mail import EmailMessage
 
     from .models import WorkspaceExportJob
@@ -301,9 +300,19 @@ def _send_export_ready_email(job_id: str) -> bool:
         return False
 
     subject, body = _render_export_email(job)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@trueppm.local")
+    from trueppm_api.apps.notifications.email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+    )
+
+    # Send on the workspace SMTP transport (#712, ADR-0213); no-op fall back to
+    # the global backend when unconfigured.
     msg = EmailMessage(
-        subject=subject, body=body, from_email=from_email, to=[job.requested_by.email]
+        subject=subject,
+        body=body,
+        from_email=resolve_from_email(),
+        to=[job.requested_by.email],
+        connection=resolve_email_connection(),
     )
     try:
         msg.send(fail_silently=False)
@@ -368,7 +377,6 @@ def _do_purge_stale_invites() -> None:
 
 def _send_invite_email(invite: object) -> bool:
     """Render and send the invitation email. Returns True on SMTP success."""
-    from django.conf import settings
     from django.core.mail import EmailMessage
 
     from .models import WorkspaceInvite
@@ -378,8 +386,20 @@ def _send_invite_email(invite: object) -> bool:
         return False
 
     subject, body = _render_invite_email(inv)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@trueppm.local")
-    msg = EmailMessage(subject=subject, body=body, from_email=from_email, to=[inv.email])
+    from trueppm_api.apps.notifications.email_backend import (
+        resolve_email_connection,
+        resolve_from_email,
+    )
+
+    # Send on the workspace SMTP transport (#712, ADR-0213); no-op fall back to
+    # the global backend when unconfigured.
+    msg = EmailMessage(
+        subject=subject,
+        body=body,
+        from_email=resolve_from_email(),
+        to=[inv.email],
+        connection=resolve_email_connection(),
+    )
     try:
         msg.send(fail_silently=False)
     except Exception:
