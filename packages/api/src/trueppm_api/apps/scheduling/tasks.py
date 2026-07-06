@@ -661,9 +661,9 @@ def _run_schedule(
         TaskActivityEvent,
         TaskType,
     )
+    from trueppm_api.apps.scheduling.calendars import compose_project_calendar
     from trueppm_api.apps.scheduling.services import (
         apply_summary_rollups,
-        build_sched_calendar,
         build_sched_tasks,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
@@ -679,10 +679,16 @@ def _run_schedule(
             Project.objects.select_related("calendar")
             # tasks__sprint: build_sched_tasks reads each task's sprint.start_date
             # for the ADR-0168 sprint-window floor; prefetch it to avoid an N+1.
-            # calendar__exceptions: build_sched_calendar reads every
-            # CalendarException row (#1491); prefetch to avoid an N+1.
+            # calendar__exceptions + calendar_layers__calendar__exceptions:
+            # compose_project_calendar reads every CalendarException row of the
+            # base calendar (#1491) AND of every applied overlay (#906); prefetch
+            # both to avoid an N+1.
             .prefetch_related(
-                "tasks", "tasks__sprint", "tasks__predecessors", "calendar__exceptions"
+                "tasks",
+                "tasks__sprint",
+                "tasks__predecessors",
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
             )
             .get(pk=project_id)
         )
@@ -717,11 +723,11 @@ def _run_schedule(
 
     _update(25, "Building schedule model…")
 
-    # Build a trueppm_scheduler.Calendar from the project's calendar (or default),
-    # including its CalendarException holiday/shutdown ranges (issue #1491) — via
-    # the shared converter so this call site can't drift from Monte Carlo/program
-    # scheduling the way the three inline constructions previously did.
-    sched_calendar = build_sched_calendar(db_project.calendar)
+    # Build a trueppm_scheduler.Calendar from the OVERLAY of the project's applied
+    # calendars — base + holiday/shutdown overlays — as one composed non-working
+    # mask (#906, ADR-0251). Routes through the shared composer so the CPM pass,
+    # Monte Carlo, and program scheduling can never drift on which calendars apply.
+    sched_calendar = compose_project_calendar(db_project)
 
     # Convert Django Task objects to scheduler dataclasses through the shared
     # converter (ADR-0132), the single source of truth the Monte Carlo endpoint

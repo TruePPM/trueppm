@@ -562,6 +562,12 @@ export const router = createBrowserRouter([
                 element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" />,
               },
               {
+                path: 'settings/calendars',
+                element: (
+                  <SectionRedirect base="/projects/:projectId/settings" anchor="calendars" />
+                ),
+              },
+              {
                 path: 'settings/guardrails',
                 element: (
                   <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" />

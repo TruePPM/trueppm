@@ -319,6 +319,60 @@ class CalendarException(models.Model):
         return f"{self.calendar} exception {self.exc_start} to {self.exc_end}"
 
 
+class CalendarRole(models.TextChoices):
+    """The part an applied calendar plays in a project's composed mask (#906, ADR-0251).
+
+    ``PROJECT`` is reserved for the base ``Project.calendar`` FK — it is never
+    stored on a ``ProjectCalendarLayer`` row (the layer table holds overlays
+    only). ``HOLIDAYS`` and ``WORKSPACE`` are display/grouping labels; they do
+    NOT affect composition, which is order-independent (mask AND, exception union).
+    """
+
+    PROJECT = "project", "Project"
+    HOLIDAYS = "holidays", "Holidays"
+    WORKSPACE = "workspace", "Workspace / shutdown"
+
+
+class ProjectCalendarLayer(VersionedModel):
+    """An overlay calendar applied on top of a project's base calendar (#906, ADR-0251).
+
+    The project's effective non-working mask for CPM is the overlay (union) of its
+    base ``Calendar`` plus every applied overlay: a day is non-working if *any*
+    applied calendar marks it so (masks AND-composed, exception ranges unioned).
+    Because composition is commutative, ``sort_order`` is a **display** ordering
+    only — it never changes the computed schedule.
+
+    A shared library ``Calendar`` may be a base for one project and an overlay for
+    another, so ``role`` lives on the application (this row), not on the calendar.
+    """
+
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, related_name="calendar_layers")
+    # PROTECT so a library calendar in use as an overlay cannot be deleted out
+    # from under a project — parity with Project.calendar.
+    calendar = models.ForeignKey(
+        Calendar, on_delete=models.PROTECT, related_name="applied_to_layers"
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=CalendarRole.choices,
+        default=CalendarRole.HOLIDAYS,
+    )
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "projects_project_calendar_layer"
+        ordering = ["sort_order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "calendar"],
+                name="uniq_project_calendar_layer",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project} +{self.role} {self.calendar}"
+
+
 # ---------------------------------------------------------------------------
 # Project
 # ---------------------------------------------------------------------------

@@ -48,6 +48,7 @@ from drf_spectacular.utils import (
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -91,6 +92,7 @@ from trueppm_api.apps.projects.models import (
     BoardSavedView,
     Calendar,
     CalendarException,
+    CalendarRole,
     CommentAcknowledgement,
     CommentReaction,
     CrossProjectSlipConflict,
@@ -100,6 +102,7 @@ from trueppm_api.apps.projects.models import (
     ExportJobStatus,
     Project,
     ProjectApiToken,
+    ProjectCalendarLayer,
     ProjectCustomField,
     ProjectExportJob,
     RetroBoardItem,
@@ -122,11 +125,14 @@ from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
     AcceptanceCriterionSerializer,
     ApiTokenAuditEntrySerializer,
+    AppliedCalendarsSerializer,
+    ApplyCalendarsSerializer,
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
     BoardSavedViewSerializer,
     CalendarExceptionSerializer,
+    CalendarPreviewSerializer,
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
@@ -336,10 +342,18 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
     recompute; ``enqueue_recalculate`` coalesces onto any PENDING request per
     project, so several exception edits in one transaction cost one recompute each.
     """
+    # A calendar edit must recompute every project that applies it — as its base
+    # calendar OR as an overlay layer (#906/ADR-0251). Missing the overlay branch
+    # would let an overlay-calendar (or overlay-exception) edit silently skip the
+    # CPM recompute for projects that use it only as an overlay. distinct() because
+    # the layer join can multiply a project row.
     project_ids = list(
-        Project.objects.filter(calendar_id=calendar_id, is_deleted=False).values_list(
-            "id", flat=True
+        Project.objects.filter(
+            Q(calendar_id=calendar_id) | Q(calendar_layers__calendar_id=calendar_id),
+            is_deleted=False,
         )
+        .distinct()
+        .values_list("id", flat=True)
     )
     if not project_ids:
         return
@@ -485,6 +499,17 @@ class ProjectViewSet(
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         if self.action in ("utilization", "resource_allocation", "heatmap", "resources_summary"):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        # Composable working calendars (#906/ADR-0251): reading the applied set (and
+        # its preview) is any-member (Viewer+, same level as reading the schedule);
+        # applying/replacing the set is a project scheduling decision gated Scheduler+
+        # (it mutates no shared resource — only which library calendars overlay THIS
+        # project). SAFE_METHODS branch keeps GET on the read gate.
+        if self.action == "working_calendars":
+            if self.request.method in SAFE_METHODS:
+                return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+            return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        if self.action == "working_calendars_preview":
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # ADR-0105: reading the grooming view is any-member; auto-rank is a structural
         # backlog action gated on can_manage_backlog (Admin+ today, PO-role seam).
         if self.action == "product_backlog":
@@ -1405,6 +1430,200 @@ class ProjectViewSet(
             record_project_visit(request.user, project)
             return Response({"recorded": True}, status=status.HTTP_200_OK)
         return Response({"recorded": False}, status=status.HTTP_200_OK)
+
+    # -- Composable working calendars (#906, ADR-0251) ----------------------
+
+    def _applied_calendars_with_roles(
+        self, project: Project
+    ) -> list[tuple[ProjectCalendarLayer | None, str, Calendar]]:
+        """Ordered ``[(layer_or_None, role, calendar)]`` — base first, then overlays.
+
+        The base carries ``layer=None`` and ``role=project``; overlays carry their
+        ``ProjectCalendarLayer`` row and its role, ordered by ``sort_order`` (the
+        model's default ordering). Callers must have prefetched ``calendar`` and
+        ``calendar_layers__calendar`` (plus their exceptions for the preview).
+        """
+        applied: list[tuple[ProjectCalendarLayer | None, str, Calendar]] = []
+        base = project.calendar
+        if base is not None:
+            applied.append((None, CalendarRole.PROJECT.value, base))
+        for layer in project.calendar_layers.all():
+            applied.append((layer, layer.role, layer.calendar))
+        return applied
+
+    def _serialize_applied_calendars(self, project: Project) -> dict[str, Any]:
+        base_data = CalendarSerializer(project.calendar).data if project.calendar_id else None
+        applied: list[dict[str, Any]] = []
+        for order, (layer, role, calendar) in enumerate(
+            self._applied_calendars_with_roles(project)
+        ):
+            applied.append(
+                {
+                    "layer_id": layer.id if layer is not None else None,
+                    "role": role,
+                    "sort_order": layer.sort_order if layer is not None else order,
+                    "calendar": CalendarSerializer(calendar).data,
+                }
+            )
+        overlays = [entry for entry in applied if entry["role"] != CalendarRole.PROJECT.value]
+        return {"base": base_data, "overlays": overlays, "applied": applied}
+
+    @extend_schema(
+        methods=["GET"],
+        summary="Get the calendars applied to a project (base + overlays)",
+        responses={200: AppliedCalendarsSerializer},
+    )
+    @extend_schema(
+        methods=["PUT"],
+        summary="Replace the calendars applied to a project",
+        request=ApplyCalendarsSerializer,
+        responses={200: AppliedCalendarsSerializer},
+    )
+    @action(detail=True, methods=["get", "put"], url_path="calendars")
+    def working_calendars(self, request: Request, pk: str | None = None) -> Response:
+        """Get or atomically replace a project's composed working-calendar set (#906).
+
+        The project's effective non-working mask for CPM is the overlay (union) of
+        its base ``Calendar`` plus every applied ``ProjectCalendarLayer`` — a day is
+        non-working if *any* applied calendar marks it so (ADR-0251). ``GET`` is
+        any-member; ``PUT`` is Scheduler+ (gated in ``_rbac_permissions``).
+        """
+        project = self.get_object()  # 404 + object-level permission
+        if request.method == "PUT":
+            return self._replace_working_calendars(request, project)
+        project = (
+            Project.objects.select_related("calendar")
+            .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
+            .get(pk=project.pk)
+        )
+        return Response(self._serialize_applied_calendars(project))
+
+    def _replace_working_calendars(self, request: Request, project: Project) -> Response:
+        serializer = ApplyCalendarsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        base_id = data.get("base_calendar_id")
+        overlays = data["overlays"]
+
+        # Validate every referenced calendar against the shared org library in one
+        # query — a 400 for an unknown id beats a 500 on the FK insert, and never
+        # leaks whether the id exists in some other tenant (all calendars are org
+        # -shared, so existence is not sensitive here).
+        referenced = {o["calendar_id"] for o in overlays}
+        if base_id is not None:
+            referenced.add(base_id)
+        found = set(Calendar.objects.filter(id__in=referenced).values_list("id", flat=True))
+        missing = referenced - found
+        if missing:
+            raise DRFValidationError(
+                {"detail": f"Unknown calendar id(s): {', '.join(str(m) for m in sorted(missing))}."}
+            )
+
+        with transaction.atomic():
+            # Atomic replace: set the base FK, then drop and rebuild the overlay
+            # layer rows so sort_order matches the submitted array order. One
+            # on_commit recompute covers the whole change (composition is
+            # order-independent, but the mask/exception set did change).
+            # update_fields=["calendar"] so a concurrent write to an unrelated
+            # Project column (name/status/dates) between this handler's read and
+            # write is not clobbered by a full-row save. VersionedModel.save still
+            # bumps server_version atomically, so the base-calendar change rides the
+            # sync delta.
+            project.calendar_id = base_id
+            project.save(update_fields=["calendar"])
+            project.calendar_layers.all().delete()
+            ProjectCalendarLayer.objects.bulk_create(
+                [
+                    ProjectCalendarLayer(
+                        project=project,
+                        calendar_id=o["calendar_id"],
+                        role=o["role"],
+                        sort_order=idx,
+                    )
+                    for idx, o in enumerate(overlays)
+                ]
+            )
+
+            def _dispatch(pid: str = str(project.id)) -> None:
+                _enqueue_recalculate(pid, reason=ScheduleRequestReason.CALENDAR_CHANGE)
+
+            transaction.on_commit(_dispatch)
+
+        project = (
+            Project.objects.select_related("calendar")
+            .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
+            .get(pk=project.pk)
+        )
+        return Response(self._serialize_applied_calendars(project), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Preview effective working time for a project's composed calendars",
+        parameters=[
+            OpenApiParameter("start", str, required=True, description="ISO date, inclusive."),
+            OpenApiParameter("end", str, required=True, description="ISO date, inclusive."),
+        ],
+        responses={200: CalendarPreviewSerializer},
+    )
+    @action(detail=True, methods=["get"], url_path="calendars/preview")
+    def working_calendars_preview(self, request: Request, pk: str | None = None) -> Response:
+        """Per-day effective working time over a window, with source provenance (#906).
+
+        For each day in ``[start, end]`` returns whether it is working and, if not,
+        which applied calendar(s) blocked it — the "why is this day off?" affordance.
+        Provenance requires evaluating each applied calendar individually (the merged
+        composition loses which source caused a block). Window capped at 366 days to
+        keep it O(days × layers). Any project member (Viewer+).
+        """
+        from trueppm_api.apps.scheduling.services import build_sched_calendar
+
+        _MAX_PREVIEW_DAYS = 366
+
+        obj = self.get_object()  # 404 + object-level permission
+        project = (
+            Project.objects.select_related("calendar")
+            .prefetch_related("calendar__exceptions", "calendar_layers__calendar__exceptions")
+            .get(pk=obj.pk)
+        )
+
+        def _parse(param: str) -> datetime.date:
+            raw = request.query_params.get(param)
+            if not raw:
+                raise DRFValidationError({param: f"'{param}' is required (YYYY-MM-DD)."})
+            try:
+                return datetime.date.fromisoformat(raw)
+            except ValueError:
+                raise DRFValidationError(
+                    {param: f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD)."}
+                ) from None
+
+        start = _parse("start")
+        end = _parse("end")
+        if end < start:
+            raise DRFValidationError({"end": "'end' must be on or after 'start'."})
+        if (end - start).days + 1 > _MAX_PREVIEW_DAYS:
+            raise DRFValidationError(
+                {"end": f"Preview window is capped at {_MAX_PREVIEW_DAYS} days."}
+            )
+
+        # One scheduler Calendar per applied source, so a per-day is_working_day
+        # check attributes the block back to its source calendar.
+        sources = [
+            (role, calendar, build_sched_calendar(calendar))
+            for (_layer, role, calendar) in self._applied_calendars_with_roles(project)
+        ]
+
+        days: list[dict[str, Any]] = []
+        day = start
+        while day <= end:
+            blocking = [
+                {"role": role, "calendar_id": calendar.id, "name": calendar.name}
+                for (role, calendar, sched) in sources
+                if not sched.is_working_day(day)
+            ]
+            days.append({"date": day, "working": not blocking, "sources": blocking})
+            day += datetime.timedelta(days=1)
+
+        return Response({"start": start, "end": end, "days": days})
 
     @extend_schema(
         summary="Transfer project ownership",

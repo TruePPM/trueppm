@@ -122,15 +122,22 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         Project,
         TaskType,
     )
-    from trueppm_api.apps.scheduling.services import build_sched_calendar, build_sched_tasks
+    from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+    from trueppm_api.apps.scheduling.services import build_sched_tasks
 
     member_projects = list(
         Project.objects.filter(program=program, is_deleted=False)
         .select_related("calendar")
-        # calendar__exceptions: build_sched_calendar reads every CalendarException
-        # row per member project's calendar (#1491); prefetch to avoid an N+1
-        # across the whole program (this loop iterates every member project).
-        .prefetch_related("tasks", "tasks__sprint", "calendar__exceptions")
+        # calendar__exceptions + calendar_layers__calendar__exceptions:
+        # compose_project_calendar reads each member project's base calendar
+        # exceptions (#1491) AND its applied overlays (#906); prefetch both to
+        # avoid an N+1 across the whole program (this loop iterates every member).
+        .prefetch_related(
+            "tasks",
+            "tasks__sprint",
+            "calendar__exceptions",
+            "calendar_layers__calendar__exceptions",
+        )
         .order_by("start_date", "name")
     )
     project_by_id = {p.id: p for p in member_projects}
@@ -154,11 +161,11 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         if enforce_max and total_tasks > MAX_PROGRAM_TASKS:
             raise ProgramScheduleTooLarge
 
-        # Shared converter (#1491): includes each member project's
-        # CalendarException holiday/shutdown ranges, which the previous inline
-        # construction dropped — so the merged program-scoped CPM pass silently
-        # scheduled straight through configured holidays for every member project.
-        calendars[str(p.id)] = build_sched_calendar(p.calendar)
+        # Shared composer (#906/#1491): overlays each member project's base +
+        # applied calendars into one non-working mask, including every
+        # CalendarException holiday/shutdown range — so the merged program-scoped
+        # CPM pass honors the same composed calendar as the single-project pass.
+        calendars[str(p.id)] = compose_project_calendar(p)
 
         sched_tasks = build_sched_tasks(
             db_tasks,

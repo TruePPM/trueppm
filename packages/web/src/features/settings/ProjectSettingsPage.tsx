@@ -14,6 +14,7 @@ import {
 import { ProjectGeneralPage } from './project/ProjectGeneralPage';
 import { ProjectAccessPage } from './project/ProjectAccessPage';
 import { ProjectMethodologyPage } from './project/ProjectMethodologyPage';
+import { ProjectCalendarsPage } from './project/ProjectCalendarsPage';
 import { ProjectTeamPage } from './team/ProjectTeamPage';
 import { ProjectSignalPrivacyPage } from './signalPrivacy/ProjectSignalPrivacyPage';
 import { ProjectWorkflowPage } from './project/ProjectWorkflowPage';
@@ -32,6 +33,7 @@ import {
   SettingsIcon,
   ExternalLinkIcon,
   WarningIcon,
+  CalendarIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -99,6 +101,7 @@ export function ProjectSettingsPage() {
       label: 'Configuration',
       items: [
         { id: 'workflow',   label: 'Workflow & fields',                icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'calendars',  label: 'Working calendars',                icon: <NavIcon><CalendarIcon aria-hidden="true" /></NavIcon> },
         { id: 'guardrails', label: `${iterationSingular} guardrails`,  icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
         ...(showTeamTab
           ? [{ id: 'signal-privacy', label: 'Signal privacy', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> }]
@@ -137,6 +140,7 @@ export function ProjectSettingsPage() {
       <SettingsSection id="methodology"><ProjectMethodologyPage /></SettingsSection>
       {showTeamTab && <SettingsSection id="team"><ProjectTeamPage /></SettingsSection>}
       <SettingsSection id="workflow"><ProjectWorkflowPage /></SettingsSection>
+      <SettingsSection id="calendars"><ProjectCalendarsPage /></SettingsSection>
       <SettingsSection id="guardrails"><ProjectGuardrailsPage /></SettingsSection>
       {showTeamTab && (
         <SettingsSection id="signal-privacy"><ProjectSignalPrivacyPage /></SettingsSection>
