@@ -219,7 +219,10 @@ test.describe('Program Settings → Access', () => {
 
     await page.getByRole('combobox', { name: /Search by username or email/i }).fill('mira');
     await page.getByRole('option', { name: /Mira Kapoor/ }).click();
-    await page.getByRole('button', { name: /^Add$/ }).click();
+    await page
+      .getByRole('region', { name: 'Add a member' })
+      .getByRole('button', { name: /^Add$/ })
+      .click();
 
     // The POST carried the selected user id and a concrete role…
     await expect.poll(() => postBody?.user).toBe(NEW_USER.id);
@@ -264,7 +267,10 @@ test.describe('Program Settings → Access', () => {
 
     await page.getByRole('combobox', { name: /Search by username or email/i }).fill('mira');
     await page.getByRole('option', { name: /Mira Kapoor/ }).click();
-    await page.getByRole('button', { name: /^Add$/ }).click();
+    await page
+      .getByRole('region', { name: 'Add a member' })
+      .getByRole('button', { name: /^Add$/ })
+      .click();
 
     // The failed create surfaces an inline alert, retains the picked user (the
     // selection is cleared only on success), and re-enables the Add button so the
@@ -275,7 +281,7 @@ test.describe('Program Settings → Access', () => {
     await expect(page.getByRole('combobox', { name: /Search by username or email/i })).toHaveValue(
       'mira.k',
     );
-    await expect(page.getByRole('button', { name: /^Add$/ })).toBeEnabled();
+    await expect(addRegion.getByRole('button', { name: /^Add$/ })).toBeEnabled();
     // The roster is unchanged — the phantom member never appears.
     await expect(page.getByText(/mira\.k/)).toHaveCount(0);
   });
