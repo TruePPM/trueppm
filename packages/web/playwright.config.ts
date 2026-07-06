@@ -43,6 +43,17 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
+    // Emulate `prefers-reduced-motion: reduce` for every spec. The app gates all
+    // decorative animation behind Tailwind's `motion-safe:` variant (drawer
+    // slide, `animate-pulse` loading skeletons, `animate-spin` refresh icons,
+    // the save-bar slide), so this disables them wholesale in tests. A looping
+    // `animate-pulse` skeleton left running by a still-loading section keeps its
+    // layout perpetually in motion, which trips Playwright's actionability
+    // "element is stable" check and surfaces as a nondeterministic 30s click
+    // timeout on unrelated controls — the subtasks-drawer flake (#1655). Reduced
+    // motion is also how real assistive-tech users experience the app, so this
+    // makes the e2e environment more representative, not less. (#1655)
+    reducedMotion: 'reduce',
   },
   projects: [
     {
