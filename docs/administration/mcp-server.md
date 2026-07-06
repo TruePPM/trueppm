@@ -147,7 +147,9 @@ straight through from the API.
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary` (CPM finish, P50/P80/P95, SPI,
   critical-task count), `get_monte_carlo_forecast` (latest persisted run;
-  read-only, never triggers a new simulation), `get_schedule_derivation` (the
+  read-only, never triggers a new simulation), `whatif` (perturb one task's
+  duration and recompute CPM + Monte Carlo in memory — persists nothing — for
+  "what breaks if this task slips?"), `get_schedule_derivation` (the
   server-computed *why* behind a CPM value or Monte Carlo percentile — the driving
   predecessor/successor, binding constraint, lag, and calendar contribution),
   `list_risks`.

@@ -88,6 +88,7 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "get_schedule_summary",
         "list_risks",
         "get_monte_carlo_forecast",
+        "whatif",
         "get_schedule_derivation",
         "list_sprints",
         "get_sprint",
