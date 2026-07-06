@@ -241,9 +241,13 @@ def _db_connection_rows() -> list[tuple[str, int]]:
     """
     conn = connections["default"]
     with conn.cursor() as cursor:
-        # A hardcoded int literal — SET rejects bind parameters, and there is no
-        # user input here, so interpolation is safe.
-        cursor.execute(f"SET statement_timeout = {int(_DB_PROBE_TIMEOUT_MS)}")
+        # set_config() accepts a bind parameter where bare SET does not, so the
+        # timeout is passed as a parameter rather than interpolated into SQL.
+        # is_local=false keeps it session-scoped, matching SET statement_timeout.
+        cursor.execute(
+            "SELECT set_config('statement_timeout', %s, false)",
+            [str(int(_DB_PROBE_TIMEOUT_MS))],
+        )
         cursor.execute(
             "SELECT state, count(*) FROM pg_stat_activity "
             "WHERE datname = current_database() GROUP BY state"
