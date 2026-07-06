@@ -492,8 +492,13 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
 test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
   async function openMcPanel(page: import('@playwright/test').Page) {
     await gotoScheduleWithMC(page);
-    // Open the MC confidence drawer from the shell health-cluster forecast band.
-    await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
+    // Open the MC confidence drawer from the shell health chip → popover forecast
+    // band (issue #1644 — the forecast is now a "Details ›" row inside the health
+    // popover the status chip opens, not an always-inline segment).
+    await page.getByTestId('health-cluster').click();
+    const health = page.getByRole('dialog', { name: 'Project health' });
+    await expect(health).toBeVisible();
+    await health.locator('[aria-label^="Monte Carlo forecast"]').click({ timeout: 10_000 });
     await expect(
       page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
     ).toBeVisible();
@@ -521,7 +526,11 @@ test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {
         body: JSON.stringify({ results: [], cap: 100 }),
       }),
     );
-    await page.click('[aria-label^="Monte Carlo forecast"]', { timeout: 10_000 });
+    // Open the drawer via the health chip → popover forecast "Details ›" row (#1644).
+    await page.getByTestId('health-cluster').click();
+    const health = page.getByRole('dialog', { name: 'Project health' });
+    await expect(health).toBeVisible();
+    await health.locator('[aria-label^="Monte Carlo forecast"]').click({ timeout: 10_000 });
     await expect(
       page.getByRole('dialog', { name: /Monte Carlo confidence/i }),
     ).toBeVisible();

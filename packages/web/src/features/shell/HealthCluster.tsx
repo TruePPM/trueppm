@@ -6,6 +6,7 @@ import { useShellStats } from '@/hooks/useShellStats';
 import { useActiveSprint, useProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { MCResultPanel } from './MCResultPanel';
 import { healthClusterModel, type HealthSegment } from './healthClusterModel';
@@ -16,25 +17,23 @@ interface Props {
   onTaskNavigate: (id: string) => void;
 }
 
-interface BadgeTaskItem {
-  id: string;
-  wbs: string;
-  name: string;
-}
-
 // Forecast dates are formatted in UTC (the server emits MC percentile dates as
 // UTC ISO strings). Local-zone formatting drifts a calendar day west of UTC,
 // which is what made the shell header disagree with the schedule bar (ADR-0144).
 const formatForecastDate = fmtUtcShort;
 
 // The velocity number is audience-scoped (ADR-0104). Even when the viewer is in
-// audience, the slot surfaces this boundary so teams trust the figure isn't piped
+// audience, the row surfaces this boundary so teams trust the figure isn't piped
 // up to portfolio/PMO surfaces (issue 1197 — Morgan's trust ask).
 const VELOCITY_PRIVACY_NOTE = 'Visible to project members only — not on portfolio dashboards';
 
+// At-risk / critical drill lists cap at five items with a "+N more" tail so the
+// popover never grows unbounded (mirrors the previous SegmentPopover behaviour).
+const MAX_VISIBLE = 5;
+
 // Inline padlock glyph for the ADR-0104 velocity privacy wall (rule 168). No
 // LockIcon exists in the icon set; this is decorative (aria-hidden) — the gate is
-// named in the segment's aria-label.
+// named in the row's aria-label.
 function LockGlyph() {
   return (
     <svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor" aria-hidden="true">
@@ -44,219 +43,162 @@ function LockGlyph() {
 }
 
 // ---------------------------------------------------------------------------
-// Task-list popover — the at-risk / critical segments open a role="menu" list of
-// the offending tasks. Kept local so the cluster reads as one bordered unit,
-// not nested bordered pills.
+// Chip state word — derived from the project-wide at-risk / critical counts on
+// `useShellStats`, NOT from the methodology segment set. `status-summary`
+// carries `at_risk_count` / `critical_count` for every methodology, so an Agile
+// project whose cluster shows Sprint/Points/Velocity still reads "At risk" on the
+// chip when it has a real critical task (rule 6 — the WORD is the non-color
+// signal; the dot only reinforces it).
 // ---------------------------------------------------------------------------
 
-interface SegmentPopoverProps {
-  triggerLabel: string;
-  ariaLabel: string;
-  variant: 'at-risk' | 'critical';
-  icon: ReactNode;
-  count: number;
-  items: BadgeTaskItem[];
-  onItemClick: (id: string) => void;
+type ChipStateKey = 'critical' | 'atRisk' | 'onTrack';
+
+interface ChipState {
+  key: ChipStateKey;
+  word: string;
+  /** Word color: semantic for at-risk/critical; neutral for on-track (the dot
+   *  carries the on-track color so the word stays a calm non-color signal, rule 6). */
+  wordClass: string;
+  dotClass: string;
 }
 
-const MAX_VISIBLE = 5;
-
-function SegmentPopover({
-  triggerLabel,
-  ariaLabel,
-  variant,
-  icon,
-  count,
-  items,
-  onItemClick,
-}: SegmentPopoverProps) {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onMouseDown(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKeyDown);
+function deriveChipState(criticalCount: number, atRiskCount: number): ChipState {
+  // One critical ⇒ "At risk"; ≥1 at-risk & 0 critical ⇒ "On watch"; else "On
+  // track". No other math — the chip is a single worst-state read.
+  if (criticalCount > 0) {
+    return {
+      key: 'critical',
+      word: 'At risk',
+      wordClass: 'text-semantic-critical',
+      dotClass: 'bg-semantic-critical',
     };
-  }, [open]);
-
-  const colorClass = variant === 'critical' ? 'text-semantic-critical' : 'text-semantic-at-risk';
-  const visible = items.slice(0, MAX_VISIBLE);
-  const overflow = count - visible.length;
-
-  // Zero is a calm static read (no drill-down target) — not a dead button.
-  if (count === 0) {
-    return (
-      <span className={CELL + ' text-neutral-text-secondary'} aria-label={ariaLabel}>
-        <span aria-hidden="true">{icon}</span>
-        {triggerLabel}
-      </span>
-    );
   }
-
-  return (
-    <div ref={wrapperRef} className="relative flex">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={ariaLabel}
-        className={[
-          'flex items-center gap-1.5 px-2.5 h-full text-xs font-medium',
-          count > 0 ? colorClass : 'text-neutral-text-secondary',
-          'hover:bg-neutral-surface-raised',
-          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
-        ].join(' ')}
-    >
-        <span aria-hidden="true">{icon}</span>
-        {triggerLabel}
-      </button>
-
-      {open && count > 0 && (
-        <div
-          role="menu"
-          aria-label={ariaLabel}
-          className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded-card p-1"
-        >
-          {visible.map((item) => (
-            <button
-              key={item.id}
-              role="menuitem"
-              type="button"
-              onClick={() => {
-                onItemClick(item.id);
-                setOpen(false);
-              }}
-              className={[
-                'w-full text-left px-2 py-1.5 rounded-control text-xs',
-                colorClass,
-                'hover:bg-neutral-surface-raised',
-                'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
-              ].join(' ')}
-            >
-              <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
-              {item.name}
-            </button>
-          ))}
-          {overflow > 0 && (
-            <div role="presentation" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
-              +{overflow} more
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  if (atRiskCount > 0) {
+    return {
+      key: 'atRisk',
+      word: 'On watch',
+      wordClass: 'text-semantic-at-risk',
+      dotClass: 'bg-semantic-at-risk',
+    };
+  }
+  return {
+    key: 'onTrack',
+    word: 'On track',
+    wordClass: 'text-neutral-text-secondary',
+    dotClass: 'bg-semantic-on-track',
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Segment renderers — one bordered cell each. Buttons carry the rule-4 ring
-// (inset, since they sit inside the bordered container). Static cells are plain.
+// Popover rows — one row (or nested drill group) per methodology segment. Rows
+// reuse the exact segment set from `healthClusterModel` so the popover never
+// re-derives the methodology cluster.
 // ---------------------------------------------------------------------------
 
-const CELL = 'flex items-center gap-1.5 px-2.5 h-full text-xs whitespace-nowrap';
-const CELL_BTN =
-  CELL +
-  ' hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
+const ROW = 'flex items-center justify-between gap-3 px-2 py-1.5 text-xs whitespace-nowrap';
+const ROW_BTN =
+  'w-full ' +
+  ROW +
+  ' rounded-control hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
+const TASK_BTN =
+  'w-full text-left px-2 py-1.5 rounded-control text-xs hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset';
 
-function Divider() {
-  return <span aria-hidden="true" className="self-center h-4 w-px bg-neutral-border" />;
-}
-
-interface SegmentProps {
+interface SegmentRowsProps {
   segment: HealthSegment;
   iterationSingular: string;
   iterationLower: string;
+  canOpenForecast: boolean;
   onOpenForecast: () => void;
   onGoToSprints: () => void;
   onTaskNavigate: (id: string) => void;
 }
 
-function Segment({
+/** Renders the one-or-two popover rows for a single health segment. Forecast
+ *  expands to a P50 row + a P80 row (the P50·P80 band, ADR-0144/0175) — never a
+ *  single percentile. Forecast rows are always neutral (rule 172). */
+function SegmentRows({
   segment,
   iterationSingular,
   iterationLower,
+  canOpenForecast,
   onOpenForecast,
   onGoToSprints,
   onTaskNavigate,
-}: SegmentProps) {
+}: SegmentRowsProps): ReactNode {
   switch (segment.kind) {
     case 'forecast': {
-      if (segment.p80 == null) {
-        return (
-          <span className={CELL} title="Forecast unavailable — run the scheduler">
-            <span className="text-neutral-text-secondary">P80</span>
-            <span className="text-neutral-text-disabled">—</span>
-          </span>
-        );
-      }
-      // Surface the P50·P80 band (issue 1197) — Janet's "binary forecast" is a hard-NO; the
-      // MC engine already computes both percentiles. P50 is null only when no MC
-      // distribution is cached, in which case the slot degrades to P80 alone.
-      const p50 = segment.p50;
-      const ariaLabel =
-        p50 != null
-          ? `Monte Carlo forecast: P50 ${formatForecastDate(p50)}, P80 ${formatForecastDate(segment.p80)}. View distribution.`
-          : `Monte Carlo P80 completion ${formatForecastDate(segment.p80)}. View distribution.`;
+      const p50Text = segment.p50 != null ? formatForecastDate(segment.p50) : null;
+      const p80Text = segment.p80 != null ? formatForecastDate(segment.p80) : null;
+      // aria-label MUST start with "Monte Carlo forecast" when the band is
+      // present (schedule-monte-carlo.spec locates the drill by this prefix).
+      const detailAria =
+        p50Text != null
+          ? `Monte Carlo forecast: P50 ${p50Text}, P80 ${p80Text ?? 'not run'}. View distribution.`
+          : `Monte Carlo P80 completion ${p80Text ?? 'not run'}. View distribution.`;
       return (
-        <button
-          type="button"
-          onClick={onOpenForecast}
-          aria-haspopup="dialog"
-          aria-label={ariaLabel}
-          className={CELL_BTN}
-        >
-          {p50 != null && (
-            <>
-              <span className="text-neutral-text-secondary">P50</span>
-              <span className="tppm-mono text-neutral-text-primary">{formatForecastDate(p50)}</span>
-              <span aria-hidden="true" className="text-neutral-text-disabled">·</span>
-            </>
-          )}
-          <span className="text-neutral-text-secondary">P80</span>
-          <span className="tppm-mono text-neutral-text-primary">{formatForecastDate(segment.p80)}</span>
-        </button>
+        <>
+          {/* P50 row — neutral, static (rule 172: forecast is informational,
+              never amber, even when the chip itself is red). */}
+          <div className={ROW}>
+            <span className="text-neutral-text-secondary">Forecast P50</span>
+            <span
+              className={p50Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'}
+            >
+              {p50Text ?? '—'}
+            </span>
+          </div>
+          {/* P80 row — neutral, with the Details › drill into the MC distribution. */}
+          <div className={ROW}>
+            <span className="text-neutral-text-secondary">Forecast P80</span>
+            <span className="flex items-center gap-2">
+              <span
+                className={
+                  p80Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'
+                }
+                title={p80Text ? undefined : 'Run the scheduler'}
+              >
+                {p80Text ?? '—'}
+              </span>
+              {canOpenForecast && (
+                <button
+                  type="button"
+                  onClick={onOpenForecast}
+                  aria-haspopup="dialog"
+                  aria-label={detailAria}
+                  className="text-brand-primary rounded-control px-1 hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
+                >
+                  Details ›
+                </button>
+              )}
+            </span>
+          </div>
+        </>
       );
     }
 
     case 'atRisk':
       return (
-        <SegmentPopover
+        <DrillRows
+          label="At risk"
           variant="at-risk"
           icon={<WarningIcon aria-hidden="true" />}
-          triggerLabel={`${segment.count} at risk`}
-          ariaLabel={`${segment.count} at-risk task${segment.count === 1 ? '' : 's'}`}
           count={segment.count}
           items={segment.items}
-          onItemClick={onTaskNavigate}
+          ariaGroup={`${segment.count} at-risk task${segment.count === 1 ? '' : 's'}`}
+          onTaskNavigate={onTaskNavigate}
         />
       );
 
     case 'critical':
       return (
-        <SegmentPopover
+        <DrillRows
+          label="Critical path"
           variant="critical"
           icon={<CriticalDotIcon aria-hidden="true" />}
-          triggerLabel={`${segment.count} critical`}
-          ariaLabel={`${segment.count} critical task${segment.count === 1 ? '' : 's'}`}
           count={segment.count}
           items={segment.items}
-          onItemClick={onTaskNavigate}
+          ariaGroup={`${segment.count} critical task${segment.count === 1 ? '' : 's'}`}
+          onTaskNavigate={onTaskNavigate}
         />
       );
 
@@ -266,7 +208,7 @@ function Segment({
           type="button"
           onClick={onGoToSprints}
           aria-label={`${segment.name}, day ${segment.dayN} of ${segment.dayM}. View ${iterationLower}s.`}
-          className={CELL_BTN}
+          className={ROW_BTN}
         >
           <span className="text-neutral-text-primary font-medium">{segment.name}</span>
           <span className="tppm-mono text-neutral-text-secondary">
@@ -281,45 +223,55 @@ function Segment({
           type="button"
           onClick={onGoToSprints}
           aria-label={`No active ${iterationLower}. View ${iterationLower}s.`}
-          className={CELL_BTN}
+          className={ROW_BTN}
         >
           <span className="text-neutral-text-secondary">No active {iterationSingular}</span>
+          <span aria-hidden="true" className="text-neutral-text-disabled">
+            ›
+          </span>
         </button>
       );
 
     case 'points':
       return (
-        <span
-          className={CELL}
+        <div
+          className={ROW}
           aria-label={`${segment.completed} of ${segment.committed} ${
             segment.unit === 'pts' ? 'points' : 'items'
           } completed`}
         >
-          <span className="tppm-mono text-neutral-text-primary">
-            {segment.completed}/{segment.committed}
+          <span className="text-neutral-text-secondary">Points</span>
+          <span className="flex items-center gap-1">
+            <span className="tppm-mono text-neutral-text-primary">
+              {segment.completed}/{segment.committed}
+            </span>
+            <span className="text-neutral-text-secondary">{segment.unit}</span>
           </span>
-          <span className="text-neutral-text-secondary">{segment.unit}</span>
-        </span>
+        </div>
       );
 
     case 'velocityGated':
+      // ADR-0104 / rule 168: content-free wall, no number ever rendered.
       return (
-        <span
-          className={CELL + ' text-neutral-text-secondary'}
+        <div
+          className={ROW + ' text-neutral-text-secondary'}
           aria-label={`Team ${iterationLower} velocity is kept private to the team`}
         >
-          <LockGlyph />
-          Kept to the team
-        </span>
+          <span className="flex items-center gap-1.5">
+            <LockGlyph />
+            Velocity
+          </span>
+          <span>Kept to the team</span>
+        </div>
       );
 
     case 'velocity': {
       if (segment.avg == null) {
         return (
-          <span className={CELL} title="Not enough closed-sprint history yet">
+          <div className={ROW} title="Not enough closed-sprint history yet">
             <span className="text-neutral-text-secondary">Velocity</span>
             <span className="text-neutral-text-disabled">—</span>
-          </span>
+          </div>
         );
       }
       const range =
@@ -331,20 +283,17 @@ function Segment({
           onClick={onGoToSprints}
           title={VELOCITY_PRIVACY_NOTE}
           aria-label={`Velocity ${segment.avg} points per ${iterationLower}${range}${excluded}. ${VELOCITY_PRIVACY_NOTE}. View ${iterationLower}s.`}
-          className={CELL_BTN}
+          className={ROW_BTN}
         >
-          {/* Lock = the audience boundary on the in-audience figure (issue 1197). Decorative;
-              the boundary text lives in the button's aria-label + title. */}
-          <span className="text-neutral-text-secondary">
+          {/* Lock = the audience boundary on the in-audience figure (issue 1197).
+              Decorative; the boundary text lives in the aria-label + title. */}
+          <span className="flex items-center gap-1.5 text-neutral-text-secondary">
             <LockGlyph />
+            Velocity
           </span>
-          <span className="text-neutral-text-secondary">Velocity</span>
           <span className="tppm-mono text-neutral-text-primary">
             {segment.avg} pts/{iterationLower}
           </span>
-          {segment.excluded > 0 && (
-            <span className="text-neutral-text-secondary">· {segment.excluded} excl</span>
-          )}
         </button>
       );
     }
@@ -354,138 +303,69 @@ function Segment({
   }
 }
 
-// ---------------------------------------------------------------------------
-// Collapsed (< md) menu — rule 109. One "Health ▾" button expanding the same
-// segments as read rows; at-risk / critical rows expose their tasks as menuitems.
-// The expanded cluster now holds from the tablet breakpoint up (md, ≥ 768px) so
-// Janet's P80/health reads stay inline on a tablet (issue 1562); this dropdown is
-// the phone-only (< 768px) fallback.
-// ---------------------------------------------------------------------------
-
-interface CollapsedProps {
-  segments: HealthSegment[];
-  iterationSingular: string;
-  iterationLower: string;
+interface DrillRowsProps {
+  label: string;
+  variant: 'at-risk' | 'critical';
+  icon: ReactNode;
+  count: number;
+  items: { id: string; wbs: string; name: string }[];
+  ariaGroup: string;
   onTaskNavigate: (id: string) => void;
 }
 
-function segmentSummary(
-  segment: HealthSegment,
-  iterationSingular: string,
-  iterationLower: string,
-): string {
-  switch (segment.kind) {
-    case 'forecast':
-      if (segment.p80 == null) return 'P80: — (run the scheduler)';
-      return segment.p50 != null
-        ? `P50 ${formatForecastDate(segment.p50)} · P80 ${formatForecastDate(segment.p80)}`
-        : `P80: ${formatForecastDate(segment.p80)}`;
-    case 'atRisk':
-      return `${segment.count} at-risk task${segment.count === 1 ? '' : 's'}`;
-    case 'critical':
-      return `${segment.count} critical task${segment.count === 1 ? '' : 's'}`;
-    case 'sprint':
-      return `${segment.name} · Day ${segment.dayN}/${segment.dayM}`;
-    case 'sprintEmpty':
-      return `No active ${iterationSingular}`;
-    case 'points':
-      return `${segment.completed}/${segment.committed} ${segment.unit}`;
-    case 'velocityGated':
-      return `Velocity kept to the team`;
-    case 'velocity':
-      return segment.avg == null
-        ? 'Velocity: —'
-        : `Velocity ${segment.avg} pts/${iterationLower} · members only`;
-    default:
-      return '';
+/** At-risk / critical row. Zero is a calm static "0 tasks" read (no drill);
+ *  count > 0 renders a labelled header plus the offending tasks nested as drill
+ *  buttons (MAX_VISIBLE + "+N more"). Selecting a task closes the popover. */
+function DrillRows({ label, variant, icon, count, items, ariaGroup, onTaskNavigate }: DrillRowsProps) {
+  if (count === 0) {
+    return (
+      <div className={ROW}>
+        <span className="text-neutral-text-secondary">{label}</span>
+        <span className="text-neutral-text-secondary">0 tasks</span>
+      </div>
+    );
   }
-}
-
-function CollapsedHealth({
-  segments,
-  iterationSingular,
-  iterationLower,
-  onTaskNavigate,
-}: CollapsedProps) {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onMouseDown(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [open]);
-
+  const colorClass = variant === 'critical' ? 'text-semantic-critical' : 'text-semantic-at-risk';
+  const visible = items.slice(0, MAX_VISIBLE);
+  const overflow = count - visible.length;
   return (
-    <div ref={wrapperRef} className="md:hidden relative">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label="Project health summary"
-        className="flex items-center gap-1 h-6 px-2 rounded-control border border-neutral-border text-[12px] font-medium text-neutral-text-secondary
-          hover:bg-neutral-surface-raised
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-      >
-        Health <span aria-hidden="true">{open ? '▴' : '▾'}</span>
-      </button>
-
-      {open && (
-        <div
-          role="menu"
-          aria-label="Project health summary"
-          className="absolute top-full right-0 mt-1 z-50 min-w-[220px] bg-neutral-surface border border-neutral-border rounded-card p-1"
+    <div role="group" aria-label={ariaGroup}>
+      <div className={ROW + ' ' + colorClass}>
+        <span className="flex items-center gap-1.5">
+          <span aria-hidden="true">{icon}</span>
+          {label}
+        </span>
+        <span className="tppm-mono">{count}</span>
+      </div>
+      {visible.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onTaskNavigate(item.id)}
+          className={TASK_BTN + ' ' + colorClass}
         >
-          {segments.map((segment, i) => {
-            const summary = segmentSummary(segment, iterationSingular, iterationLower);
-            const tasks =
-              segment.kind === 'atRisk' || segment.kind === 'critical' ? segment.items : [];
-            const color =
-              segment.kind === 'critical'
-                ? 'text-semantic-critical'
-                : segment.kind === 'atRisk'
-                  ? 'text-semantic-at-risk'
-                  : 'text-neutral-text-primary';
-            return (
-              <div role="presentation" key={`${segment.kind}-${i}`}>
-                <div role="presentation" className={`px-2 py-1.5 text-xs ${color}`}>
-                  {summary}
-                </div>
-                {tasks.slice(0, MAX_VISIBLE).map((item) => (
-                  <button
-                    key={item.id}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => {
-                      onTaskNavigate(item.id);
-                      setOpen(false);
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded-control text-xs ${color}
-                      hover:bg-neutral-surface-raised
-                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset`}
-                  >
-                    <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
-                    {item.name}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
+          <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
+          {item.name}
+        </button>
+      ))}
+      {overflow > 0 && (
+        <div className="px-2 py-1 text-xs text-neutral-text-secondary">+{overflow} more</div>
       )}
     </div>
   );
 }
 
 /**
- * v2 methodology-adaptive health cluster (ADR-0128 §B). One bordered,
- * segmented cluster that replaces the three free-floating TopBar badges. The
- * three segments adapt to the project methodology; the velocity/points segments
- * respect the ADR-0104 privacy gate and never render a number when suppressed.
+ * v2 methodology-adaptive project health surface (ADR-0128 §B, progressive
+ * disclosure — issue 1644). A single all-width **status chip** shows the
+ * worst-state word (On track / On watch / At risk), a health dot, and an
+ * optional P80 forecast fragment. Clicking it opens a **health popover** whose
+ * rows are exactly the methodology's `healthClusterModel` segments — forecast
+ * band, at-risk/critical drills, sprint/points/velocity — with the ADR-0104
+ * velocity privacy wall honored.
+ *
+ * The chip replaces both the always-inline `md:flex` segmented cluster and the
+ * separate phone-only "Health ▾" dropdown: it is one control at every width.
  *
  * Project-scoped chrome: returns null off a project route and on project settings
  * routes (the SettingsShell carries its own chrome — rule 123 / ADR-0128 §C).
@@ -500,7 +380,25 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
   const navigate = useNavigate();
   const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
+
+  const [open, setOpen] = useState(false);
   const [showMCPanel, setShowMCPanel] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  // Focus trap on the popover panel (rule 206): moves focus in on open, wraps
+  // Tab, routes Escape to close, and restores focus to the chip trigger on close.
+  const dialogRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
+
+  // Outside pointer-down closes the popover. The wrapper spans BOTH the chip and
+  // the panel, so a click on the chip is "inside" and toggles via its own
+  // onClick rather than double-firing a close-then-reopen.
+  useEffect(() => {
+    if (!open) return undefined;
+    function onMouseDown(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [open]);
 
   // Project-scoped chrome; suppressed on project settings routes (rule 123 — the
   // SettingsShell carries its own chrome). The `useProjectId()` null path already
@@ -520,47 +418,115 @@ export function HealthCluster({ onTaskNavigate }: Props) {
     now: new Date(),
   });
 
+  // The chip word is derived from the project-wide counts, independent of which
+  // segments this methodology renders (see deriveChipState).
+  const chip = deriveChipState(stats?.criticalCount ?? 0, stats?.atRiskCount ?? 0);
+
+  // P80 fragment on the chip: shown only when the methodology cluster has a
+  // forecast segment (omitted entirely for pure Agile). The value text stays
+  // neutral even inside an amber/red chip (rule 172).
+  const forecastSeg = segments.find(
+    (s): s is Extract<HealthSegment, { kind: 'forecast' }> => s.kind === 'forecast',
+  );
+
+  let chipAria = `Project health: ${chip.word}`;
+  if (forecastSeg) {
+    chipAria +=
+      forecastSeg.p80 != null
+        ? `, forecast P80 ${formatForecastDate(forecastSeg.p80)}`
+        : ', forecast not run';
+  }
+
   function goToSprints() {
+    setOpen(false);
     void navigate(`/projects/${projectId}/${'sprints'}`);
   }
 
+  function drillTask(id: string) {
+    setOpen(false);
+    onTaskNavigate(id);
+  }
+
+  function openForecast() {
+    setOpen(false);
+    setShowMCPanel(true);
+  }
+
   return (
-    <>
-      {/* Full cluster — md+ (tablet 768–1024px keeps it expanded with the P80
-          forecast inline, issue 1562; only phones < 768px collapse to "Health ▾"). */}
-      <div
-        role="group"
-        aria-label="Project health"
+    <div ref={wrapperRef} className="relative">
+      {/* Status chip trigger — all-width (no md:flex / md:hidden split). The
+          data-testid stays on the trigger: e2e locates the surface by it. */}
+      <button
+        type="button"
         data-testid="health-cluster"
-        className="hidden md:flex items-stretch h-7 rounded-control border border-neutral-border overflow-hidden"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={chipAria}
+        className="inline-flex items-center gap-1.5 h-[34px] rounded-full border border-neutral-border px-3 text-xs font-medium
+          hover:bg-neutral-surface-raised
+          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
-        {segments.map((segment, i) => (
-          <div key={`${segment.kind}-${i}`} className="flex items-stretch">
-            {i > 0 && <Divider />}
-            <Segment
+        <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`} />
+        <span className={chip.wordClass}>{chip.word}</span>
+        {forecastSeg && forecastSeg.p80 != null && (
+          // P80 value stays neutral even inside an amber/red chip (rule 172); may
+          // drop on very narrow phones, but the dot + word are always visible.
+          <span className="hidden sm:inline-flex items-center gap-1">
+            <span className="text-neutral-text-secondary">P80</span>
+            <span className="tppm-mono text-neutral-text-primary">
+              {formatForecastDate(forecastSeg.p80)}
+            </span>
+          </span>
+        )}
+        {forecastSeg && forecastSeg.p80 == null && (
+          <span
+            className="hidden sm:inline-flex items-center gap-1 text-neutral-text-disabled"
+            title="Run the scheduler"
+          >
+            <span>P80</span>
+            <span>—</span>
+          </span>
+        )}
+        <span aria-hidden="true" className="text-neutral-text-secondary">
+          {open ? '▴' : '▾'}
+        </span>
+      </button>
+
+      {/* Health popover — pop-surface exception to rule 1 (shadow-pop allowed). */}
+      {open && (
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-label="Project health"
+          tabIndex={-1}
+          className="absolute top-full right-0 mt-1 z-50 min-w-[260px] rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none"
+        >
+          {/* Header — worst-state dot + word, same read as the chip. */}
+          <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
+            <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`} />
+            <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
+          </div>
+
+          {segments.map((segment, i) => (
+            <SegmentRows
+              key={`${segment.kind}-${i}`}
               segment={segment}
               iterationSingular={iteration.singular}
               iterationLower={iteration.lower}
-              onOpenForecast={() => setShowMCPanel(true)}
+              canOpenForecast={Boolean(mcResult)}
+              onOpenForecast={openForecast}
               onGoToSprints={goToSprints}
-              onTaskNavigate={onTaskNavigate}
+              onTaskNavigate={drillTask}
             />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
-      {/* Collapsed dropdown — phones below md (rule 109; tablet keeps it expanded, issue 1562) */}
-      <CollapsedHealth
-        segments={segments}
-        iterationSingular={iteration.singular}
-        iterationLower={iteration.lower}
-        onTaskNavigate={onTaskNavigate}
-      />
-
-      {/* MC distribution panel — opened by the Forecast segment (issue 196) */}
+      {/* MC distribution panel — opened by the Forecast P80 "Details ›" row (issue 196) */}
       {showMCPanel && mcResult && (
         <MCResultPanel result={mcResult} onClose={() => setShowMCPanel(false)} />
       )}
-    </>
+    </div>
   );
 }

@@ -194,10 +194,9 @@ export function TopBar({ onHamburgerClick }: Props) {
             Workspace" text at xl and up (issue 1469). */}
         <MethodWorkspaceLabel />
 
-        {/* v2 methodology-adaptive health cluster (ADR-0128) — project routes only;
-            stays expanded from the tablet breakpoint up (md, ≥ 768px) with P80 inline
-            (issue 1562), collapsing to "Health ▾" only on phones below md. Stays
-            pinned, never behind a tab scroll. */}
+        {/* v2 health status chip + popover (ADR-0128, #1644) — project routes only;
+            one all-width chip (dot + worst-state word + neutral P80) opening a
+            role="dialog" health popover. Stays pinned, never behind a tab scroll. */}
         <HealthCluster onTaskNavigate={handleTaskNavigate} />
 
         {/* Running time-entry timer (issue 1415, ADR-0185 §C) — app-wide while a timer

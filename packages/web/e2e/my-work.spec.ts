@@ -183,6 +183,10 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     const row = assigned.locator('li', { hasText: 'Build the login form' });
     // The full visible row text should not say "critical path".
     await expect(row).not.toContainText(/critical path/i);
+
+    // The project-scoped health chip is suppressed off a project route (rule 123 /
+    // ADR-0128 §C) — My Work is not project-scoped, so the chip must be absent.
+    await expect(page.getByTestId('health-cluster')).toHaveCount(0);
   });
 
   test('row shows the program identity square (decorative) with the program name as the a11y signal (#964)', async ({
