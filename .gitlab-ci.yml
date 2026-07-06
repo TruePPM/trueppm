@@ -1659,6 +1659,21 @@ api:test-durations:
     expire_in: 30 days
     when: always
 
+web:test-integrity:
+  # Guards issue #1657: web:test's only vitest call is `npm run test:coverage`, and
+  # a positional path filter in that script silently drops whole directories of
+  # specs from CI (src/workers, src/utils, src/styles, App.test.tsx, scripts/*)
+  # without failing anything. check-all-tests-run.mjs fails if any test file on
+  # disk is not collected by that command. `needs: []` runs it as soon as the
+  # pipeline starts (independent of the slow shards) so a re-introduced allowlist
+  # fails fast.
+  extends: [.web, .fast-job]
+  stage: test
+  needs: []
+  <<: *rules-web
+  script:
+    - node scripts/check-all-tests-run.mjs
+
 web:test:
   extends: .web
   stage: test
