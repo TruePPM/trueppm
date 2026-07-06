@@ -10,6 +10,22 @@ interface IconProps {
   'aria-hidden'?: boolean | 'true' | 'false';
 }
 
+/** Clock — a circle with hour/minute hands; the "log time" affordance */
+export function ClockIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className} {...rest}>
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M8 4.75V8L10.25 9.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** Mini Gantt chart — three horizontal bars of varying length */
 export function GanttIcon({ className, ...rest }: IconProps) {
   return (
