@@ -12,6 +12,7 @@ from rest_framework import serializers
 from trueppm_api.apps.access.groups import ALL_AUTO_GROUP_KEYS
 from trueppm_api.apps.access.models import (
     ProgramMembership,
+    ProgramUserDefinedMentionGroup,
     ProjectMembership,
     Role,
     UserDefinedMentionGroup,
@@ -272,6 +273,98 @@ class UserDefinedMentionGroupWriteSerializer(serializers.ModelSerializer[UserDef
         if qs.exists():
             raise serializers.ValidationError(
                 f"A group named '@{name}' already exists in this project."
+            )
+        return name
+
+    def validate_description(self, value: str | None) -> str:
+        return (value or "").strip()
+
+
+class ProgramUserDefinedMentionGroupReadSerializer(
+    serializers.ModelSerializer[ProgramUserDefinedMentionGroup]
+):
+    """Response serializer for a program-scoped @mention group (ADR-0248, #516).
+
+    The program-scoped mirror of :class:`UserDefinedMentionGroupReadSerializer`.
+    ``members`` is the curated member set (drawn from across the program's
+    projects); ``member_count`` is a list-UI convenience; ``muted_by_me`` reflects
+    whether the *requesting* user has muted this group.
+    """
+
+    members = _UserSummarySerializer(many=True, read_only=True)
+    member_count = serializers.SerializerMethodField()
+    muted_by_me = serializers.SerializerMethodField()
+
+    def get_member_count(self, obj: ProgramUserDefinedMentionGroup) -> int:
+        # members is prefetched by the viewset (it also backs the members field),
+        # so counting the loaded rows in Python is free (no extra round trip).
+        members = obj.members.all()
+        return len(members)
+
+    def get_muted_by_me(self, obj: ProgramUserDefinedMentionGroup) -> bool:
+        user = getattr(self.context.get("request"), "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            return False
+        # muted_by is prefetched by the viewset.
+        return any(m.pk == user.pk for m in obj.muted_by.all())
+
+    class Meta:
+        model = ProgramUserDefinedMentionGroup
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "name",
+            "description",
+            "email_default_on",
+            "members",
+            "member_count",
+            "muted_by_me",
+        ]
+        read_only_fields = fields
+
+
+class ProgramUserDefinedMentionGroupWriteSerializer(
+    serializers.ModelSerializer[ProgramUserDefinedMentionGroup]
+):
+    """Write serializer for program-group create/rename/edit — ``program`` from URL.
+
+    Membership and mute are managed through dedicated viewset actions (different
+    RBAC), so this serializer covers only the group's own attributes.
+    """
+
+    class Meta:
+        model = ProgramUserDefinedMentionGroup
+        fields = ["name", "description", "email_default_on"]
+
+    def validate_name(self, value: str) -> str:
+        # Accept a leading @ from the client for convenience; store without it.
+        name = value.strip().lstrip("@").strip()
+        if not name:
+            raise serializers.ValidationError("Group name cannot be empty.")
+        if len(name) > 32:
+            raise serializers.ValidationError("Group name must be 32 characters or fewer.")
+        if not _GROUP_NAME_RE.match(name):
+            raise serializers.ValidationError(
+                "Group name may only contain letters, digits, and the characters . _ -"
+            )
+        # An auto-group name (@admins, @scrum-team, @program-pms, …) must never be
+        # shadowed — project- and program-scoped keys alike.
+        if name.lower() in ALL_AUTO_GROUP_KEYS:
+            raise serializers.ValidationError(
+                f"'@{name}' is a reserved automatic group and cannot be used."
+            )
+        # Case-insensitive program-uniqueness (the DB constraint is the backstop;
+        # this returns a friendly field error instead of a 500 on the race loser).
+        program_id = str(self.context.get("program_id"))
+        qs = ProgramUserDefinedMentionGroup.objects.filter(
+            program_id=program_id, name__iexact=name, is_deleted=False
+        )
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                f"A group named '@{name}' already exists in this program."
             )
         return name
 

@@ -9248,6 +9248,635 @@
                 "summary": "Delete member"
             }
         },
+        "/api/v1/programs/{program_pk}/mention-groups/": {
+            "get": {
+                "operationId": "v1_programs_mention_groups_list",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProgramUserDefinedMentionGroupReadList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List mention groups"
+            },
+            "post": {
+                "operationId": "v1_programs_mention_groups_create",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create mention group"
+            }
+        },
+        "/api/v1/programs/{program_pk}/mention-groups/{id}/": {
+            "get": {
+                "operationId": "v1_programs_mention_groups_retrieve",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve mention group"
+            },
+            "patch": {
+                "operationId": "v1_programs_mention_groups_partial_update",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramUserDefinedMentionGroupWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update mention group"
+            },
+            "delete": {
+                "operationId": "v1_programs_mention_groups_destroy",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete mention group"
+            }
+        },
+        "/api/v1/programs/{program_pk}/mention-groups/{id}/add-member/": {
+            "post": {
+                "operationId": "v1_programs_mention_groups_add_member_create",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Add member mention group"
+            }
+        },
+        "/api/v1/programs/{program_pk}/mention-groups/{id}/mute/": {
+            "post": {
+                "operationId": "v1_programs_mention_groups_mute_create",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Mute mention group"
+            }
+        },
+        "/api/v1/programs/{program_pk}/mention-groups/{id}/remove-member/": {
+            "post": {
+                "operationId": "v1_programs_mention_groups_remove_member_create",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Remove member mention group"
+            }
+        },
+        "/api/v1/programs/{program_pk}/mention-groups/{id}/unmute/": {
+            "post": {
+                "operationId": "v1_programs_mention_groups_unmute_create",
+                "description": "Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).\n\nURL: ``/api/v1/programs/{program_pk}/mention-groups/``\n     ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``\n     ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``\n     ``…/{pk}/mute/``  ``…/{pk}/unmute/``\n\nPermission matrix (ADR-0248 §3):\n  list / retrieve            — any program member (Viewer+)\n  create / update / destroy  — Program Owner  (group lifecycle is an owner act)\n  add-member / remove-member — Program Admin+  (roster curation)\n  mute / unmute              — any member (their own subscription only)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Unmute mention group"
+            }
+        },
         "/api/v1/programs/{program_pk}/phase-gate-config/": {
             "get": {
                 "operationId": "v1_programs_phase_gate_config_retrieve",
@@ -39376,6 +40005,37 @@
                     }
                 }
             },
+            "PaginatedProgramUserDefinedMentionGroupReadList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramUserDefinedMentionGroupRead"
+                        }
+                    }
+                }
+            },
             "PaginatedProjectApiTokenList": {
                 "type": "object",
                 "required": [
@@ -40741,6 +41401,24 @@
                     "lead": {
                         "type": "integer",
                         "nullable": true
+                    }
+                }
+            },
+            "PatchedProgramUserDefinedMentionGroupWriteRequest": {
+                "type": "object",
+                "description": "Write serializer for program-group create/rename/edit — ``program`` from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -42748,6 +43426,105 @@
                 "required": [
                     "aggregation_policy",
                     "enabled_kpis"
+                ]
+            },
+            "ProgramUserDefinedMentionGroupRead": {
+                "type": "object",
+                "description": "Response serializer for a program-scoped @mention group (ADR-0248, #516).\n\nThe program-scoped mirror of :class:`UserDefinedMentionGroupReadSerializer`.\n``members`` is the curated member set (drawn from across the program's\nprojects); ``member_count`` is a list-UI convenience; ``muted_by_me`` reflects\nwhether the *requesting* user has muted this group.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "description": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "email_default_on": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "members": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_UserSummary"
+                        },
+                        "readOnly": true
+                    },
+                    "member_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "muted_by_me": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "description",
+                    "email_default_on",
+                    "id",
+                    "member_count",
+                    "members",
+                    "muted_by_me",
+                    "name",
+                    "program",
+                    "server_version"
+                ]
+            },
+            "ProgramUserDefinedMentionGroupWrite": {
+                "type": "object",
+                "description": "Write serializer for program-group create/rename/edit — ``program`` from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
+            "ProgramUserDefinedMentionGroupWriteRequest": {
+                "type": "object",
+                "description": "Write serializer for program-group create/rename/edit — ``program`` from URL.\n\nMembership and mute are managed through dedicated viewset actions (different\nRBAC), so this serializer covers only the group's own attributes.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 140
+                    },
+                    "email_default_on": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "name"
                 ]
             },
             "Project": {
