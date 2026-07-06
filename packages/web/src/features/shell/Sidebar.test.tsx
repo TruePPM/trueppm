@@ -140,24 +140,22 @@ describe('Sidebar (v2 left rail)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows the OSS Resources link and a disabled, grayed-out Portfolio rollup row in the community edition (#1173, rule 177)', () => {
+  it('shows the OSS Resources link and renders nothing for the cross-program Portfolio rollup in the community edition (rule 231 / ADR-0266)', () => {
     renderRail();
     // Organization group is present for the OSS Resources catalog...
     expect(screen.getByText('Organization')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    // ...and the cross-program Portfolio rollup is neither hidden (reads as
-    // broken OSS) nor promoted (it is not purchasable until post-1.0): it is a
-    // disabled, grayed-out row with the gate carried in its accessible name.
-    const gate = screen.getByRole('button', {
-      name: 'Portfolio rollup — available in TruePPM Enterprise (post-1.0)',
-    });
-    expect(gate).toBeDisabled();
-    expect(gate).toHaveAttribute('title', 'Available in TruePPM Enterprise (post-1.0)');
-    expect(gate).toHaveTextContent('Portfolio rollup');
-    // It is not a navigation link — there is no upsell route.
+    // ...and the cross-program Portfolio rollup renders NOTHING on the OSS daily
+    // path: no padlocked/disabled teaser (the former rule-178 row), no link. It
+    // is an empty `nav.portfolio_section` slot; discovery moves to the /programs
+    // seam per rule 231.
+    expect(
+      screen.queryByRole('button', { name: /Portfolio rollup/i }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('link', { name: /Portfolio rollup/i }),
     ).not.toBeInTheDocument();
+    expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
   });
 
   it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127, supersedes #1176)', () => {

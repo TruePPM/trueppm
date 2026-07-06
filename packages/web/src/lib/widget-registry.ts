@@ -28,7 +28,7 @@ export type SlotId =
   | 'project_overview.kpi_row' // RESERVED (no OSS host yet — issue 1175): additional KPI cards right of the 4 OSS cards
   | 'project_overview.hero_right' // RESERVED (no OSS host yet — issue 1175): replaces/extends the "Needs attention" panel
   | 'project_overview.below_hero' // RESERVED (no OSS host yet — issue 1175): rows injected below the hero row
-  | 'nav.portfolio_section' // RESERVED (no OSS host yet — issue 1162): nav rail section above the project switcher
+  | 'nav.portfolio_section' // LIVE (Sidebar): rail Organization-group Portfolio slot; OSS renders nothing (rule 231 / ADR-0266), enterprise injects its portfolio nav
   | 'top_bar.context' // RESERVED (no OSS host yet — issue 1162): items to the right of the project name chip
   | 'routes' // RESERVED (no OSS host yet — issue 1162): additional React Router routes (path + element)
   // --- Resource catalog slots (issue #155, ADR-0034) ---
@@ -52,6 +52,7 @@ export type SlotId =
  * OSS shell, so an enterprise registration against it surfaces in the UI.
  */
 export const LIVE_SLOTS = [
+  'nav.portfolio_section',
   'resources_heatmap.level_loads',
   'task_detail.section',
   'project_settings.integrations',
@@ -70,7 +71,6 @@ export const RESERVED_SLOTS = [
   'project_overview.kpi_row',
   'project_overview.hero_right',
   'project_overview.below_hero',
-  'nav.portfolio_section',
   'top_bar.context',
   'routes',
   'resources_page.toolbar_end',
