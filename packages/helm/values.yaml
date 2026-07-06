@@ -122,6 +122,15 @@ env:
   # proxy depth (0 = direct, use REMOTE_ADDR). A wrong value lets clients spoof
   # X-Forwarded-For and evade the anon limit.
   TRUEPPM_NUM_PROXIES: "1"
+  # Public read-only board sharing (#283, ADR-0245). The org-wide kill switch for
+  # the unauthenticated /share/board/<token> endpoint. "true" (default) lets project
+  # Admins mint public board links; NO data is exposed until one is explicitly
+  # created. Set "false" to disable minting (403) AND retroactively turn off every
+  # existing public link (uniform 404) across the whole instance — the operator lever
+  # for locked-down/regulated environments. Rate limits for the endpoints:
+  #   TRUEPPM_THROTTLE_SHARE_ACCESS_RATE (public GET, default 60/min)
+  #   TRUEPPM_THROTTLE_SHARE_MINT_RATE   (Admin create, default 20/min)
+  TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
   # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
   # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
   # so the Beat-driven notification drain has the same transport everywhere.

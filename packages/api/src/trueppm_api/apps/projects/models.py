@@ -2798,6 +2798,119 @@ class BoardSavedView(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Public read-only share links (#283, ADR-0245)
+# ---------------------------------------------------------------------------
+
+
+class ShareContentKind(models.TextChoices):
+    """What a :class:`ShareLink` exposes.
+
+    Only ``BOARD`` ships in 0.4 (#283). ``SCHEDULE`` is reserved for #1486, which
+    extends this same model rather than adding a second table — the endpoint,
+    throttle, kill switch, and web shell are all shared. The discriminator is
+    validated at the public endpoint so a board token can never resolve a
+    schedule view or vice-versa.
+    """
+
+    BOARD = "board", "Board"
+
+
+class ShareLink(models.Model):
+    """A public, read-only, revocable link to a single project's board (ADR-0245).
+
+    Plain ``models.Model`` (not :class:`VersionedModel`): a share link is a
+    server-side credential/config, never part of the mobile offline delta —
+    matching :class:`ApiToken`, ``WorkspaceInvite``, and ``ProjectExportJob``.
+
+    The raw token is shown exactly once at creation, then only its SHA-256
+    ``token_hash`` (unique-indexed) lives here, so a database leak cannot be
+    replayed into board access. Lookup is O(1) on the hash. ``token_prefix``
+    carries the first 12 urlsafe chars for non-revealing display in the
+    management list.
+
+    Revocation is a soft-delete (``revoked_at``) so the row — and its
+    ``created_by`` plus access-metering attribution — survives for the operator.
+    Assignee identity is exposed ONLY when ``show_assignees`` is explicitly
+    enabled; the default is off so publishing a board never leaks who is working
+    on what without a deliberate opt-in (the Morgan/Priya VoC boundary).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="share_links",
+    )
+    content_kind = models.CharField(
+        max_length=16,
+        choices=ShareContentKind.choices,
+        default=ShareContentKind.BOARD,
+        help_text="What the link exposes. 'board' today; #1486 adds 'schedule'.",
+    )
+    token_prefix = models.CharField(
+        max_length=12,
+        db_index=True,
+        help_text="First 12 chars of the raw token, for non-revealing display.",
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="SHA-256 hex digest of the raw token. The raw token is never stored.",
+    )
+    label = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Optional human label, e.g. 'Client review board'.",
+    )
+    show_assignees = models.BooleanField(
+        default=False,
+        help_text="When false (default), assignee names are omitted from the public "
+        "view so no individual is exposed without an explicit opt-in.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Set when an Admin revokes the link. Non-null = inactive.",
+    )
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    access_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Successful public views; incremented atomically per hit.",
+    )
+    last_accessed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_sharelink"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["project", "revoked_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"ShareLink({self.project_id}, {self.content_kind}, {self.token_prefix}…)"
+
+    @property
+    def is_active(self) -> bool:
+        """Whether the link still resolves (not soft-revoked)."""
+        return self.revoked_at is None
+
+
+# ---------------------------------------------------------------------------
 # Sprint (ADR-0037)
 # ---------------------------------------------------------------------------
 

@@ -288,6 +288,7 @@ export default defineConfig({
               items: [
                 { slug: "features/product-backlog" },
                 { slug: "features/board" },
+                { slug: "features/board-sharing" },
                 { slug: "features/board-sprint-panel" },
                 { slug: "features/flow-analytics" },
                 { slug: "features/daily-standup" },

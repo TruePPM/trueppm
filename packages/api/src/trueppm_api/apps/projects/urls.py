@@ -24,6 +24,11 @@ from trueppm_api.apps.projects.poker_views import (
     SprintPokerView,
 )
 from trueppm_api.apps.projects.program_views import ProgramViewSet
+from trueppm_api.apps.projects.share_views import (
+    ProjectShareLinkListCreateView,
+    ProjectShareLinkRevokeView,
+    PublicBoardShareView,
+)
 from trueppm_api.apps.projects.signal_privacy_views import (
     SignalCeilingProposalListView,
     SignalCeilingProposalVoteView,
@@ -654,6 +659,23 @@ urlpatterns = [
         "projects/<project_pk>/api-token-audit/",
         ApiTokenAuditView.as_view(),
         name="project-api-token-audit",
+    ),
+    # Public read-only board share links (#283, ADR-0245). The management routes
+    # are Admin+; the public board endpoint is unauthenticated + read-only.
+    path(
+        "projects/<project_pk>/share-links/",
+        ProjectShareLinkListCreateView.as_view(),
+        name="project-share-links",
+    ),
+    path(
+        "projects/<project_pk>/share-links/<link_id>/revoke/",
+        ProjectShareLinkRevokeView.as_view(),
+        name="project-share-link-revoke",
+    ),
+    path(
+        "share/board/<token>/",
+        PublicBoardShareView.as_view(),
+        name="public-board-share",
     ),
     # Program-scoped API tokens (ADR-0076 program extension, #600)
     path(
