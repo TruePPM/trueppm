@@ -22,6 +22,7 @@ import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { TimerChip } from '@/features/timer/TimerChip';
+import { QuickLogTime } from '@/features/timeentry/QuickLogTime';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { SyncStatusBadge } from './SyncStatusBadge';
 import { NotificationBell } from './NotificationBell';
@@ -203,6 +204,11 @@ export function TopBar({ onHamburgerClick }: Props) {
             runs; renders nothing when idle. Started from a task-context surface
             (My Work row), stoppable from anywhere. */}
         <TimerChip />
+
+        {/* Global quick-log time popover (issue 1416, ADR-0185 §C) — log effort
+            from anywhere: task picker + duration presets, no timer needed. Desktop
+            precursor to the 0.4 mobile 15-second capture; hidden below md. */}
+        <QuickLogTime />
 
         {/* Context-aware "+ New" (ADR-0131) — self-gates by route + RBAC. */}
         <CreateMenu />
