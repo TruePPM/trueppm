@@ -4219,6 +4219,64 @@ def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     )
     milestones.sort(key=lambda s: (s.cpm_finish or date.max, getattr(s.milestone, "name", "")))
 
+    # Bridge proof card (#730): attach each milestone's immediately-prior snapshot
+    # and, when it can be attributed to exactly one closed sprint, that sprint's
+    # name — so the card can render "finish moved {prev} → {current} since {sprint}"
+    # without a second round-trip. Two extra queries total (all-snapshots for the
+    # bound milestones, ordered newest-first; the project's closed sprints), grouped
+    # in Python — no per-milestone N+1.
+    prior_by_ms: dict[Any, ForecastSnapshot | None] = {}
+    if bound_milestone_ids:
+        grouped: dict[Any, list[ForecastSnapshot]] = {}
+        for snap in (
+            ForecastSnapshot.objects.filter(milestone_id__in=bound_milestone_ids)
+            .order_by("milestone_id", "-taken_at")
+            .only(
+                "milestone_id",
+                "taken_at",
+                "cpm_finish",
+                "p50",
+                "p80",
+                "velocity_low",
+                "velocity_high",
+                "basis",
+                "confidence",
+            )
+        ):
+            grouped.setdefault(snap.milestone_id, []).append(snap)
+        # index 0 is the latest (matches the DISTINCT ON row above); index 1 is the
+        # immediately-prior snapshot, or None when this is the first forecast.
+        prior_by_ms = {
+            ms_id: (snaps[1] if len(snaps) > 1 else None) for ms_id, snaps in grouped.items()
+        }
+
+    # Closed sprints (name + close time) for the "after sprint N" attribution. A
+    # snapshot is tied to a sprint close only when EXACTLY ONE completed sprint
+    # closed in the (prior.taken_at, latest.taken_at] window — an interleaved
+    # manual refresh (or an ambiguous multi-close window) honestly degrades to
+    # "since the last forecast" client-side, since ForecastSnapshot has no sprint FK.
+    closed_sprints = list(
+        Sprint.objects.filter(
+            project_id=project_id,
+            state=SprintState.COMPLETED,
+            closed_at__isnull=False,
+        ).values("name", "closed_at")
+    )
+    for latest in milestones:
+        prev = prior_by_ms.get(latest.milestone_id)
+        # Plain attributes read back by ForecastSnapshotSerializer (not model fields).
+        latest.previous = prev  # type: ignore[attr-defined]
+        sprint_name: str | None = None
+        if prev is not None:
+            window = [
+                c["name"]
+                for c in closed_sprints
+                if c["closed_at"] is not None and prev.taken_at < c["closed_at"] <= latest.taken_at
+            ]
+            if len(window) == 1:
+                sprint_name = window[0]
+        latest.previous_sprint_name = sprint_name  # type: ignore[attr-defined]
+
     return {
         "velocity": vel,
         "remaining_committed_points": remaining_points,

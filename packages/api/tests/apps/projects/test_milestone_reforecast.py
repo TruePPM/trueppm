@@ -22,6 +22,8 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    ForecastBasis,
+    ForecastConfidence,
     ForecastSnapshot,
     Project,
     Sprint,
@@ -479,3 +481,136 @@ def test_forecast_forbidden_for_non_member(project: Project) -> None:
 
     resp = c.get(f"/api/v1/projects/{project.id}/forecast/")
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# #730 — delta-since-last-close: previous snapshot + closing-sprint attribution
+# ---------------------------------------------------------------------------
+
+
+def _bind_milestone(project: Project, milestone: Task) -> None:
+    """Bind ``milestone`` to a sprint so ``project_forecast`` includes it."""
+    Sprint.objects.create(
+        project=project,
+        name="Bound",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+        target_milestone=milestone,
+    )
+
+
+def _snapshot(
+    project: Project,
+    milestone: Task,
+    *,
+    cpm_finish: date,
+    taken_days_ago: int,
+) -> ForecastSnapshot:
+    """Create a milestone snapshot with an explicit ``taken_at`` in the past.
+
+    ``taken_at`` is ``auto_now_add`` so it can't be set on ``create``; a follow-up
+    ``.update()`` (which bypasses auto fields) back-dates it, letting a test place
+    a sprint close between two snapshots deterministically.
+    """
+    snap = ForecastSnapshot.objects.create(
+        project=project,
+        milestone=milestone,
+        basis=ForecastBasis.VELOCITY_BAND,
+        cpm_finish=cpm_finish,
+        p50=cpm_finish,
+        p80=cpm_finish + timedelta(days=7),
+        velocity_low=20,
+        velocity_high=30,
+        confidence=ForecastConfidence.MEDIUM,
+    )
+    ForecastSnapshot.objects.filter(pk=snap.pk).update(
+        taken_at=timezone.now() - timedelta(days=taken_days_ago)
+    )
+    return snap
+
+
+@pytest.mark.django_db
+def test_forecast_attaches_previous_and_attributes_the_closing_sprint(project: Project) -> None:
+    milestone = _milestone(project)
+    _bind_milestone(project, milestone)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 18), taken_days_ago=10)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 21), taken_days_ago=2)
+    # Exactly ONE completed sprint closed in the (prev, latest] window → attributed.
+    _closed_sprint(project, name="Sprint 6", completed_points=25, days_ago=5)
+
+    ms = project_forecast(project.pk)["milestones"][0]
+    assert ms.cpm_finish == date(2026, 4, 21)
+    assert ms.previous is not None  # type: ignore[attr-defined]
+    assert ms.previous.cpm_finish == date(2026, 4, 18)  # type: ignore[attr-defined]
+    assert ms.previous_sprint_name == "Sprint 6"  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+def test_forecast_previous_is_none_for_first_snapshot(project: Project) -> None:
+    milestone = _milestone(project)
+    _bind_milestone(project, milestone)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 21), taken_days_ago=1)
+
+    ms = project_forecast(project.pk)["milestones"][0]
+    assert ms.previous is None  # type: ignore[attr-defined]
+    assert ms.previous_sprint_name is None  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+def test_forecast_previous_sprint_name_none_when_close_is_ambiguous(project: Project) -> None:
+    """Two closes in the window (or none) → honest degrade to no sprint attribution
+    (ForecastSnapshot has no sprint FK, so the client reads "since the last forecast")."""
+    milestone = _milestone(project)
+    _bind_milestone(project, milestone)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 18), taken_days_ago=10)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 21), taken_days_ago=2)
+    _closed_sprint(project, name="Sprint 6", completed_points=25, days_ago=6)
+    _closed_sprint(project, name="Sprint 7", completed_points=25, days_ago=4)
+
+    ms = project_forecast(project.pk)["milestones"][0]
+    assert ms.previous is not None  # type: ignore[attr-defined]
+    assert ms.previous_sprint_name is None  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+def test_forecast_endpoint_serializes_previous_shape(client: APIClient, project: Project) -> None:
+    milestone = _milestone(project)
+    _bind_milestone(project, milestone)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 18), taken_days_ago=10)
+    _snapshot(project, milestone, cpm_finish=date(2026, 4, 21), taken_days_ago=2)
+    _closed_sprint(project, name="Sprint 6", completed_points=25, days_ago=5)
+
+    ms = client.get(f"/api/v1/projects/{project.id}/forecast/").data["milestones"][0]
+    assert ms["cpm_finish"] == "2026-04-21"
+    assert ms["previous"]["cpm_finish"] == "2026-04-18"
+    assert ms["previous"]["basis"] == "velocity_band"
+    assert ms["previous_sprint_name"] == "Sprint 6"
+
+
+@pytest.mark.django_db
+def test_forecast_previous_velocity_band_suppressed_for_below_audience(
+    client: APIClient, project: Project
+) -> None:
+    """#730/#981: the prior snapshot carries the same velocity band, so it must be
+    nulled for a below-audience reader too — else the delta read re-leaks the band.
+    The prior CPM date (a schedule-confidence artifact) stays readable."""
+    _seed_velocity(project)
+    milestone = _milestone(project, early_finish=date(2026, 5, 1))
+    _bound_sprint_with_work(project, milestone, remaining=40)
+    reforecast_bound_milestone(milestone.pk, broadcast=False)
+    reforecast_bound_milestone(milestone.pk, broadcast=False)
+
+    sched_ms = client.get(f"/api/v1/projects/{project.id}/forecast/").data["milestones"][0]
+    assert sched_ms["previous"] is not None
+    assert sched_ms["previous"]["velocity_low"] is not None
+
+    pm = User.objects.create_user(username="pm2", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+    pm_client = APIClient()
+    pm_client.force_authenticate(user=pm)
+
+    pm_ms = pm_client.get(f"/api/v1/projects/{project.id}/forecast/").data["milestones"][0]
+    assert pm_ms["previous"]["velocity_low"] is None
+    assert pm_ms["previous"]["velocity_high"] is None
+    assert pm_ms["previous"]["cpm_finish"] is not None

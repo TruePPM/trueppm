@@ -37411,7 +37411,7 @@
             },
             "ForecastSnapshot": {
                 "type": "object",
-                "description": "A persisted milestone reforecast row (ADR-0106 §5, #860).\n\nCarries the band + dates only — never the per-sprint velocity series (the\nat-rest half of the velocity-privacy guarantee, §3). ``milestone_name`` is\nsurfaced for the forecast list; the FK is SET_NULL so it may be absent for a\ndeleted milestone's lingering history.",
+                "description": "A persisted milestone reforecast row (ADR-0106 §5, #860).\n\nCarries the band + dates only — never the per-sprint velocity series (the\nat-rest half of the velocity-privacy guarantee, §3). ``milestone_name`` is\nsurfaced for the forecast list; the FK is SET_NULL so it may be absent for a\ndeleted milestone's lingering history.\n\n``previous`` / ``previous_sprint_name`` (#730) carry the immediately-prior\nsnapshot and the name of the closed sprint whose reforecast produced *this*\nrow (when it can be attributed to exactly one), so the bridge proof card can\nrender the \"finish moved X → Y since {sprint}\" delta without a second read.\nBoth are populated by ``project_forecast`` as plain attributes on the instance;\nabsent (``None``) when there is no prior snapshot or no unambiguous close.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -37481,6 +37481,20 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "previous": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PreviousForecastSnapshot"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "previous_sprint_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -37492,6 +37506,8 @@
                     "milestone_name",
                     "p50",
                     "p80",
+                    "previous",
+                    "previous_sprint_name",
                     "taken_at",
                     "unmodeled_dependency",
                     "velocity_high",
@@ -42085,6 +42101,56 @@
                 ],
                 "type": "string",
                 "description": "* `document` - document\n* `spreadsheet` - spreadsheet\n* `presentation` - presentation\n* `image` - image\n* `pdf` - pdf\n* `folder` - folder\n* `file` - file"
+            },
+            "PreviousForecastSnapshot": {
+                "type": "object",
+                "description": "The immediately-prior milestone snapshot, for the delta-since-last-close read (#730).\n\nA slim projection of ``ForecastSnapshot`` — the card diffs this against the\nlatest snapshot to show \"milestone finish moved {prev} → {current}\". Only the\ndeterministic ``cpm_finish`` drives the visible delta (web-rule 166: the\nvelocity band is never rendered as an exact date); ``velocity_low/high`` are\ncarried so the below-audience velocity gate can null them (mirrors the latest\nrow, #981), and ``basis`` lets the client keep percentile vocabulary honest.",
+                "properties": {
+                    "cpm_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "velocity_low": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "velocity_high": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "basis": {
+                        "type": "string"
+                    },
+                    "confidence": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "taken_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "basis",
+                    "confidence",
+                    "cpm_finish",
+                    "p50",
+                    "p80",
+                    "taken_at",
+                    "velocity_high",
+                    "velocity_low"
+                ]
             },
             "PrioritizationModelEnum": {
                 "enum": [

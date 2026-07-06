@@ -536,6 +536,28 @@ export interface ForecastSnapshot {
   confidence: string | null;
   unmodeled_dependency: boolean;
   taken_at: string;
+  /**
+   * The immediately-prior snapshot for this milestone (#730), for the
+   * delta-since-last-close read on the bridge proof card. Null when this is the
+   * first forecast. Carries the same shape minus the id/name/unmodeled fields.
+   */
+  previous: {
+    cpm_finish: string | null;
+    p50: string | null;
+    p80: string | null;
+    velocity_low: number | null;
+    velocity_high: number | null;
+    basis: string;
+    confidence: string | null;
+    taken_at: string;
+  } | null;
+  /**
+   * Name of the closed sprint whose reforecast produced THIS snapshot, when it
+   * can be attributed to exactly one close (#730); null when the change can't be
+   * unambiguously tied to a single sprint close (e.g. an interleaved manual
+   * refresh) — the card then reads "since the last forecast".
+   */
+  previous_sprint_name: string | null;
 }
 
 /**

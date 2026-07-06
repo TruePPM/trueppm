@@ -5073,6 +5073,27 @@ class TaskScopeRollupSerializer(serializers.Serializer[dict[str, Any]]):
     has_baseline = serializers.BooleanField()
 
 
+class PreviousForecastSnapshotSerializer(serializers.Serializer[Any]):
+    """The immediately-prior milestone snapshot, for the delta-since-last-close read (#730).
+
+    A slim projection of ``ForecastSnapshot`` — the card diffs this against the
+    latest snapshot to show "milestone finish moved {prev} → {current}". Only the
+    deterministic ``cpm_finish`` drives the visible delta (web-rule 166: the
+    velocity band is never rendered as an exact date); ``velocity_low/high`` are
+    carried so the below-audience velocity gate can null them (mirrors the latest
+    row, #981), and ``basis`` lets the client keep percentile vocabulary honest.
+    """
+
+    cpm_finish = serializers.DateField(allow_null=True)
+    p50 = serializers.DateField(allow_null=True)
+    p80 = serializers.DateField(allow_null=True)
+    velocity_low = serializers.IntegerField(allow_null=True)
+    velocity_high = serializers.IntegerField(allow_null=True)
+    basis = serializers.CharField()
+    confidence = serializers.CharField(allow_null=True)
+    taken_at = serializers.DateTimeField()
+
+
 class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
     """A persisted milestone reforecast row (ADR-0106 §5, #860).
 
@@ -5080,13 +5101,33 @@ class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
     at-rest half of the velocity-privacy guarantee, §3). ``milestone_name`` is
     surfaced for the forecast list; the FK is SET_NULL so it may be absent for a
     deleted milestone's lingering history.
+
+    ``previous`` / ``previous_sprint_name`` (#730) carry the immediately-prior
+    snapshot and the name of the closed sprint whose reforecast produced *this*
+    row (when it can be attributed to exactly one), so the bridge proof card can
+    render the "finish moved X → Y since {sprint}" delta without a second read.
+    Both are populated by ``project_forecast`` as plain attributes on the instance;
+    absent (``None``) when there is no prior snapshot or no unambiguous close.
     """
 
     milestone_id = serializers.UUIDField(read_only=True, allow_null=True)
     milestone_name = serializers.SerializerMethodField()
+    previous = serializers.SerializerMethodField()
+    previous_sprint_name = serializers.SerializerMethodField()
 
     def get_milestone_name(self, obj: ForecastSnapshot) -> str | None:
         return obj.milestone.name if obj.milestone else None
+
+    @extend_schema_field(PreviousForecastSnapshotSerializer(allow_null=True))
+    def get_previous(self, obj: ForecastSnapshot) -> dict[str, Any] | None:
+        prev = getattr(obj, "previous", None)
+        if prev is None:
+            return None
+        return cast(dict[str, Any], PreviousForecastSnapshotSerializer(prev).data)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_previous_sprint_name(self, obj: ForecastSnapshot) -> str | None:
+        return cast("str | None", getattr(obj, "previous_sprint_name", None))
 
     class Meta:
         model = ForecastSnapshot
@@ -5103,6 +5144,8 @@ class ForecastSnapshotSerializer(serializers.ModelSerializer[ForecastSnapshot]):
             "confidence",
             "unmodeled_dependency",
             "taken_at",
+            "previous",
+            "previous_sprint_name",
         ]
         read_only_fields = fields
 

@@ -448,4 +448,84 @@ test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
     await expect(card.getByText(/by points/i)).not.toBeVisible();
     await expect(card.getByText(/by tasks/i)).not.toBeVisible();
   });
+
+  test('hybrid-bridge proof (#730): co-locates velocity vs CPM finish + the since-close delta', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [makeSprint(BASELINE_ROLLUP)],
+        }),
+      }),
+    );
+    // The bridge region reads /forecast/. A velocity_band snapshot with a prior
+    // snapshot exercises the velocity-estimate read (web-rule 166 — no percentile)
+    // AND the delta-since-last-close chip. Registered after setupCommon so it wins
+    // over the catch-all (Playwright matches routes most-recent-first).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/forecast/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          velocity: { sprints: [], rolling_avg_points: 25, forecast_range_low: 20, forecast_range_high: 30 },
+          remaining_committed_points: 34,
+          sprints_to_complete_low: 2,
+          sprints_to_complete_high: 3,
+          milestones: [
+            {
+              id: 'fs-1',
+              milestone_id: 'task-fat',
+              milestone_name: 'FAT review',
+              basis: 'velocity_band',
+              cpm_finish: '2026-04-21',
+              p50: '2026-04-24',
+              p80: '2026-05-02',
+              velocity_low: 24,
+              velocity_high: 32,
+              confidence: 'medium',
+              unmodeled_dependency: false,
+              taken_at: '2026-06-01T00:00:00Z',
+              previous: {
+                cpm_finish: '2026-04-18',
+                p50: '2026-04-20',
+                p80: '2026-04-28',
+                velocity_low: 24,
+                velocity_high: 32,
+                basis: 'velocity_band',
+                confidence: 'medium',
+                taken_at: '2026-05-20T00:00:00Z',
+              },
+              previous_sprint_name: 'Sprint 6',
+            },
+          ],
+        }),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+
+    const bridge = card.getByTestId('milestone-bridge-forecast');
+    await expect(bridge).toBeVisible();
+    // CPM finish (deterministic, exact) beside the velocity estimate (web-rule 166).
+    await expect(bridge.getByText('Schedule (CPM)')).toBeVisible();
+    await expect(bridge.getByText('Velocity estimate', { exact: true })).toBeVisible();
+    await expect(bridge.getByText(/est\./)).toBeVisible();
+    await expect(bridge.getByText(/\(velocity estimate\)/)).toBeVisible();
+    // A velocity_band snapshot must NOT borrow percentile vocabulary.
+    await expect(bridge.getByText(/P80/)).toHaveCount(0);
+    // Delta-since-last-close, attributed to the closing sprint, direction in words.
+    await expect(bridge.getByText(/\+3d later/)).toBeVisible();
+    await expect(bridge.getByText(/since Sprint 6/)).toBeVisible();
+    // "If velocity holds" projection.
+    await expect(bridge.getByText(/If velocity holds, ~2–3 more sprints to clear 34 pts\./)).toBeVisible();
+  });
 });
