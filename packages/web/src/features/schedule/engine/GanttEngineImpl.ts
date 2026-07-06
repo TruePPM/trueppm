@@ -29,6 +29,7 @@ import {
 import { buildHitIndex } from './GanttHitIndex';
 import type { HitIndex, HitZone } from './GanttHitIndex';
 import { GanttDragFSM } from './GanttDragFSM';
+import { GanttLinkFSM } from './GanttLinkFSM';
 import { GanttPanFSM } from './GanttPanFSM';
 import {
   ROW_HEIGHT,
@@ -49,6 +50,7 @@ import {
   paintDependencyLayout,
   drawDragShadow,
   drawResizeIndicator,
+  drawLinkPreview,
   drawActualDateBar,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
@@ -130,6 +132,19 @@ export class GanttEngineImpl implements GanttEngine {
   private _lastHoveredTaskId: string | null = null;
   private _hitIndex: HitIndex | null = null;
   private _dragFSM: GanttDragFSM = new GanttDragFSM();
+
+  // Drag-to-link (#1666). A third FSM coexisting with the drag/pan FSMs,
+  // arbitrated on pointerdown: a `link-dot` hit zone arms this FSM and
+  // short-circuits the bar move/resize path entirely, so the two never race.
+  // Pointer-only — gated on `_pointerFine` so it never arms on touch (touch
+  // users reach dependency creation through the ScheduleDependencyPicker
+  // drawer, which stays a11y-complete).
+  private _linkFSM: GanttLinkFSM = new GanttLinkFSM();
+  /** True on a fine pointer (mouse/pen). Gates drag-to-link arming (rule 84/#1666). */
+  private _pointerFine =
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(pointer: fine)').matches
+      : true;
 
   // Drag-to-pan (#491). A separate FSM coexisting with the drag FSM, arbitrated
   // on pointerdown: if Space is held OR the middle button is pressed, the pan
@@ -554,7 +569,28 @@ export class GanttEngineImpl implements GanttEngine {
   // GanttEngine — Drag control
   // ---------------------------------------------------------------------------
 
+  /**
+   * Silently cancel an in-progress drag-to-link gesture (#1666): Escape,
+   * pointercancel, or the offline/error guard. No `create-link` is emitted; the
+   * preview layer is cleared immediately. No-op when no link gesture is active.
+   */
+  private _cancelLinkDrag(): void {
+    if (this._linkFSM.state === 'IDLE') return;
+    this._linkFSM.onCancel();
+    this._linkFSM.reset();
+    this._clearIxCanvas();
+    this._ixDirty = false;
+    this._updateCursor(this._hoverZone);
+  }
+
   cancelDrag(): void {
+    // Link gesture and bar drag are mutually exclusive (arming a link-dot
+    // short-circuits the drag path), but guard defensively so an external
+    // Escape/offline caller cancels whichever is live.
+    if (this._linkFSM.state !== 'IDLE') {
+      this._cancelLinkDrag();
+      return;
+    }
     const fsm = this._dragFSM;
     const taskId = fsm.context.taskId;
     const currentX = fsm.context.currentX;
@@ -807,7 +843,11 @@ export class GanttEngineImpl implements GanttEngine {
     // (_paintInteraction below) — panning never touches it (drag shadow /
     // resize indicator are drag-FSM-only), so it's excluded here.
     const gestureActive =
-      fsmState === 'DRAGGING' || fsmState === 'DRAG_STARTED' || fsmState === 'RESIZING';
+      fsmState === 'DRAGGING' ||
+      fsmState === 'DRAG_STARTED' ||
+      fsmState === 'RESIZING' ||
+      // Drag-to-link paints its preview line to the interaction layer (#1666).
+      this._linkFSM.state === 'DRAGGING';
 
     if (this._fullRepaintPending) {
       this._paintBg();
@@ -1065,11 +1105,41 @@ export class GanttEngineImpl implements GanttEngine {
 
     this._clearIxCanvas();
 
+    if (!this._scales) return;
+
+    // ── Drag-to-link preview (#1666) ──────────────────────────────────────
+    // Painted in VIEWPORT coords (scrollLeft/scrollTop subtracted here) rather
+    // than the drag-shadow's canvas-origin + translate convention, because the
+    // line endpoints span the source and (possibly far-away) target rows.
+    if (this._linkFSM.state === 'DRAGGING') {
+      const lc = this._linkFSM.context;
+      const originX = lc.sourceBarRight - this._scrollLeft;
+      const originY = lc.sourceBarCenterY - this._scrollTop;
+      const snapped =
+        lc.targetId != null && lc.targetBarLeft != null && lc.targetBarTop != null;
+      let endX = lc.currentX - this._scrollLeft;
+      let endY = lc.currentY - this._scrollTop;
+      let targetRing: { left: number; top: number; width: number; height: number } | null =
+        null;
+      if (snapped && lc.targetBarLeft != null && lc.targetBarTop != null && lc.targetBarBottom != null && lc.targetBarRight != null) {
+        // Snap the endpoint to the target bar's START-edge midpoint.
+        endX = lc.targetBarLeft - this._scrollLeft;
+        endY = (lc.targetBarTop + lc.targetBarBottom) / 2 - this._scrollTop;
+        targetRing = {
+          left: lc.targetBarLeft - this._scrollLeft,
+          top: lc.targetBarTop - this._scrollTop,
+          width: lc.targetBarRight - lc.targetBarLeft,
+          height: lc.targetBarBottom - lc.targetBarTop,
+        };
+      }
+      drawLinkPreview(this._ixCtx, { originX, originY, endX, endY, snapped, targetRing });
+      void w;
+      void h;
+      return;
+    }
+
     const fsm = this._dragFSM;
-    if (
-      (fsm.state !== 'DRAGGING' && fsm.state !== 'DRAG_STARTED' && fsm.state !== 'RESIZING') ||
-      !this._scales
-    ) {
+    if (fsm.state !== 'DRAGGING' && fsm.state !== 'DRAG_STARTED' && fsm.state !== 'RESIZING') {
       return;
     }
 
@@ -1149,6 +1219,26 @@ export class GanttEngineImpl implements GanttEngine {
 
     if (!zone) return;
 
+    // ── Drag-to-link arm (#1666) ──────────────────────────────────────────
+    // A link-dot hit arms the link FSM and never falls through to the bar
+    // move/resize path — collapsing it into a 'move' drag was the dead-spot
+    // this fixes. Pointer-only: on touch (or a coarse pointer) do nothing so
+    // the gesture never arms; the picker drawer covers those users.
+    if (zone.type === 'link-dot') {
+      if (this._pointerFine && e.pointerType !== 'touch') {
+        e.preventDefault();
+        const centerY = (zone.barTop + zone.barBottom) / 2;
+        this._linkFSM.onPointerDown(zone.taskId, zone.barRight, centerY, x, y, e.pointerId);
+        try {
+          this._ixCanvas.setPointerCapture(e.pointerId);
+        } catch {
+          // Synthetic pointers (headless tests) are not active — capture is
+          // not required; the interaction canvas still receives the move/up.
+        }
+      }
+      return;
+    }
+
     e.preventDefault();
     const dragType = zone.type === 'resize' ? 'resize' : 'move';
     this._dragFSM.onPointerDown(zone.taskId, x, y, e.pointerId, dragType);
@@ -1181,6 +1271,40 @@ export class GanttEngineImpl implements GanttEngine {
       const maxTop = Math.max(0, this._container.scrollHeight - this._container.clientHeight);
       this._container.scrollLeft = Math.min(maxLeft, Math.max(0, this._scrollLeft - panDelta.dx));
       this._container.scrollTop = Math.min(maxTop, Math.max(0, this._scrollTop - panDelta.dy));
+      return;
+    }
+
+    // ── Drag-to-link move (#1666) ─────────────────────────────────────────
+    // While the link FSM owns the gesture it fully consumes pointermove — the
+    // bar drag FSM never sees it. Compute the current valid target from the
+    // hit index each frame (any bar that is not the source) and drive the
+    // crosshair / not-allowed cursor + preview repaint.
+    if (this._linkFSM.state !== 'IDLE') {
+      const { x: lx, y: ly } = this._pointerToCanvas(e);
+      const res = this._linkFSM.onPointerMove(lx, ly);
+      if (res !== 'none') {
+        const zone = this._hitIndex ? this._hitIndex.query(lx, ly, false) : null;
+        const sourceId = this._linkFSM.context.sourceId;
+        if (zone && zone.taskId !== sourceId) {
+          this._linkFSM.setTarget(zone.taskId, {
+            left: zone.barLeft,
+            right: zone.barRight,
+            top: zone.barTop,
+            bottom: zone.barBottom,
+          });
+          this._ixCanvas.style.cursor = 'crosshair';
+        } else {
+          this._linkFSM.setTarget(null, null);
+          // Over the source bar itself → not-allowed (self-link is rejected);
+          // over empty space → keep the crosshair (still hunting for a target).
+          this._ixCanvas.style.cursor =
+            zone && zone.taskId === sourceId ? 'not-allowed' : 'crosshair';
+        }
+        this._requestRepaint();
+      } else {
+        // Armed but below threshold — keep the crosshair, wait for the drag.
+        this._ixCanvas.style.cursor = 'crosshair';
+      }
       return;
     }
 
@@ -1249,6 +1373,31 @@ export class GanttEngineImpl implements GanttEngine {
         // Ignore if already released.
       }
       // Cursor returns to grab (still armed) or default (disarmed).
+      this._updateCursor(this._hoverZone);
+      return;
+    }
+
+    // ── Drag-to-link drop (#1666) ─────────────────────────────────────────
+    // Commit only when the gesture actually crossed the drag threshold AND is
+    // released over a valid target. A release in place (still ARMED), over
+    // empty space, or over the source bar (targetId null) is a silent cancel —
+    // no create-link event, no toast. The preview is cleared immediately; the
+    // real arrow is drawn by the mutation's cache invalidation, not here.
+    if (this._linkFSM.state !== 'IDLE') {
+      const prevLinkState = this._linkFSM.state;
+      const { sourceId, targetId } = this._linkFSM.context;
+      this._linkFSM.onPointerUp();
+      if (prevLinkState === 'DRAGGING' && sourceId && targetId) {
+        this._emit('create-link', { sourceId, targetId });
+      }
+      this._linkFSM.reset();
+      try {
+        this._ixCanvas.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore if already released / synthetic pointer.
+      }
+      this._clearIxCanvas();
+      this._ixDirty = false;
       this._updateCursor(this._hoverZone);
       return;
     }
@@ -1337,6 +1486,13 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   private readonly _onKeyDown = (e: KeyboardEvent): void => {
+    // Escape cancels an in-progress drag-to-link gesture (#1666, rule 28 idiom).
+    // The engine owns the gesture via pointer capture, so it also owns its
+    // Escape — a global handler, active only while the link FSM is live.
+    if (e.key === 'Escape' && this._linkFSM.state !== 'IDLE') {
+      this._cancelLinkDrag();
+      return;
+    }
     // Arm pan on Space only when the canvas is hovered/focused — never a global
     // capture (rule 130). Ignore auto-repeat. Don't hijack Space typed into an
     // input that happens to overlap; the canvas-hover scope already excludes

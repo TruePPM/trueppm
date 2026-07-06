@@ -111,6 +111,11 @@ export const COLOR = {
   // surface (brand §15 — strong fill, never white-on-color; the dot carries no text).
   linkDraft: '#C2410C', // semantic-at-risk (orange-700)
   linkOpen: '#15803D', // semantic-on-track (green-700)
+  // Drag-to-link preview line + valid-target ring (#1666). brand-primary =
+  // sage-700 (the action/affordance token, globals.css) — the same hue the
+  // crosshair link affordance carries, so the preview reads as "an action in
+  // progress" rather than a data state. 5.93:1 on the white surface.
+  linkPreview: '#316F57', // sage-700 — brand-primary (light)
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -153,6 +158,10 @@ export const COLOR_DARK: ColorPalette = {
   // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0155).
   linkDraft: '#FB923C', // orange-400
   linkOpen: '#4ADE80', // green-400
+  // Drag-to-link preview on the dark surface — sage-400 brand-primary, the
+  // lighter affordance stop that reads on navy (mirrors the light/dark flip of
+  // barComplete / todayLine; #1666).
+  linkPreview: '#66B998', // sage-400 — brand-primary (dark)
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
@@ -2321,5 +2330,81 @@ export function drawResizeIndicator(
   ctx.moveTo(x + 0.5, barTop);
   ctx.lineTo(x + 0.5, barTop + BAR_HEIGHT);
   ctx.stroke();
+  ctx.restore();
+}
+
+export interface LinkPreviewParams {
+  /** Origin (viewport coords) — the source bar's finish-edge midpoint. */
+  originX: number;
+  originY: number;
+  /** Current pointer / snapped endpoint (viewport coords). */
+  endX: number;
+  endY: number;
+  /**
+   * True when the pointer is over a valid target bar: the line snaps to the
+   * target's start edge and flips DASHED → SOLID (a committed-looking edge).
+   */
+  snapped: boolean;
+  /** Valid-target bar rect (viewport coords) to ring, or null when unsnapped. */
+  targetRing: { left: number; top: number; width: number; height: number } | null;
+}
+
+/**
+ * Draw the drag-to-link preview on the canvas-interaction layer (#1666, rule
+ * 59). All coordinates are viewport-relative — the caller has already applied
+ * scrollLeft/scrollTop. brand-primary (`linkPreview`) stroke at 1.5px: DASHED
+ * `[4,3]` while hunting, SOLID once snapped to a valid target, with a small
+ * filled arrowhead at the endpoint and (when snapped) a 2px ring around the
+ * target bar. WCAG 1.4.11-compliant against both surfaces (sage vs. surface).
+ */
+export function drawLinkPreview(
+  ctx: CanvasRenderingContext2D,
+  params: LinkPreviewParams,
+): void {
+  const { originX, originY, endX, endY, snapped, targetRing } = params;
+  const stroke = _palette.linkPreview;
+
+  ctx.save();
+
+  // Valid-target ring — drawn on the interaction layer so the bar paint is
+  // never mutated (rule 83 keeps selection state on the bars layer; this is a
+  // transient gesture cue, not selection).
+  if (snapped && targetRing) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.roundRect(targetRing.left, targetRing.top, Math.max(2, targetRing.width), targetRing.height, 3);
+    ctx.stroke();
+  }
+
+  // Preview line.
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(snapped ? [] : [4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(originX, originY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  // Filled arrowhead at the endpoint, aligned with the line direction.
+  const angle = Math.atan2(endY - originY, endX - originX);
+  const headLen = 7;
+  const headHalf = 3.5;
+  ctx.setLineDash([]);
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(
+    endX - headLen * Math.cos(angle) + headHalf * Math.sin(angle),
+    endY - headLen * Math.sin(angle) - headHalf * Math.cos(angle),
+  );
+  ctx.lineTo(
+    endX - headLen * Math.cos(angle) - headHalf * Math.sin(angle),
+    endY - headLen * Math.sin(angle) + headHalf * Math.cos(angle),
+  );
+  ctx.closePath();
+  ctx.fill();
+
   ctx.restore();
 }
