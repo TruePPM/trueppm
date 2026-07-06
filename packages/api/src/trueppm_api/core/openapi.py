@@ -64,6 +64,7 @@ _TOP_TAG: dict[str, str] = {
     "resources": "resources",
     "retro-items": "sprints",
     "scope-changes": "sprints",
+    "share": "share",
     "skills": "resources",
     "slip-conflicts": "scheduling",
     "sprint-task-outcomes": "sprints",
@@ -122,6 +123,7 @@ _SUB_TAG: dict[str, str] = {
     "import": "import-export",
     "imports": "import-export",
     "export": "import-export",
+    "share-links": "share",
 }
 
 # ---------------------------------------------------------------------------

@@ -1193,6 +1193,11 @@ SPECTACULAR_SETTINGS = {
         },
         {"name": "workshops", "description": "Collaborative planning workshops."},
         {
+            "name": "share",
+            "description": "Public read-only board share links: mint, list, revoke, and the "
+            "public unauthenticated read endpoint.",
+        },
+        {
             "name": "meta",
             "description": "Deployment metadata, health probes and administrative endpoints.",
         },

@@ -23,6 +23,7 @@ from rest_framework.throttling import AnonRateThrottle, BaseThrottle, UserRateTh
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectNotArchived
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects import share_services
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
 from trueppm_api.apps.projects.share_serializers import (
@@ -66,11 +67,12 @@ def _public_sharing_allowed(project: Project) -> bool:
     return resolve_effective_sharing(project, "public_sharing")
 
 
-class ProjectShareLinkListCreateView(APIView):
+class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
     """GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.
 
     GET lists the project's *active* links (revoked links drop out). POST mints a
-    new link and returns the raw token exactly once.
+    new link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)
+    protects the mint from a duplicate link on a client retry.
     """
 
     permission_classes = [IsAuthenticated, IsProjectAdmin]  # noqa: RUF012
@@ -139,11 +141,14 @@ class ProjectShareLinkListCreateView(APIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-class ProjectShareLinkRevokeView(APIView):
+class ProjectShareLinkRevokeView(IdempotencyMixin, APIView):
     """POST ``/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/`` — Admin+.
 
     Idempotent soft-revoke. Works regardless of the instance kill switch (an
     operator disabling sharing should not strand an Admin from revoking an old link).
+    Also carries the Idempotency-Key mixin (ADR-0170) like every other unsafe-method
+    TruePPM view — mirrors ``ProjectApiTokenViewSet.destroy``, which is naturally
+    idempotent too but still opts in rather than claiming ``idempotency_exempt``.
     """
 
     permission_classes = [IsAuthenticated, IsProjectAdmin]  # noqa: RUF012
@@ -220,7 +225,7 @@ class PublicBoardShareView(APIView):
 
         payload = share_services.serialize_public_board(link)
         body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        etag = 'W/"' + hashlib.sha1(body.encode()).hexdigest()[:32] + '"'
+        etag = 'W/"' + hashlib.sha256(body.encode()).hexdigest()[:32] + '"'
 
         if request.headers.get("If-None-Match") == etag:
             resp = Response(status=status.HTTP_304_NOT_MODIFIED)

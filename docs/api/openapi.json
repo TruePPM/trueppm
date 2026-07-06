@@ -20756,7 +20756,7 @@
         "/api/v1/projects/{project_pk}/share-links/": {
             "get": {
                 "operationId": "v1_projects_share_links_list",
-                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once.",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)\nprotects the mint from a duplicate link on a client retry.",
                 "summary": "List active board share links for a project",
                 "parameters": [
                     {
@@ -20769,7 +20769,7 @@
                     }
                 ],
                 "tags": [
-                    "projects"
+                    "share"
                 ],
                 "security": [
                     {
@@ -20813,7 +20813,7 @@
             },
             "post": {
                 "operationId": "v1_projects_share_links_create",
-                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once.",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once. Idempotency-Key support (ADR-0170)\nprotects the mint from a duplicate link on a client retry.",
                 "summary": "Create a board share link (returns the raw token once)",
                 "parameters": [
                     {
@@ -20826,7 +20826,7 @@
                     }
                 ],
                 "tags": [
-                    "projects"
+                    "share"
                 ],
                 "requestBody": {
                     "content": {
@@ -20891,7 +20891,7 @@
         "/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/": {
             "post": {
                 "operationId": "v1_projects_share_links_revoke_create",
-                "description": "POST ``/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/`` — Admin+.\n\nIdempotent soft-revoke. Works regardless of the instance kill switch (an\noperator disabling sharing should not strand an Admin from revoking an old link).",
+                "description": "POST ``/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/`` — Admin+.\n\nIdempotent soft-revoke. Works regardless of the instance kill switch (an\noperator disabling sharing should not strand an Admin from revoking an old link).\nAlso carries the Idempotency-Key mixin (ADR-0170) like every other unsafe-method\nTruePPM view — mirrors ``ProjectApiTokenViewSet.destroy``, which is naturally\nidempotent too but still opts in rather than claiming ``idempotency_exempt``.",
                 "summary": "Revoke a board share link",
                 "parameters": [
                     {
@@ -20912,7 +20912,7 @@
                     }
                 ],
                 "tags": [
-                    "projects"
+                    "share"
                 ],
                 "security": [
                     {
@@ -51115,6 +51115,10 @@
         {
             "name": "workshops",
             "description": "Collaborative planning workshops."
+        },
+        {
+            "name": "share",
+            "description": "Public read-only board share links: mint, list, revoke, and the public unauthenticated read endpoint."
         },
         {
             "name": "meta",
