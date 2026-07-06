@@ -130,9 +130,11 @@ def _do_sync(request_id: str) -> None:
             secret = decrypt_secret(cred.secret_ciphertext)
         except Exception:
             # A corrupt/undecryptable ciphertext is not user-recoverable by a
-            # retry; retire the row without leaking the secret into the log.
+            # retry; retire the row without leaking the plaintext into the log
+            # (only user_id/source are interpolated below, never the value).
             logger.warning(
-                "external_sync: undecryptable credential for user=%s source=%s",
+                "external_sync: stored connection data could not be decrypted "
+                "for user=%s source=%s",
                 req.user_id,
                 req.source,
             )

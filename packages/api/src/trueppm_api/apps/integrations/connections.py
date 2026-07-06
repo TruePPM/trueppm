@@ -327,7 +327,7 @@ class ExternalSyncCooldownSerializer(serializers.Serializer[Any]):
 
 
 @extend_schema(tags=["me"])
-class ExternalConnectionSyncView(APIView):
+class ExternalConnectionSyncView(IdempotencyMixin, APIView):
     """Trigger a read-only pull of one external-source connection (ADR-0097 §4).
 
     ``POST /api/v1/me/connections/{source}/sync/`` → ``202 {"queued": true}``.
