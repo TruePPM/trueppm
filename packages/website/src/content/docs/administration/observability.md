@@ -5,11 +5,11 @@ description: How to export TruePPM's traces and metrics to your own OpenTelemetr
 
 
 :::note[Lands in 0.4 (first beta)]
-OpenTelemetry export **ships in TruePPM 0.4**, the first beta — both the provider
-and configuration groundwork and the first wave of **trace instrumentation**:
-spans for HTTP requests, database queries, Celery tasks, WebSocket connections,
-and the CPM / Monte Carlo scheduling engine (#707–#710). Metrics instrumentation
-follows in later 0.4 work.
+OpenTelemetry export **ships in TruePPM 0.4**, the first beta — the provider and
+configuration groundwork, **trace instrumentation** (spans for HTTP requests,
+database queries, Celery tasks, WebSocket connections, and the CPM / Monte Carlo
+scheduling engine), and **native metrics** (request latency/count, Celery task
+duration, transactional-outbox depth/lag, and database backend counts) (#707–#710).
 :::
 
 TruePPM will export distributed **traces** and **metrics** using
@@ -28,15 +28,18 @@ Telemetry is a deliberate operator choice, never a silent egress.
 - A provider bootstrap that builds the OTel `TracerProvider` / `MeterProvider` at
   API startup and wires the OTLP exporter — **only** when an endpoint is set.
 - The opt-in configuration surface below (environment variables + Helm values).
-- A stable `trueppm.*` span- and resource-attribute naming convention.
+- A stable `trueppm.*` span-, metric-, and resource-attribute naming convention.
 - **Trace instrumentation** for HTTP requests, database queries, Celery tasks,
   WebSocket connections, and the scheduling engine (see
   [Instrumented spans](#instrumented-spans) below).
+- **Native metrics** for request latency/count, Celery task duration, transactional
+  outbox depth/lag, and database backend counts (see
+  [Instrumented metrics](#instrumented-metrics) below).
 
-Metrics instrumentation (request/task counters, engine timings as metrics) arrives
-in later 0.4 work. Configure a collector now and you immediately see TruePPM's
-resource identity and the trace spans below; later signals light up without any
-reconfiguration.
+Configure a collector now and you immediately see TruePPM's resource identity, the
+trace spans, and the metrics below. Traces and metrics export over the **same** OTLP
+endpoint and can be toggled independently with `TRUEPPM_OTEL_TRACES_ENABLED` /
+`TRUEPPM_OTEL_METRICS_ENABLED`.
 
 ## Turning it on
 
@@ -118,11 +121,11 @@ process:
 | `service.namespace` | `trueppm` |
 | `trueppm.edition` | `community` or `enterprise` |
 
-TruePPM-owned span attributes live under the reserved **`trueppm.*`** namespace
-(for example `trueppm.project.id`, `trueppm.task.id`, `trueppm.user.role`), so you
-can filter and group TruePPM signals cleanly in your backend. Attributes that
-follow OpenTelemetry's own semantic conventions (`http.*`, `db.*`, `messaging.*`)
-keep their standard keys.
+TruePPM-owned span attributes and metric dimensions live under the reserved
+**`trueppm.*`** namespace (for example `trueppm.project.id`, `trueppm.task.id`,
+`trueppm.user.role`, `trueppm.outbox.name`), so you can filter and group TruePPM
+signals cleanly in your backend. Attributes that follow OpenTelemetry's own semantic
+conventions (`http.*`, `db.*`, `messaging.*`) keep their standard keys.
 
 ## Instrumented spans
 
@@ -145,6 +148,69 @@ Export runs on a background batch processor and drops rather than blocks on a sl
 collector, so it never adds latency to a request — but size your collector's
 ingest for the query volume, or sample at the collector.
 :::
+
+## Instrumented metrics
+
+With a collector configured, TruePPM exports these metrics over OTLP on a periodic
+interval. The HTTP and Celery families follow OpenTelemetry's semantic conventions;
+the outbox and database families are TruePPM-specific instruments under the
+`trueppm.*` namespace.
+
+| Metric | Type | What it measures | Dimensions |
+|---|---|---|---|
+| `http.server.request.duration` | histogram | API request latency | `http.*` semantic conventions |
+| `http.server.active_requests` | up/down counter | In-flight API requests | `http.*` semantic conventions |
+| `flower.task.runtime.seconds` | histogram | Celery task duration | task name, worker |
+| `trueppm.outbox.depth` | gauge | Live backlog of a transactional outbox (rows not yet done) | `trueppm.outbox.name` (`schedule` \| `workflow`), `trueppm.outbox.state` (`pending` \| `dispatched`) |
+| `trueppm.outbox.oldest_age_seconds` | gauge | Age of the oldest not-yet-done outbox row — the dispatch **lag** (0 when empty) | `trueppm.outbox.name` |
+| `trueppm.db.connections` | gauge | Server-side PostgreSQL backend count for the current database | `trueppm.db.state` (`active` \| `idle` \| `idle_in_transaction` \| `other`) |
+
+The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable
+execution: a rising `depth` or `oldest_age_seconds` means the CPM-recompute or
+workflow-step dispatchers are falling behind. They complement the System Health
+overview, which reports the same backlog in the admin UI.
+
+:::caution[Aggregate the `trueppm.*` gauges with `max`/`last`, never `sum`]
+The `trueppm.outbox.*` and `trueppm.db.connections` gauges read **shared database
+state**. Every TruePPM process that exports telemetry — the web API, the Celery
+worker, and Celery beat — reports the same cluster-wide figure as its own series
+(kept distinct by `service.instance.id`). Summing across instances multiplies the
+true value; a dashboard or alert must aggregate these gauges with `max` or `last`
+(for example `max by (trueppm_outbox_name) (trueppm_outbox_depth)`). The HTTP and
+Celery metrics are per-process rates and aggregate normally.
+:::
+
+:::note[TruePPM uses persistent connections, not a client-side pool]
+`trueppm.db.connections` is the server-side backend count from `pg_stat_activity`,
+because TruePPM holds persistent connections (`CONN_MAX_AGE`) rather than a
+client-side connection pool. It answers "how close is this database to
+`max_connections`?" — for per-pooler saturation, scrape your PgBouncer/pooler
+directly.
+:::
+
+### Scraping with Prometheus
+
+TruePPM exports metrics over **OTLP only** — there is no `/metrics` scrape endpoint,
+which keeps telemetry a single, deliberate, opt-in egress with no always-on surface.
+If your stack is Prometheus-native, run an [OpenTelemetry
+Collector](https://opentelemetry.io/docs/collector/) as a bridge: receive TruePPM's
+OTLP metrics and re-expose them for Prometheus to scrape.
+
+```yaml
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:            # point OTEL_EXPORTER_OTLP_ENDPOINT at this collector
+exporters:
+  prometheus:
+    endpoint: "0.0.0.0:9464"   # Prometheus scrapes the collector here
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [prometheus]
+```
 
 ## Enterprise
 

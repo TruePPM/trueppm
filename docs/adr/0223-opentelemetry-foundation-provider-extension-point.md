@@ -259,3 +259,92 @@ Add to `packages/api/pyproject.toml` (both Apache-2.0, verified against PyPI
 
 ## Tracking
 Issue #708 (foundation). Epic #707. Blocks Phase 1 (#709) and Phase 2 (#710).
+
+---
+
+## Phase 2 addendum — native metrics (#710)
+
+> This addendum records the Phase 2 decision on the **metrics surface**. It amends
+> this ADR rather than opening a new one, mirroring how Phase 1 (#709) extended the
+> foundation in place. (The epic and issue text refer to an "ADR-0084 addendum" —
+> that is a stale renumbering reference; ADR-0084 is the dead-letter alerting
+> receiver. ADR-0223 is the live OpenTelemetry ADR that the `otel` module cites.)
+
+### The decision to make
+
+The Foundation (#708) already builds the `MeterProvider` and a
+`PeriodicExportingMetricReader` that pushes metrics over OTLP — the **export
+pipeline exists**. Phase 2 emits the actual instruments and must choose the
+**metrics surface**: how do operators consume them?
+
+**Decision: SDK-native OTLP metrics only. No `/metrics` scrape endpoint in OSS
+0.4.** Metrics are pushed over the same OTLP exporter, opt-in gate, and "no
+endpoint ⇒ strict no-op" contract as traces. Prometheus-native operators bridge via
+a standard OpenTelemetry Collector (OTLP receiver → `prometheus` exporter), which is
+documented in `docs/administration/observability.md`.
+
+### Alternatives Considered
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **SDK-native OTLP (chosen)** | Zero new infrastructure — the reader/exporter already exist; symmetric with traces (one opt-in gate, no always-on surface, no silent egress); nothing to authenticate or rate-limit | Prometheus-native shops must run a Collector to scrape (a bridge, not a fork) |
+| Add a `/metrics` scrape endpoint | Prometheus can scrape directly with no Collector | A new **always-on authenticated HTTP surface** (needs `IsAdminUser` + token per ADR-0081), a new dependency (`prometheus_client`/exporter), a **second** MeterReader, and it breaks the "export is a deliberate, single operator switch" symmetry |
+| Collector bridge only (no OSS metrics) | No OSS code at all | Doesn't satisfy the issue — TruePPM must emit its own app-level metrics (outbox, DB) that no library provides |
+
+An **optional additive Prometheus `PrometheusMetricReader`** (off by default,
+`IsAdminUser` + token) can be layered on the same provider later **without changing
+the OTLP path** if beta feedback shows Collector-deployment friction — deferred to a
+fast-follow, no lock-in.
+
+### Metric taxonomy (the four families in #710)
+
+Two families come free from the Phase 1 library auto-instrumentors once a meter
+provider is threaded through `instrument()`; two are TruePPM-specific and have no
+auto-instrumentor, so they are registered as **observable gauges** in
+`otel/metrics.py`:
+
+| Family | Instrument(s) | Source |
+|---|---|---|
+| HTTP request latency/count | `http.server.request.duration`, `http.server.active_requests` (semconv) | `DjangoInstrumentor` (meter provider now bound) |
+| Celery task duration | `flower.task.runtime.seconds` | `CeleryInstrumentor` (meter provider now bound) |
+| Outbox depth/lag | `trueppm.outbox.depth` (attrs `trueppm.outbox.name`, `trueppm.outbox.state`), `trueppm.outbox.oldest_age_seconds` (attr `trueppm.outbox.name`) | Observable gauges over `ScheduleRequest` + `WorkflowOutboxRow` |
+| DB connection stats | `trueppm.db.connections` (attr `trueppm.db.state`) | Observable gauge over `pg_stat_activity` for the current database |
+
+**Observable gauges, not `UpDownCounter`.** Depth and age are point-in-time samples
+read at collection; a synchronous counter would require incrementing/decrementing at
+every enqueue and drain site across two apps. The callback samples current state,
+exactly as `observability.selectors` already does for the System Health UI.
+
+**"DB pool stats" ⇒ server-side backend count.** TruePPM uses `CONN_MAX_AGE`
+persistent connections, **not** a psycopg client-side pool, so there is no pool
+object to read `get_stats()` from. The honest, useful substitute is the server-side
+PostgreSQL backend count from `pg_stat_activity`, bucketed by state
+(`active` / `idle` / `idle_in_transaction` / `other`). The probe runs on the
+exporter's collection thread with a short `statement_timeout` and is wrapped so a DB
+hiccup yields no observation rather than an exception.
+
+### Consequences
+
+- **Cluster-wide gauges — aggregate with `max`/`last`, never `sum`.** Every process
+  that runs `ready()` (web, worker, beat) registers the observable gauges and reads
+  the **same** shared PostgreSQL state, so each emits the whole-cluster figure as its
+  own series (kept distinct by `service.instance.id`). Summing across instances
+  multiplies the true value. This is documented prominently for operators. It is the
+  one correctness caveat of the app-level gauges and is intrinsic to any per-process
+  reader of shared state.
+- The `trueppm.*` metric names and their dimension keys join the additive-only
+  cross-repo contract (enterprise may read them); new keys may be added, existing
+  ones never renamed/removed.
+- `instrument()`'s gate generalizes from traces-only to **traces OR metrics**;
+  psycopg (trace-only) is still wired only when traces are on, so a metrics-only
+  deployment pays no pointless per-query monkeypatch.
+
+### Durable Execution (Phase 2)
+Unchanged from the foundation — all **N/A**. Phase 2 introduces no Celery task, no
+outbox rows, and no `transaction.on_commit()` dispatch. The observable gauges are
+read-only samples invoked by the SDK's own `PeriodicExportingMetricReader` background
+thread; export failures are bounded and dropped inside the SDK and never reach a
+request or task path.
+
+### Phase 2 tracking
+Issue #710. Epic #707. Builds on the foundation (#708) and Phase 1 (#709).

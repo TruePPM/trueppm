@@ -34,14 +34,16 @@ def _reset() -> Iterator[None]:
     instrumentation.reset_for_testing()
 
 
-def _ctx(*, enabled: bool, tracer_provider: Any = None) -> OTelBootstrapContext:
+def _ctx(
+    *, enabled: bool, tracer_provider: Any = None, meter_provider: Any = None
+) -> OTelBootstrapContext:
     return OTelBootstrapContext(
         schema_version=1,
         enabled=enabled,
         edition="community",
         resource=None,
         tracer_provider=tracer_provider,
-        meter_provider=None,
+        meter_provider=meter_provider,
     )
 
 
@@ -98,11 +100,11 @@ class TestNoOpWhenDisabled:
         assert instrumentation._instrumented is False
         assert fake_instrumentors.calls == []
 
-    def test_enabled_but_no_tracer_provider_installs_nothing(
+    def test_enabled_but_both_signals_off_installs_nothing(
         self, fake_instrumentors: type[_FakeInstrumentor]
     ) -> None:
-        """Metrics-only (traces disabled) leaves tracer_provider None → no-op here."""
-        otel.instrument(_ctx(enabled=True, tracer_provider=None))
+        """Enabled but both providers None (traces AND metrics off) → strict no-op."""
+        otel.instrument(_ctx(enabled=True, tracer_provider=None, meter_provider=None))
         assert instrumentation._installed == []
         assert fake_instrumentors.calls == []
 
@@ -175,6 +177,40 @@ class TestInstallsWhenEnabled:
         # Does not raise; marks instrumented so ready() never retries a broken wire.
         otel.instrument(_ctx(enabled=True, tracer_provider=object()))
         assert instrumentation._instrumented is True
+
+
+class TestMetricThreading:
+    """Phase 2 (#710): metrics are wired via the same instrumentors, on their own gate."""
+
+    def test_metrics_only_installs_django_celery_not_psycopg(
+        self, fake_instrumentors: type[_FakeInstrumentor]
+    ) -> None:
+        """Traces off, metrics on → Django + Celery (they emit metrics), not psycopg."""
+        meter = object()
+        otel.instrument(_ctx(enabled=True, tracer_provider=None, meter_provider=meter))
+        installed = {name for verb, name, _kw in fake_instrumentors.calls if verb == "instrument"}
+        assert installed == {"_FakeDjango", "_FakeCelery"}
+        assert len(instrumentation._installed) == 2
+
+    def test_meter_provider_threaded_to_django_and_celery(
+        self, fake_instrumentors: type[_FakeInstrumentor]
+    ) -> None:
+        meter = object()
+        otel.instrument(_ctx(enabled=True, tracer_provider=None, meter_provider=meter))
+        for _verb, _name, kwargs in fake_instrumentors.calls:
+            assert kwargs["meter_provider"] is meter
+
+    def test_both_signals_on_installs_all_three_with_both_providers(
+        self, fake_instrumentors: type[_FakeInstrumentor]
+    ) -> None:
+        tracer, meter = object(), object()
+        otel.instrument(_ctx(enabled=True, tracer_provider=tracer, meter_provider=meter))
+        assert len(instrumentation._installed) == 3
+        django_call = next(
+            kwargs for _, name, kwargs in fake_instrumentors.calls if name == "_FakeDjango"
+        )
+        assert django_call["tracer_provider"] is tracer
+        assert django_call["meter_provider"] is meter
 
 
 class TestAsgiWrap:
