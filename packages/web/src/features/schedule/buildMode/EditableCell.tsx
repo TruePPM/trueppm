@@ -34,6 +34,20 @@ export interface EditableCellProps {
   onTabBackward: () => void;
   /** Called on every keystroke with the current draft value. Used to feed autocomplete. */
   onQueryChange?: (query: string) => void;
+  /**
+   * Called after a SUCCESSFUL Enter-commit (not blur, not Tab, not Esc). Used by
+   * the Name cell for commit-and-continue (#1666): after committing the edit,
+   * insert a new sibling row below and move into its Name cell. Not fired when
+   * the commit is rejected (see `emptyIsNoop`).
+   */
+  onEnterCommit?: () => void;
+  /**
+   * When true, an Enter on an empty/whitespace value is a calm no-op — no error
+   * flash, no `onCommit`, no `onEnterCommit`. Used by the Name cell so the
+   * double-Enter blank guard (#1666) reads as "cursor stays" rather than an
+   * error. Only meaningful for text cells.
+   */
+  emptyIsNoop?: boolean;
 }
 
 /**
@@ -88,6 +102,8 @@ export function EditableCell({
   onTabForward,
   onTabBackward,
   onQueryChange,
+  onEnterCommit,
+  emptyIsNoop = false,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -119,6 +135,11 @@ export function EditableCell({
   const tryCommit = (raw: string): boolean => {
     const parsed = commitParse(inputType, raw);
     if (parsed === null) {
+      // Blank text with emptyIsNoop set is a calm no-op (double-Enter guard,
+      // #1666) — no error flash, and the caller's onEnterCommit won't fire.
+      if (emptyIsNoop && inputType === 'text' && raw.trim() === '') {
+        return false;
+      }
       setFlash('error');
       return false;
     }
@@ -202,7 +223,11 @@ export function EditableCell({
           if (e.key === 'Enter') {
             e.preventDefault();
             if (tryCommit(draft)) {
-              // Caller transitions focus back to RowFocused.
+              // Commit succeeded (onCommit already ran + caller transitioned to
+              // RowFocused). Commit-and-continue: insert a new sibling below and
+              // move into its Name cell (#1666). No-op commits (blank guard)
+              // return false above, so this never spawns a second blank row.
+              onEnterCommit?.();
             }
           } else if (e.key === 'Escape') {
             e.preventDefault();

@@ -683,8 +683,11 @@ function TaskListRowInner({
         if (e.key === 'Enter') {
           e.preventDefault();
           if (buildMode) {
-            // Enter on row → enter Name cell-edit (per ux-design spec).
-            buildMode.focus.enterCellEdit(task.id, 'name');
+            // Enter on a focused row inserts a new sibling below (same parent /
+            // depth) and drops the cursor into its Name cell (#1666). F2 remains
+            // the "edit this row's name" affordance. One mental model: Enter
+            // always ends with the cursor in an editable Name cell.
+            buildMode.insertBelow(task.id);
           } else {
             setSelectedTaskId(isSelected ? null : task.id);
           }
@@ -809,6 +812,11 @@ function TaskListRowInner({
               onTabForward={() => buildMode.focus.tabForward()}
               onTabBackward={() => buildMode.focus.tabBackward()}
               onQueryChange={setAutocompleteQuery}
+              // Commit-and-continue (#1666): Enter in the Name cell commits, then
+              // inserts a new sibling below and drops into its Name cell. A blank
+              // Name (emptyIsNoop) makes the second Enter a calm no-op.
+              onEnterCommit={() => buildMode.insertBelow(task.id)}
+              emptyIsNoop
             />
             {nameSuggestions && (
               <NameAutocomplete

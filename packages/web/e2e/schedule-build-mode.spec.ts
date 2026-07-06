@@ -222,3 +222,194 @@ test.describe('Schedule build-mode — delete does not block subsequent right-cl
     await expect(page.getByRole('menu', { name: 'Row actions' })).toBeVisible();
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// #1666 — Enter = new sibling row (the previously broken insertBelow/Enter
+// binding). Enter on a focused row creates a sibling under the SAME parent
+// (not the WBS root) and drops the cursor into its Name cell; Enter in the
+// Name cell commits and continues (a fresh sibling below); Enter on a blank
+// new row is a no-op (double-Enter guard); Escape reverts without deleting.
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () => {
+  // A nested fixture so "sibling under the same parent, not root" is
+  // observable: focusing the child and pressing Enter must POST parent_id =
+  // the summary, never null/root.
+  const NESTED_TASKS = [
+    {
+      id: 'phase', wbs_path: '1', name: 'Design Phase',
+      early_start: '2026-04-05', early_finish: '2026-04-20',
+      planned_start: '2026-04-05',
+      duration: 12, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: true, parent_id: null,
+      status: 'IN_PROGRESS', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+    {
+      id: 'task-a', wbs_path: '1.1', name: 'Wireframes',
+      early_start: '2026-04-05', early_finish: '2026-04-09',
+      planned_start: '2026-04-05',
+      duration: 5, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: false, parent_id: 'phase',
+      status: 'NOT_STARTED', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+  ];
+
+  let currentTasks: Array<Record<string, unknown>>;
+  let postBodies: Array<{ parent_id?: string | null; name?: string }>;
+  let createdCount: number;
+  let deleteCount: number;
+
+  test.beforeEach(async ({ page }) => {
+    await enableBuildMode(page);
+    await setupAuth(page);
+    await setupCatchAll(page);
+    currentTasks = NESTED_TASKS.map((t) => ({ ...t }));
+    postBodies = [];
+    createdCount = 0;
+    deleteCount = 0;
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: currentTasks,
+    });
+
+    // Stateful tasks endpoint (registered AFTER setupApiMocks so it wins, LIFO).
+    // GET returns the live list; POST appends a new task (mirroring the create
+    // → invalidate → refetch cycle so the new row mounts); PATCH updates a name.
+    await page.route('**/api/v1/tasks/**', (route) => {
+      const req = route.request();
+      const method = req.method();
+      if (method === 'POST') {
+        const body = req.postDataJSON() as { name?: string; duration?: number; parent_id?: string | null };
+        postBodies.push({ parent_id: body.parent_id, name: body.name });
+        createdCount += 1;
+        const id = `new-${createdCount}`;
+        const parentId = body.parent_id ?? null;
+        currentTasks.push({
+          id, wbs_path: `1.${createdCount + 1}`, name: body.name ?? '',
+          early_start: '2026-04-10', early_finish: '2026-04-10',
+          planned_start: '2026-04-10',
+          duration: body.duration ?? 1, percent_complete: 0, is_critical: false,
+          is_milestone: false, is_summary: false, parent_id: parentId,
+          status: 'NOT_STARTED', assignees: [], total_float: null,
+          predecessor_count: 0, is_blocked: false,
+          linked_risks_count: 0, linked_risks_max_severity: null,
+        });
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id, name: body.name ?? '', project: FIXTURE_PROJECT_ID,
+            wbs_path: `1.${createdCount + 1}`, duration: body.duration ?? 1,
+            status: 'NOT_STARTED', percent_complete: 0,
+          }),
+        });
+      }
+      if (method === 'PATCH') {
+        const url = req.url();
+        const idMatch = url.match(/tasks\/([^/]+)\//);
+        const body = req.postDataJSON() as { name?: string };
+        if (idMatch) {
+          const t = currentTasks.find((x) => x.id === idMatch[1]);
+          if (t && typeof body.name === 'string') t.name = body.name;
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: idMatch?.[1], name: body.name ?? '', project: FIXTURE_PROJECT_ID,
+            wbs_path: '1.1', duration: 5, status: 'NOT_STARTED', percent_complete: 0,
+          }),
+        });
+      }
+      if (method === 'DELETE') {
+        deleteCount += 1;
+        return route.fulfill({ status: 204, body: '' });
+      }
+      // GET
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: currentTasks.length, next: null, previous: null, results: currentTasks }),
+      });
+    });
+  });
+
+  const nameInput = (page: import('@playwright/test').Page) =>
+    page.locator('input[aria-label^="Rename task"]');
+
+  test('Enter on a focused child row inserts a sibling under the same parent and opens its Name cell', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    // Sibling insert: the POST carries the focused row's parent (the summary),
+    // NOT null/root — the depth assertion that proves the fix.
+    await expect.poll(() => postBodies.length).toBe(1);
+    expect(postBodies[0].parent_id).toBe('phase');
+
+    // Focus lands in the new row's Name cell in edit mode.
+    await expect(nameInput(page)).toBeVisible();
+  });
+
+  test('typing a name + Enter commits and continues; Enter on the blank new row is a no-op', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    const input = nameInput(page);
+    await expect(input).toBeVisible();
+    await expect.poll(() => createdCount).toBe(1);
+
+    // Commit-and-continue: name + Enter commits the edit and spawns a second
+    // sibling below, cursor into ITS Name cell.
+    await input.fill('Homepage');
+    await input.press('Enter');
+    await expect.poll(() => createdCount).toBe(2);
+    // Both new siblings live under the same parent as the focused child.
+    expect(postBodies[1].parent_id).toBe('phase');
+    // A fresh editing Name cell is present for the second new row.
+    await expect(nameInput(page)).toBeVisible();
+
+    // Double-Enter guard: Enter on the still-blank second row spawns nothing.
+    await nameInput(page).press('Enter');
+    await page.waitForTimeout(300);
+    expect(createdCount).toBe(2);
+    // Cursor stays — the editing cell is still open.
+    await expect(nameInput(page)).toBeVisible();
+  });
+
+  test('Escape in the new row Name cell reverts to the row without deleting it', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const row = page.locator('[data-row-id="task-a"]');
+    await expect(row).toBeVisible();
+    await row.focus();
+    await page.keyboard.press('Enter');
+
+    const input = nameInput(page);
+    await expect(input).toBeVisible();
+    await expect.poll(() => currentTasks.length).toBe(3); // phase + task-a + new-1
+
+    // Escape reverts the edit and drops to RowFocused — it does NOT delete the
+    // just-created row.
+    await input.press('Escape');
+    await expect(nameInput(page)).toHaveCount(0);
+    await page.waitForTimeout(200);
+    expect(deleteCount).toBe(0);
+    expect(currentTasks.length).toBe(3);
+  });
+});

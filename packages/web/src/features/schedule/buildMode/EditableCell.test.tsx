@@ -203,6 +203,58 @@ describe('EditableCell — editing state', () => {
   });
 });
 
+describe('EditableCell — commit-and-continue / blank guard (#1666)', () => {
+  it('fires onEnterCommit after a successful Enter-commit', () => {
+    const onCommit = vi.fn();
+    const onEnterCommit = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        isEditing={true}
+        onCommit={onCommit}
+        onEnterCommit={onEnterCommit}
+      />,
+    );
+    const input = screen.getByLabelText('Task name');
+    fireEvent.change(input, { target: { value: 'Design' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith('Design');
+    expect(onEnterCommit).toHaveBeenCalledOnce();
+  });
+
+  it('fires onEnterCommit even when the name is unchanged (Enter always continues)', () => {
+    const onEnterCommit = vi.fn();
+    render(
+      <EditableCell {...baseProps} isEditing={true} onEnterCommit={onEnterCommit} />,
+    );
+    // No change — tryCommit is a no-op success, but Enter still continues.
+    fireEvent.keyDown(screen.getByLabelText('Task name'), { key: 'Enter' });
+    expect(onEnterCommit).toHaveBeenCalledOnce();
+  });
+
+  it('blank Enter with emptyIsNoop is a calm no-op — no commit, no continue, no error flash', () => {
+    const onCommit = vi.fn();
+    const onEnterCommit = vi.fn();
+    render(
+      <EditableCell
+        {...baseProps}
+        value=""
+        isEditing={true}
+        emptyIsNoop
+        onCommit={onCommit}
+        onEnterCommit={onEnterCommit}
+      />,
+    );
+    const input = screen.getByLabelText('Task name');
+    // Empty draft (the freshly-created blank row) + Enter = double-Enter guard:
+    // no new row is spawned and the cursor stays put (cell remains in edit mode).
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(onEnterCommit).not.toHaveBeenCalled();
+    expect(input.closest('[data-editing="true"]')).toBeTruthy();
+  });
+});
+
 describe('EditableCell — outside-driven value updates', () => {
   it('updates draft when value changes externally and not editing', () => {
     const { rerender } = render(<EditableCell {...baseProps} isEditing={false} />);

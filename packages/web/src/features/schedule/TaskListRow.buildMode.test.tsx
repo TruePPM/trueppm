@@ -159,12 +159,14 @@ describe('TaskListRow — build-mode keyboard', () => {
     expect(c.current.focus.state.column).toBe('name');
   });
 
-  it('Enter on focused row enters Name cell-edit (build-mode override)', () => {
+  it('Enter on focused row inserts a sibling below via insertBelow (#1666)', () => {
+    // Enter no longer opens cell-edit (that is now F2 / double-click / letter) —
+    // it creates a new sibling row. The insertBelow API handles focusing the
+    // new row's Name cell on create success.
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));
     fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter' });
-    expect(c.current.focus.state.mode).toBe('CellEdit');
-    expect(c.current.focus.state.column).toBe('name');
+    expect(c.current.insertBelow).toHaveBeenCalledWith('t-build-1');
   });
 
   it('F2 on focused row enters Name cell-edit (build-mode override)', () => {

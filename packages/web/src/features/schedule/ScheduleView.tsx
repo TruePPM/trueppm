@@ -88,7 +88,11 @@ import {
   useUpdateTask,
   useDeleteTask,
   useCreateTask,
+  useAddDependency,
+  parseCyclicDependencyError,
 } from '@/hooks/useTaskMutations';
+import { toast } from '@/components/Toast';
+import { siblingParentId } from './buildMode/insertBelow';
 
 // ---------------------------------------------------------------------------
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
@@ -822,6 +826,59 @@ export function ScheduleView() {
   const updateTaskMut = useUpdateTask();
   const deleteTaskMut = useDeleteTask(projectId ?? null);
   const createTaskMut = useCreateTask(projectId ?? null);
+  // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
+  // FS/0-lag dependency create. Server enforces cycle detection (400
+  // cyclic_dependency) and self-link rejection (ADR-0055); the arrow appears
+  // via the mutation's cache invalidation, not an optimistic canvas draw.
+  const addDep = useAddDependency(projectId ?? null);
+
+  // Drag-to-link commit (#1666). The engine emits `create-link` on a valid
+  // drop; turn it into an FS/0-lag dependency. Reads resolve from the latest
+  // task list + role via a ref so the effect subscribes once per engine and
+  // never goes stale.
+  const createLinkStateRef = useRef({ tasks: allTasks, readOnly });
+  createLinkStateRef.current = { tasks: allTasks, readOnly };
+  useEffect(() => {
+    if (!engine) return;
+    const off = engine.on('create-link', ({ sourceId, targetId }) => {
+      const { tasks, readOnly: ro } = createLinkStateRef.current;
+      if (ro) return; // viewers can't mutate — silently ignore
+      const nameOf = (id: string) => tasks.find((t) => t.id === id)?.name ?? 'task';
+      const sourceName = nameOf(sourceId);
+      const targetName = nameOf(targetId);
+      // Offline guard (rule 29): skip the mutation, stay calm — the preview was
+      // already cleared on pointerup. One info toast, no arrow.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        toast.info('You’re offline — link not saved.');
+        return;
+      }
+      addDep.mutate(
+        { predecessor: sourceId, successor: targetId, dep_type: 'FS', lag: 0 },
+        {
+          onSuccess: () => {
+            // Success is confirmed by the arrow itself (no visual toast); the
+            // aria-live status is the accessible equivalent (rule 30).
+            if (ariaLiveRef.current) {
+              ariaLiveRef.current.textContent = `Linked ${sourceName} → ${targetName}.`;
+            }
+          },
+          onError: (err) => {
+            const cyc = parseCyclicDependencyError(err);
+            if (cyc) {
+              toast.error('Can’t link these — it would create a circular dependency.');
+              if (ariaLiveRef.current) {
+                ariaLiveRef.current.textContent = 'Could not link — circular dependency.';
+              }
+            } else {
+              toast.error('Could not create the link. Try again.');
+            }
+          },
+        },
+      );
+    });
+    return off;
+  }, [engine, addDep]);
+
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
 
   // MS Project import/export (#68). Import is gated on Project Admin to match
@@ -895,13 +952,27 @@ export function ScheduleView() {
       focus,
       indent: (taskId) => indentTask.mutate(taskId),
       outdent: (taskId) => outdentTask.mutate(taskId),
-      insertBelow: (_taskId) => {
-        // Sibling-of insert is a server-side concern (parent inferred from current
-        // row's parent_id, position from current row's position + 1). For v1, fall
-        // back to "create at root" — the user can indent the new row immediately.
-        // Tracked as a follow-up: a positioned-insert API needs `parent_id` + `after_id`.
+      insertBelow: (taskId) => {
+        // Enter creates a SIBLING of the focused row — same parent, same depth
+        // (#1666). The previous behavior ignored the arg and created at the WBS
+        // root, which was the "broken Enter binding" this fixes. Position within
+        // the parent is append-only for v1: the server appends the new row at the
+        // end of the parent's children (no `after_id` positioning yet).
         if (!projectId) return;
-        createTaskMut.mutate({ name: '', duration: 1 });
+        const parentId = siblingParentId(allTasks, taskId);
+        createTaskMut.mutate(
+          { name: '', duration: 1, parent_id: parentId },
+          {
+            // On create, drop straight into the new row's Name cell in edit mode
+            // so Enter always ends with the cursor in an editable Name cell. The
+            // row mounts after the tasks cache invalidates; the focus reducer
+            // state is applied when TaskListRow renders and reads it.
+            onSuccess: (created) => {
+              focus.focusRow(created.id);
+              focus.enterCellEdit(created.id, 'name');
+            },
+          },
+        );
       },
       convertToMilestone: (taskId) => {
         if (!projectId) return;
@@ -919,7 +990,7 @@ export function ScheduleView() {
         (outdentTask.isPending && outdentTask.variables === taskId) ||
         (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
     }),
-    [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId],
+    [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId, allTasks],
   );
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared

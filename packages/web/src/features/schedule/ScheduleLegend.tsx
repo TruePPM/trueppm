@@ -126,6 +126,12 @@ export function ScheduleLegend({ taskListWidth, showBaselines = true }: Schedule
         <p className="mt-1 text-xs text-neutral-text-secondary">
           Double-click a task to open its details
         </p>
+        {/* Drag-to-link discoverability (#1666). The link affordance is the
+            crosshair dot at a bar's right edge; name it here so the gesture is
+            discoverable without a coachmark. */}
+        <p className="mt-1 text-xs text-neutral-text-secondary">
+          Drag the ○ handle at a bar’s right edge onto another task to link them
+        </p>
       </div>
     </div>
   );

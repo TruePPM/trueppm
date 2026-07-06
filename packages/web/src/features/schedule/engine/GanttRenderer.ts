@@ -66,17 +66,25 @@ const HEADER_MINOR_HEIGHT = 14;
 // setRendererColorMode() switches the active palette before each paint pass.
 // ---------------------------------------------------------------------------
 
+// Sage brand stops, named once so the canvas consumes the brand token instead of
+// repeating the hex (globals.css --brand-primary / --semantic-on-track, ADR-0103).
+// The drag-to-link affordance preview (#1666) shares the exact affordance stop:
+// sage-700 on light, sage-400 on dark — the same value the on-track/today marks use.
+const SAGE_600 = '#3E8C6D'; // sage-600 — light on-track / today
+const SAGE_700 = '#316F57'; // sage-700 — light brand-primary affordance, 5.93:1 on white
+const SAGE_400 = '#66B998'; // sage-400 — dark on-track / today / affordance, holds on navy
+
 export const COLOR = {
   surface: '#FFFFFF',
   rowBandAlt: 'rgba(0,0,0,0.02)',
   weekend: 'rgba(0,0,0,0.03)',
   gridLine: 'rgba(0,0,0,0.08)',
-  todayLine: '#3E8C6D', // sage-600 — the "now" on the path (ADR-0103)
+  todayLine: SAGE_600, // sage-600 — the "now" on the path (ADR-0103)
   text: '#1A1917', // neutral-text-primary — dark text on light surface
   textSecondary: '#6B6965', // neutral-text-secondary
   barNormal: '#3B82F6', // blue-500 — non-CP task
   barCritical: '#B91C1C', // semantic-critical — dark red, WCAG on light surface
-  barComplete: '#3E8C6D', // semantic on-track = sage-600 (brand v1.0, ADR-0103)
+  barComplete: SAGE_600, // semantic on-track = sage-600 (brand v1.0, ADR-0103)
   barSummary: '#374151', // gray-700 — visible on white
   milestone: '#E8A020', // brand-accent
   // Dependency arrows are charcoal regardless of critical-path state.
@@ -111,6 +119,11 @@ export const COLOR = {
   // surface (brand §15 — strong fill, never white-on-color; the dot carries no text).
   linkDraft: '#C2410C', // semantic-at-risk (orange-700)
   linkOpen: '#15803D', // semantic-on-track (green-700)
+  // Drag-to-link preview line + valid-target ring (#1666). brand-primary =
+  // sage-700 (the action/affordance token, globals.css) — the same hue the
+  // crosshair link affordance carries, so the preview reads as "an action in
+  // progress" rather than a data state. 5.93:1 on the white surface.
+  linkPreview: SAGE_700, // sage-700 — brand-primary (light)
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -122,12 +135,12 @@ export const COLOR_DARK: ColorPalette = {
   rowBandAlt: 'rgba(255,255,255,0.025)',
   weekend: 'rgba(255,255,255,0.03)',
   gridLine: 'rgba(255,255,255,0.08)',
-  todayLine: '#66B998', // sage-400 — the "now" on the path, holds on dark (ADR-0103)
+  todayLine: SAGE_400, // sage-400 — the "now" on the path, holds on dark (ADR-0103)
   text: '#E8E8E8', // neutral-text-primary dark
   textSecondary: '#94A3B8', // Slate-400 — neutral-text-secondary dark
   barNormal: '#60A5FA', // Blue-400 — readable on dark surface
   barCritical: '#F87171', // Red-400 — semantic-critical dark, 4.87:1 on #12141E
-  barComplete: '#66B998', // sage-400 — semantic on-track, holds on dark (ADR-0103)
+  barComplete: SAGE_400, // sage-400 — semantic on-track, holds on dark (ADR-0103)
   barSummary: '#94A3B8', // Slate-400
   milestone: '#E8A020', // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
@@ -153,6 +166,10 @@ export const COLOR_DARK: ColorPalette = {
   // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0155).
   linkDraft: '#FB923C', // orange-400
   linkOpen: '#4ADE80', // green-400
+  // Drag-to-link preview on the dark surface — sage-400 brand-primary, the
+  // lighter affordance stop that reads on navy (mirrors the light/dark flip of
+  // barComplete / todayLine; #1666).
+  linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
@@ -2321,5 +2338,81 @@ export function drawResizeIndicator(
   ctx.moveTo(x + 0.5, barTop);
   ctx.lineTo(x + 0.5, barTop + BAR_HEIGHT);
   ctx.stroke();
+  ctx.restore();
+}
+
+export interface LinkPreviewParams {
+  /** Origin (viewport coords) — the source bar's finish-edge midpoint. */
+  originX: number;
+  originY: number;
+  /** Current pointer / snapped endpoint (viewport coords). */
+  endX: number;
+  endY: number;
+  /**
+   * True when the pointer is over a valid target bar: the line snaps to the
+   * target's start edge and flips DASHED → SOLID (a committed-looking edge).
+   */
+  snapped: boolean;
+  /** Valid-target bar rect (viewport coords) to ring, or null when unsnapped. */
+  targetRing: { left: number; top: number; width: number; height: number } | null;
+}
+
+/**
+ * Draw the drag-to-link preview on the canvas-interaction layer (#1666, rule
+ * 59). All coordinates are viewport-relative — the caller has already applied
+ * scrollLeft/scrollTop. brand-primary (`linkPreview`) stroke at 1.5px: DASHED
+ * `[4,3]` while hunting, SOLID once snapped to a valid target, with a small
+ * filled arrowhead at the endpoint and (when snapped) a 2px ring around the
+ * target bar. WCAG 1.4.11-compliant against both surfaces (sage vs. surface).
+ */
+export function drawLinkPreview(
+  ctx: CanvasRenderingContext2D,
+  params: LinkPreviewParams,
+): void {
+  const { originX, originY, endX, endY, snapped, targetRing } = params;
+  const stroke = _palette.linkPreview;
+
+  ctx.save();
+
+  // Valid-target ring — drawn on the interaction layer so the bar paint is
+  // never mutated (rule 83 keeps selection state on the bars layer; this is a
+  // transient gesture cue, not selection).
+  if (snapped && targetRing) {
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.roundRect(targetRing.left, targetRing.top, Math.max(2, targetRing.width), targetRing.height, 3);
+    ctx.stroke();
+  }
+
+  // Preview line.
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash(snapped ? [] : [4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(originX, originY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  // Filled arrowhead at the endpoint, aligned with the line direction.
+  const angle = Math.atan2(endY - originY, endX - originX);
+  const headLen = 7;
+  const headHalf = 3.5;
+  ctx.setLineDash([]);
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(
+    endX - headLen * Math.cos(angle) + headHalf * Math.sin(angle),
+    endY - headLen * Math.sin(angle) - headHalf * Math.cos(angle),
+  );
+  ctx.lineTo(
+    endX - headLen * Math.cos(angle) - headHalf * Math.sin(angle),
+    endY - headLen * Math.sin(angle) + headHalf * Math.cos(angle),
+  );
+  ctx.closePath();
+  ctx.fill();
+
   ctx.restore();
 }
