@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "test:ui": "NODE_OPTIONS=--max-old-space-size=4096 vitest --ui",
-    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run src/api src/features src/hooks src/lib src/stores --coverage",
+    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "screenshots": "playwright test --config=playwright.marketing.config.ts",
