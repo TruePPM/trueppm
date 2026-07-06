@@ -169,6 +169,14 @@ class ProgramMembership(VersionedModel):
                 fields=["program", "user"], name="uniq_program_membership_program_user"
             ),
         ]
+        indexes = [
+            # Sync delta pull: WHERE program_id = X AND server_version > since
+            # (ADR-0070 §Sync). Mirrors ProjectMembership's pm_proj_serverver_idx
+            # so the standard offline-sync query pattern is index-backed on the
+            # program side too — introduced with the #561 user-scoped program
+            # sync endpoint.
+            models.Index(fields=["program", "server_version"], name="progm_serverver_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user} — {self.program} ({Role(self.role).label})"
