@@ -140,7 +140,7 @@ export function ProjectCalendarsPage() {
             <button
               type="button"
               onClick={() => void applied.refetch()}
-              className="min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface-raised px-4 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 sm:min-h-[36px]"
+              className="min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface-raised px-4 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[36px]"
             >
               Retry
             </button>
@@ -162,7 +162,7 @@ export function ProjectCalendarsPage() {
           <div className="mb-4 flex items-center gap-2.5 rounded-control border border-neutral-border/55 bg-neutral-surface-sunken px-3.5 py-2.5 text-[12.5px] text-neutral-text-secondary">
             <LockGlyph />
             <span>
-              You have view-only access. Ask a Project Manager to change scheduling calendars.
+              You have view-only access. Ask a Scheduler or Admin to change scheduling calendars.
             </span>
           </div>
         )}
@@ -215,6 +215,7 @@ export function ProjectCalendarsPage() {
                   <AddCalendarPicker
                     variant="popover"
                     library={library.data ?? []}
+                    loading={library.isLoading}
                     appliedIds={appliedIds}
                     submitting={update.isPending}
                     onAdd={handleAdd}
@@ -240,7 +241,7 @@ export function ProjectCalendarsPage() {
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-brand-primary-dark bg-brand-primary px-4 text-[13px] font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 sm:min-h-[38px]"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-brand-primary-dark bg-brand-primary px-4 text-[13px] font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[38px]"
                 >
                   <PlusIcon aria-hidden="true" />
                   Add a holidays calendar
@@ -254,10 +255,12 @@ export function ProjectCalendarsPage() {
             <PreviewStrip
               isMobile={isMobile}
               loading={preview.isFetching && !preview.data}
+              error={!!preview.error && !preview.data}
               grids={preview.data ? buildMonthGrids(preview.data) : []}
               rangeLabel={rangeLabel(window.start, window.end, isMobile)}
               onPrev={() => setAnchor((a) => shiftAnchor(a, -months))}
               onNext={() => setAnchor((a) => shiftAnchor(a, months))}
+              onRetry={() => void preview.refetch()}
             />
             {preview.data && (
               <div className="mt-3.5 flex items-center gap-2.5 rounded-control border border-neutral-border bg-sem-on-track-bg px-3.5 py-2.5">
@@ -290,6 +293,7 @@ export function ProjectCalendarsPage() {
         <AddCalendarPicker
           variant="sheet"
           library={library.data ?? []}
+          loading={library.isLoading}
           appliedIds={appliedIds}
           submitting={update.isPending}
           onAdd={handleAdd}
@@ -348,7 +352,7 @@ function CalendarRow({ name, kind, summary, locked, onRemove, removing }: Calend
             onClick={onRemove}
             disabled={removing}
             aria-label={`Remove ${name} from project`}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 sm:h-8 sm:w-8"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:h-8 md:w-8"
           >
             <CloseIcon aria-hidden="true" />
           </button>
@@ -361,13 +365,24 @@ function CalendarRow({ name, kind, summary, locked, onRemove, removing }: Calend
 interface PreviewStripProps {
   isMobile: boolean;
   loading: boolean;
+  error: boolean;
   grids: MonthGrid[];
   rangeLabel: string;
   onPrev: () => void;
   onNext: () => void;
+  onRetry: () => void;
 }
 
-function PreviewStrip({ isMobile, loading, grids, rangeLabel, onPrev, onNext }: PreviewStripProps) {
+function PreviewStrip({
+  isMobile,
+  loading,
+  error,
+  grids,
+  rangeLabel,
+  onPrev,
+  onNext,
+  onRetry,
+}: PreviewStripProps) {
   return (
     <div className="overflow-hidden rounded-control border border-neutral-border bg-neutral-surface">
       <div className="flex items-center gap-2.5 border-b border-neutral-border bg-neutral-surface-raised px-3.5 py-2.5">
@@ -376,12 +391,35 @@ function PreviewStrip({ isMobile, loading, grids, rangeLabel, onPrev, onNext }: 
         </span>
         <span className="text-[12px] text-neutral-text-secondary">· {rangeLabel}</span>
         <div className="ml-auto flex gap-1">
-          <PagerButton label={isMobile ? 'Previous month' : 'Previous quarter'} onClick={onPrev} dir="prev" />
-          <PagerButton label={isMobile ? 'Next month' : 'Next quarter'} onClick={onNext} dir="next" />
+          <PagerButton
+            label={isMobile ? 'Previous month' : 'Previous quarter'}
+            onClick={onPrev}
+            dir="prev"
+            disabled={error}
+          />
+          <PagerButton
+            label={isMobile ? 'Next month' : 'Next quarter'}
+            onClick={onNext}
+            dir="next"
+            disabled={error}
+          />
         </div>
       </div>
       <div className="p-3.5">
-        {loading ? (
+        {error ? (
+          <div className="flex flex-col items-center py-8 text-center" role="alert">
+            <p className="mb-3 max-w-[320px] text-[13px] leading-snug text-neutral-text-secondary">
+              Couldn&apos;t load the working-time preview. Your applied calendars are unchanged.
+            </p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface-raised px-4 text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[36px]"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
           <GridSkeleton count={isMobile ? 1 : 3} />
         ) : (
           <div className="flex gap-4">
@@ -396,13 +434,24 @@ function PreviewStrip({ isMobile, loading, grids, rangeLabel, onPrev, onNext }: 
   );
 }
 
-function PagerButton({ label, onClick, dir }: { label: string; onClick: () => void; dir: 'prev' | 'next' }) {
+function PagerButton({
+  label,
+  onClick,
+  dir,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  dir: 'prev' | 'next';
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
-      className="flex h-8 w-8 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:h-8 md:w-8"
     >
       <span className={dir === 'prev' ? 'rotate-180' : ''}>
         <ChevronRightIcon aria-hidden="true" />
@@ -421,7 +470,7 @@ function MonthView({ grid, hideName }: { grid: MonthGrid; hideName?: boolean }) 
       )}
       <div className="mb-0.5 grid grid-cols-7 gap-[3px]">
         {DOW_LABELS.map((d, i) => (
-          <span key={i} className="text-center text-[9px] font-semibold text-neutral-text-disabled">
+          <span key={i} className="text-center text-xs font-semibold text-neutral-text-disabled">
             {d}
           </span>
         ))}
@@ -460,11 +509,16 @@ function DayCell({ cell }: { cell: ReturnType<typeof classifyDay> | null }) {
         isToday ? 'outline outline-2 outline-offset-1 outline-brand-primary' : '',
       ].join(' ')}
     >
-      {num}
-      {tag && (
-        <span className="pointer-events-none absolute right-0.5 top-0.5 text-[7px] font-bold leading-none">
+      {/* A holiday/shutdown day carries a legible H/S glyph (12px floor, rule 50)
+          in place of the day number — the reinforcing color-blind label. The
+          exact date stays available via the cell's title + aria-label, so no
+          information is lost. Weekend and working days keep the day number. */}
+      {tag ? (
+        <span className="text-xs font-bold leading-none" aria-hidden="true">
           {tag}
         </span>
+      ) : (
+        num
       )}
       {/* Split corner marks a day blocked by more than one calendar. */}
       {cell.multi && (

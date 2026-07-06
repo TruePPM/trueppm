@@ -96,10 +96,11 @@ function previewResponse(start: string, end: string, hasOverlay: boolean) {
 interface SetupOptions {
   role?: number; // self membership role ordinal; default Admin (300) = Scheduler+
   appliedFails?: boolean; // GET /calendars/ returns 500
+  previewFails?: boolean; // GET /calendars/preview/ returns 500
 }
 
 async function setup(page: Page, opts: SetupOptions = {}) {
-  const { role = 300, appliedFails = false } = opts;
+  const { role = 300, appliedFails = false, previewFails = false } = opts;
 
   await setupAuth(page);
   await setupCatchAll(page);
@@ -127,6 +128,9 @@ async function setup(page: Page, opts: SetupOptions = {}) {
   // Preview — keyed off whether an overlay is applied. Registered before the
   // applied route so the more specific `/preview/` suffix still resolves here.
   await page.route('**/api/v1/projects/*/calendars/preview/**', (route: Route) => {
+    if (previewFails) {
+      return route.fulfill(json({ detail: 'preview service unavailable' }, 500));
+    }
     const url = new URL(route.request().url());
     const start = url.searchParams.get('start') ?? '2026-11-01';
     const end = url.searchParams.get('end') ?? '2027-01-31';
@@ -202,4 +206,18 @@ test('error: a failed load shows the branded error surface, not a blank panel', 
     timeout: 10_000,
   });
   await expect(panel.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+test('preview error: a failed preview shows an inline retry, not a blank pane', async ({ page }) => {
+  // Applied stack loads; only the preview read fails — the panel stays usable
+  // and the preview pane surfaces its own error + Retry.
+  await setup(page, { previewFails: true });
+  const panel = await calendarsPanel(page);
+
+  const previewAlert = panel.getByRole('alert');
+  await expect(previewAlert).toBeVisible();
+  await expect(previewAlert).toContainText("Couldn't load the working-time preview");
+  await expect(previewAlert.getByRole('button', { name: 'Retry' })).toBeVisible();
+  // The applied stack is unaffected — the base row still renders.
+  await expect(panel.getByText('Project calendar')).toBeVisible();
 });

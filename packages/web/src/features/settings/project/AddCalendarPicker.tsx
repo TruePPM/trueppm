@@ -18,6 +18,9 @@ interface AddCalendarPickerProps {
   appliedIds: ReadonlySet<string>;
   /** Render as a desktop popover or a mobile bottom sheet. */
   variant: 'popover' | 'sheet';
+  /** True while the library query is still resolving — shows a loading row
+   *  instead of the "no calendars match" empty state. */
+  loading: boolean;
   submitting: boolean;
   onAdd: (ids: string[]) => void;
   onClose: () => void;
@@ -64,6 +67,7 @@ export function AddCalendarPicker({
   library,
   appliedIds,
   variant,
+  loading,
   submitting,
   onAdd,
   onClose,
@@ -89,9 +93,14 @@ export function AddCalendarPicker({
   const count = selected.size;
   const list = (
     <div className="max-h-[280px] overflow-auto p-1.5" role="listbox" aria-label="Calendar library" aria-multiselectable="true">
-      {filtered.length === 0 && (
+      {loading && (
+        <p className="px-3 py-6 text-center text-[12px] text-neutral-text-secondary" aria-live="polite">
+          Loading calendars…
+        </p>
+      )}
+      {!loading && filtered.length === 0 && (
         <p className="px-3 py-6 text-center text-[12px] text-neutral-text-secondary">
-          No calendars match “{query}”.
+          {query ? `No calendars match “${query}”.` : 'No calendars in the library yet.'}
         </p>
       )}
       {filtered.map((cal) => {
@@ -194,7 +203,7 @@ export function AddCalendarPicker({
       <button
         type="button"
         onClick={onClose}
-        className="min-h-[44px] rounded-control px-3 text-[13px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 sm:min-h-[32px]"
+        className="min-h-[44px] rounded-control px-3 text-[13px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
       >
         Cancel
       </button>
@@ -202,7 +211,7 @@ export function AddCalendarPicker({
         type="button"
         onClick={() => onAdd([...selected])}
         disabled={count === 0 || submitting}
-        className="inline-flex min-h-[44px] items-center rounded-control border border-brand-primary-dark bg-brand-primary px-3.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 sm:min-h-[32px]"
+        className="inline-flex min-h-[44px] items-center rounded-control border border-brand-primary-dark bg-brand-primary px-3.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
       >
         {submitting ? 'Adding…' : `Add ${count} calendar${count === 1 ? '' : 's'}`}
       </button>
@@ -218,7 +227,7 @@ export function AddCalendarPicker({
           type="button"
           aria-label="Close"
           onClick={onClose}
-          className="absolute inset-0 bg-neutral-overlay"
+          className="absolute inset-0 bg-neutral-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
         />
         <div
           ref={containerRef}
@@ -236,7 +245,7 @@ export function AddCalendarPicker({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               <CloseIcon aria-hidden="true" />
             </button>
