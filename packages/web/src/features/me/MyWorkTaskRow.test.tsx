@@ -42,6 +42,23 @@ vi.mock('@/hooks/useActiveTimer', () => ({
   useElapsedSeconds: (startedAt: string | null | undefined) => (startedAt ? 5046 : 0),
 }));
 
+// Time-entry rollup + write hooks stubbed so the row's logged-today chip and the
+// LogTimePopover (#1234) render without network. `loggedTodayMinutes` drives the chip.
+const { timeState, createMutate } = vi.hoisted(() => ({
+  timeState: { loggedTodayMinutes: 0 },
+  createMutate: vi.fn(),
+}));
+vi.mock('@/hooks/useTimeEntry', async (importActual) => ({
+  ...(await importActual<typeof import('@/hooks/useTimeEntry')>()),
+  useTimeRollup: () => ({
+    todayMinutes: timeState.loggedTodayMinutes,
+    weekMinutes: timeState.loggedTodayMinutes,
+    loggedTodayForTask: () => timeState.loggedTodayMinutes,
+  }),
+  useCreateTimeEntry: () => ({ mutate: createMutate, isPending: false }),
+  useDeleteTimeEntry: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
 function wrap(ui: ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -119,6 +136,38 @@ describe('MyWorkTaskRow blocker badge (ADR-0124 #1135)', () => {
     expect(screen.getByText('Blocked')).toBeInTheDocument();
     expect(screen.queryByText('External vendor')).not.toBeInTheDocument();
     expect(screen.getByText('1h blocked')).toBeInTheDocument();
+  });
+});
+
+describe('MyWorkTaskRow quick-log time (#1234)', () => {
+  beforeEach(() => {
+    timeState.loggedTodayMinutes = 0;
+    createMutate.mockClear();
+  });
+
+  it('exposes a "Log time" action that opens the quick-log popover', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    const trigger = screen.getByRole('button', { name: 'Log time on Build login' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('dialog', { name: /Log time · PRJ-01/ })).toBeInTheDocument();
+  });
+
+  it('renders the logged-today chip only when time is logged', () => {
+    const { rerender } = wrap(<MyWorkTaskRow task={BASE} />);
+    expect(screen.queryByLabelText(/logged today/)).not.toBeInTheDocument();
+
+    timeState.loggedTodayMinutes = 90;
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ul>
+            <MyWorkTaskRow task={BASE} />
+          </ul>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText('1:30 logged today')).toBeInTheDocument();
   });
 });
 

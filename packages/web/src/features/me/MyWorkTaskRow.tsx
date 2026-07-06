@@ -10,14 +10,17 @@
  *   - story-point / remaining-point display
  *   - due date with `due_source` suffix (e.g. "Due May 30 (planned)")
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
 import { useMyWorkStatusUpdate, type MyWorkTask } from '@/hooks/useMyWork';
 import { useActiveTimer, useElapsedSeconds } from '@/hooks/useActiveTimer';
+import { useTimeRollup } from '@/hooks/useTimeEntry';
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import { formatElapsed } from '@/lib/formatElapsed';
+import { formatMinutesAsHm } from '@/lib/parseHours';
 import { formatDueLabel } from './dueLabel';
+import { LogTimePopover } from './LogTimePopover';
 import { StatusPicker } from './StatusPicker';
 import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
@@ -109,12 +112,41 @@ function TaskTimerControl({ task }: Props) {
 
 export function MyWorkTaskRow({ task }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   // One-shot flag that plays the checkpop spring on the checkbox when this task
   // is marked complete (cleared on animationend). v2 fluidity, rule 181/184.
   const [justCompleted, setJustCompleted] = useState(false);
   const updateStatus = useMyWorkStatusUpdate();
+  const rollup = useTimeRollup();
+  const loggedToday = rollup.loggedTodayForTask(task.id);
+  const rowRef = useRef<HTMLLIElement | null>(null);
   const due = formatDueLabel(task.due, task.due_source);
   const isComplete = task.status === 'COMPLETE';
+
+  // `L` opens the quick-log popover when focus is within the row (but not in a text
+  // field) — the keyboard peer of the row's "Log time" action (design "Web Time Entry").
+  // Attached natively (not a JSX handler on the non-interactive <li>) so the shortcut
+  // fires from any focused control in the row without an a11y-role hack.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return undefined;
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.key !== 'l' && e.key !== 'L') || e.metaKey || e.ctrlKey || e.altKey || logOpen) return;
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setLogOpen(true);
+    }
+    row.addEventListener('keydown', onKeyDown);
+    return () => row.removeEventListener('keydown', onKeyDown);
+  }, [logOpen]);
 
   // Complete via the checkbox (or the picker's Complete entry). The spring fires
   // immediately for snappy local feedback; the warm toast fires on the actual
@@ -148,6 +180,7 @@ export function MyWorkTaskRow({ task }: Props) {
 
   return (
     <li
+      ref={rowRef}
       className={[
         'relative flex flex-col gap-1 px-3 py-3 border-b border-neutral-border/40',
         'md:flex-row md:items-center md:gap-3 md:py-2 md:min-h-11',
@@ -274,10 +307,39 @@ export function MyWorkTaskRow({ task }: Props) {
         )}
       </div>
 
-      {/* Time-entry timer control (issue 1415) — start here, or stop + log if this
-          task's timer is the one running. */}
-      <div className="shrink-0">
+      {/* Time cluster — logged-today chip (#1234), manual quick-log popover (#1234),
+          and the running-timer control (#1415). The wrapper is the popover's
+          positioning context (anchored right). */}
+      <div className="relative flex shrink-0 items-center gap-1">
+        {loggedToday > 0 && (
+          <span
+            className="tppm-mono text-xs text-neutral-text-secondary"
+            title="Logged today"
+            aria-label={`${formatMinutesAsHm(loggedToday)} logged today`}
+          >
+            {formatMinutesAsHm(loggedToday)}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setLogOpen((v) => !v)}
+          aria-haspopup="dialog"
+          aria-expanded={logOpen}
+          aria-label={`Log time on ${task.name}`}
+          title="Log time (L)"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-control text-neutral-text-secondary md:h-7 md:w-7
+            hover:text-brand-primary hover:bg-brand-primary/5
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          {/* Clock face with a small plus. */}
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+            <circle cx="6.5" cy="7.5" r="5" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M6.5 4.8V7.5l1.8 1.1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M12 2.2v3M13.5 3.7h-3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+        </button>
         <TaskTimerControl task={task} />
+        {logOpen && <LogTimePopover task={task} onClose={() => setLogOpen(false)} />}
       </div>
 
       {/* Status chip — opens StatusPicker popover on tap. */}

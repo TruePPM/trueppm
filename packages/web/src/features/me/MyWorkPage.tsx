@@ -31,6 +31,8 @@
  */
 import { useMemo, useState } from 'react';
 import { useMyWork, type MyWorkGroup, type MyWorkTask } from '@/hooks/useMyWork';
+import { useTimeRollup } from '@/hooks/useTimeEntry';
+import { formatMinutesAsHm } from '@/lib/parseHours';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -115,6 +117,9 @@ export function MyWorkPage() {
   // on each row — no extra request. The filter auto-clears if the count falls to
   // zero (chip hides), so we never strand the user on an empty filtered view.
   const blockedCount = useMemo(() => countBlocked(allTasks), [allTasks]);
+  // Logged-time rollup for the header (#1234) — the current week's own totals, read
+  // from the shared weekly-timesheet query so the header and per-row chips agree.
+  const timeRollup = useTimeRollup();
   const [blockedOnly, setBlockedOnly] = useState(false);
   const filteringBlocked = blockedOnly && blockedCount > 0;
   const visibleTasks = useMemo(
@@ -167,6 +172,21 @@ export function MyWorkPage() {
             >
               {blockedCount} blocked
             </button>
+          )}
+          {timeRollup.weekMinutes > 0 && (
+            <span
+              className="tppm-mono rounded-chip border border-neutral-border px-2 py-1 text-xs text-neutral-text-secondary"
+              aria-label={
+                `${formatMinutesAsHm(timeRollup.todayMinutes)} logged today, ` +
+                `${formatMinutesAsHm(timeRollup.weekMinutes)} this week`
+              }
+            >
+              {formatMinutesAsHm(timeRollup.todayMinutes)} today
+              <span aria-hidden="true" className="text-neutral-text-secondary/60">
+                {' · '}
+                {formatMinutesAsHm(timeRollup.weekMinutes)} wk
+              </span>
+            </span>
           )}
           <span
             className="tppm-mono rounded-chip border border-neutral-border px-2 py-1 text-xs text-neutral-text-secondary"
