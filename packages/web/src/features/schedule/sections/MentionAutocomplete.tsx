@@ -43,11 +43,33 @@ const AUTO_GROUPS: AutoGroupSpec[] = [
   { key: 'scrum-team', description: () => 'Active sprint assignees' },
 ];
 
+/**
+ * Program-scoped auto-groups (#514) — only offered when the current project
+ * belongs to a program. They resolve server-side against the union of member-
+ * ships across every project in the program. `@program-all` is Admin-gated like
+ * `@all`; the server enforces the same gate, so a disabled row just avoids a
+ * confusing 400 round-trip. No live member count is shown (the roster loaded
+ * here is project-scoped, not program-wide), so the hints are descriptive.
+ */
+const PROGRAM_AUTO_GROUPS: AutoGroupSpec[] = [
+  {
+    key: 'program-all',
+    description: () => 'Everyone across the program',
+    disabledFor: (r) => r == null || r < ROLE_ADMIN,
+  },
+  { key: 'program-pms', description: () => 'PMs across the program' },
+  { key: 'program-schedulers', description: () => 'Schedulers across the program' },
+  { key: 'program-stakeholders', description: () => 'Viewers across the program' },
+];
+
 interface Props {
   /** The substring after `@` the user has typed so far. */
   query: string;
   members: MentionMemberOption[];
   currentRole: number | null;
+  /** True when the composer's project belongs to a program (#514) — surfaces
+   * the `@program-*` auto-groups. */
+  hasProgram?: boolean;
   /** Index of the highlighted suggestion (0-based). */
   highlightIndex: number;
   /**
@@ -62,14 +84,21 @@ interface Props {
   onSuggestionsChange?: (suggestions: MentionSuggestion[]) => void;
 }
 
-/** Build the full suggestion list given the current query + role context. */
+/**
+ * Build the full suggestion list given the current query + role context.
+ *
+ * When `hasProgram` is true (the project belongs to a program), the program-
+ * scoped auto-groups (`@program-pms`, …) are appended after the project groups.
+ */
 export function buildMentionSuggestions(
   query: string,
   members: MentionMemberOption[],
   currentRole: number | null,
+  hasProgram = false,
 ): MentionSuggestion[] {
   const q = query.toLowerCase();
-  const groups: MentionSuggestion[] = AUTO_GROUPS
+  const groupSpecs = hasProgram ? [...AUTO_GROUPS, ...PROGRAM_AUTO_GROUPS] : AUTO_GROUPS;
+  const groups: MentionSuggestion[] = groupSpecs
     .filter((g) => g.key.startsWith(q) || q === '')
     .map((g) => ({
       value: g.key,
@@ -94,12 +123,13 @@ export function MentionAutocomplete({
   query,
   members,
   currentRole,
+  hasProgram = false,
   highlightIndex,
   listboxId,
   onSelect,
   onSuggestionsChange,
 }: Props) {
-  const suggestions = buildMentionSuggestions(query, members, currentRole);
+  const suggestions = buildMentionSuggestions(query, members, currentRole, hasProgram);
   // Notify parent of suggestion count for keyboard handlers (does NOT use
   // useEffect — parent re-renders on the same input so this is deterministic).
   onSuggestionsChange?.(suggestions);

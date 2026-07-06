@@ -108,6 +108,27 @@ class TestNotificationSerializerSnippet:
         assert data["snippet"] == ""
         assert data["task_id"] is None
 
+    def test_snippet_shown_to_source_project_member(
+        self, mention: Mention, alice: object, project: Project
+    ) -> None:
+        # #514 cross-project gate: a recipient who is a member of the source
+        # project still sees the body (context supplies their member set).
+        n = Notification.objects.create(recipient=alice, mention=mention, project=project)
+        data = NotificationSerializer(n, context={"member_project_ids": {project.id}}).data
+        assert data["snippet"].startswith("Hello, world!")
+
+    def test_snippet_redacted_for_recipient_not_in_source_project(
+        self, mention: Mention, alice: object, project: Project
+    ) -> None:
+        # A @program-* mention can reach a sibling-project member who is NOT a
+        # member of the source project — the row surfaces but the body is
+        # redacted so one project's comment never leaks to another's team.
+        n = Notification.objects.create(recipient=alice, mention=mention, project=project)
+        data = NotificationSerializer(n, context={"member_project_ids": set()}).data
+        assert data["snippet"] == ""
+        # The row itself is still delivered (recipient knows they were pinged).
+        assert data["task_id"] is not None
+
     def test_task_id_returned_when_comment_present(
         self,
         mention: Mention,

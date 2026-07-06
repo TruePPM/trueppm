@@ -696,6 +696,36 @@ test.describe('Task collaboration — comments + @mention (#311)', () => {
     await expect(listbox.getByRole('option', { name: /@morgan/ })).toBeVisible();
   });
 
+  test('offers @program-* groups when the project belongs to a program (#514)', async ({
+    page,
+  }) => {
+    await bootProjectPage(page);
+    // Re-register the project-detail route (last-registered wins) so this
+    // project reports a program — that is what surfaces the @program-* rows.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_PROJECT, program: 'e2e-prog-514' }),
+      }),
+    );
+    const drawer = await openDrawer(page);
+    await openSection(drawer, 'Comments');
+
+    const textarea = drawer.getByLabel('Comment body');
+    await textarea.click();
+    await textarea.fill('Program heads-up @program');
+
+    const listbox = page.getByRole('listbox', { name: 'Mention suggestions' });
+    await expect(listbox).toBeVisible();
+    // Role-banded program group is present and enabled for a Member.
+    await expect(listbox.getByRole('option', { name: /@program-pms/ })).toBeVisible();
+    // @program-all renders but is Admin-gated (Priya is a MEMBER), mirroring @all.
+    const programAll = listbox.getByRole('option', { name: /@program-all/ });
+    await expect(programAll).toHaveAttribute('aria-disabled', 'true');
+    await expect(programAll).toContainText(/Admin\+ only/);
+  });
+
   test('selecting an individual + Cmd+Enter posts the comment with the @-mention highlighted', async ({
     page,
   }) => {

@@ -146,3 +146,48 @@ describe('MentionAutocomplete — component render', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 });
+
+describe('buildMentionSuggestions — program groups (#514)', () => {
+  const programKeys = ['program-all', 'program-pms', 'program-schedulers', 'program-stakeholders'];
+
+  it('omits @program-* groups when the project has no program', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN); // hasProgram defaults to false
+    const keys = out.map((s) => s.value);
+    for (const k of programKeys) expect(keys).not.toContain(k);
+  });
+
+  it('offers all four @program-* groups when the project belongs to a program', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN, true);
+    const keys = out.map((s) => s.value);
+    for (const k of programKeys) expect(keys).toContain(k);
+  });
+
+  it('program groups sort after the project groups and before users', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_ADMIN, true);
+    const projectAllIdx = out.findIndex((s) => s.value === 'all');
+    const programAllIdx = out.findIndex((s) => s.value === 'program-all');
+    const firstUserIdx = out.findIndex((s) => s.kind === 'user');
+    expect(projectAllIdx).toBeLessThan(programAllIdx);
+    expect(programAllIdx).toBeLessThan(firstUserIdx);
+  });
+
+  it('prefix-filters program groups like any other group', () => {
+    const out = buildMentionSuggestions('program-s', MEMBERS, ROLE_ADMIN, true);
+    const keys = out.filter((s) => s.kind === 'group').map((s) => s.value);
+    expect(keys).toEqual(['program-schedulers', 'program-stakeholders']);
+  });
+
+  it('@program-all is Admin-gated exactly like @all', () => {
+    const asMember = buildMentionSuggestions('program-all', MEMBERS, ROLE_MEMBER, true);
+    expect(asMember.find((s) => s.value === 'program-all')?.disabled).toBe(true);
+    const asAdmin = buildMentionSuggestions('program-all', MEMBERS, ROLE_ADMIN, true);
+    expect(asAdmin.find((s) => s.value === 'program-all')?.disabled).toBe(false);
+  });
+
+  it('role-banded program groups are never gated', () => {
+    const out = buildMentionSuggestions('', MEMBERS, ROLE_VIEWER, true);
+    const banded = out.filter((s) => s.kind === 'group' && s.value.startsWith('program-') && s.value !== 'program-all');
+    expect(banded.length).toBe(3);
+    for (const g of banded) expect(g.disabled).toBe(false);
+  });
+});

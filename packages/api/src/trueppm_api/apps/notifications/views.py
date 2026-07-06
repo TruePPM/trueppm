@@ -163,6 +163,26 @@ class NotificationViewSet(
     permission_classes: list[type[BasePermission]] = [IsAuthenticated]
     lookup_field = "pk"
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        """Precompute the recipient's member-project set once per response.
+
+        NotificationSerializer.get_snippet redacts the body for a recipient who
+        is not a current member of the mention's source project (#514 — program
+        mentions can reach sibling-project members). Resolving the membership set
+        here keeps the inbox list at one query instead of one per row.
+        """
+        context: dict[str, Any] = dict(super().get_serializer_context())
+        user = self.request.user
+        if user.is_authenticated:
+            from trueppm_api.apps.access.models import ProjectMembership
+
+            context["member_project_ids"] = set(
+                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+                    "project_id", flat=True
+                )
+            )
+        return context
+
     def get_queryset(self) -> QuerySet[Notification]:
         user = self.request.user
         if not user.is_authenticated:
