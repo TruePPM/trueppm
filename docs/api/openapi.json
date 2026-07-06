@@ -40805,6 +40805,12 @@
                 "type": "object",
                 "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
+                    "copy_settings_from": {
+                        "type": "string",
+                        "format": "uuid",
+                        "writeOnly": true,
+                        "description": "Optional. UUID of a project the caller can read; the new project's settings are copied from it at create time (copy-at-create, not bound)."
+                    },
                     "name": {
                         "type": "string",
                         "minLength": 1,
@@ -44118,6 +44124,12 @@
                 "type": "object",
                 "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0171).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
+                    "copy_settings_from": {
+                        "type": "string",
+                        "format": "uuid",
+                        "writeOnly": true,
+                        "description": "Optional. UUID of a project the caller can read; the new project's settings are copied from it at create time (copy-at-create, not bound)."
+                    },
                     "name": {
                         "type": "string",
                         "minLength": 1,

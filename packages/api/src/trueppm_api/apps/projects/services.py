@@ -5210,3 +5210,87 @@ def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
 
     transaction.on_commit(_dispatch)
     return job
+
+
+# ---------------------------------------------------------------------------
+# Project settings template — copy-at-create (#157, ADR-0242)
+# ---------------------------------------------------------------------------
+
+# The definitive allowlist of Project settings fields seeded by
+# ``copy_settings_from`` at create time. Identity, lifecycle, sync bookkeeping,
+# per-project counters, and relationships the caller supplies directly are
+# deliberately excluded (ADR-0242 §1). This tuple is the single source of truth:
+# the create serializer imports it, and a test asserts it against the live model
+# field set so a settings column added later cannot silently escape the template.
+SETTINGS_TEMPLATE_FIELDS: tuple[str, ...] = (
+    # Plain stored settings — the project owns each value outright.
+    "visibility",
+    "timezone",
+    "default_view",
+    "estimation_mode",
+    "agile_features",
+    "board_cadence",
+    "stale_task_threshold_days",
+    "prioritization_model",
+    # Calendar — the shared Calendar row reference is copied, never cloned
+    # (ADR-0242 §2): Calendar is a standalone workspace resource, so pointing the
+    # new project at the same row matches the existing shared-calendar model.
+    "calendar",
+    # Live-inheritable overrides — copy the STORED value (including ``None`` =
+    # inherit), never the resolved ``effective_*`` value (ADR-0242 §3). Copying the
+    # effective value would silently pin every inherited setting onto the new
+    # project and regress the inheritance chain (ADR-0107/0116/0135/0144): a
+    # workspace/program admin could no longer change a default and have it flow
+    # down. Preserving ``None`` lets the new project inherit from its *own*
+    # program/workspace exactly where the source inherited.
+    "methodology",
+    "iteration_label",
+    "public_sharing",
+    "allow_guests",
+    "mc_history_enabled",
+    "mc_history_retention_cap",
+    "mc_history_attribution_audience",
+    "task_duration_change_percent_policy",
+    "attachments_enabled",
+    "allowed_attachment_types",
+    "show_reporting",
+    "show_time_tracking",
+    "show_baselines",
+    "show_monte_carlo",
+)
+
+
+def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict[str, Any]:
+    """Seed a new project's settings from a source project (copy-at-create, #157).
+
+    Fills each :data:`SETTINGS_TEMPLATE_FIELDS` entry the caller did **not** already
+    provide with the source project's **stored** value, mutating and returning
+    ``validated_data``. Precedence is explicit-request-value > copied > model-default
+    (ADR-0242 §3): only keys *absent* from ``validated_data`` are filled, so an
+    explicit override in the create body always wins.
+
+    The stored value is read straight off the source model instance — including
+    ``None`` for an inheriting override — so the new project inherits from its own
+    program/workspace exactly where the source inherited, rather than having the
+    source's resolved value pinned onto it. The ``calendar`` FK copies the shared
+    ``Calendar`` row reference (not a clone); list-valued columns
+    (``allowed_attachment_types``) are copied by value so neither project aliases the
+    other's list.
+
+    Args:
+        validated_data: The create serializer's validated data, mutated in place.
+        source: The source ``Project`` instance the settings are copied from.
+
+    Returns:
+        The same ``validated_data`` mapping, with absent settings fields filled.
+    """
+    for field in SETTINGS_TEMPLATE_FIELDS:
+        if field in validated_data:
+            continue  # Explicit request value wins over the template.
+        # getattr on the ``calendar`` FK returns the related Calendar instance (or
+        # None) — exactly the shape ModelSerializer.create() expects for the FK.
+        value = getattr(source, field)
+        if isinstance(value, list):
+            value = list(value)  # Defensive copy: don't alias the source's list.
+        validated_data[field] = value
+    return validated_data

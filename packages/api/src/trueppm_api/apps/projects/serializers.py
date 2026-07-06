@@ -191,6 +191,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     portfolio scale — see ``ProjectViewSet.get_serializer_class``).
     """
 
+    # Optional settings-template source (#157, ADR-0242). Write-only: naming a
+    # source project the caller can read seeds this new project's settings from it
+    # at create time (copy-at-create, no live binding). The per-request queryset is
+    # scoped to the caller's readable projects in ``__init__`` so it doubles as the
+    # IDOR gate — a source the caller can't read fails as ``does_not_exist`` (400),
+    # indistinguishable from a nonexistent id (ADR-0242 §5). Popped in ``create``.
+    copy_settings_from = serializers.PrimaryKeyRelatedField(
+        queryset=Project.objects.none(),
+        write_only=True,
+        required=False,
+        help_text=(
+            "Optional. UUID of a project the caller can read; the new project's "
+            "settings are copied from it at create time (copy-at-create, not bound)."
+        ),
+    )
     member_count = serializers.SerializerMethodField()
     percent_complete = serializers.SerializerMethodField()
     # Count of non-deleted, not-yet-COMPLETE tasks — annotated on the list
@@ -281,6 +296,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         model = Project
         fields = [
             "id",
+            # Write-only settings-template source (#157, ADR-0242) — see the field
+            # declaration above; never appears in read output.
+            "copy_settings_from",
             "server_version",
             "name",
             "description",
@@ -428,6 +446,50 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "mc_history_attribution_audience": {"allow_blank": False},
             "allowed_attachment_types": {"allow_empty": True},
         }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Scope ``copy_settings_from`` to the caller's readable projects (#157).
+
+        The field is declared with an empty queryset so it can never resolve a
+        project the caller cannot read; here we swap in the same membership-scoped
+        filter ``ProjectScopedViewSet`` uses for the ``Project`` model — active
+        membership (any role, Viewer+), excluding soft-deleted projects, NOT
+        filtering archived (an archived template is still a valid source, ADR-0242
+        §6). This makes the field its own IDOR gate: a non-member/nonexistent/trashed
+        source all fail identically as ``does_not_exist`` (400), leaking nothing.
+        """
+        super().__init__(*args, **kwargs)
+        field = self.fields.get("copy_settings_from")
+        request = self.context.get("request")
+        if not isinstance(field, serializers.PrimaryKeyRelatedField) or request is None:
+            return
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user,
+            is_deleted=False,
+        ).values_list("project_id", flat=True)
+        # select_related the shared calendar so apply_settings_template's FK read on
+        # the resolved source doesn't cost a second query on the create path.
+        field.queryset = Project.objects.filter(
+            pk__in=member_project_ids, is_deleted=False
+        ).select_related("calendar")
+
+    def create(self, validated_data: dict[str, Any]) -> Project:
+        """Create a project, optionally seeding settings from ``copy_settings_from``.
+
+        When a readable source project is supplied, its stored settings are copied
+        into any allowlisted field the caller did not pass explicitly (ADR-0242 §3:
+        explicit value > copied > model default). The reference itself is not a model
+        field, so it is popped before the model is created.
+        """
+        source = validated_data.pop("copy_settings_from", None)
+        if source is not None:
+            from .services import apply_settings_template
+
+            apply_settings_template(validated_data, source)
+        return super().create(validated_data)
 
     def get_member_count(self, obj: Project) -> int | None:
         """Active membership count — only annotated on the ungrouped list
@@ -876,6 +938,13 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         """
         attrs = super().validate(attrs)
         instance = self.instance
+        # copy_settings_from is a create-only template source (#157, ADR-0242).
+        # Reject it on update rather than let ModelSerializer.update() set a bogus
+        # non-field attribute, and so it never trips the below-Admin field gate.
+        if instance is not None and "copy_settings_from" in attrs:
+            raise serializers.ValidationError(
+                {"copy_settings_from": "This field is only accepted when creating a project."}
+            )
         if instance is None:
             return attrs
         request = self.context.get("request")
