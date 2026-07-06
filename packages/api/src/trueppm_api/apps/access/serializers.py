@@ -11,6 +11,7 @@ from rest_framework import serializers
 
 from trueppm_api.apps.access.groups import ALL_AUTO_GROUP_KEYS
 from trueppm_api.apps.access.models import (
+    ExternalStakeholder,
     ProgramMembership,
     ProgramUserDefinedMentionGroup,
     ProjectMembership,
@@ -18,6 +19,7 @@ from trueppm_api.apps.access.models import (
     UserDefinedMentionGroup,
 )
 from trueppm_api.apps.profiles.models import RoleContext
+from trueppm_api.apps.workspace.serializers import display_name_for
 
 User = get_user_model()
 
@@ -370,6 +372,57 @@ class ProgramUserDefinedMentionGroupWriteSerializer(
 
     def validate_description(self, value: str | None) -> str:
         return (value or "").strip()
+
+
+class ExternalStakeholderSerializer(serializers.ModelSerializer[ExternalStakeholder]):
+    """CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).
+
+    ``created_by`` is echoed as the adder's display name (never the raw user row);
+    ``program`` comes from the URL and is never accepted from the body (IDOR-safe —
+    the viewset scopes and stamps it). Case-insensitive per-program email uniqueness
+    is validated here so the client gets a friendly field error instead of the DB
+    constraint's 500 on the race loser.
+    """
+
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExternalStakeholder
+        fields = ["id", "name", "email", "note", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_created_by(self, obj: ExternalStakeholder) -> str | None:
+        user = obj.created_by
+        if user is None:
+            return None
+        return display_name_for(user.first_name, user.last_name, user.username)
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError("Name cannot be empty.")
+        return name
+
+    def validate_note(self, value: str | None) -> str:
+        return (value or "").strip()
+
+    def validate_email(self, value: str) -> str:
+        email = value.strip()
+        # Case-insensitive per-program uniqueness across LIVE rows (the DB
+        # constraint is the backstop; this returns a friendly 400 on the race loser
+        # and on the common re-add-of-existing case).
+        program_id = str(self.context.get("program_id"))
+        qs = ExternalStakeholder.objects.filter(
+            program_id=program_id, email__iexact=email, is_deleted=False
+        )
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                "A stakeholder with this email already exists in this program."
+            )
+        return email
 
 
 class UserSearchResultSerializer(serializers.Serializer[Any]):

@@ -37,7 +37,10 @@ the RBAC-derived auto-groups above.
 from __future__ import annotations
 
 import uuid
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.access.models import ExternalStakeholder
 
 # ADR-0075 locked constraint #1 — @all resolve cardinality cap.
 ALL_GROUP_HARD_CAP: int = 200
@@ -226,8 +229,10 @@ def _resolve_program_group_members(
         # Stakeholders are the view-only audience — an EXACT Viewer role, not the
         # role>=VIEWER floor project-level @viewers uses (which, since Viewer is
         # the lowest band, would resolve to everyone and duplicate @program-all).
-        # The AC's "+ external stakeholder list" has no backing model yet and is
-        # deferred to a follow-up.
+        # The AC's "+ external stakeholder list" is resolved separately and
+        # additively by ``resolve_external_stakeholders`` (#1658, ADR-0264) — those
+        # rows have no User account, so they are never unioned into this User-keyed
+        # result; the caller threads them onto a distinct ``external_targets`` field.
         memberships = memberships.filter(role=Role.VIEWER)
     # program-all: no role filter — every member of every project in the program.
 
@@ -236,6 +241,42 @@ def _resolve_program_group_members(
     if key == "program-all" and len(result) > ALL_GROUP_HARD_CAP:
         raise GroupTooLargeError(key, len(result))
     return result
+
+
+def resolve_external_stakeholders(
+    project_id: uuid.UUID | str,
+) -> list[ExternalStakeholder]:
+    """Snapshot-resolve the external stakeholders reachable from a project's program.
+
+    The non-account arm of the ``@program-stakeholders`` fan-out (#1658, ADR-0264).
+    The mention was written on a task in ``project_id``; this resolves the program
+    that contains that project (``Project.program``) and returns that program's
+    live :class:`~trueppm_api.apps.access.models.ExternalStakeholder` rows.
+
+    These rows have **no** ``User`` account, so they are deliberately *additive and
+    separate* from :func:`resolve_group_members` — never unioned into the
+    User-keyed group result. The caller threads them onto a distinct
+    ``external_targets`` field. Snapshot semantics match the auto-group resolvers:
+    the list is the registry *at the moment of the mention*.
+
+    Args:
+        project_id: The project the mention was written in.
+
+    Returns:
+        The program's non-deleted external stakeholders, ordered by name. Empty for
+        a standalone project (no program) — there is no program registry to draw on.
+    """
+    from trueppm_api.apps.access.models import ExternalStakeholder
+    from trueppm_api.apps.projects.models import Project
+
+    program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+    if program_id is None:
+        return []
+    return list(
+        ExternalStakeholder.objects.filter(program_id=program_id, is_deleted=False).order_by(
+            "name", "email"
+        )
+    )
 
 
 def resolve_user_defined_group_members(

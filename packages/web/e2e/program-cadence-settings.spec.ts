@@ -238,8 +238,9 @@ test.describe('Program Settings → Cadence & ceremonies', () => {
 
     // Open modal and submit.
     await page.getByRole('button', { name: /\+ Add ceremony/ }).click();
-    await expect(page.getByRole('dialog', { name: /Add ceremony/ })).toBeVisible();
-    await page.getByLabel(/^Name/).fill('Steering committee');
+    const addCeremony = page.getByRole('dialog', { name: /Add ceremony/ });
+    await expect(addCeremony).toBeVisible();
+    await addCeremony.getByLabel(/^Name/).fill('Steering committee');
     await page.getByRole('button', { name: /^Save$/ }).click();
 
     await expect.poll(() => captures.postedCeremony?.name).toBe('Steering committee');
@@ -253,7 +254,10 @@ test.describe('Program Settings → Cadence & ceremonies', () => {
     await page.goto(`/programs/${PROGRAM_ID}/settings/cadence`);
 
     await page.getByRole('button', { name: /\+ Add ceremony/ }).click();
-    await page.getByLabel(/^Name/).fill('Sprint Planning');
+    await page
+      .getByRole('dialog', { name: /Add ceremony/ })
+      .getByLabel(/^Name/)
+      .fill('Sprint Planning');
 
     // Inline alert renders and Save is disabled.
     await expect(

@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     import uuid
     from collections.abc import Sequence
 
+    from trueppm_api.apps.access.models import ExternalStakeholder
     from trueppm_api.apps.projects.models import TaskComment
 
 logger = logging.getLogger(__name__)
@@ -296,6 +297,14 @@ class MentionParseResult(NamedTuple):
     group_targets: list[tuple[str, list[UserType]]]  # (group_key, members)
     skipped_users: list[str]  # usernames that didn't resolve / not project members
     skipped_groups: list[str]  # group keys that were unknown or too large
+    # Non-account external stakeholders reached by a resolved @program-stakeholders
+    # mention (#1658, ADR-0264). Additive and SEPARATE from group_targets — these
+    # rows have no User, so create_mention_notifications never writes Mention /
+    # Notification rows for them and no email is sent (delivery deferred to #1675).
+    # Default is a shared empty list, only ever read, never mutated in place — the
+    # NamedTuple is immutable and every producer builds a fresh list (RUF012 flags
+    # the mutable default, but the shared-mutation footgun does not apply here).
+    external_targets: list[ExternalStakeholder] = []  # noqa: RUF012
 
 
 def resolve_parsed_mentions(
@@ -432,11 +441,23 @@ def resolve_parsed_mentions(
         members = list(User.objects.filter(pk__in=[str(uid) for uid in member_ids]))
         group_targets.append((key, members))
 
+    # External stakeholders (#1658, ADR-0264) are the non-account arm of a resolved
+    # @program-stakeholders mention. Resolve them ONLY when that group actually
+    # resolved (it is present in group_targets — a standalone project skips it), and
+    # keep them on a distinct field: they have no User account, so they are never
+    # unioned into the User-keyed group_targets and never produce Notification rows.
+    external_targets: list[ExternalStakeholder] = []
+    if any(group_key == "program-stakeholders" for group_key, _ in group_targets):
+        from trueppm_api.apps.access.groups import resolve_external_stakeholders
+
+        external_targets = resolve_external_stakeholders(project_id)
+
     return MentionParseResult(
         user_targets=user_targets,
         group_targets=group_targets,
         skipped_users=skipped_users,
         skipped_groups=skipped_groups,
+        external_targets=external_targets,
     )
 
 

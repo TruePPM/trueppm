@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 
 from trueppm_api.apps.access.views import (
+    ExternalStakeholderViewSet,
     MeView,
     ProgramMembershipViewSet,
     ProgramUserDefinedMentionGroupViewSet,
@@ -78,6 +79,19 @@ _program_mention_group_remove_member = ProgramUserDefinedMentionGroupViewSet.as_
 )
 _program_mention_group_mute = ProgramUserDefinedMentionGroupViewSet.as_view({"post": "mute"})
 _program_mention_group_unmute = ProgramUserDefinedMentionGroupViewSet.as_view({"post": "unmute"})
+_program_external_stakeholders = ExternalStakeholderViewSet.as_view(
+    {
+        "get": "list",
+        "post": "create",
+    }
+)
+_program_external_stakeholder_detail = ExternalStakeholderViewSet.as_view(
+    {
+        "get": "retrieve",
+        "patch": "partial_update",
+        "delete": "destroy",
+    }
+)
 
 urlpatterns = [
     path("auth/me/", MeView.as_view(), name="auth-me"),
@@ -162,5 +176,15 @@ urlpatterns = [
         "programs/<uuid:program_pk>/mention-groups/<uuid:pk>/unmute/",
         _program_mention_group_unmute,
         name="program-mention-groups-unmute",
+    ),
+    path(
+        "programs/<uuid:program_pk>/external-stakeholders/",
+        _program_external_stakeholders,
+        name="program-external-stakeholders-list",
+    ),
+    path(
+        "programs/<uuid:program_pk>/external-stakeholders/<uuid:pk>/",
+        _program_external_stakeholder_detail,
+        name="program-external-stakeholders-detail",
     ),
 ]

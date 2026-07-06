@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.db.models.functions import Lower
@@ -333,3 +335,68 @@ class ProgramUserDefinedMentionGroup(VersionedModel):
 
     def __str__(self) -> str:
         return f"@{self.name} ({self.program_id})"
+
+
+class ExternalStakeholder(models.Model):
+    """A non-account external stakeholder registered against a program (#1658, ADR-0264).
+
+    A snapshot-resolved registry of people who are *not* TruePPM users — client
+    sponsors, vendor contacts, external reviewers — whom a program manager wants
+    reachable through the ``@program-stakeholders`` mention fan-out alongside the
+    program's Viewer-role members. The resolver
+    (:func:`trueppm_api.apps.access.groups.resolve_external_stakeholders`) reads
+    this table at comment-write time; later membership edits are not retroactive,
+    matching the auto-group snapshot semantics.
+
+    Registry/config, **not** sync state: like ``ShareLink`` and ``ApiToken`` this is
+    a plain :class:`django.db.models.Model` (no ``server_version``) and is never part
+    of the mobile offline delta — external stakeholders are a server-side program
+    setting, not a board object a client edits offline.
+
+    Email delivery to these addresses is **deferred to #1675**: #1658 ships the
+    registry model + resolver so the recipient count can be surfaced, but no
+    outbound mail is sent to an external stakeholder yet.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="external_stakeholders",
+    )
+    name = models.CharField(max_length=200)
+    email = models.EmailField()
+    note = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # Soft-delete so a removed stakeholder's email frees up for re-add and the
+    # case-insensitive unique constraint only binds live rows (see Meta).
+    is_deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "access_external_stakeholder"
+        constraints = [
+            # Case-insensitive (program, email) uniqueness across LIVE rows only —
+            # mirrors the mention-group constraint pattern so a soft-deleted row
+            # frees its email for re-add rather than reserving it (a re-add would
+            # otherwise pass the serializer check but hit the DB as a 500).
+            models.UniqueConstraint(
+                "program",
+                Lower("email"),
+                condition=models.Q(is_deleted=False),
+                name="uniq_external_stakeholder_program_email_ci",
+            ),
+        ]
+        indexes = [
+            # List query: WHERE program_id = X AND is_deleted = False.
+            models.Index(fields=["program", "is_deleted"], name="extstake_prog_deleted_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} <{self.email}> ({self.program_id})"

@@ -8883,6 +8883,365 @@
                 "summary": "Delete ceremony"
             }
         },
+        "/api/v1/programs/{program_pk}/external-stakeholders/": {
+            "get": {
+                "operationId": "v1_programs_external_stakeholders_list",
+                "description": "Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).\n\nURL: ``/api/v1/programs/{program_pk}/external-stakeholders/``\n     ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``\n\nA registry of non-account people (client sponsors, vendor contacts, external\nreviewers) who are included in the ``@program-stakeholders`` mention fan-out\nalongside the program's Viewer-role members. Delivery of email to these\naddresses is **deferred to #1675** — this surface manages the registry only.\n\nPermission matrix: program **Admin+** (Owner/Admin) for every action, list\nincluded — managing who is externally pinged is an administrative act, so a\nScheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the\nexisting program-management gate (Role.ADMIN threshold); reused verbatim rather\nthan reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while\nstill allowing reads (GET passes it).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ExternalStakeholder"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List external stakeholders"
+            },
+            "post": {
+                "operationId": "v1_programs_external_stakeholders_create",
+                "description": "Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).\n\nURL: ``/api/v1/programs/{program_pk}/external-stakeholders/``\n     ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``\n\nA registry of non-account people (client sponsors, vendor contacts, external\nreviewers) who are included in the ``@program-stakeholders`` mention fan-out\nalongside the program's Viewer-role members. Delivery of email to these\naddresses is **deferred to #1675** — this surface manages the registry only.\n\nPermission matrix: program **Admin+** (Owner/Admin) for every action, list\nincluded — managing who is externally pinged is an administrative act, so a\nScheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the\nexisting program-management gate (Role.ADMIN threshold); reused verbatim rather\nthan reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while\nstill allowing reads (GET passes it).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalStakeholderRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalStakeholderRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExternalStakeholderRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalStakeholder"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create external stakeholder"
+            }
+        },
+        "/api/v1/programs/{program_pk}/external-stakeholders/{id}/": {
+            "get": {
+                "operationId": "v1_programs_external_stakeholders_retrieve",
+                "description": "Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).\n\nURL: ``/api/v1/programs/{program_pk}/external-stakeholders/``\n     ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``\n\nA registry of non-account people (client sponsors, vendor contacts, external\nreviewers) who are included in the ``@program-stakeholders`` mention fan-out\nalongside the program's Viewer-role members. Delivery of email to these\naddresses is **deferred to #1675** — this surface manages the registry only.\n\nPermission matrix: program **Admin+** (Owner/Admin) for every action, list\nincluded — managing who is externally pinged is an administrative act, so a\nScheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the\nexisting program-management gate (Role.ADMIN threshold); reused verbatim rather\nthan reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while\nstill allowing reads (GET passes it).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalStakeholder"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve external stakeholder"
+            },
+            "patch": {
+                "operationId": "v1_programs_external_stakeholders_partial_update",
+                "description": "Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).\n\nURL: ``/api/v1/programs/{program_pk}/external-stakeholders/``\n     ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``\n\nA registry of non-account people (client sponsors, vendor contacts, external\nreviewers) who are included in the ``@program-stakeholders`` mention fan-out\nalongside the program's Viewer-role members. Delivery of email to these\naddresses is **deferred to #1675** — this surface manages the registry only.\n\nPermission matrix: program **Admin+** (Owner/Admin) for every action, list\nincluded — managing who is externally pinged is an administrative act, so a\nScheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the\nexisting program-management gate (Role.ADMIN threshold); reused verbatim rather\nthan reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while\nstill allowing reads (GET passes it).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExternalStakeholderRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExternalStakeholderRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedExternalStakeholderRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalStakeholder"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update external stakeholder"
+            },
+            "delete": {
+                "operationId": "v1_programs_external_stakeholders_destroy",
+                "description": "Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).\n\nURL: ``/api/v1/programs/{program_pk}/external-stakeholders/``\n     ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``\n\nA registry of non-account people (client sponsors, vendor contacts, external\nreviewers) who are included in the ``@program-stakeholders`` mention fan-out\nalongside the program's Viewer-role members. Delivery of email to these\naddresses is **deferred to #1675** — this surface manages the registry only.\n\nPermission matrix: program **Admin+** (Owner/Admin) for every action, list\nincluded — managing who is externally pinged is an administrative act, so a\nScheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the\nexisting program-management gate (Role.ADMIN threshold); reused verbatim rather\nthan reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while\nstill allowing reads (GET passes it).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "programs"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete external stakeholder"
+            }
+        },
         "/api/v1/programs/{program_pk}/members/": {
             "get": {
                 "operationId": "v1_programs_members_list",
@@ -38411,6 +38770,76 @@
                     "secret"
                 ]
             },
+            "ExternalStakeholder": {
+                "type": "object",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 254
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "email",
+                    "id",
+                    "name",
+                    "updated_at"
+                ]
+            },
+            "ExternalStakeholderRequest": {
+                "type": "object",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1,
+                        "maxLength": 254
+                    },
+                    "note": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "email",
+                    "name"
+                ]
+            },
             "ExternalSyncCooldown": {
                 "type": "object",
                 "description": "429 body when a manual refresh lands inside the per-connection cooldown.",
@@ -41946,6 +42375,26 @@
                         "maximum": 36525,
                         "minimum": -36525,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
+                    }
+                }
+            },
+            "PatchedExternalStakeholderRequest": {
+                "type": "object",
+                "description": "CRUD serializer for a program's external stakeholder registry (#1658, ADR-0264).\n\n``created_by`` is echoed as the adder's display name (never the raw user row);\n``program`` comes from the URL and is never accepted from the body (IDOR-safe —\nthe viewset scopes and stamps it). Case-insensitive per-program email uniqueness\nis validated here so the client gets a friendly field error instead of the DB\nconstraint's 500 on the race loser.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1,
+                        "maxLength": 254
+                    },
+                    "note": {
+                        "type": "string"
                     }
                 }
             },
