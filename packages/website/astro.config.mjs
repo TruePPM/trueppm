@@ -336,6 +336,7 @@ export default defineConfig({
                 { slug: "features/mcp-server" },
                 { slug: "features/mcp-connect" },
                 { slug: "features/msproject-import-export" },
+                { slug: "features/jira-import" },
               ],
             },
             {

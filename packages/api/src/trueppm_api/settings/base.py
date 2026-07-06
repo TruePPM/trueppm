@@ -62,6 +62,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.sync",
     "trueppm_api.apps.history",
     "trueppm_api.apps.msproject",
+    "trueppm_api.apps.jiraimport",
     "trueppm_api.apps.webhooks",
     "trueppm_api.apps.taskruns",
     "trueppm_api.apps.workshops",
@@ -318,6 +319,12 @@ CELERY_BEAT_SCHEDULE = {
     # Also recovers orphaned dispatched rows (worker died mid-import).
     "drain-import-queue": {
         "task": "msproject.drain_import_queue",
+        "schedule": 30.0,
+    },
+    # Jira import drain: dispatches pending JiraImportRequest rows every 30 s and
+    # recovers orphaned dispatched rows (worker died mid-import).
+    "drain-jira-import-queue": {
+        "task": "jira.drain_import_queue",
         "schedule": 30.0,
     },
     # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
@@ -729,6 +736,11 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 # DATA_UPLOAD_MAX_MEMORY_SIZE and nginx client_max_body_size (both 100 MB)
 # remain the hard edge cap — do not configure this above them.
 MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
+
+# Max size of an uploaded Jira XML export (#1664). Jira issue-navigator exports
+# are small relative to .mpp files; the 25 MB default is generous for the minimal
+# import slice and stays well under the DATA_UPLOAD_MAX_MEMORY_SIZE hard cap.
+JIRA_IMPORT_MAX_UPLOAD_MB: int = env.int("JIRA_IMPORT_MAX_UPLOAD_MB", default=25)
 
 # Max size of an uploaded JSON program seed (ADR-0109, #615). Seeds are bounded
 # (the largest bundled sample is a few hundred KB); 5 MB is generous headroom

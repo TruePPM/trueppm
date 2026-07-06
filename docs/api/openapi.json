@@ -18496,6 +18496,79 @@
                 "summary": "Retrieve summary"
             }
         },
+        "/api/v1/projects/{project_pk}/import/jira/": {
+            "post": {
+                "operationId": "v1_projects_import_jira_create",
+                "description": "Upload and import a Jira XML export into an existing project.\n\nRequires project Admin role. The import runs asynchronously via Celery; the\n202 response carries the ``import_request_id`` for progress tracking.",
+                "summary": "Import a Jira XML export into an existing project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "string",
+                                "format": "binary"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Import queued; body is {\"detail\", \"import_request_id\"}."
+                    },
+                    "400": {
+                        "description": "Missing or invalid upload (wrong type/too large)."
+                    },
+                    "403": {
+                        "description": "Caller lacks the Admin role on the project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/import/msproject/": {
             "post": {
                 "operationId": "v1_projects_import_msproject_create_2",

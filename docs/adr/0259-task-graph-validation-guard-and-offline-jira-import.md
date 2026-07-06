@@ -1,4 +1,4 @@
-# ADR-0257: Shared task-graph validation guard (#1665) + offline Jira import (#1664)
+# ADR-0259: Shared task-graph validation guard (#1665) + offline Jira import (#1664)
 
 ## Status
 Accepted
