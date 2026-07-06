@@ -652,6 +652,7 @@ def _run_schedule(
     from trueppm_scheduler.models import DependencyType
     from trueppm_scheduler.models import Project as SchedProject
 
+    from trueppm_api.apps.observability.otel import attributes
     from trueppm_api.apps.projects.models import (
         Dependency,
         EstimationMode,
@@ -665,6 +666,7 @@ def _run_schedule(
         build_sched_calendar,
         build_sched_tasks,
     )
+    from trueppm_api.apps.scheduling.telemetry import cpm_span
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -780,8 +782,14 @@ def _run_schedule(
     _update(50, "Running CPM…")
 
     # Exceptions propagate to TaskRunTracker.__exit__, which marks the run FAILED
-    # and broadcasts task_run_failed to connected clients.
-    result = schedule(sched_project)
+    # and broadcasts task_run_failed to connected clients. The manual CPM span
+    # (#709) times the engine call and records the graph shape; it is a no-op span
+    # unless OTel export is configured. Runs inside the enqueued Celery task span,
+    # so the trace links the recompute back to the request that triggered it.
+    with cpm_span(project_id, dependency_count=len(sched_deps)) as _cpm_span:
+        result = schedule(sched_project)
+        _cpm_span.set_attribute(attributes.SCHEDULE_TASK_COUNT, len(result.tasks))
+        _cpm_span.set_attribute(attributes.SCHEDULE_CRITICAL_COUNT, len(result.critical_path))
 
     _update(80, "Writing results…")
 

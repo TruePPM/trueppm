@@ -16,4 +16,10 @@ class ObservabilityConfig(AppConfig):
         # otel.register_provider_hook() from its own ready() — order-independent.
         from trueppm_api.apps.observability import otel
 
-        otel.bootstrap()
+        context = otel.bootstrap()
+        # Phase 1 (#709): install the library auto-instrumentors (Django, Celery,
+        # psycopg) against the just-built provider. A strict no-op when telemetry is
+        # disabled and idempotent across repeated ready() calls, so it mirrors
+        # bootstrap()'s cost profile. WebSocket/ASGI spans are added separately in
+        # asgi.py (otel.wrap_asgi_app) because the ASGI app is composed there.
+        otel.instrument(context)

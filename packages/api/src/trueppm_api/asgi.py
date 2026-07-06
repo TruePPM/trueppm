@@ -24,9 +24,19 @@ class _CloseConsumer(WebsocketConsumer):  # type: ignore[misc]
         self.close(code=4404)
 
 
+# WebSocket spans (#709): DjangoInstrumentor covers HTTP through Django's request
+# handler, but the Channels WebSocket path never reaches that handler. Wrap the
+# websocket branch ONLY with the ASGI middleware so connect/receive get a span —
+# wrapping the whole router would double-span every HTTP request. get_asgi_application()
+# above already ran ObservabilityConfig.ready(), so the provider is bootstrapped and
+# wrap_asgi_app() is a strict no-op unless telemetry is enabled.
+from trueppm_api.apps.observability import otel  # noqa: E402
+
+websocket_app = URLRouter([*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())])
+
 application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
-        "websocket": URLRouter([*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())]),
+        "websocket": otel.wrap_asgi_app(websocket_app),
     }
 )

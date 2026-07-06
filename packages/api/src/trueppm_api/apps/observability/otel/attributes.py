@@ -47,6 +47,13 @@ BOARD_ID = "trueppm.board.id"
 USER_ID = "trueppm.user.id"
 USER_ROLE = "trueppm.user.role"
 SCHEDULE_RECOMPUTE_REASON = "trueppm.schedule.recompute_reason"
+# CPM / Monte Carlo engine-span sizing attributes (Phase 1, #709). These are the
+# few low-cardinality shape facts worth attaching to a scheduling-engine span so an
+# operator can correlate latency with graph size without opening the payload.
+SCHEDULE_TASK_COUNT = "trueppm.schedule.task_count"
+SCHEDULE_DEPENDENCY_COUNT = "trueppm.schedule.dependency_count"
+SCHEDULE_CRITICAL_COUNT = "trueppm.schedule.critical_count"
+SCHEDULE_SIMULATION_COUNT = "trueppm.schedule.simulation_count"
 REQUEST_EDITION = "trueppm.request.edition"
 
 __all__ = [
@@ -60,7 +67,11 @@ __all__ = [
     "RESOURCE_SERVICE_NAME",
     "RESOURCE_SERVICE_NAMESPACE",
     "RESOURCE_SERVICE_VERSION",
+    "SCHEDULE_CRITICAL_COUNT",
+    "SCHEDULE_DEPENDENCY_COUNT",
     "SCHEDULE_RECOMPUTE_REASON",
+    "SCHEDULE_SIMULATION_COUNT",
+    "SCHEDULE_TASK_COUNT",
     "TASK_ID",
     "USER_ID",
     "USER_ROLE",
