@@ -138,7 +138,16 @@ class TestDrainJiraImportQueue:
             dispatched_at=timezone.now() - timedelta(minutes=20)
         )
 
-        _do_jira_import_drain()
+        # The drain recovers the orphan to PENDING and then re-dispatches every
+        # PENDING row in the same tick — so with a live broker the row would end
+        # DISPATCHED again and the recovery would be invisible. Fail the
+        # re-dispatch (broker down) so the recovered PENDING state is observable:
+        # this asserts the orphan-recovery step, not the dispatch step.
+        with patch(
+            "trueppm_api.apps.jiraimport.tasks.import_jira.delay",
+            side_effect=RuntimeError("broker down"),
+        ):
+            _do_jira_import_drain()
 
         stuck.refresh_from_db()
         assert stuck.status == JiraImportStatus.PENDING
