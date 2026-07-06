@@ -28,12 +28,17 @@ logger = logging.getLogger(__name__)
 # Only XML is accepted: it is the sole Jira export that carries <issuelinks>
 # (CSV does not), and links are what make the network CPM-computable (ADR-0257).
 _ALLOWED_EXTENSIONS = {"xml"}
-_FILENAME_BANNED = re.compile(r"[^ -~]")
+# Allow-list (mirrors the hardened MS Project sanitizer, #816): substitute
+# anything outside a conservative safe set so an attacker-controlled
+# UploadedFile.name can never carry an HTML/Content-Disposition-injection
+# payload into a future provenance/list surface. os.path.basename below blocks
+# path traversal.
+_FILENAME_ALLOWED = re.compile(r"[^A-Za-z0-9._\- ()]")
 
 
 def _sanitize_filename(raw: str) -> str:
     name = os.path.basename(raw or "")
-    name = _FILENAME_BANNED.sub("_", name)
+    name = _FILENAME_ALLOWED.sub("_", name)
     name = re.sub(r"\s+", " ", name).strip()
     return name[:255] or "upload.xml"
 
