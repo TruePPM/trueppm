@@ -274,6 +274,12 @@ async def _get_schedule_derivation(
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _get_release_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """P50/P80 sprints and dates to clear the project's committed backlog."""
+    payload = await client.get(f"projects/{project_id}/sprint-forecast/")
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _list_sprints(client: TruePPMClient, project_id: str) -> list[dict[str, Any]]:
     """The project's sprints (aggregates only — no per-person velocity)."""
     payload = await client.get(f"projects/{project_id}/sprints/")
@@ -309,6 +315,12 @@ async def _get_program_health(client: TruePPMClient, program_id: str) -> dict[st
     """A single program's rollup health (single-program only; cross-program is Enterprise)."""
     payload = await client.get(f"programs/{program_id}/rollup/")
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
+async def _list_program_backlog(client: TruePPMClient, program_id: str) -> list[dict[str, Any]]:
+    """The program's backlog — its intake pool of items, ranked by priority."""
+    payload = await client.get(f"programs/{program_id}/backlog-items/")
+    return [_compact_mapping(row) for row in _items(payload)]
 
 
 async def _whoami(client: TruePPMClient) -> dict[str, Any]:
@@ -496,6 +508,24 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_schedule_derivation(client, project_id, task_id, quantity)
 
     @server.tool()
+    async def get_release_forecast(project_id: str) -> dict[str, Any]:
+        """P50/P80 delivery forecast for clearing a project's committed backlog.
+
+        Runs off the team's velocity Monte Carlo: returns the P50 and P80 number
+        of sprints — and the calendar dates — to finish the remaining committed
+        backlog, plus the P95 date and the remaining point/count totals. Always a
+        range, never a single date. Returns a ``warming_up`` shape (null figures)
+        when there is not yet enough velocity history, or when you are below the
+        project's velocity audience.
+
+        Read-only: the forecast is computed on read and never persists anything.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        return await _get_release_forecast(client, project_id)
+
+    @server.tool()
     async def list_sprints(project_id: str) -> list[dict[str, Any]]:
         """The project's sprints (health bands and aggregates only).
 
@@ -531,6 +561,20 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
             program_id: The program's UUID.
         """
         return await _get_program_health(client, program_id)
+
+    @server.tool()
+    async def list_program_backlog(program_id: str) -> list[dict[str, Any]]:
+        """A program's backlog — its intake pool of items, ranked by priority.
+
+        Read-only listing of the program's backlog items: title, type, status,
+        story points, priority rank, and whether each has already been pulled
+        into a project task. Single-program only; cross-program portfolio intake
+        is Enterprise.
+
+        Args:
+            program_id: The program's UUID.
+        """
+        return await _list_program_backlog(client, program_id)
 
     @server.tool()
     async def whoami() -> dict[str, Any]:

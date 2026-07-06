@@ -71,7 +71,7 @@ async def test_unexpected_status_raises_api_error(
 
 
 async def test_server_registers_read_tool_surface(settings: Settings) -> None:
-    """The server registers the #504 read-only tool surface (14 tools, no writes)."""
+    """The server registers the read-only tool surface (18 tools, no writes)."""
     client = TruePPMClient(settings)
     try:
         server = build_server(client)
@@ -90,11 +90,13 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "get_monte_carlo_forecast",
         "whatif",
         "get_schedule_derivation",
+        "get_release_forecast",
         "list_sprints",
         "get_sprint",
         "list_my_work",
         "list_programs",
         "get_program_health",
+        "list_program_backlog",
         "whoami",
     }
     # Read-only contract: no tool name implies a mutation.

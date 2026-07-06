@@ -29,11 +29,13 @@ from trueppm_mcp.tools import (
     _get_monte_carlo_forecast,
     _get_program_health,
     _get_project,
+    _get_release_forecast,
     _get_schedule_derivation,
     _get_schedule_summary,
     _get_sprint,
     _get_task,
     _list_my_work,
+    _list_program_backlog,
     _list_programs,
     _list_projects,
     _list_risks,
@@ -473,6 +475,46 @@ async def test_get_program_health_returns_rollup(settings: Settings) -> None:
     assert result == {"health": "AMBER", "project_count": 5}
 
 
+async def test_get_release_forecast_returns_p50_p80_range(settings: Settings) -> None:
+    routes: Routes = {
+        "projects/p-1/sprint-forecast/": _json(
+            {
+                "status": "ready",
+                "remaining_points": 42,
+                "p50_sprints": 3,
+                "p80_sprints": 4,
+                "p50_date": "2026-09-01",
+                "p80_date": "2026-09-15",
+                "p95_date": None,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_release_forecast(client, "p-1")
+    # A range, never a single date; the null p95_date is compacted away.
+    assert result == {
+        "status": "ready",
+        "remaining_points": 42,
+        "p50_sprints": 3,
+        "p80_sprints": 4,
+        "p50_date": "2026-09-01",
+        "p80_date": "2026-09-15",
+    }
+
+
+async def test_list_program_backlog_compacts_rows(settings: Settings) -> None:
+    routes: Routes = {
+        "programs/pr-1/backlog-items/": _json(
+            _page([{"id": "b-1", "title": "Intake item", "item_type": "STORY", "story_points": 5}])
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _list_program_backlog(client, "pr-1")
+    assert result == [
+        {"id": "b-1", "title": "Intake item", "item_type": "STORY", "story_points": 5}
+    ]
+
+
 async def test_whoami_returns_identity(settings: Settings) -> None:
     routes: Routes = {"auth/me/": _json({"id": "u-1", "display_name": "Ada", "initials": "AL"})}
     async with _client(settings, routes) as client:
@@ -531,11 +573,13 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         "projects/p-1/monte-carlo/whatif/": _json(
             {"task_id": "t-1", "critical_path_changed": False}
         ),
+        "projects/p-1/sprint-forecast/": _json({"status": "ready", "p80_sprints": 4}),
         "projects/p-1/sprints/": _json(_page([])),
         "sprints/s-1/": _json({"id": "s-1"}),
         "me/work/": _json(_page([])),
         "programs/": _json(_page([])),
         "programs/pr-1/rollup/": _json({"health": "AMBER"}),
+        "programs/pr-1/backlog-items/": _json(_page([])),
         "auth/me/": _json({"id": "u-1"}),
     }
     client = _client(settings, routes)
@@ -558,11 +602,13 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         assert (await call("whatif", project_id="p-1", task_id="t-1", duration_delta=5))[
             "critical_path_changed"
         ] is False
+        assert (await call("get_release_forecast", project_id="p-1"))["p80_sprints"] == 4
         assert await call("list_sprints", project_id="p-1") == []
         assert (await call("get_sprint", sprint_id="s-1"))["id"] == "s-1"
         assert await call("list_my_work") == []
         assert await call("list_programs") == []
         assert (await call("get_program_health", program_id="pr-1"))["health"] == "AMBER"
+        assert await call("list_program_backlog", program_id="pr-1") == []
         assert (await call("whoami"))["id"] == "u-1"
 
         # ``since`` is the accepted alias for ``updated_after``.

@@ -129,6 +129,7 @@ the API.
 | `get_project` | `project_id` | Full project metadata and a health overview, with `caller_role`. |
 | `list_programs` | — | Every program you can read, each with your `caller_role`. |
 | `get_program_health` | `program_id` | Rollup health for one program (single-program; cross-program rollups are Enterprise). |
+| `list_program_backlog` | `program_id` | A program's backlog intake pool — items ranked by priority, with type, status, story points, and whether each has been pulled into a task. Single-program only. |
 
 ### Tasks & work
 
@@ -145,6 +146,7 @@ the API.
 |------|-----------|---------|
 | `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count. |
 | `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. |
+| `get_release_forecast` | `project_id` | Backlog delivery forecast from the team's velocity Monte Carlo: P50/P80 **sprint counts** and calendar dates to clear the committed backlog (plus P95 date). Always a range, never a single date; returns a `warming_up` shape when velocity history is thin. |
 | `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse). |
 | `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). Cite the reason, not just the number. |
 | `list_risks` | `project_id` | The project's risk register (impact, probability, status). |
