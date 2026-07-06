@@ -95,7 +95,7 @@ def import_jira(
                 _mark_import_dead(import_request_id)
             raise
 
-        # Validate the derived dependency graph BEFORE any write (#1665, ADR-0257).
+        # Validate the derived dependency graph BEFORE any write (#1665, ADR-0259).
         # A prospect's messy export (cyclic links) must never persist an
         # infeasible network that then crashes the CPM / what-if engine live.
         # Validate in uid space — a relabeling of the eventual PKs — so nothing

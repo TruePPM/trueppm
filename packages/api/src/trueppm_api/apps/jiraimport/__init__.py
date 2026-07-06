@@ -1,4 +1,4 @@
-"""Offline Jira import — issues to a CPM-schedulable network (#1664, ADR-0257).
+"""Offline Jira import — issues to a CPM-schedulable network (#1664, ADR-0259).
 
 Parses a Jira Server / Data Center XML export (the ``Export → XML`` from an
 issue-navigator / filter view) into a project-scoped Task + Dependency network

@@ -1,7 +1,7 @@
 """Outbox model for offline Jira import (mirrors msproject.ImportRequest).
 
 A dedicated outbox — rather than a ``source`` discriminator on the MS Project
-``ImportRequest`` — keeps the two drains independent (ADR-0257): the MSP drain
+``ImportRequest`` — keeps the two drains independent (ADR-0259): the MSP drain
 does not have to branch on file type, and the Jira import surface can evolve
 without touching the MSP path.
 """

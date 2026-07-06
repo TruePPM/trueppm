@@ -26,7 +26,7 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 logger = logging.getLogger(__name__)
 
 # Only XML is accepted: it is the sole Jira export that carries <issuelinks>
-# (CSV does not), and links are what make the network CPM-computable (ADR-0257).
+# (CSV does not), and links are what make the network CPM-computable (ADR-0259).
 _ALLOWED_EXTENSIONS = {"xml"}
 # Allow-list (mirrors the hardened MS Project sanitizer, #816): substitute
 # anything outside a conservative safe set so an attacker-controlled

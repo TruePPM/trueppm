@@ -2,7 +2,7 @@
 
 Jira's ``Export → XML`` produces an RSS-style document — one ``<item>`` per
 issue carrying ``<key>``, ``<summary>``, ``<timeoriginalestimate seconds=...>``,
-and an ``<issuelinks>`` block. We read the *smallest computable set* (ADR-0257,
+and an ``<issuelinks>`` block. We read the *smallest computable set* (ADR-0259,
 #1664): a task per issue, a duration from the original estimate, and an FS
 dependency per ``Blocks`` link. Everything else (sprints, assignees, subtask
 hierarchy, custom fields, start-date constraints) is deferred — CPM derives
@@ -201,7 +201,7 @@ def parse_jira_xml(content: bytes) -> ProjectData:
                 name=_issue_name(item, key)[:512],
                 duration_days=_seconds_to_days(seconds),
                 # Flat WBS: sequential top-level outline numbers. Subtask /
-                # parent hierarchy is deferred (ADR-0257 out-of-scope).
+                # parent hierarchy is deferred (ADR-0259 out-of-scope).
                 outline_number=str(index + 1),
                 outline_level=0,
                 predecessor_links=predecessor_links,
