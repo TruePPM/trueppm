@@ -410,6 +410,15 @@ class ExternalWorkItem(models.Model):
                 fields=("user", "is_stale", "display_bucket"),
                 name="external_item_user_bucket_idx",
             ),
+            # The nightly purge reaps soft-removed items by age with no user
+            # predicate (``is_stale=True AND last_synced_at < cutoff``, #1419).
+            # Without a leading-(is_stale) index that is a full-table seq scan
+            # whose cost grows with install-wide tenant count; this makes it an
+            # index range scan over just the stale rows.
+            models.Index(
+                fields=("is_stale", "last_synced_at"),
+                name="external_item_stale_age_idx",
+            ),
         ]
         ordering = ("display_bucket", "external_id")
         verbose_name = "External work item"
@@ -432,3 +441,101 @@ class ExternalWorkItem(models.Model):
 
         if EXTERNAL_TASK_SOURCES.get(self.source) is None:
             raise ValidationError({"source": f"Unknown external task source {self.source!r}."})
+
+
+class ExternalSyncRequestStatus(models.TextChoices):
+    """Lifecycle of a transactional outbox row for an external-source pull.
+
+    Mirrors ``scheduling.ScheduleRequestStatus`` (ADR-0019 outbox shape) so the
+    drain/purge machinery reads the same across the codebase: ``done`` is the
+    ADR-0097 §Durable Execution "COMPLETED" terminal, ``dead`` is its "FAILED".
+    """
+
+    PENDING = "pending", "Pending"
+    DISPATCHED = "dispatched", "Dispatched"
+    DONE = "done", "Done"
+    DEAD = "dead", "Dead"
+
+
+class ExternalSyncRequestReason(models.TextChoices):
+    """Why a pull was enqueued — forensics only, does not change dispatch."""
+
+    # User hit "Refresh" on the connection (POST .../sync/).
+    MANUAL = "manual", "Manual"
+    # My Work opened and the cache was past the staleness floor (refresh-if-stale).
+    ON_OPEN = "on_open", "On Open"
+    # The opt-in low-frequency Beat poll fired for an active connection.
+    POLL = "poll", "Poll"
+
+
+class ExternalSyncRequest(models.Model):
+    """Transactional outbox record for a user-scoped external-source pull (ADR-0097 §4).
+
+    One row per queued pull of a ``(user, source)`` connection. Written inside the
+    request/task transaction; a best-effort ``transaction.on_commit`` dispatch
+    fires ``external_sync.delay`` and the 300 s ``drain-external-sync`` Beat task
+    recovers any row a broker blip left ``PENDING`` (ADR-0017/0019 outbox shape).
+
+    The two partial-unique constraints below enforce at-most-one ``PENDING`` and
+    at-most-one ``DISPATCHED`` row per ``(user, source)``, so a burst of manual
+    refreshes coalesces onto one in-flight pull rather than stacking N Jira
+    fetches — the per-user cooldown (ADR-0097 §Resolution #5) is the outer bound;
+    this constraint is the inner idempotency guard (mirrors ``ScheduleRequest``).
+
+    Deliberately **not** ``VersionedModel`` — an outbox row is server-side
+    dispatch state, never synced to a client (same rule as ``ScheduleRequest``).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="external_sync_requests",
+    )
+    # Source key (an EXTERNAL_TASK_SOURCES key, e.g. ``jira``). Free-form CharField
+    # to match the credential/work-item pattern — Enterprise sources need no OSS
+    # migration. The enqueue service validates it against the live registry.
+    source = models.CharField(max_length=32)
+    status = models.CharField(
+        max_length=16,
+        choices=ExternalSyncRequestStatus.choices,
+        default=ExternalSyncRequestStatus.PENDING,
+    )
+    reason = models.CharField(
+        max_length=16,
+        choices=ExternalSyncRequestReason.choices,
+        default=ExternalSyncRequestReason.MANUAL,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    # Last failure detail for a DEAD row — surfaced only in ops/forensics, never
+    # to the client. Scrubbed of the PAT/Authorization by the worker before it
+    # lands here (ADR-0097 §Resolution #2 "never logged").
+    last_error = models.CharField(max_length=512, blank=True, default="")
+
+    class Meta:
+        ordering = ("requested_at",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "source"),
+                condition=models.Q(status="pending"),
+                name="external_sync_one_pending_per_user_source",
+            ),
+            models.UniqueConstraint(
+                fields=("user", "source"),
+                condition=models.Q(status="dispatched"),
+                name="external_sync_one_dispatched_per_user_source",
+            ),
+        ]
+        indexes = [
+            # The drain scans PENDING (+ orphaned DISPATCHED) oldest-first; the
+            # purge scans DONE/DEAD by age. Index the shared (status, requested_at)
+            # sort key so both are index range scans, not filesorts.
+            models.Index(fields=("status", "requested_at"), name="external_sync_status_age_idx"),
+        ]
+        verbose_name = "External sync request"
+        verbose_name_plural = "External sync requests"
+
+    def __str__(self) -> str:  # pragma: no cover — debugging aid only
+        return f"ExternalSyncRequest({self.source} for user {self.user_id}, {self.status})"

@@ -464,6 +464,30 @@ CELERY_BEAT_SCHEDULE = {
         # 03:30 UTC — between the sprint-close and workflow purge windows.
         "schedule": crontab(hour=3, minute=30),
     },
+    # External task sync (ADR-0097 §4, #1419). Outbox drain for user-scoped
+    # read-only Jira pulls: dispatches PENDING ExternalSyncRequest rows and
+    # recovers orphaned DISPATCHED ones. 300 s cadence — a personal read-only
+    # pull is not latency-critical (the POST .../sync/ trigger dispatches
+    # immediately via on_commit; this is the broker-outage backstop).
+    "drain-external-sync": {
+        "task": "integrations.drain_external_sync",
+        "schedule": 300.0,
+    },
+    # Opt-in low-frequency poll (ADR-0097 §4). Default-off per connection
+    # (config["poll_enabled"]); fans out zero pulls until a user turns it on, so
+    # a 15-minute cadence is a safe upper bound on the wired-but-dormant hook.
+    "poll-external-sources": {
+        "task": "integrations.poll_external_sources",
+        "schedule": crontab(minute="*/15"),
+    },
+    # Nightly: hard-delete terminal (done/dead) ExternalSyncRequest outbox rows
+    # older than 7 days and long-stale ExternalWorkItem cache rows (ADR-0097
+    # §Durable Execution #6).
+    "purge-external-sync-nightly": {
+        "task": "integrations.purge_external_sync",
+        # 03:45 UTC — after the domain-tombstone reap.
+        "schedule": crontab(hour=3, minute=45),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -823,6 +847,13 @@ REST_FRAMEWORK = {
         # carry. 10/min is snug for a human wiring up integrations yet far below any
         # automated rotation-scraping rate.
         "credential_rotate": "10/min",
+        # Manual external-source pull trigger (POST /me/connections/{source}/sync/,
+        # ADR-0097 §4, #1419). The service-layer 60 s per-connection cooldown is the
+        # primary spacing control; this scope is the coarse abuse bound so a scripted
+        # loop cannot spam the outbox faster than a human ever would. 20/min sits
+        # above the cooldown's ~1/min steady state with headroom for multiple
+        # connected sources.
+        "external_sync": "20/min",
         # Synchronous Monte Carlo simulation (#1552). run_monte_carlo executes an
         # expensive (up to MC_SIMULATION_CAP iterations, caller-controlled
         # n_simulations) simulation inline in the request/response cycle, gated only

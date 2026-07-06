@@ -3901,6 +3901,56 @@
                 "summary": "Delete connection"
             }
         },
+        "/api/v1/me/connections/{source}/sync/": {
+            "post": {
+                "operationId": "v1_me_connections_sync_create",
+                "description": "Trigger a read-only pull of one external-source connection (ADR-0097 §4).\n\n``POST /api/v1/me/connections/{source}/sync/`` → ``202 {\"queued\": true}``.\nSelf-scoped: only the owner can trigger their own pull. The pull runs through\nthe ``ExternalSyncRequest`` outbox (never a direct ``.delay()``), so a broker\noutage degrades to the drain rather than dropping the request.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "source",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalSyncQueued"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExternalSyncCooldown"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                },
+                "summary": "Sync connection"
+            }
+        },
         "/api/v1/me/credentials/": {
             "get": {
                 "operationId": "v1_me_credentials_list",
@@ -4188,6 +4238,90 @@
                     }
                 },
                 "summary": "Delete credential"
+            }
+        },
+        "/api/v1/me/external-items/": {
+            "get": {
+                "operationId": "v1_me_external_items_list",
+                "description": "List the authenticated user's cached external work items (ADR-0097 §3).\n\n``GET /api/v1/me/external-items/`` — the read-only items pulled from the\nuser's connected sources, for the My Work external section. Strictly personal:\nthe queryset filters ``user=request.user`` and hides soft-removed\n(``is_stale``) rows, so no other user (member, Admin, or Owner) can ever see\nanother user's external items. Ordering comes from the model ``Meta``\n(``display_bucket``, ``external_id``) so items group by bucket in My Work.",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedExternalWorkItemList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve external item"
             }
         },
         "/api/v1/me/notification-preferences/": {
@@ -36899,6 +37033,38 @@
                     "secret"
                 ]
             },
+            "ExternalSyncCooldown": {
+                "type": "object",
+                "description": "429 body when a manual refresh lands inside the per-connection cooldown.",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "retry_after": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "retry_after"
+                ]
+            },
+            "ExternalSyncQueued": {
+                "type": "object",
+                "description": "202 body for a queued pull — ``{\"queued\": true}`` (not a task id).",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "queued"
+                ]
+            },
             "ExternalTaskCard": {
                 "type": "object",
                 "description": "Minimal, read-only visibility card for a task across a project boundary (ADR-0120 D5).\n\nCarries only non-sensitive *scheduling* facts — id, title, the owning\nproject, a milestone flag, the CPM early dates, and the criticality flag. It\ndeliberately omits description, assignee, points, status, and comments so a\nuser blocked by a task in a project they cannot otherwise access gets a\nhuman-readable \"what is blocking me\" answer (never \"blocked by [redacted]\")\nwithout leaking team-private data. Surfaced wherever a cross-project\ndependency is serialized; an MCP client gets the same fact (API-first).",
@@ -36956,6 +37122,57 @@
                     "is_milestone",
                     "project_id",
                     "project_name",
+                    "title"
+                ]
+            },
+            "ExternalWorkItem": {
+                "type": "object",
+                "description": "One read-only external work item row for My Work (ADR-0097 §4).\n\nDeliberately CPM-free: an external item is a personal cache row, never a\n``Task``, so it carries no schedule/board fields — only what My Work needs to\nrender a labeled, read-only link that opens in the provider.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "source_key": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "external_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "external_url": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "external_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "display_bucket": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "last_synced_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "display_bucket",
+                    "external_id",
+                    "external_status",
+                    "external_url",
+                    "id",
+                    "last_synced_at",
+                    "source_key",
                     "title"
                 ]
             },
@@ -38829,6 +39046,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Dependency"
+                        }
+                    }
+                }
+            },
+            "PaginatedExternalWorkItemList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExternalWorkItem"
                         }
                     }
                 }

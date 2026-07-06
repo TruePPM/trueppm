@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, status
+from rest_framework import generics, pagination, serializers, status
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
@@ -45,7 +45,8 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from . import providers
 from .encryption import encrypt_secret
 from .external_sources import EXTERNAL_TASK_SOURCES, ExternalTaskSource
-from .models import IntegrationCredential
+from .models import ExternalWorkItem, IntegrationCredential
+from .services import SyncCooldownActive, enqueue_external_sync
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -305,9 +306,126 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
                 {"detail": f"Unknown external task source {source!r}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        from .models import ExternalWorkItem
-
         user = self._user(request)
         IntegrationCredential.objects.filter(user=user, provider=source).delete()
         ExternalWorkItem.objects.filter(user=user, source=source).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ExternalSyncQueuedSerializer(serializers.Serializer[Any]):
+    """202 body for a queued pull — ``{"queued": true}`` (not a task id)."""
+
+    queued = serializers.BooleanField()
+
+
+class ExternalSyncCooldownSerializer(serializers.Serializer[Any]):
+    """429 body when a manual refresh lands inside the per-connection cooldown."""
+
+    detail = serializers.CharField()
+    code = serializers.CharField()
+    retry_after = serializers.IntegerField()
+
+
+@extend_schema(tags=["me"])
+class ExternalConnectionSyncView(IdempotencyMixin, APIView):
+    """Trigger a read-only pull of one external-source connection (ADR-0097 §4).
+
+    ``POST /api/v1/me/connections/{source}/sync/`` → ``202 {"queued": true}``.
+    Self-scoped: only the owner can trigger their own pull. The pull runs through
+    the ``ExternalSyncRequest`` outbox (never a direct ``.delay()``), so a broker
+    outage degrades to the drain rather than dropping the request.
+    """
+
+    permission_classes: list[type[BasePermission]] = [IsAuthenticated]  # noqa: RUF012
+    throttle_classes: list[type[BaseThrottle]] = [ScopedRateThrottle]  # noqa: RUF012
+    throttle_scope = "external_sync"
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: ExternalSyncQueuedSerializer,
+            429: ExternalSyncCooldownSerializer,
+        },
+    )
+    def post(self, request: Request, source: str) -> Response:
+        if EXTERNAL_TASK_SOURCES.get(source) is None:
+            return Response(
+                {"detail": f"Unknown external task source {source!r}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = cast("User", request.user)
+        # A pull needs a stored connection to read the token + config from.
+        if not IntegrationCredential.objects.filter(user=user, provider=source).exists():
+            return Response(
+                {"detail": f"No {source} connection to sync — connect it first."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            enqueue_external_sync(user.pk, source)
+        except SyncCooldownActive as exc:
+            resp = Response(
+                {
+                    "detail": (
+                        "This connection was refreshed a moment ago — "
+                        f"try again in {exc.retry_after}s."
+                    ),
+                    "code": "sync_cooldown",
+                    "retry_after": exc.retry_after,
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            # Standard header so a client can honor the cooldown without parsing
+            # the body (RFC 9110 §10.2.3).
+            resp["Retry-After"] = str(exc.retry_after)
+            return resp
+        return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+
+class ExternalWorkItemSerializer(serializers.Serializer[Any]):
+    """One read-only external work item row for My Work (ADR-0097 §4).
+
+    Deliberately CPM-free: an external item is a personal cache row, never a
+    ``Task``, so it carries no schedule/board fields — only what My Work needs to
+    render a labeled, read-only link that opens in the provider.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    # ``source_key`` (not ``source``): a serializer field literally named
+    # ``source`` collides with DRF's internal ``Field.source`` attribute (same
+    # reason the connection summary omits it). ``source="source"`` maps this
+    # differently-named field back onto the model's ``source`` column.
+    source_key = serializers.CharField(source="source", read_only=True)
+    external_id = serializers.CharField(read_only=True)
+    external_url = serializers.CharField(read_only=True, allow_blank=True)
+    title = serializers.CharField(read_only=True, allow_blank=True)
+    external_status = serializers.CharField(read_only=True, allow_blank=True)
+    display_bucket = serializers.CharField(read_only=True)
+    last_synced_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class ExternalWorkItemPagination(pagination.LimitOffsetPagination):
+    """Limit/offset pagination for the personal external-items list."""
+
+    default_limit = 100
+    max_limit = 200
+
+
+@extend_schema(tags=["me"])
+class ExternalWorkItemListView(generics.ListAPIView[ExternalWorkItem]):
+    """List the authenticated user's cached external work items (ADR-0097 §3).
+
+    ``GET /api/v1/me/external-items/`` — the read-only items pulled from the
+    user's connected sources, for the My Work external section. Strictly personal:
+    the queryset filters ``user=request.user`` and hides soft-removed
+    (``is_stale``) rows, so no other user (member, Admin, or Owner) can ever see
+    another user's external items. Ordering comes from the model ``Meta``
+    (``display_bucket``, ``external_id``) so items group by bucket in My Work.
+    """
+
+    permission_classes: list[type[BasePermission]] = [IsAuthenticated]  # noqa: RUF012
+    serializer_class = ExternalWorkItemSerializer
+    pagination_class = ExternalWorkItemPagination
+
+    def get_queryset(self) -> Any:
+        user = cast("User", self.request.user)
+        return ExternalWorkItem.objects.filter(user=user, is_stale=False)

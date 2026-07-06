@@ -6,7 +6,11 @@ from __future__ import annotations
 
 from django.urls import path
 
-from .connections import ExternalConnectionView
+from .connections import (
+    ExternalConnectionSyncView,
+    ExternalConnectionView,
+    ExternalWorkItemListView,
+)
 from .views import (
     GitAutomationConfigView,
     GitAutomationRotateSecretView,
@@ -38,6 +42,20 @@ urlpatterns = [
         "me/connections/<slug:source>/",
         ExternalConnectionView.as_view(),
         name="me-connections-detail",
+    ),
+    # Trigger a read-only pull of the connection (ADR-0097 §4, #1419). Returns
+    # 202 {"queued": true}; the pull runs through the ExternalSyncRequest outbox.
+    path(
+        "me/connections/<slug:source>/sync/",
+        ExternalConnectionSyncView.as_view(),
+        name="me-connections-sync",
+    ),
+    # The user's cached external work items, for the My Work external section
+    # (ADR-0097 §3). Strictly personal — filtered to request.user.
+    path(
+        "me/external-items/",
+        ExternalWorkItemListView.as_view(),
+        name="me-external-items-list",
     ),
     # Git-event board automation (#329, ADR-0158). The kwarg MUST be ``project_pk``
     # so ``IsProjectAdmin`` can resolve project membership on the config routes.
