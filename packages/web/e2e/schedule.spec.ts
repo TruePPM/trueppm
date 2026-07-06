@@ -602,3 +602,41 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     await expect(drawer).toBeVisible();
   });
 });
+
+/**
+ * Mobile Schedule layout (#1670).
+ *
+ * Below `md` (< 768px) the desktop split-pane Gantt is unusable — the ~220px
+ * task-list table crowds the canvas off the right edge. ScheduleView forces
+ * full-width Timeline mode on phones: the task-list panel + splitter never
+ * render, so the canvas owns the whole width, and the now-meaningless Columns
+ * button + Grid/Timeline toggle are hidden.
+ */
+test.describe('Schedule mobile layout (#1670)', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+    // On mobile the task-list grid never mounts, so wait on the canvas instead.
+    await expect(page.getByTestId('schedule-canvas-scroll')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('hides the task-list panel and fills the width with the canvas', async ({ page }) => {
+    // The desktop task-list panel (role="grid" name="Task list") is suppressed.
+    await expect(page.getByRole('grid', { name: 'Task list' })).toHaveCount(0);
+
+    // The canvas scroll container is present and spans essentially the full
+    // viewport width (not shoved behind a 220px table).
+    const canvas = page.getByTestId('schedule-canvas-scroll');
+    await expect(canvas).toBeVisible();
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    // 375px viewport, allow for any thin gutter — canvas should be > 90% of it.
+    expect(box!.width).toBeGreaterThan(340);
+  });
+
+  test('hides the Columns button and the Grid/Timeline layout toggle', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Columns' })).toHaveCount(0);
+    await expect(page.getByRole('radiogroup', { name: 'Schedule layout' })).toHaveCount(0);
+  });
+});
