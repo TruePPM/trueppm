@@ -43,25 +43,42 @@ information-dense where needed (Gantt views, dashboards), and simple where possi
 
 When asked to design a feature:
 
-1. **Identify the persona** (PM, PMO Director, Team Member — see /voice-of-customer)
-2. **Define the job-to-be-done**: what is the user trying to accomplish?
-3. **Sketch the layout** (ASCII wireframe or structured description):
+1. **Map the objects and their lenses first (OOUX — object-first, ADR-0266).** Before any
+   wireframe, state the **object model**: the core objects this feature touches (`Task`,
+   `Sprint`, `Program`, `Allocation`, `Milestone`, …), their relationships, and the
+   **per-persona lens** each object is viewed through. A lens is a *projection of a
+   first-class server object* (API-first) — never a client-only invention, and never a new
+   mental model for an object that already has one elsewhere in the product (the same `Task`
+   is a Jira checklist item to Priya, a critical-path node to Sarah, a sprint-container item
+   to Alex — one object, different lenses). This map sits **above** Design System v2
+   (ADR-0126): OOUX governs *which objects appear and how they relate across views*, DS-v2
+   governs tokens and component shape. All later steps derive from this map.
+   - If the feature crosses the OSS/Enterprise boundary, apply frontend **rule 231**: OSS
+     surfaces show what one team can do; Enterprise affordances appear only at a
+     cross-program/org-governing seam (empty extension-point slot absent the edition,
+     discovery at the seam — never an ambient padlock in the OSS daily path).
+2. **Identify the persona** (PM, PMO Director, Team Member — see /voice-of-customer)
+3. **Define the job-to-be-done**: what is the user trying to accomplish?
+4. **Sketch the layout** (ASCII wireframe or structured description):
    - Mobile layout first (320px–428px)
    - Tablet adaptation (768px–1024px)
    - Desktop layout (1280px+)
-4. **Specify interactions**:
+5. **Specify interactions**:
    - Touch targets ≥ 44px on mobile
    - Hover states on desktop
    - Keyboard navigation for accessibility
    - Drag-and-drop behaviors
-5. **Define states**:
+6. **Define states**:
    - Empty state (no data yet)
    - Loading state (skeleton, not spinner)
    - Error state (actionable message)
    - Offline state (banner + local operation)
    - Success state (confirmation + next action)
-6. **Specify responsive breakpoints and what changes at each**
-7. **List the API endpoints this UI consumes** (API-first principle)
+7. **Specify responsive breakpoints and what changes at each**
+8. **List the API endpoints this UI consumes** (API-first principle) — for API-developer- or
+   operator-facing surfaces, the error shapes, pagination contract, and Helm/config values
+   are themselves design deliverables (DX/OX are first-class surfaces, ADR-0266), not
+   post-hoc documentation.
 
 ## Component Library
 
@@ -77,6 +94,12 @@ TruePPM uses Tailwind CSS on web and NativeWind on mobile. Prefer these patterns
 
 ```markdown
 ## Feature: <Name>
+
+### Object → Lens Map (OOUX — state this first, ADR-0266)
+| Object | Scope | Edition | Relationships | Lens (persona → view) |
+|--------|-------|---------|---------------|-----------------------|
+| <Task> | <project> | <OSS> | <belongs-to Sprint, depends-on Task> | <Priya: checklist · Sarah: CP node> |
+
 ### Persona: <PM / PMO Director / Team Member>
 ### Job-to-be-done: <What they're trying to accomplish>
 
