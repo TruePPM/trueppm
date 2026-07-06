@@ -9,7 +9,7 @@ the member → project-group → program-group resolution precedence in
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -35,6 +35,12 @@ from trueppm_api.apps.notifications.services import (
 from trueppm_api.apps.projects.models import Methodology, Project, Task, TaskComment
 
 User = get_user_model()
+
+# Pin the dispatch clock outside the default 20:00–07:00 quiet-hours window so the
+# email-suppression assertions are deterministic. Without this, email_pending races
+# the wall clock: a CI run between 20:00 and 07:00 UTC lands inside the default
+# quiet window and suppresses the source recipient's email, flaking the test.
+NOON_UTC = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +477,7 @@ def test_email_suppressed_for_cross_project_program_group_recipient(
         mentioner=author,
         parsed_result=resolved,
         project_id=proj_a.id,
+        now=NOON_UTC,
     )
 
     # Both members get the durable in-app row…
