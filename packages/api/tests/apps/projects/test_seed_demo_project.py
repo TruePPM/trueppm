@@ -86,6 +86,50 @@ def test_seed_populates_every_wave10_surface() -> None:
 
 
 @pytest.mark.django_db
+def test_seed_guarantees_the_bridge_wow_data() -> None:
+    """The demo must reach the hero surfaces without a manual schedule run (#732).
+
+    Three data guarantees back the first-run "wow": PERT estimates so the
+    Monte Carlo band is non-empty, a persisted MonteCarloRun so the forecast
+    bar renders P50/P80/P95 (not "—"), and an active sprint bound to a
+    milestone so the "Advancing to Milestone" card is not the empty state.
+    """
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    call_command("seed_demo_project")
+    p = Project.objects.get(name="Platform Migration")
+
+    # PERT estimates on the work packages, with real spread (optimistic <
+    # pessimistic) so Monte Carlo has variance to sample.
+    pert_tasks = Task.objects.filter(
+        project=p,
+        is_deleted=False,
+        optimistic_duration__isnull=False,
+        most_likely_duration__isnull=False,
+        pessimistic_duration__isnull=False,
+    )
+    assert pert_tasks.count() >= 5, "expected work packages to carry PERT estimates"
+    for t in pert_tasks:
+        assert t.optimistic_duration <= t.most_likely_duration <= t.pessimistic_duration
+        assert t.optimistic_duration < t.pessimistic_duration, "triple must have real spread"
+
+    # A persisted Monte Carlo run so the forecast bar renders a real band.
+    run = MonteCarloRun.objects.filter(project=p).order_by("-taken_at").first()
+    assert run is not None, "expected a seeded MonteCarloRun so P50/P80/P95 render"
+    assert run.p50 is not None and run.p80 is not None and run.p95 is not None
+    assert run.p50 <= run.p80 <= run.p95, "band must be ordered"
+    assert run.p50 > run.cpm_finish, "percentiles add a risk premium over CPM"
+
+    # The active sprint is bound to a milestone (AdvancingToMilestoneCard).
+    active_sprint = Sprint.objects.get(project=p, state=SprintState.ACTIVE)
+    assert active_sprint.target_milestone is not None, "active sprint must target a milestone"
+    assert active_sprint.target_milestone.is_milestone
+    # Binding provenance is coherent, not a half-bound state (ADR-0106 §1).
+    assert active_sprint.milestone_bound_at is not None
+    assert active_sprint.binding_committed_snapshot == active_sprint.committed_points
+
+
+@pytest.mark.django_db
 def test_with_personas_creates_six_users_with_memberships() -> None:
     call_command("seed_demo_project", "--with-personas")
     expected = {"maya", "raj", "diana", "sarah", "carlos", "tom"}

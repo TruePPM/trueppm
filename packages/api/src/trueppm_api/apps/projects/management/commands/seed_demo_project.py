@@ -45,6 +45,21 @@ logger = logging.getLogger(__name__)
 PROJECT_NAME = "Platform Migration"
 SECONDARY_PROJECT_NAME = "Pilot Deployment"
 
+
+def _pert_triple(duration: int) -> tuple[int, int, int]:
+    """Derive an (optimistic, most_likely, pessimistic) day triple from a duration.
+
+    Right-skewed like real estimates — the downside tail is longer than the
+    upside — and always ``optimistic < pessimistic`` so the triple yields real
+    Monte Carlo spread (a zero-spread triple is dropped by the engine). The
+    most-likely value is the planned duration, keeping the CPM spine unchanged.
+    """
+    likely = max(1, duration)
+    optimistic = max(1, round(likely * 0.8))
+    pessimistic = max(optimistic + 1, round(likely * 1.4))
+    return optimistic, likely, pessimistic
+
+
 PERSONAS = [
     {
         "username": "maya",
@@ -156,12 +171,19 @@ class Command(BaseCommand):
         self._assign_resources(phase_tasks, resources)
 
         self._build_sprint_history(project, phase_tasks, resources)
-        active = self._build_active_sprint(project, phase_tasks, resources, users.get("tom"))
+        active = self._build_active_sprint(
+            project, phase_tasks, resources, users.get("tom"), owner=owner
+        )
         self._build_planned_sprint(project)
         self._build_retro(project, users.get("maya"))
         self._build_secondary_active_sprint(secondary, users.get("tom"))
 
         self._build_risks(project, phase_tasks, users)
+
+        # Persist a Monte Carlo run so the schedule forecast bar renders a real
+        # P50/P80/P95 band on first load — the demo never runs the async CPM
+        # simulation, so without a seeded run the forecast shows "—" (#732).
+        self._build_monte_carlo_run(project, owner=owner)
 
         # Activate the baseline last so it captures the CPM dates we just
         # set on the work packages.
@@ -405,6 +427,7 @@ class Command(BaseCommand):
             ):
                 wp_start = phase_start + timedelta(days=pkg_day)
                 wp_finish = wp_start + timedelta(days=pkg_dur)
+                opt, likely, pess = _pert_triple(pkg_dur)
                 wp = Task.objects.create(
                     project=project,
                     name=pkg_name,
@@ -416,6 +439,14 @@ class Command(BaseCommand):
                     is_critical=wp_critical,
                     status=wp_status,
                     percent_complete=wp_pct,
+                    # Three-point PERT estimates on every work package so Monte
+                    # Carlo has real spread to sample — without them the demo's
+                    # forecast band collapses and P50/P80/P95 render as "—" (#732).
+                    # estimate_status stays null: the demo project is OPEN mode,
+                    # where estimates feed the engine directly without approval.
+                    optimistic_duration=opt,
+                    most_likely_duration=likely,
+                    pessimistic_duration=pess,
                 )
                 out[pkg_name] = wp
 
@@ -425,7 +456,7 @@ class Command(BaseCommand):
             (("UAT signoff", 111), ("Production cutover signoff", 148)), start=1
         ):
             ms_date = start + timedelta(days=ms_day)
-            Task.objects.create(
+            out[ms_name] = Task.objects.create(
                 project=project,
                 name=ms_name,
                 duration=0,
@@ -653,6 +684,7 @@ class Command(BaseCommand):
         phase_tasks: dict[str, Any],
         resources: dict[str, Any],
         tom: Any,
+        owner: Any = None,
     ) -> Any:
         from trueppm_api.apps.projects.models import (
             Sprint,
@@ -665,6 +697,16 @@ class Command(BaseCommand):
         today = date.today()
         start = today - timedelta(days=7)
         finish = today + timedelta(days=6)
+        activated_at = datetime.combine(start, datetime.min.time(), tzinfo=UTC)
+
+        committed_points = 44
+
+        # Bind the active sprint to the upcoming cutover milestone so the
+        # "Advancing to Milestone" card renders a real target instead of the
+        # "No milestone linked" empty state (#732). Binding provenance (ADR-0106
+        # §1) is set alongside the FK so the sprint is a coherent bound state:
+        # who promoted, when, and the committed-points baseline at bind time.
+        target_milestone = phase_tasks.get("Production cutover signoff")
 
         sprint = Sprint.objects.create(
             project=project,
@@ -673,9 +715,13 @@ class Command(BaseCommand):
             start_date=start,
             finish_date=finish,
             state=SprintState.ACTIVE,
-            committed_points=44,
+            committed_points=committed_points,
             committed_task_count=14,
-            activated_at=datetime.combine(start, datetime.min.time(), tzinfo=UTC),
+            activated_at=activated_at,
+            target_milestone=target_milestone,
+            milestone_bound_by=owner if target_milestone else None,
+            milestone_bound_at=activated_at if target_milestone else None,
+            binding_committed_snapshot=committed_points if target_milestone else None,
         )
 
         # Story-level tasks under the Migration / Pilot data sync work package.
@@ -742,6 +788,70 @@ class Command(BaseCommand):
                 },
             )
         return sprint
+
+    def _build_monte_carlo_run(self, project: Any, owner: Any = None) -> Any:
+        """Persist a project-level Monte Carlo run so the forecast bar renders.
+
+        The demo command never dispatches the async CPM/Monte Carlo simulation,
+        so ``MonteCarloLatestView`` (which falls back to the newest persisted
+        ``MonteCarloRun`` on a cache miss) would otherwise return no band and the
+        schedule forecast bar would show "—" (#732). We seed a right-skewed band
+        anchored on the deterministic CPM finish — the same shape a real run of
+        the PERT-estimated schedule produces.
+        """
+        from trueppm_api.apps.projects.models import Task
+        from trueppm_api.apps.scheduling.services import record_monte_carlo_run
+
+        tasks = list(Task.objects.filter(project=project, is_deleted=False))
+        cpm_finish = max(
+            (t.early_finish for t in tasks if t.early_finish is not None),
+            default=date.today(),
+        )
+        # Percentiles add a risk premium over the deterministic finish: P50 a few
+        # days out, the tail (P95) further, so the band is a realistic right skew.
+        p50 = cpm_finish + timedelta(days=3)
+        p80 = cpm_finish + timedelta(days=9)
+        p95 = cpm_finish + timedelta(days=16)
+
+        # A modest, valid distribution ({histogram_buckets, confidence_curve,
+        # sensitivity}) so the histogram + sensitivity detail render too, not just
+        # the always-visible P50/P80/P95 chips.
+        span_start = cpm_finish - timedelta(days=2)
+        total = 5000
+        # Right-skewed weights across 12 daily buckets from the CPM finish outward.
+        weights = [1, 4, 9, 14, 16, 14, 11, 8, 6, 4, 2, 1]
+        weight_sum = sum(weights)
+        dates = [(span_start + timedelta(days=i)).isoformat() for i in range(len(weights))]
+        counts = [round(total * w / weight_sum) for w in weights]
+        histogram_buckets: list[dict[str, Any]] = [
+            {"date": d, "count": c} for d, c in zip(dates, counts, strict=True)
+        ]
+        cumulative = 0
+        confidence_curve: list[dict[str, Any]] = []
+        for d, c in zip(dates, counts, strict=True):
+            cumulative += c
+            confidence_curve.append({"date": d, "probability": round(cumulative / total, 4)})
+        critical = [t.name for t in tasks if getattr(t, "is_critical", False)][:3]
+        sensitivity = [
+            {"task_name": name, "correlation": round(0.7 - 0.15 * idx, 2)}
+            for idx, name in enumerate(critical)
+        ]
+
+        return record_monte_carlo_run(
+            str(project.pk),
+            p50=p50,
+            p80=p80,
+            p95=p95,
+            n_simulations=total,
+            cpm_finish=cpm_finish,
+            task_count=len(tasks),
+            user=owner,
+            distribution={
+                "histogram_buckets": histogram_buckets,
+                "confidence_curve": confidence_curve,
+                "sensitivity": sensitivity,
+            },
+        )
 
     def _build_planned_sprint(self, project: Any) -> Any:
         from trueppm_api.apps.projects.models import Sprint, SprintState
