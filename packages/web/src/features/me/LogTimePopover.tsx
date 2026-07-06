@@ -129,7 +129,7 @@ export function LogTimePopover({ task, onClose }: Props) {
       aria-modal="true"
       aria-labelledby="log-time-title"
       className="absolute right-0 z-30 mt-1 w-72 rounded-card border border-neutral-border
-        bg-neutral-surface shadow-lg focus-within:ring-2 focus-within:ring-brand-primary"
+        bg-neutral-surface shadow-pop focus-within:ring-2 focus-within:ring-brand-primary"
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-3">
         <div
