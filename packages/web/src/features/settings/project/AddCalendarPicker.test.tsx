@@ -33,7 +33,7 @@ const LIBRARY: Calendar[] = [
   cal('c-eng', 'Engineering 4-day week'),
 ];
 
-function renderPicker(overrides: Partial<React.ComponentProps<typeof AddCalendarPicker>> = {}) {
+function renderPicker(overrides: Partial<ComponentProps<typeof AddCalendarPicker>> = {}) {
   const onAdd = vi.fn();
   const onClose = vi.fn();
   render(
