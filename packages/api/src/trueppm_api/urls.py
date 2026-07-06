@@ -109,6 +109,7 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.sync.urls")),
     path("api/v1/", include("trueppm_api.apps.history.urls")),
     path("api/v1/", include("trueppm_api.apps.msproject.urls")),
+    path("api/v1/", include("trueppm_api.apps.jiraimport.urls")),
     path("api/v1/", include("trueppm_api.apps.webhooks.urls")),
     path("api/v1/", include("trueppm_api.apps.taskruns.urls")),
     path("api/v1/", include("trueppm_api.apps.workshops.urls")),
