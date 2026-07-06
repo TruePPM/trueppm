@@ -94,7 +94,7 @@ Each row shows what you've already **logged today**, and the page header keeps a
 
 ## Working offline
 
-The page is cacheable and the mobile app keeps it available without a signal. Status taps queue while you're offline and replay when the connection comes back. A banner at the top of the page tells you when you're working offline so changes aren't a surprise.
+The page is cacheable and the mobile app keeps it available without a signal. Status taps queue while you're offline and replay when the connection comes back. **Flagging a task blocked works offline too** — open a task with no signal, flag it blocked with a reason and type (or clear the flag), and the write is saved to a durable on-device queue and replays automatically when you reconnect. While it is queued the blocker shows a **Pending** cloud-off badge so you can see it hasn't reached the server yet, and it syncs on reconnect even if you've moved on to another screen. A banner at the top of the page tells you when you're working offline so changes aren't a surprise.
 
 ## Where tasks come from
 

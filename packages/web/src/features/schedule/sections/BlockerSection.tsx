@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import {
   BLOCKER_TYPES,
   BLOCKER_TYPE_LABEL,
@@ -12,6 +14,12 @@ import {
 } from '@/lib/blocker';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
+import { queueOfflineBlocker } from '@/features/blocker/offline/useBlockerOffline';
+import {
+  useBlockerPendingOp,
+  useBlockerSyncedSignal,
+} from '@/features/blocker/offline/blockerOutboxStore';
+import { BlockerPendingBadge } from '@/features/blocker/BlockerPendingBadge';
 
 const LABEL_CLASS =
   'text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2';
@@ -41,10 +49,29 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
   // ADR-0133/1142: gate write controls off the server-derived verdict; fall back to the client role rule only when absent.
   const editable = canEdit ?? canEditTask(userRole);
 
+  // Offline blocker write path (ADR-0247): when offline, flag/save/unblock queue a
+  // durable write instead of a failing live PATCH — the field-PM's #1 no-signal action.
+  const online = useOnlineStatus();
+  const queryClient = useQueryClient();
+  const pendingOp = useBlockerPendingOp(taskId);
+  const syncedAt = useBlockerSyncedSignal(taskId);
+
   const [formOpen, setFormOpen] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [type, setType] = useState<string | null>(null);
   const [blocking, setBlocking] = useState<string | null>(null);
+
+  // Live-region text: announced once when a write is queued, and once when a
+  // queued write later syncs (the flush sets `lastSynced` only on success, so a
+  // 409 conflict — which shows its own toast — never triggers a false "synced").
+  const [announcement, setAnnouncement] = useState('');
+  const lastAnnouncedSync = useRef(syncedAt);
+  useEffect(() => {
+    if (syncedAt != null && syncedAt !== lastAnnouncedSync.current) {
+      setAnnouncement('Blocker synced.');
+    }
+    lastAnnouncedSync.current = syncedAt;
+  }, [syncedAt]);
 
   // Other tasks in the project, for the soft "waiting on" link picker.
   const linkOptions = useMemo(
@@ -63,6 +90,12 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
   const blockingDraft = blocking ?? task.blockingTask ?? '';
   const age = formatBlockedAge(task.blockedAgeSeconds);
 
+  // A fresh offline flag has no server-stamped age yet — show "queued", not a fake
+  // duration; an offline edit to an already-flagged task keeps the real age. A
+  // queued unblock optimistically clears the row, so its badge rides the affordance.
+  const freshQueuedFlag = pendingOp?.kind === 'flag' && !pendingOp.wasFlagged;
+  const pendingUnblock = pendingOp?.kind === 'unblock';
+
   function resetDrafts() {
     setReason(null);
     setType(null);
@@ -71,6 +104,21 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
 
   function flag() {
     if (!reasonDraft.trim()) return; // reason is the flag of record
+    if (!online) {
+      // Offline: queue the flag and optimistically show it as blocked (ADR-0247).
+      queueOfflineBlocker(queryClient, {
+        projectId,
+        taskId,
+        kind: 'flag',
+        reason: reasonDraft.trim(),
+        blockerType: typeDraft,
+        blockingTask: blockingDraft || null,
+      });
+      setAnnouncement('Blocker flagged. Queued — it will sync when you reconnect.');
+      setFormOpen(false);
+      resetDrafts();
+      return;
+    }
     updateTask(
       {
         id: taskId,
@@ -84,6 +132,21 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
   }
 
   function save() {
+    if (!online) {
+      // `reason: null` when the caller can't read the private reason — a type/link
+      // edit must not overwrite the stored reason it never saw.
+      queueOfflineBlocker(queryClient, {
+        projectId,
+        taskId,
+        kind: 'flag',
+        reason: canReadReason ? reasonDraft : null,
+        blockerType: typeDraft,
+        blockingTask: blockingDraft || null,
+      });
+      setAnnouncement('Blocker changes queued — they will sync when you reconnect.');
+      resetDrafts();
+      return;
+    }
     updateTask(
       {
         id: taskId,
@@ -97,6 +160,19 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
   }
 
   function unblock() {
+    if (!online) {
+      queueOfflineBlocker(queryClient, {
+        projectId,
+        taskId,
+        kind: 'unblock',
+        reason: '',
+        blockerType: '',
+        blockingTask: null,
+      });
+      setAnnouncement('Unblock queued — it will sync when you reconnect.');
+      resetDrafts();
+      return;
+    }
     // Empty reason clears the flag; the server then clears type/link/stamps.
     updateTask({ id: taskId, projectId, blocked_reason: '' }, { onSuccess: resetDrafts });
   }
@@ -214,6 +290,10 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
 
   return (
     <div className="space-y-4">
+      {/* Announces queued/synced blocker writes to assistive tech (WCAG 4.1.3). */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </span>
       {!isFlagged ? (
         formOpen ? (
           <div className="space-y-4">
@@ -256,10 +336,19 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 Cancel
               </button>
             </div>
+            {!online && (
+              <p className="text-xs text-neutral-text-secondary">
+                Offline — this will be saved and synced when you reconnect.
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-neutral-text-secondary">Not blocked</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-text-secondary">Not blocked</span>
+              {/* A queued unblock optimistically cleared the row; keep its sync state visible. */}
+              {pendingUnblock && <BlockerPendingBadge kind="unblock" />}
+            </div>
             <button
               type="button"
               onClick={() => setFormOpen(true)}
@@ -282,12 +371,18 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 {blockerTypeLabel(task.blockerType)}
               </span>
             )}
-            {age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>}
+            {freshQueuedFlag ? (
+              // No server-stamped age yet — the pending badge carries the sync state.
+              <span className="text-xs text-neutral-text-secondary">queued</span>
+            ) : (
+              age && <span className="tppm-mono text-xs text-neutral-text-secondary">{age}</span>
+            )}
             {task.blockedBy && (
               <span className="text-xs text-neutral-text-secondary">
                 flagged by {task.blockedBy.username}
               </span>
             )}
+            {pendingOp && <BlockerPendingBadge kind={pendingOp.kind} compact />}
           </div>
 
           {/* Reason — editable for the assignee/@mentioned, private notice otherwise */}
@@ -339,6 +434,11 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               Unblock
             </button>
           </div>
+          {!online && (
+            <p className="text-xs text-neutral-text-secondary">
+              Offline — changes will be saved and synced when you reconnect.
+            </p>
+          )}
         </div>
       )}
     </div>
