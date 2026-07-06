@@ -297,3 +297,61 @@ def resolve_user_defined_group_members(
     )
     member_ids = [member.pk for member in group.members.all() if member.pk in active_member_ids]
     return cast(list[uuid.UUID], list(dict.fromkeys(member_ids)))
+
+
+def resolve_program_user_defined_group_members(
+    program_id: uuid.UUID | str,
+    name: str,
+) -> list[uuid.UUID] | None:
+    """Snapshot-resolve a program-scoped user-defined group name to member UUIDs.
+
+    The program sibling of :func:`resolve_user_defined_group_members` (ADR-0248,
+    #516). Looks up an owner-curated
+    :class:`~trueppm_api.apps.access.models.ProgramUserDefinedMentionGroup` by its
+    case-insensitive name within the program and returns its current members,
+    filtered to those who still hold a live ``ProjectMembership`` on *some* project
+    in the program (the ADR-0248 §2 union — a member who left every project in the
+    program no longer receives the ping even if the M2M row lingers).
+
+    Snapshot semantics match the auto-group and project-group resolvers.
+
+    Args:
+        program_id: The program that contains the project the mention was written
+            in (``Project.program``).
+        name: The group name without the leading ``@`` (case-insensitive).
+
+    Returns:
+        A deduplicated list of member user UUIDs, or ``None`` if no live group with
+        that name exists in the program (so the caller can fall through to treating
+        the token as an unresolved user mention).
+    """
+    from django.db.models.functions import Lower
+
+    from trueppm_api.apps.access.models import (
+        ProgramUserDefinedMentionGroup,
+        ProjectMembership,
+    )
+
+    key = name.strip().lstrip("@").lower()
+    group = (
+        ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+        .filter(
+            program_id=program_id,
+            name_lower=key,
+            is_deleted=False,
+        )
+        .prefetch_related("members")
+        .first()
+    )
+    if group is None:
+        return None
+
+    active_member_ids = set(
+        ProjectMembership.objects.filter(
+            project__program_id=program_id,
+            project__is_deleted=False,
+            is_deleted=False,
+        ).values_list("user_id", flat=True)
+    )
+    member_ids = [member.pk for member in group.members.all() if member.pk in active_member_ids]
+    return cast(list[uuid.UUID], list(dict.fromkeys(member_ids)))

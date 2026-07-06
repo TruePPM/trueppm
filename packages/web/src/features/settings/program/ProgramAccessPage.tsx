@@ -10,6 +10,7 @@ import {
 } from '@/features/programs/hooks/useProgramMemberMutations';
 import { ProgramInviteForm } from '@/features/programs/members/ProgramInviteForm';
 import { RolePicker } from '@/features/settings/members/RolePicker';
+import { ProgramMentionGroupsSection } from '@/features/settings/members/ProgramMentionGroupsSection';
 import { ROLE_OWNER } from '@/lib/roles';
 import type { ProgramMembership } from '@/api/types';
 
@@ -262,6 +263,12 @@ export function ProgramAccessPage() {
               />
             ))}
         </div>
+
+        <ProgramMentionGroupsSection
+          programId={programId}
+          myRole={program?.my_role ?? null}
+          members={members}
+        />
       </div>
     </div>
   );

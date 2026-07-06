@@ -211,6 +211,29 @@ To render a literal `@name` without triggering a mention, escape it with a
 backslash: `\@name`. Mentions inside fenced code blocks or inline backticks
 are also left alone.
 
+### Custom mention groups
+
+Beyond the automatic role-based groups, you can hand-curate your own
+workflow-shaped groups — `@subcontractors`, `@inspectors`, `@tech-leads` — and
+mention them as a plain `@name`:
+
+- **Project groups** — a project **Admin** creates them in **Project
+  Settings → Members → Mention groups**. Members are drawn from the project's
+  team; a project **Scheduler** or above edits the roster.
+- **Program groups** — a program **Owner** creates them in **Program
+  Settings → Access → Mention groups**. Members are selectable across **every
+  project in the program**, so one group can reach people working on different
+  projects; a program **Admin** or above edits the roster.
+
+When you mention a name, it resolves in order of specificity: a real project
+member first, then a project custom group, then a program custom group — so a
+project group shadows a same-named program group. Each group has a per-group
+**email default** (off unless the manager turns it on) and any member can
+**mute** a group to stop its mentions reaching them, while still receiving
+direct `@you` mentions. Like the automatic groups, membership is snapshotted at
+write time, and names are unique within their scope and can't shadow an
+automatic group key.
+
 ### Attachment references
 
 You can reference an attachment inline in a comment by typing

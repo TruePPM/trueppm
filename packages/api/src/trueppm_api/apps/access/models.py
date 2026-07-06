@@ -258,3 +258,78 @@ class UserDefinedMentionGroup(VersionedModel):
 
     def __str__(self) -> str:
         return f"@{self.name} ({self.project_id})"
+
+
+class ProgramUserDefinedMentionGroup(VersionedModel):
+    """Owner-curated, program-scoped ``@mention`` group (ADR-0248, #516).
+
+    The program-scoped parallel of :class:`UserDefinedMentionGroup`: a program
+    manager hand-curates a collection of members drawn from across the program's
+    projects — e.g. ``@program-tech-leads``, ``@program-vendor-x`` — that does not
+    map onto a role band (the role-banded cases are the ADR-0240 auto-groups).
+
+    Mentioned as a plain ``@name`` (no ``program-`` prefix — that prefix is
+    reserved for the ADR-0240 auto-groups) from a comment on any task in a project
+    of the program. Resolution precedence is member → project group → program
+    group, so a program group is the widest, least-specific match (ADR-0248 §4).
+
+    ``members`` are selectable across *all* projects in the program (the union of
+    ``ProjectMembership``, matching ADR-0240's program-membership semantics), and
+    resolution snapshots the member list at write time — members added after a
+    mention are not retroactively notified, departed members are not re-pinged.
+    """
+
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.PROTECT,
+        related_name="mention_groups",
+    )
+    # The mention key without the leading @ (e.g. "tech-leads").
+    name = models.CharField(max_length=32)
+    # Optional one-line purpose shown in the manager UI. DJ001: "" not NULL.
+    description = models.CharField(max_length=140, blank=True, default="")
+    # Per-group email default (ADR-0248 §1, mirrors ADR-0212 §5). Default OFF
+    # preserves the un-opted-email hard-NO (ADR-0075 V2); the manager flips it on.
+    email_default_on = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_program_mention_groups",
+    )
+    # Curated members. Plain M2M (no sync stream): resolution is server-side at
+    # comment-write time, so offline clients never resolve groups.
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="program_mention_groups",
+        blank=True,
+    )
+    # Per-user override / per-group mute (ADR-0248 §1). A member who mutes a group
+    # receives neither in-app nor email for that group's mentions; a direct
+    # @user mention still reaches them (mute is group-scoped).
+    muted_by = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="muted_program_mention_groups",
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "access_program_user_defined_mention_group"
+        constraints = [
+            # Case-insensitive program-unique name across LIVE rows only — mirrors
+            # the ADR-0212 project constraint so a soft-deleted group frees its name.
+            models.UniqueConstraint(
+                "program",
+                Lower("name"),
+                condition=models.Q(is_deleted=False),
+                name="uniq_program_mention_group_program_name_ci",
+            ),
+        ]
+        indexes = [
+            # Sync delta pull: WHERE program_id = X AND server_version > since.
+            models.Index(fields=["program", "server_version"], name="pudmg_prog_serverver_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"@{self.name} ({self.program_id})"

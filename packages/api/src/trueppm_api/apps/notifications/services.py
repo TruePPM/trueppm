@@ -365,6 +365,44 @@ def resolve_parsed_mentions(
                 groups_by_lower[group.name.lower()] = [
                     member for member in group.members.all() if member.pk in active_member_ids
                 ]
+            # Fall through to program-scoped user-defined groups (ADR-0248, #516)
+            # for names still unresolved after the member + project-group steps.
+            # Precedence is member → project group → program group, so we only look
+            # up names not already keyed: a project group shadows a same-named
+            # program group. Skipped for a standalone project (no program).
+            still_unresolved = [name for name in unresolved if name.lower() not in groups_by_lower]
+            if still_unresolved:
+                from trueppm_api.apps.access.models import ProgramUserDefinedMentionGroup
+                from trueppm_api.apps.projects.models import Project
+
+                program_id = (
+                    Project.objects.filter(pk=project_id)
+                    .values_list("program_id", flat=True)
+                    .first()
+                )
+                if program_id is not None:
+                    program_member_ids = set(
+                        ProjectMembership.objects.filter(
+                            project__program_id=program_id,
+                            project__is_deleted=False,
+                            is_deleted=False,
+                        ).values_list("user_id", flat=True)
+                    )
+                    pudg_groups = (
+                        ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+                        .filter(
+                            program_id=program_id,
+                            name_lower__in=[name.lower() for name in still_unresolved],
+                            is_deleted=False,
+                        )
+                        .prefetch_related("members")
+                    )
+                    for pgroup in pudg_groups:
+                        groups_by_lower[pgroup.name.lower()] = [
+                            member
+                            for member in pgroup.members.all()
+                            if member.pk in program_member_ids
+                        ]
         for name in requested_usernames:
             if name in resolved_by_name:
                 user_targets.append(resolved_by_name[name])
@@ -464,7 +502,11 @@ def create_mention_notifications(
     # keep their existing global-toggle behavior. udg_email_default maps a group
     # name to its manager-set email default; udg_mutes is the set of
     # (user_id, group_name) pairs whose owner muted that group.
-    from trueppm_api.apps.access.models import UserDefinedMentionGroup
+    from trueppm_api.apps.access.models import (
+        ProgramUserDefinedMentionGroup,
+        UserDefinedMentionGroup,
+    )
+    from trueppm_api.apps.projects.models import Project
 
     # Keys in group_member_index are lowercased (see resolve_parsed_mentions), so
     # match on Lower(name) — group names are case-insensitive mention keys even
@@ -473,6 +515,29 @@ def create_mention_notifications(
     udg_mutes: set[tuple[int | str, str]] = set()
     mentioned_group_keys = list(group_member_index.keys())
     if mentioned_group_keys:
+        # Program-scoped user-defined groups (ADR-0248, #516) load first so a
+        # same-named project group overwrites the email default below (project
+        # wins, matching the resolution precedence). Mutes union across scopes —
+        # a member who muted either same-named group is defensively suppressed
+        # (a negligible, documented name-collision case).
+        program_id = (
+            Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+        )
+        if program_id is not None:
+            pudg_groups = (
+                ProgramUserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
+                .filter(
+                    program_id=program_id,
+                    name_lower__in=mentioned_group_keys,
+                    is_deleted=False,
+                )
+                .prefetch_related("muted_by")
+            )
+            for pgroup in pudg_groups:
+                key = pgroup.name.lower()
+                udg_email_default[key] = pgroup.email_default_on
+                for muter in pgroup.muted_by.all():
+                    udg_mutes.add((muter.pk, key))
         udg_groups = (
             UserDefinedMentionGroup.objects.annotate(name_lower=Lower("name"))
             .filter(
@@ -550,6 +615,24 @@ def create_mention_notifications(
             global_pref.enabled
         )
 
+    # Cross-project email read-boundary (ADR-0248 §5 / ADR-0240 §5). A program
+    # mention can reach a recipient who is a member of a *sibling* project but NOT
+    # of the comment's source project. The in-app inbox already redacts the body
+    # snippet for such recipients (NotificationSerializer._recipient_can_see_source),
+    # but the email render path embeds the raw comment body — so the email channel
+    # MUST honor the same boundary or one project's comment text leaks to another
+    # project's team by email. Gate: email is suppressed entirely for any recipient
+    # who is not a current member of the source project; they still get the (redacted)
+    # in-app row. Direct @mentions are always source-project members, so this only
+    # ever suppresses cross-project group-sourced recipients.
+    from trueppm_api.apps.access.models import ProjectMembership
+
+    source_project_member_ids = set(
+        ProjectMembership.objects.filter(
+            project_id=project_id, is_deleted=False, user_id__in=list(recipients.keys())
+        ).values_list("user_id", flat=True)
+    )
+
     notifications: list[Notification] = []
     for user_id, source_mention in recipients.items():
         pref = project_prefs.get(user_id) or ProjectNotificationPreference()
@@ -590,6 +673,9 @@ def create_mention_notifications(
                 tz=project_tz,
             )
             and per_user_opt_in
+            # Never email the comment body to a non-source-project recipient
+            # (cross-project read boundary — see source_project_member_ids above).
+            and user_id in source_project_member_ids
         )
         notifications.append(
             Notification(

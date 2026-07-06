@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import (
     ProgramMembership,
+    ProgramUserDefinedMentionGroup,
     ProjectMembership,
     Role,
     UserDefinedMentionGroup,
@@ -42,6 +43,8 @@ from trueppm_api.apps.access.serializers import (
     MeSerializer,
     ProgramMembershipReadSerializer,
     ProgramMembershipWriteSerializer,
+    ProgramUserDefinedMentionGroupReadSerializer,
+    ProgramUserDefinedMentionGroupWriteSerializer,
     ProjectMembershipReadSerializer,
     ProjectMembershipWriteSerializer,
     UserDefinedMentionGroupReadSerializer,
@@ -574,6 +577,258 @@ class UserDefinedMentionGroupViewSet(
         project = self._get_project_or_404()
         # Any project member may mute/unmute a group for THEMSELVES only.
         self._require_actor_role(request, project.pk, Role.VIEWER)
+        instance = self.get_object()
+        if mute:
+            instance.muted_by.add(request.user)  # type: ignore[arg-type]
+        else:
+            instance.muted_by.remove(request.user)  # type: ignore[arg-type]
+        return self._read_response(instance)
+
+    @action(detail=True, methods=["post"], url_path="mute")
+    def mute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_mute(request, mute=True)
+
+    @action(detail=True, methods=["post"], url_path="unmute")
+    def unmute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_mute(request, mute=False)
+
+
+class ProgramUserDefinedMentionGroupViewSet(
+    IdempotencyMixin, viewsets.GenericViewSet[ProgramUserDefinedMentionGroup]
+):
+    """Nested CRUD for program-scoped user-defined @mention groups (ADR-0248, #516).
+
+    URL: ``/api/v1/programs/{program_pk}/mention-groups/``
+         ``/api/v1/programs/{program_pk}/mention-groups/{pk}/``
+         ``…/{pk}/add-member/``  ``…/{pk}/remove-member/``
+         ``…/{pk}/mute/``  ``…/{pk}/unmute/``
+
+    Permission matrix (ADR-0248 §3):
+      list / retrieve            — any program member (Viewer+)
+      create / update / destroy  — Program Owner  (group lifecycle is an owner act)
+      add-member / remove-member — Program Admin+  (roster curation)
+      mute / unmute              — any member (their own subscription only)
+    """
+
+    permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
+
+    def get_permissions(self) -> list[BasePermission]:
+        """Surface the Owner-only lifecycle gate at the permission layer (#1351).
+
+        The action bodies already enforce ``Role.OWNER`` via ``_require_actor_role``,
+        but that in-body check is invisible to DRF-level audits and OpenAPI security
+        generation. Adding ``IsProgramOwner`` for the lifecycle actions is
+        defense-in-depth over the authoritative in-body checks — mirroring the
+        sibling membership viewsets. Membership (add/remove) and mute are Admin+ /
+        any-member, so they keep the base classes only.
+        """
+        perms: list[BasePermission] = [
+            IsAuthenticated(),
+            IsProgramMember(),
+            IsProgramNotClosed(),
+        ]
+        if self.action in ("create", "partial_update", "destroy"):
+            perms.append(IsProgramOwner())
+        return perms
+
+    def get_serializer_class(
+        self,
+    ) -> type[BaseSerializer[ProgramUserDefinedMentionGroup]]:
+        if self.action in ("create", "partial_update", "update"):
+            return ProgramUserDefinedMentionGroupWriteSerializer
+        return ProgramUserDefinedMentionGroupReadSerializer
+
+    def get_queryset(self) -> QuerySet[ProgramUserDefinedMentionGroup]:
+        program_pk = self.kwargs["program_pk"]
+        return (
+            ProgramUserDefinedMentionGroup.objects.filter(program_id=program_pk, is_deleted=False)
+            .prefetch_related("members", "muted_by")
+            .order_by("name")
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        ctx = dict(super().get_serializer_context())
+        ctx["program_id"] = self.kwargs["program_pk"]
+        return ctx
+
+    def _get_program_or_404(self) -> Program:
+        try:
+            return Program.objects.get(pk=self.kwargs["program_pk"], is_deleted=False)
+        except Program.DoesNotExist as err:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound("Program not found.") from err
+
+    def _require_actor_role(self, request: Request, program_id: _PK, minimum: int) -> int:
+        role = _program_membership_role(request, program_id)
+        if role is None or role < minimum:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You do not have permission to perform this action.")
+        return role
+
+    def _broadcast(self, program_id: str, group_id: str, change: str) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # A program isn't board-scoped, so fan the refresh out to every live
+        # project in the program — any open Members tab in the program reconciles.
+        # Deferred to on_commit (ADR-0083) so a rolled-back write never notifies;
+        # the group is also a VersionedModel, so a missed transient event is
+        # reconciled via the sync delta.
+        project_ids = list(
+            Project.objects.filter(program_id=program_id, is_deleted=False).values_list(
+                "id", flat=True
+            )
+        )
+
+        def _emit() -> None:
+            for project_id in project_ids:
+                broadcast_board_event(
+                    str(project_id),
+                    "mention_group_changed",
+                    {
+                        "group_id": group_id,
+                        "change": change,
+                        "scope": "program",
+                        # The web consumer invalidates the program-scoped query key
+                        # (['program-mention-groups', program_id]) off this field —
+                        # the event rides project channels but targets the program cache.
+                        "program_id": program_id,
+                    },
+                )
+
+        transaction.on_commit(_emit)
+
+    def _read_response(
+        self, instance: ProgramUserDefinedMentionGroup, *, code: int = 200
+    ) -> Response:
+        # Re-fetch through the prefetching queryset so member/mute counts on the
+        # response reflect the write without an N+1.
+        fresh = self.get_queryset().get(pk=instance.pk)
+        return Response(
+            ProgramUserDefinedMentionGroupReadSerializer(
+                fresh, context=self.get_serializer_context()
+            ).data,
+            status=code,
+        )
+
+    # -- lifecycle (Owner) ---------------------------------------------------
+
+    def list(self, request: Request, **kwargs: object) -> Response:
+        self._get_program_or_404()
+        serializer = ProgramUserDefinedMentionGroupReadSerializer(
+            self.get_queryset(), many=True, context=self.get_serializer_context()
+        )
+        return Response(serializer.data)
+
+    def retrieve(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        self._get_program_or_404()
+        return self._read_response(self.get_object())
+
+    def create(self, request: Request, **kwargs: object) -> Response:
+        program = self._get_program_or_404()
+        self._require_actor_role(request, program.pk, Role.OWNER)
+        serializer = ProgramUserDefinedMentionGroupWriteSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(program=program, created_by=request.user)
+        self._broadcast(str(program.pk), str(instance.pk), "created")
+        return self._read_response(instance, code=status.HTTP_201_CREATED)
+
+    def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        program = self._get_program_or_404()
+        self._require_actor_role(request, program.pk, Role.OWNER)
+        instance = self.get_object()
+        serializer = ProgramUserDefinedMentionGroupWriteSerializer(
+            instance, data=request.data, partial=True, context=self.get_serializer_context()
+        )
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+        self._broadcast(str(program.pk), str(instance.pk), "updated")
+        return self._read_response(instance)
+
+    def destroy(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        program = self._get_program_or_404()
+        # IsProgramNotClosed bypasses the closed check for any action named
+        # "destroy" (its bypass set exists so a closed Program can be deleted
+        # directly). This nested viewset also names its delete "destroy", so the
+        # closed read-only invariant must be re-asserted explicitly here — every
+        # other write action (create/update/add-member/…) is already blocked by the
+        # permission because it is not in that bypass set. Mirrors the project
+        # sibling's archived re-assertion.
+        if program.is_closed:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "This program is closed and cannot be modified. Reopen it first."
+            )
+        self._require_actor_role(request, program.pk, Role.OWNER)
+        instance = self.get_object()
+        instance.soft_delete()
+        self._broadcast(str(program.pk), str(instance.pk), "deleted")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # -- membership (Admin+) -------------------------------------------------
+
+    def _member_user_or_400(self, program_id: _PK) -> Any:
+        """Resolve request.data['user'] to a User who is a member of the program.
+
+        A program group may only contain users who hold a live ``ProjectMembership``
+        on *some* project in the program (the ADR-0248 §2 union) — a user with no
+        membership anywhere in the program would be filtered out at resolution
+        anyway, so reject the add up front.
+        """
+        user_id = (self.request.data or {}).get("user")
+        if not user_id:
+            raise drf_serializers.ValidationError({"user": "This field is required."})
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=user_id)
+        except (User.DoesNotExist, ValueError, TypeError) as err:
+            raise drf_serializers.ValidationError({"user": "User not found."}) from err
+        if not ProjectMembership.objects.filter(
+            project__program_id=program_id,
+            project__is_deleted=False,
+            user=user,
+            is_deleted=False,
+        ).exists():
+            raise drf_serializers.ValidationError(
+                {"user": "User is not a member of any project in this program."}
+            )
+        return user
+
+    def _mutate_membership(self, request: Request, *, add: bool) -> Response:
+        program = self._get_program_or_404()
+        self._require_actor_role(request, program.pk, Role.ADMIN)
+        instance = self.get_object()
+        user = self._member_user_or_400(program.pk)
+        if add:
+            instance.members.add(user)
+        else:
+            instance.members.remove(user)
+        # Bump server_version so the membership change flows through the sync
+        # delta (the M2M write alone does not touch the parent row).
+        instance.save(update_fields=["server_version"])
+        self._broadcast(
+            str(program.pk), str(instance.pk), "member_added" if add else "member_removed"
+        )
+        return self._read_response(instance)
+
+    @action(detail=True, methods=["post"], url_path="add-member")
+    def add_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_membership(request, add=True)
+
+    @action(detail=True, methods=["post"], url_path="remove-member")
+    def remove_member(self, request: Request, pk: object = None, **kwargs: object) -> Response:
+        return self._mutate_membership(request, add=False)
+
+    # -- mute / unmute (any member, self only) ------------------------------
+
+    def _mutate_mute(self, request: Request, *, mute: bool) -> Response:
+        program = self._get_program_or_404()
+        # Any program member may mute/unmute a group for THEMSELVES only.
+        self._require_actor_role(request, program.pk, Role.VIEWER)
         instance = self.get_object()
         if mute:
             instance.muted_by.add(request.user)  # type: ignore[arg-type]

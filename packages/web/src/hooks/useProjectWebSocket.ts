@@ -713,14 +713,26 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
       }
 
-      // --- User-defined @mention group events (issue 515) ---
-      // A peer creating/renaming/deleting a group or editing its roster on the
-      // Members tab broadcasts mention_group_changed; invalidate the group list so
-      // a second admin viewing the same tab reconciles live (mirrors membership).
+      // --- User-defined @mention group events (issue 515 / #516) ---
+      // A peer creating/renaming/deleting a group or editing its roster broadcasts
+      // mention_group_changed; invalidate the group list so a second admin viewing
+      // the same tab reconciles live (mirrors membership). A program-scoped group
+      // (ADR-0248) rides project channels but targets the program cache, so branch
+      // on scope and invalidate the program key by payload.program_id — never the
+      // project key, which would spuriously refetch an unrelated project list.
       else if (event_type === 'mention_group_changed') {
-        void queryClient.invalidateQueries({
-          queryKey: ['mention-groups', projectIdRef.current],
-        });
+        if (payload.scope === 'program') {
+          const programId = payload.program_id;
+          if (typeof programId === 'string') {
+            void queryClient.invalidateQueries({
+              queryKey: ['program-mention-groups', programId],
+            });
+          }
+        } else {
+          void queryClient.invalidateQueries({
+            queryKey: ['mention-groups', projectIdRef.current],
+          });
+        }
       }
 
       // --- Team facet / role events (ADR-0078) ---

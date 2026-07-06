@@ -1,14 +1,30 @@
 import { useState } from 'react';
 import { Button } from '@/components/Button';
-import type { MentionGroup } from '../hooks/useMentionGroups';
+import type { MentionGroupMember } from '../hooks/useMentionGroups';
 
 export interface ProjectMemberOption {
   userId: string;
   username: string;
 }
 
+/**
+ * The subset of a mention group this row renders. Both the project-scoped
+ * `MentionGroup` (ADR-0212) and the program-scoped `ProgramMentionGroup`
+ * (ADR-0248, #516) structurally satisfy it, so the row is shared across scopes —
+ * it never reads the scope-specific `project` / `program` field.
+ */
+export interface MentionGroupRowData {
+  id: string;
+  name: string;
+  description: string;
+  email_default_on: boolean;
+  members: MentionGroupMember[];
+  member_count: number;
+  muted_by_me: boolean;
+}
+
 interface MentionGroupRowProps {
-  group: MentionGroup;
+  group: MentionGroupRowData;
   /** Admin+ — rename, delete, flip the email default. */
   canManageGroup: boolean;
   /** Scheduler+ — add/remove members. */
