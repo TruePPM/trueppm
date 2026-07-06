@@ -81,10 +81,14 @@ No change. Agent-facing invariants remain enforced in the API/serializer layer a
 - `ux-design` output for a new feature opens with an object→lens map before wireframes
   (an added expectation on the existing skill, not a new gate).
 - The OSS/Enterprise *surfacing* rule derived from the object-first lens lands as
-  `packages/web/CLAUDE.md` **rule 231**. Rule 231 ships with a carve-out: its reconciliation
-  against shipped rules 121 (EE-badge on capability matrices) and 178 (disabled Portfolio
-  row in the rail) is deferred to **#1677**, and 121/178 remain in force on their named
-  surfaces until #1677 resolves. This ADR takes no position on that reconciliation.
+  `packages/web/CLAUDE.md` **rule 231**, resolved by a **daily-path-vs-seam classifier**:
+  231 governs daily-path surfaces (shell, rail, nav, workspace) — empty extension-point slots,
+  no ambient upsell; **seam surfaces** (Settings → Roles & permissions, org-identity/governance
+  settings, the `/programs`→portfolio boundary) may carry a single contextual affordance, so
+  rule 121's `EnterpriseBadge` stays there (231 and 121 are the same principle on two surface
+  types). The one shipped correction — converting the rail's disabled "Portfolio rollup" row
+  (rule 178 / `Sidebar.tsx`) to an empty `nav.portfolio_section` slot, with discovery at the
+  `/programs` seam — is the scoped follow-up tracked in **#1677**.
 - DX/OX contracts (error shapes, Helm values) become review-blocking design artifacts, not
   post-hoc documentation.
 - No migration, no API change, no code change ships with this ADR itself.
