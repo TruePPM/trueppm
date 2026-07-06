@@ -193,6 +193,26 @@ Key security properties:
 - **IDOR prevention** — querysets are scoped to the user's project memberships; non-members see empty results, not 403 errors
 - **Last-Owner guard** — prevents accidental removal of all project owners
 
+## Container image supply-chain
+
+Every published `api` and `web` image is scanned and inventoried in the release
+pipeline before it is pushed:
+
+- **Vulnerability scan** — [Trivy](https://trivy.dev) scans each built image and
+  **fails the release** on any fixable HIGH/CRITICAL CVE. Base-image CVEs with no
+  available patch (`--ignore-unfixed`) do not block, since they are not
+  actionable by the operator.
+- **SBOM** — [Syft](https://github.com/anchore/syft) generates a CycloneDX SBOM
+  (`sbom/api-<version>.cdx.json`, `sbom/web-<version>.cdx.json`) for the exact
+  image tarball that is published. The SBOM is retained as a non-expiring CI
+  artifact on the release pipeline so you can audit the full dependency inventory
+  of any image you run.
+
+**Signing.** Cosign signatures and SBOM attestations on the public images and
+Helm chart land alongside GHCR image publishing (planned for the 0.4 beta) —
+until then, verify images by matching the published digest and the attached SBOM
+artifact.
+
 ## Reporting vulnerabilities
 
 If you discover a security vulnerability in TruePPM, please report it privately —
