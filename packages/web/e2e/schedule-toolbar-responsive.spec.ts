@@ -51,7 +51,11 @@ async function gotoSchedule(page: import('@playwright/test').Page, viewportWidth
     tasks: FIXTURE_TASKS,
   });
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
-  await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({
+  // Gate on the canvas, not the task-list grid: below md (< 768px) the Schedule
+  // forces full-width Timeline mode (#1670) and the task-list panel never mounts,
+  // so the 600px case has no "Task list" grid. The canvas scroll container
+  // renders in both the mobile and desktop layouts.
+  await expect(page.getByTestId('schedule-canvas-scroll')).toBeVisible({
     timeout: 15_000,
   });
 }

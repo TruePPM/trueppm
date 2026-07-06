@@ -501,6 +501,15 @@ export function ScheduleView() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
+  // Mobile Schedule layout (#1670): below md the desktop split-pane Gantt is
+  // unusable — the ~220px task-list table crowds the canvas off the right edge.
+  // Force full-width Timeline mode on phones (task names render inline on the
+  // bars) so the canvas owns the whole width. This is a render-time layout
+  // override only; it deliberately does not mutate the stored `viewMode`, so a
+  // rotate back to desktop restores the user's Grid/Timeline preference. A
+  // dedicated mobile-first surface is tracked in #1671.
+  const effectiveViewMode = isMobile ? 'timeline' : viewMode;
+
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
   // Entries are removed when the task appears in the scheduled tasks list.
   const [pendingTaskIds, setPendingTaskIds] = useState<Map<string, string>>(new Map());
@@ -652,9 +661,10 @@ export function ScheduleView() {
     };
     taskList.addEventListener('scroll', handler, { passive: true });
     return () => taskList.removeEventListener('scroll', handler);
-    // Re-attach when the task list remounts (Timeline→Grid toggle, issue 1221): the
-    // panel unmounts in Timeline mode, so the listener must bind to the new node.
-  }, [viewMode]);
+    // Re-attach when the task list remounts (Timeline→Grid toggle, issue 1221; or
+    // the mobile full-width override, #1670): the panel unmounts in Timeline mode,
+    // so the listener must bind to the new node.
+  }, [effectiveViewMode]);
 
   const handleEngineReady = useCallback((eng: GanttEngine) => {
     setEngine(eng);
@@ -1175,9 +1185,10 @@ export function ScheduleView() {
 
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
   // Horizontal anchor for canvas overlays (legend, unscheduled gutter, milestone
-  // pulse). In Timeline mode (issue 1221) the task-list panel is hidden, so the canvas
-  // starts at the container's left edge and these overlays must offset by 0.
-  const panelWidth = viewMode === 'timeline' ? 0 : totalWidth;
+  // pulse). In Timeline mode (issue 1221) — or the mobile full-width override
+  // (#1670) — the task-list panel is hidden, so the canvas starts at the
+  // container's left edge and these overlays must offset by 0.
+  const panelWidth = effectiveViewMode === 'timeline' ? 0 : totalWidth;
 
   const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1284,54 +1295,58 @@ export function ScheduleView() {
         {/* Project-health summary chip (#248) */}
         <ScheduleSummaryChip visibleTasks={visibleTasks} />
 
-        {/* Column visibility toggle */}
-        <div className="relative" ref={colMenuRef}>
-          <button
-            type="button"
-            onClick={() => setShowColMenu((v) => !v)}
-            aria-expanded={showColMenu}
-            aria-haspopup="menu"
-            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
+        {/* Column visibility toggle — hidden on mobile (#1670), where the
+            task-list panel it controls is not rendered. */}
+        {!isMobile && (
+          <div className="relative" ref={colMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowColMenu((v) => !v)}
+              aria-expanded={showColMenu}
+              aria-haspopup="menu"
+              className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
-          >
-            Columns
-          </button>
-          {showColMenu && (
-            <div
-              role="menu"
-              className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
-                rounded-card py-1 min-w-[120px]"
-              aria-label="Toggle column visibility"
             >
-              {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
-                <label
-                  key={col}
-                  className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
+              Columns
+            </button>
+            {showColMenu && (
+              <div
+                role="menu"
+                className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
+                rounded-card py-1 min-w-[120px]"
+                aria-label="Toggle column visibility"
+              >
+                {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
+                  <label
+                    key={col}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
                     cursor-pointer hover:bg-neutral-surface-raised select-none"
-                >
-                  <input
-                    type="checkbox"
-                    checked={visible[col]}
-                    onChange={() => toggleColumn(col)}
-                    className="accent-brand-primary"
-                  />
-                  {col === 'dur'
-                    ? 'Dur'
-                    : col === 'start'
-                      ? 'Start'
-                      : col === 'finish'
-                        ? 'Finish'
-                        : '%'}
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
+                  >
+                    <input
+                      type="checkbox"
+                      checked={visible[col]}
+                      onChange={() => toggleColumn(col)}
+                      className="accent-brand-primary"
+                    />
+                    {col === 'dur'
+                      ? 'Dur'
+                      : col === 'start'
+                        ? 'Start'
+                        : col === 'finish'
+                          ? 'Finish'
+                          : '%'}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Grid↔Timeline layout toggle (issue 1221) — primary control: Grid keeps the
-            WBS table beside the timeline, Timeline hides it for a full-width canvas. */}
-        <ScheduleViewModeToggle />
+            WBS table beside the timeline, Timeline hides it for a full-width canvas.
+            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
+        {!isMobile && <ScheduleViewModeToggle />}
         {/* "Today" button (rule 82) */}
         <button
           type="button"
@@ -1487,8 +1502,9 @@ export function ScheduleView() {
       <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         {/* Grid mode shows the WBS task-list table + resize splitter; Timeline
             mode (issue 1221) hides both for a full-width canvas (task names render
-            inline on the bars). */}
-        {viewMode === 'grid' && (
+            inline on the bars). Mobile is forced to Timeline (#1670), so the
+            panel + splitter never render on a phone. */}
+        {effectiveViewMode === 'grid' && (
           <>
             <TaskListPanel
               tasks={visibleTasks}
