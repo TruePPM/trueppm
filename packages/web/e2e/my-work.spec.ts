@@ -666,4 +666,80 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByText('1d 2h blocked')).toBeVisible();
     await expect(page.getByText('Waiting on the API key')).toBeVisible();
   });
+
+  test('surfaces read-only external (Jira) items in the feed with a source freshness line (#1422)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await setupAuthenticatedPage(page);
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+      }),
+    );
+    await page.route('**/api/v1/me/active-sprints/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+
+    const EXTERNAL_ITEM = {
+      id: 'ewi-1',
+      source_type: 'jira',
+      key: 'RIV-482',
+      title: 'API gateway returns 502 under load',
+      external_status: 'In Review',
+      status_category: 'in_progress',
+      due_date: null, // no due date → lands in Upcoming, deterministic across run dates
+      url: 'https://truescope.atlassian.net/browse/RIV-482',
+      synced_at: '2026-07-06T09:31:00Z',
+    };
+    const JIRA_SOURCE = {
+      source_type: 'jira',
+      label: 'Jira',
+      site_url: 'truescope.atlassian.net',
+      status: 'connected',
+      last_synced_at: '2026-07-06T09:31:00Z',
+    };
+
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [TASK],
+          next: null,
+          previous: null,
+          active_sprints: [ACTIVE_SPRINT],
+          due_today_count: 0,
+          server_version_high_water: 100,
+          external_items: [EXTERNAL_ITEM],
+          external_sources: [JIRA_SOURCE],
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    const assigned = page.getByRole('region', { name: 'Assigned to me' });
+    // Undated external item is grouped under Upcoming.
+    await expect(page.getByRole('heading', { name: /Upcoming, 1 task/i })).toBeVisible();
+
+    const externalRow = assigned.locator('li', { hasText: 'RIV-482' });
+    await expect(externalRow).toBeVisible();
+
+    // Deep link opens the provider in a new tab, safely.
+    const link = externalRow.getByRole('link', { name: /API gateway returns 502/ });
+    await expect(link).toHaveAttribute('href', 'https://truescope.atlassian.net/browse/RIV-482');
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+
+    // Read-only: raw provider status + explicit chip, and NO native task actions.
+    await expect(externalRow.getByText('In Review')).toBeVisible();
+    await expect(externalRow.getByText('Read-only')).toBeVisible();
+    await expect(externalRow.getByRole('button')).toHaveCount(0);
+
+    // Per-source freshness line.
+    await expect(assigned.getByText(/synced/)).toBeVisible();
+  });
 });

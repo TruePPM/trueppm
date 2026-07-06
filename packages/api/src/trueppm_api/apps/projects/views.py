@@ -10825,8 +10825,17 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             "active_sprints": [{ ...minimal sprint card... }],
             "due_today_count": 3,
             "server_version_high_water": 12345,
-            "signals": { ...cross-program focus-card aggregates, #1236... }
+            "signals": { ...cross-program focus-card aggregates, #1236... },
+            "external_items": [{ ...read-only Jira/etc. item, #1422... }],
+            "external_sources": [{ ...connected-source freshness, #1422... }]
         }
+
+    ``external_items`` / ``external_sources`` (#1422, ADR-0097 §4) surface the
+    user's read-only external work items (their assigned Jira issues) alongside
+    native tasks in one feed. Like ``signals``, both are first-page-only side
+    blocks (the bounded ≤500 personal cache is not paginated with ``results``)
+    and always present on page 1 (possibly empty). An external item is never a
+    Task — it carries no schedule/board/write fields.
 
     ``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for
     the focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,
@@ -10912,11 +10921,15 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                     "all their projects, wrapped with sprint and freshness metadata: "
                     "{results: [<flat task>], next, previous, active_sprints: "
                     "[<minimal sprint card>], due_today_count, "
-                    "server_version_high_water, retro_action_items, signals}. "
+                    "server_version_high_water, retro_action_items, signals, "
+                    "external_items, external_sources}. "
                     "`signals` (#1236) carries cross-program focus-card aggregates — "
                     "`schedule_health`, `forecast` (Monte-Carlo P80), and "
                     "`sprint_burndown` — each present only when a real server-side "
-                    "computation backs it (rule 120), and only on the first page."
+                    "computation backs it (rule 120), and only on the first page. "
+                    "`external_items`/`external_sources` (#1422) are the user's "
+                    "read-only external work items (Jira etc.) and connected-source "
+                    "freshness, also first-page-only."
                 ),
             ),
         },
@@ -11011,10 +11024,19 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
         # fabricated number).
         is_first_page = self.paginator is None or getattr(self.paginator, "offset", 0) == 0
         me_work_signals_payload: dict[str, Any] = {}
+        # Read-only external items (Jira etc.) surfaced alongside native tasks
+        # (#1422, ADR-0097 §4). First-page-only side-blocks, same lifecycle as
+        # ``signals``: the bounded (≤500 per source) personal cache is not
+        # paginated with the task ``results``; the web reads both from page 1. Kept
+        # in the integrations app so the read-only isolation invariant does not
+        # leak into projects — this view never touches ExternalWorkItem directly.
+        external_blocks: dict[str, Any] = {}
         if is_first_page:
+            from trueppm_api.apps.integrations.me_work import me_work_external_blocks
             from trueppm_api.apps.projects.services import me_work_signals
 
             me_work_signals_payload = me_work_signals(request.user, active_sprints_list, today)
+            external_blocks = me_work_external_blocks(request.user)
 
         # Retro action items relevant to this user (ADR-0071 §4c):
         #   - Suggestions PENDING for this user
@@ -11032,6 +11054,9 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
             # Later pages omit it — the web reads signals from page 1 only.
             if is_first_page:
                 paginated["signals"] = me_work_signals_payload
+                # external_items/external_sources ride the same first-page-only
+                # contract (always present, possibly empty). #1422.
+                paginated.update(external_blocks)
             return Response(paginated, status=status.HTTP_200_OK)
 
         return Response(
@@ -11044,6 +11069,7 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                 "server_version_high_water": server_version_high_water,
                 "retro_action_items": retro_items_payload,
                 "signals": me_work_signals_payload,
+                **external_blocks,
             },
             status=status.HTTP_200_OK,
         )

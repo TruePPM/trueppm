@@ -16,7 +16,7 @@
  * emoji; borders over shadows; color is signal-only.
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Button } from '@/components/Button';
 import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
@@ -24,6 +24,28 @@ import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
 
 interface Props {
   hasProjects: boolean;
+  /**
+   * Whether the user has any connected external source (Jira etc.). When false,
+   * the "no assignments" state offers a Connect-Jira nudge so a contributor who
+   * lives in Jira has a next step (#1422).
+   */
+  hasConnectedExternalSource?: boolean;
+}
+
+const CONNECTED_ACCOUNTS_ROUTE = '/me/settings/connected-accounts';
+
+/** "Connect Jira" nudge — one step for a contributor whose work lives in Jira. */
+function ConnectJiraNudge() {
+  return (
+    <Link
+      to={CONNECTED_ACCOUNTS_ROUTE}
+      className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 rounded-control"
+    >
+      Connect Jira to see your assigned issues here →
+    </Link>
+  );
 }
 
 /** Shared "Learn more" docs link, refreshed (no emoji). */
@@ -83,8 +105,9 @@ function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
   );
 }
 
-export function MyWorkEmptyState({ hasProjects }: Props) {
+export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = false }: Props) {
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const showConnectJira = !hasConnectedExternalSource;
 
   if (offline) {
     return (
@@ -136,6 +159,7 @@ export function MyWorkEmptyState({ hasProjects }: Props) {
         Nothing is assigned to you right now. When a teammate assigns you a task — or you create one
         — it&rsquo;ll show up here.
       </p>
+      {showConnectJira && <ConnectJiraNudge />}
       <LearnMoreLink />
     </div>
   );

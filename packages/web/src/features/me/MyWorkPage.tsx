@@ -30,13 +30,20 @@
  * with header ``X-Source: my_work`` (see ``useMyWorkStatusUpdate``).
  */
 import { useMemo, useState } from 'react';
-import { useMyWork, type MyWorkGroup, type MyWorkTask } from '@/hooks/useMyWork';
+import {
+  useMyWork,
+  type MyWorkGroup,
+  type MyWorkTask,
+  type MyWorkExternalItem,
+} from '@/hooks/useMyWork';
 import { useTimeRollup } from '@/hooks/useTimeEntry';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
+import { ExternalWorkItemRow } from './ExternalWorkItemRow';
+import { MyWorkSourceFreshness } from './MyWorkSourceFreshness';
 import { MyWorkEmptyState } from './MyWorkEmptyState';
 import { MyWorkRetroSection } from './MyWorkRetroSection';
 import { MyWorkFocusCards } from './MyWorkFocusCards';
@@ -53,6 +60,8 @@ import {
 interface WorkGroup {
   group: MyWorkGroup;
   tasks: MyWorkTask[];
+  /** Read-only external items (Jira etc.) bucketed into this group (#1422). */
+  externalItems: MyWorkExternalItem[];
 }
 
 // Render order + contributor-facing labels (#484). Deliberately plain language —
@@ -64,21 +73,63 @@ const GROUP_LABEL: Record<MyWorkGroup, string> = {
   upcoming: 'Upcoming',
 };
 
+/** Local calendar date as YYYY-MM-DD, for lexicographic compare with `due_date`. */
+function localTodayIso(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /**
- * Partition the flat list into its contiguous server-assigned buckets. The
- * response is already sorted group_rank → blocked-first → due, so this is a
- * stable group-by that preserves the server ordering within each section.
+ * Bucket read-only external items into the same Today / Upcoming groups as
+ * native tasks (#1422). `done` items are hidden — a "what's on me" feed should
+ * not carry finished work (Jira's default JQL already excludes Done). A dated
+ * item due today or overdue lands in Today; everything else in Upcoming.
+ * External items never map to This Sprint (they have no TruePPM sprint). The
+ * server already ordered them (due date → bucket → recency), so each group
+ * preserves that order.
  */
-function groupByBucket(tasks: MyWorkTask[]): WorkGroup[] {
+function groupExternalItems(
+  items: MyWorkExternalItem[],
+  todayIso: string,
+): Record<MyWorkGroup, MyWorkExternalItem[]> {
+  const buckets: Record<MyWorkGroup, MyWorkExternalItem[]> = {
+    today: [],
+    this_sprint: [],
+    upcoming: [],
+  };
+  for (const it of items) {
+    if (it.status_category === 'done') continue;
+    if (it.due_date && it.due_date <= todayIso) buckets.today.push(it);
+    else buckets.upcoming.push(it);
+  }
+  return buckets;
+}
+
+/**
+ * Partition the flat list into its contiguous server-assigned buckets and fold
+ * the bucketed external items in. The response is already sorted group_rank →
+ * blocked-first → due, so the native group-by preserves server ordering within
+ * each section; external items are appended after native rows in the same group.
+ * A group renders when it has either native tasks or external items.
+ */
+function groupByBucket(
+  tasks: MyWorkTask[],
+  externalByGroup: Record<MyWorkGroup, MyWorkExternalItem[]>,
+): WorkGroup[] {
   const buckets = new Map<MyWorkGroup, MyWorkTask[]>();
   for (const t of tasks) {
     const bucket = buckets.get(t.group) ?? [];
     bucket.push(t);
     buckets.set(t.group, bucket);
   }
-  return GROUP_ORDER.map((g) => ({ group: g, tasks: buckets.get(g) ?? [] })).filter(
-    (g) => g.tasks.length > 0,
-  );
+  return GROUP_ORDER.map((g) => ({
+    group: g,
+    tasks: buckets.get(g) ?? [],
+    externalItems: externalByGroup[g] ?? [],
+  })).filter((g) => g.tasks.length > 0 || g.externalItems.length > 0);
 }
 
 export function MyWorkPage() {
@@ -102,10 +153,24 @@ export function MyWorkPage() {
   // the server has no real data to back any of them (honest omission).
   const signals = firstPage?.signals;
   const retroItemCount = firstPage?.retro_action_items?.length ?? 0;
-  // Surface count includes retro suggestions/owned items so an empty task list
-  // doesn't suppress the "From retros" section when a user has pending
-  // suggestions but no other assigned work (ADR-0071 §4c).
-  const totalCount = allTasks.length + retroItemCount;
+  // Read-only external items + per-source freshness (#1422), first page only.
+  const externalItems = useMemo(() => firstPage?.external_items ?? [], [firstPage]);
+  const externalSources = useMemo(() => firstPage?.external_sources ?? [], [firstPage]);
+  const sourceByType = useMemo(
+    () => new Map(externalSources.map((s) => [s.source_type, s])),
+    [externalSources],
+  );
+  // Visible external items exclude `done` (hidden from the feed), matching the
+  // grouping. Drives the empty-state decision so a user whose only work is a
+  // Jira item still sees their feed rather than the empty state.
+  const externalVisibleCount = useMemo(
+    () => externalItems.filter((i) => i.status_category !== 'done').length,
+    [externalItems],
+  );
+  // Surface count includes retro suggestions/owned items and external items so an
+  // empty native task list doesn't suppress the page when a user has pending
+  // suggestions (ADR-0071 §4c) or only external work (#1422).
+  const totalCount = allTasks.length + retroItemCount + externalVisibleCount;
   const dueTodayCount = firstPage?.due_today_count ?? 0;
   const criticalCount = useMemo(
     () => allTasks.filter((t) => t.is_critical).length,
@@ -127,7 +192,16 @@ export function MyWorkPage() {
     [allTasks, filteringBlocked],
   );
 
-  const workGroups = useMemo(() => groupByBucket(visibleTasks), [visibleTasks]);
+  // When the blocked-only filter is active, hide external items too — they have
+  // no blocked concept, so a "show only blocked" view should not carry them.
+  const externalByGroup = useMemo(
+    () => groupExternalItems(filteringBlocked ? [] : externalItems, localTodayIso()),
+    [externalItems, filteringBlocked],
+  );
+  const workGroups = useMemo(
+    () => groupByBucket(visibleTasks, externalByGroup),
+    [visibleTasks, externalByGroup],
+  );
   const focusCards = useMemo(
     () => buildMyWorkFocusCards(allTasks, activeSprints, dueTodayCount, signals),
     [allTasks, activeSprints, dueTodayCount, signals],
@@ -224,7 +298,10 @@ export function MyWorkPage() {
       {isLoading ? (
         <LoadingSkeleton />
       ) : totalCount === 0 ? (
-        <MyWorkEmptyState hasProjects={(projects ?? []).length > 0} />
+        <MyWorkEmptyState
+          hasProjects={(projects ?? []).length > 0}
+          hasConnectedExternalSource={externalSources.some((s) => s.status !== 'not_connected')}
+        />
       ) : (
         <div className="flex w-full max-w-[1100px] flex-col gap-5 px-4 pb-6 md:px-6 mx-auto">
           {/* Focus row — risk-ranked, worst signal leads. */}
@@ -247,14 +324,29 @@ export function MyWorkPage() {
                   aria-labelledby={`group-${group.group}`}
                   className="flex flex-col"
                 >
-                  <WorkGroupHeader group={group.group} taskCount={group.tasks.length} />
+                  <WorkGroupHeader
+                    group={group.group}
+                    taskCount={group.tasks.length + group.externalItems.length}
+                  />
                   <ul className="flex flex-col">
                     {group.tasks.map((t) => (
                       <MyWorkTaskRow key={t.id} task={t} />
                     ))}
+                    {/* External items render after native tasks in the same
+                        group — one unified feed, not a siloed section (#1422). */}
+                    {group.externalItems.map((it) => (
+                      <ExternalWorkItemRow
+                        key={it.id}
+                        item={it}
+                        source={sourceByType.get(it.source_type)}
+                      />
+                    ))}
                   </ul>
                 </section>
               ))}
+              {/* Per-source freshness / reconnect line for connected external
+                  sources (#1422). Self-suppresses when none are connected. */}
+              <MyWorkSourceFreshness sources={externalSources} />
               {hasNextPage && (
                 <div className="flex justify-center py-4">
                   <button

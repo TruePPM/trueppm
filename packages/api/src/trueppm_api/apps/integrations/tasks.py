@@ -214,6 +214,7 @@ def _apply_pull(
                 "title": dto.title,
                 "external_status": dto.external_status,
                 "display_bucket": dto.display_bucket,
+                "due_date": dto.due_date,
                 "last_synced_at": now,
                 "is_stale": False,
             },
