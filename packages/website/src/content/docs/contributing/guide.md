@@ -16,6 +16,24 @@ make doctor   # verifies all prerequisites
 
 See [Installation](/getting-started/installation/) for Docker Compose setup.
 
+## Frontend environment variables
+
+The web app reads build-time settings from `packages/web/.env` (gitignored) — copy
+`packages/web/.env.example` and adjust. Vite only exposes variables prefixed with
+`VITE_`, and a change takes effect only after restarting the dev server.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `VITE_API_BASE_URL` | unset (dev proxies to `localhost:8000`) | Deployed API base URL for production builds |
+| `VITE_FEATURE_FLAGS` | unset | JSON build-time defaults for runtime feature flags |
+| `VITE_REACT_QUERY_DEVTOOLS` | off | Set to `true` to show the React Query devtools panel in dev builds |
+
+The React Query devtools panel is **off by default** so it never occupies screen
+real estate during normal development. To debug query-cache state, set
+`VITE_REACT_QUERY_DEVTOOLS=true` in `packages/web/.env` and restart Vite. It is
+gated on dev builds, so it is never present in a production bundle regardless of
+this value.
+
 ## Branching
 
 Branch from `main` with a conventional prefix:

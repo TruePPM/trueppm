@@ -144,7 +144,13 @@ export function AppShell() {
           notices stay in BoardDropNotice (rule 170). */}
       <ToastHost />
 
-      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
+      {/* The React Query devtools panel is opt-in: it occupies screen real estate,
+          so it stays off unless VITE_REACT_QUERY_DEVTOOLS=true is set at build/dev
+          start (restart Vite to pick it up). Gated on DEV too so the devDependency
+          import is tree-shaken out of production builds. */}
+      {import.meta.env.DEV && import.meta.env.VITE_REACT_QUERY_DEVTOOLS === 'true' && (
+        <ReactQueryDevtools initialIsOpen={false} />
+      )}
     </QueryClientProvider>
   );
 }
