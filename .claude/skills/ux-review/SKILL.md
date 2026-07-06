@@ -87,19 +87,19 @@ These are concrete patterns derived from prior pre-release audit findings that s
 - **Hover-reveal controls** — when a button uses `opacity-0 group-hover:opacity-100`, it must also include `focus:opacity-100` (otherwise it is unreachable by keyboard). Grep: `grep -rn 'group-hover:opacity-100' packages/web/src/` and confirm every match also has `focus:opacity-100` on the same element.
 - **Conditional permission-gated affordances** — admin-only or role-restricted controls must be hidden entirely from the DOM (`{isAdmin && (...)}`), never rendered as `disabled` with reduced opacity. A disabled focusable button announces "[label], dimmed" to screen readers and is a dead affordance. Grep: `grep -rnE 'disabled=\{!(isAdmin|isOrgAdmin|isPMOAdmin|hasRole)' packages/web/src/`.
 
-### 6.2 OSS / Enterprise Boundary Affordance
+### 6.2 OSS / Enterprise Boundary Surfacing (governed by rule 231 / ADR-0266)
 
-When the surface under review is the OSS side of a documented OSS↔Enterprise boundary (per the Two-Repo Rule), it must carry a visible on-surface affordance pointing at the Enterprise upgrade path. Absence of this affordance turns missing Enterprise features into the appearance of broken or unfinished OSS — weakens the adoption-led GTM positioning and confuses evaluators.
+The shared goal is unchanged: an OSS surface bordering Enterprise must not make *missing* Enterprise features read as *broken or unfinished OSS*. What changed (ADR-0266, frontend **rule 231**) is the **preferred remedy** and, critically, the recognition that the OSS daily path must **not** carry ambient upsell — TruePPM's adoption-first GTM means the free tier is complete for one team, and the Enterprise need is discovered *structurally at the seam*, not through padlocks sprinkled across the shell.
 
-What to check:
-- Does the surface advertise feature rows, tabs, sections, or capability cells that exist only in TruePPM Enterprise (portfolio governance, SSO, audit-trail UI, cross-program rollups, approval workflows, custom roles, etc.)? Read the relevant ADR for the OSS↔Enterprise scope statement.
-- If yes, does each of those rows / cells carry a small `EE` badge with a tooltip routing to the Enterprise marketing or docs page?
-- For surfaces that host an entire Enterprise-tier capability stack (e.g. Settings → Roles, `/programs` landing, future `/portfolio` gateway), is there a single visible upsell card or section-footer link at the natural scope boundary?
-- Conversely: does the OSS surface accidentally render Enterprise-tier functionality without an edition gate (giving the upsell away)?
+The correct treatment now depends on the **surface class**:
 
-Flag missing affordances as MEDIUM by default. HIGH when the surface is a primary purchase-decision touchpoint (Settings → Roles & permissions, `/programs` landing, future `/portfolio` gateway) — these are where evaluators form the OSS-vs-Enterprise mental model.
+- **New shell / navigation surfaces and extension-point slots** (the 3-tier rail, the location switcher, any ADR-0029 slot): apply **rule 231**. Absent the enterprise edition the slot renders **nothing** (`registry.get(<slot>)` → `[]`) — **no** grayed-out row, **no** padlock, **no** EE badge in the daily path. The upgrade signal is allowed **only at the seam** — the point where the user's own action crosses the boundary (comparing ≥2 programs, opening a portfolio roll-up, enforcing org-wide SSO, syncing a directory) — and there it is a distinct opt-in surface, never a disabled OSS control. **Flag as a rule-231 violation (HIGH on a primary daily surface):** an ambient EE badge, padlock, or `disabled` Enterprise control anywhere in the OSS shell/daily path; also flag an OSS surface that renders Enterprise-tier functionality with no edition gate (gives the capability away).
+- **Capability-enumeration matrices** (Settings → Roles & permissions today): **rule 121** remains in force — the matrix's job is to show the *full* capability space, so hiding Enterprise rows would misrepresent it; each Enterprise row carries the `EnterpriseBadge`-as-link, self-gated on `useEdition() === 'community'`. This surface class is the one place a per-row EE badge is correct.
+- **The rail's Organization group** (the shipped disabled "Portfolio rollup" row): **rule 178** remains in force *as shipped* — do not flag it as a 231 violation yet.
 
-This check is not a greppable pattern. It requires reading the relevant ADR for the surface and confirming that any Enterprise-reserved capability noted in the ADR has a corresponding on-surface signal in the implementation. Run whenever an MR adds or modifies a surface documented as the OSS side of an OSS↔Enterprise boundary.
+**Pending #1677:** whether rule 231 supersedes rules 121 and 178 on those two named surfaces (the Roles matrix and the rail Organization group) is an open reconciliation. Until #1677 resolves, review to the split above: 231 governs *new* surfaces; 121/178 govern their named *shipped* surfaces. Do not, in a review, demand removal of shipped `EnterpriseBadge`/disabled-row code under rule 231 alone — cite #1677 instead.
+
+This check is not greppable. Read the relevant ADR for the surface's OSS↔Enterprise scope statement, classify the surface, and confirm it follows the treatment for its class. Run whenever an MR adds or modifies a surface documented as the OSS side of an OSS↔Enterprise boundary.
 
 ### 7. Information Hierarchy
 - Can a PM see project health in <2 seconds?
