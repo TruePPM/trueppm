@@ -15,6 +15,20 @@ vi.mock('@/hooks/useProjectMutations', () => ({
   useCreateProject: () => mockMutation,
 }));
 
+// Source projects offered by the "Copy settings from" picker (#1659). Mocked so
+// the option list is deterministic without a live /projects/ fetch.
+const projectsResult = {
+  data: [
+    { id: 'proj-alpha', name: 'Alpha' },
+    { id: 'proj-beta', name: 'Beta' },
+  ] as Array<{ id: string; name: string }>,
+  isLoading: false,
+  error: null,
+};
+vi.mock('@/hooks/useProjects', () => ({
+  useProjects: () => projectsResult,
+}));
+
 describe('NewProjectModal', () => {
   const onClose = vi.fn();
   const onCreated = vi.fn();
@@ -213,6 +227,44 @@ describe('NewProjectModal', () => {
     await goToStep3();
     await userEvent.click(screen.getByRole('button', { name: /back/i }));
     expect(screen.getByText(/start date/i)).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Copy settings from another project (#1659, ADR-0242)
+  // ---------------------------------------------------------------------------
+
+  it('renders the copy-settings picker on step 3 with a None option and the readable projects', async () => {
+    renderModal();
+    await goToStep3();
+    const picker = screen.getByRole('combobox', { name: /copy settings from/i });
+    expect(picker).toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: /none/i })).toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: 'Alpha' })).toBeInTheDocument();
+    expect(within(picker).getByRole('option', { name: 'Beta' })).toBeInTheDocument();
+  });
+
+  it('omits copy_settings_from from the payload when no source project is picked', async () => {
+    renderModal();
+    await goToStep3();
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('copy_settings_from');
+  });
+
+  it('includes copy_settings_from in the payload when a source project is picked', async () => {
+    renderModal();
+    await goToStep3();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /copy settings from/i }),
+      'proj-beta',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ copy_settings_from: 'proj-beta' }),
+      expect.anything(),
+    );
   });
 
   // ---------------------------------------------------------------------------

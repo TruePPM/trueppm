@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
+import { useProjects } from '@/hooks/useProjects';
 import type { Methodology } from '@/types';
 
 interface Props {
@@ -52,6 +53,9 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
+  // Optional source project to seed settings from at create time (#1659, ADR-0242).
+  // Empty string = no copy (today's blank-defaults behavior).
+  const [copySettingsFrom, setCopySettingsFrom] = useState('');
 
   const nameRef = useRef<HTMLInputElement>(null);
   const startRef = useRef<HTMLInputElement>(null);
@@ -60,6 +64,10 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
 
   const queryClient = useQueryClient();
   const createProject = useCreateProject();
+  // Membership-scoped project list drives the "Copy settings from" options; the
+  // field's queryset is IDOR-safe server-side, so we simply offer every readable
+  // project as a source (ADR-0242).
+  const { data: projects, isLoading: projectsLoading } = useProjects();
 
   // Capture trigger before modal opens; restore focus on unmount.
   useEffect(() => {
@@ -121,6 +129,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
         methodology,
         agile_features: methodology !== 'WATERFALL',
         ...(programId ? { program: programId } : {}),
+        ...(copySettingsFrom ? { copy_settings_from: copySettingsFrom } : {}),
       },
       {
         onSuccess: (data) => {
@@ -262,6 +271,41 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     </button>
                   ))}
                 </div>
+                {/* Copy settings from another project (#1659, ADR-0242). Optional —
+                    an empty selection keeps today's blank-defaults behavior. */}
+                <label className="flex flex-col gap-1 pt-2 mt-1 border-t border-neutral-border">
+                  <span className="text-xs font-medium text-neutral-text-secondary">
+                    Copy settings from
+                  </span>
+                  <select
+                    value={copySettingsFrom}
+                    onChange={(e) => setCopySettingsFrom(e.target.value)}
+                    aria-label="Copy settings from"
+                    disabled={projectsLoading}
+                    style={{
+                      backgroundImage:
+                        "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
+                    }}
+                    className="h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface
+                      text-sm text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.5rem_center]
+                      focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {projectsLoading ? 'Loading projects…' : 'None — start with blank defaults'}
+                    </option>
+                    {(projects ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-neutral-text-secondary">
+                    Copies the source project&rsquo;s calendar, default view, board cadence,
+                    visibility, and sharing, attachment &amp; Monte Carlo policies. The name,
+                    dates, and planning model you enter here always take precedence.
+                  </span>
+                </label>
                 {createProject.isError && (
                   <p role="alert" className="text-xs text-semantic-critical">
                     Failed to create project. Please try again.
