@@ -1204,9 +1204,10 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
 
     // The projects list is refetched, plus a project-scoped predicate sweep.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
-    expect(invalidateSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ predicate: expect.any(Function) }),
+    const sawPredicateSweep = invalidateSpy.mock.calls.some(
+      (call) => typeof call[0]?.predicate === 'function',
     );
+    expect(sawPredicateSweep).toBe(true);
   });
 
   it('after resync, the next reconnect requests since=latest_seq from the frame', () => {
