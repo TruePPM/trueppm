@@ -117,151 +117,202 @@ function render() {
   });
 }
 
+/** Open the health popover and return its dialog node. */
+async function openPopover(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByTestId('health-cluster'));
+  return screen.getByRole('dialog', { name: 'Project health' });
+}
+
 describe('HealthCluster', () => {
-  it('renders the bordered cluster group', () => {
+  it('renders the status chip trigger with the health-cluster testid', () => {
     render();
-    expect(screen.getByRole('group', { name: 'Project health' })).toBeInTheDocument();
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(chip).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('WATERFALL — Forecast (P50·P80 band) + at-risk + critical segments', () => {
-    methodology.current = 'WATERFALL';
+  // (a) state-word mapping ---------------------------------------------------
+
+  it('chip reads "On track" when there are no at-risk or critical tasks', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 0 };
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    const forecast = within(cluster).getByRole('button', { name: /monte carlo forecast/i });
-    // Band drill-through (#1197): both percentiles surface inline, not a binary read.
-    expect(forecast).toHaveAccessibleName(/P50 .*P80/i);
-    expect(forecast).toHaveTextContent(/P50/);
-    expect(forecast).toHaveTextContent(/P80/);
-    expect(within(cluster).getByRole('button', { name: /2 at-risk tasks/i })).toBeInTheDocument();
-    expect(within(cluster).getByRole('button', { name: /1 critical task$/i })).toBeInTheDocument();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On track');
   });
 
-  it('WATERFALL — forecast degrades to P80 alone when no MC distribution is cached', () => {
-    methodology.current = 'WATERFALL';
-    mcResult.current = undefined;
+  it('chip reads "On watch" when at-risk > 0 and critical = 0', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 3, criticalCount: 0 };
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    const forecast = within(cluster).getByRole('button', { name: /monte carlo p80 completion/i });
-    expect(forecast).toHaveTextContent(/P80/);
-    expect(forecast).not.toHaveTextContent(/P50/);
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('On watch');
   });
 
-  it('AGILE — Sprint + Points + Velocity segments, no at-risk/critical', () => {
+  it('chip reads "At risk" when there is at least one critical task', () => {
+    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 1 };
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('At risk');
+  });
+
+  it('AGILE project with a critical task still reads "At risk" on the chip', () => {
+    // The AGILE cluster has no critical segment, but the chip word derives from
+    // the project-wide count on useShellStats — so a real critical task surfaces.
+    methodology.current = 'AGILE';
+    stats.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, criticalCount: 2 };
+    render();
+    expect(screen.getByTestId('health-cluster')).toHaveTextContent('At risk');
+  });
+
+  // (b) chip P80 fragment ----------------------------------------------------
+
+  it('chip omits the P80 fragment for AGILE (no forecast segment)', () => {
     methodology.current = 'AGILE';
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByText('Sprint 7')).toBeInTheDocument();
-    expect(within(cluster).getByText(/Day \d+\/\d+/)).toBeInTheDocument();
-    expect(within(cluster).getByText('32/40')).toBeInTheDocument();
-    const vel = within(cluster).getByRole('button', { name: /velocity 24 points per sprint/i });
-    // Trust boundary (#1197 — Morgan): the in-audience figure names its audience scope.
-    expect(vel).toHaveAccessibleName(/visible to project members only/i);
-    expect(within(cluster).queryByRole('button', { name: /at-risk/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('health-cluster')).not.toHaveTextContent('P80');
   });
 
-  it('AGILE — velocity is a content-free privacy wall when suppressed (ADR-0104, rule 168)', () => {
+  it('chip shows "P80 —" for WATERFALL when no forecast has run', () => {
+    methodology.current = 'WATERFALL';
+    stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
+    mcResult.current = undefined;
+    render();
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toHaveTextContent('P80');
+    expect(chip).toHaveTextContent('—');
+  });
+
+  it('chip shows the P80 date when a forecast is available', () => {
+    methodology.current = 'WATERFALL';
+    render();
+    const chip = screen.getByTestId('health-cluster');
+    expect(chip).toHaveTextContent('P80');
+    expect(chip).toHaveTextContent('Nov 3'); // 2026-11-03 in UTC
+  });
+
+  // (c) popover row set matches methodology -----------------------------------
+
+  it('WATERFALL popover has forecast (P50 + P80) + at-risk + critical rows', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByText('Forecast P50')).toBeInTheDocument();
+    expect(within(dialog).getByText('Forecast P80')).toBeInTheDocument();
+    expect(within(dialog).getByRole('group', { name: /2 at-risk tasks/i })).toBeInTheDocument();
+    expect(within(dialog).getByRole('group', { name: /1 critical task$/i })).toBeInTheDocument();
+  });
+
+  it('AGILE popover has sprint + points + velocity rows', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByText('Sprint 7')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Day \d+\/\d+/)).toBeInTheDocument();
+    expect(within(dialog).getByText('32/40')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /velocity 24 points per sprint/i })).toBeInTheDocument();
+  });
+
+  it('HYBRID popover has sprint + forecast + critical rows, no at-risk', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'HYBRID';
+    render();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByText('Sprint 7')).toBeInTheDocument();
+    expect(within(dialog).getByText('Forecast P80')).toBeInTheDocument();
+    expect(within(dialog).getByRole('group', { name: /1 critical task$/i })).toBeInTheDocument();
+    expect(within(dialog).queryByRole('group', { name: /at-risk/i })).not.toBeInTheDocument();
+  });
+
+  // (d) velocity privacy wall — NO number ------------------------------------
+
+  it('AGILE velocity row is a content-free privacy wall when suppressed (ADR-0104, rule 168)', async () => {
+    const user = userEvent.setup();
     methodology.current = 'AGILE';
     velocity.current = { ...VELOCITY, velocity_suppressed: true };
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByText(/kept to the team/i)).toBeInTheDocument();
-    // the number is never rendered
-    expect(within(cluster).queryByText(/24/)).not.toBeInTheDocument();
-    expect(within(cluster).queryByRole('button', { name: /velocity 24/i })).not.toBeInTheDocument();
+    const dialog = await openPopover(user);
+    expect(within(dialog).getByText(/kept to the team/i)).toBeInTheDocument();
+    // The number is never rendered.
+    expect(within(dialog).queryByText(/24/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /velocity 24/i })).not.toBeInTheDocument();
   });
 
-  it('AGILE — no active sprint shows the empty sprint affordance and omits Points', () => {
-    methodology.current = 'AGILE';
-    activeSprint.current = null;
-    render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByText(/no active sprint/i)).toBeInTheDocument();
-    expect(within(cluster).queryByText('32/40')).not.toBeInTheDocument();
-  });
+  // (e) forecast rows are neutral (never amber/critical) ----------------------
 
-  it('HYBRID — Sprint + Forecast + Critical, no at-risk', () => {
-    methodology.current = 'HYBRID';
-    render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByText('Sprint 7')).toBeInTheDocument();
-    expect(within(cluster).getByRole('button', { name: /monte carlo forecast/i })).toBeInTheDocument();
-    expect(within(cluster).getByRole('button', { name: /1 critical task$/i })).toBeInTheDocument();
-    expect(within(cluster).queryByRole('button', { name: /at-risk/i })).not.toBeInTheDocument();
-  });
-
-  it('forecast "—" when the scheduler has not run', () => {
+  it('forecast rows carry no amber/critical text class (rule 172 — informational, neutral)', async () => {
+    const user = userEvent.setup();
     methodology.current = 'WATERFALL';
-    // Genuine empty state: neither the status summary nor a live MC result
-    // carries a P80. The summary alone being null is no longer enough — the
-    // segment now falls back to the live MC result's p80 (ADR-0144 fix for the
-    // "P80 —" bug), so the MC result must be absent for the em-dash to show.
+    render();
+    const dialog = await openPopover(user);
+    const p50Row = within(dialog).getByText('Forecast P50').closest('div')!;
+    const p80Row = within(dialog).getByText('Forecast P80').closest('div')!;
+    for (const row of [p50Row, p80Row]) {
+      expect(row.className).not.toMatch(/semantic-at-risk|semantic-critical/);
+      expect(row.innerHTML).not.toMatch(/semantic-at-risk|semantic-critical/);
+    }
+  });
+
+  // (c continued) forecast band + degrade ------------------------------------
+
+  it('forecast P80 row shows "—" when the scheduler has not run', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
     stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
     mcResult.current = undefined;
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).queryByRole('button', { name: /monte carlo/i })).not.toBeInTheDocument();
-    expect(within(cluster).getByText('—')).toBeInTheDocument();
+    const dialog = await openPopover(user);
+    const p80Row = within(dialog).getByText('Forecast P80').closest('div')!;
+    expect(within(p80Row).getByText('—')).toBeInTheDocument();
+    // No MC result cached → no Details drill.
+    expect(within(dialog).queryByRole('button', { name: /monte carlo/i })).not.toBeInTheDocument();
   });
 
-  it('forecast falls back to the live MC P80 when the status summary omits it', () => {
-    methodology.current = 'WATERFALL';
-    // The status summary hardcodes monte_carlo_p80 = null (projects/views.py),
-    // but a fresh MC run is cached. The header must show that p80, not "—".
-    stats.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
-    mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
-    render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(within(cluster).getByRole('button', { name: /monte carlo/i })).toBeInTheDocument();
-    expect(within(cluster).queryByText('—')).not.toBeInTheDocument();
-  });
-
-  it('clicking the Forecast segment opens the MC distribution panel', async () => {
+  it('clicking the forecast "Details ›" row opens the MC distribution panel', async () => {
     const user = userEvent.setup();
     methodology.current = 'WATERFALL';
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    await user.click(within(cluster).getByRole('button', { name: /monte carlo forecast/i }));
+    const dialog = await openPopover(user);
+    await user.click(within(dialog).getByRole('button', { name: /monte carlo forecast/i }));
     expect(screen.getByRole('dialog', { name: /monte carlo confidence/i })).toBeInTheDocument();
   });
 
-  it('at-risk segment opens a task popover', async () => {
+  it('at-risk row drills into the offending tasks and closes the popover', async () => {
     const user = userEvent.setup();
+    const onTaskNavigate = vi.fn();
     methodology.current = 'WATERFALL';
-    render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    await user.click(within(cluster).getByRole('button', { name: /2 at-risk tasks/i }));
-    expect(screen.getByRole('menuitem', { name: /frontend build/i })).toBeInTheDocument();
+    renderWithRouter(<HealthCluster onTaskNavigate={onTaskNavigate} />, {
+      initialEntries: ['/projects/test-project-id/board'],
+    });
+    await user.click(screen.getByTestId('health-cluster'));
+    const dialog = screen.getByRole('dialog', { name: 'Project health' });
+    await user.click(within(dialog).getByRole('button', { name: /frontend build/i }));
+    expect(onTaskNavigate).toHaveBeenCalledWith('t4');
+    // Drilling closes the popover.
+    expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
   });
 
-  it('Sprint segment navigates to the sprints view', async () => {
+  it('sprint row navigates to the sprints view', async () => {
     const user = userEvent.setup();
     methodology.current = 'AGILE';
     render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    await user.click(within(cluster).getByRole('button', { name: /sprint 7, day \d+ of \d+/i }));
+    const dialog = await openPopover(user);
+    await user.click(within(dialog).getByRole('button', { name: /sprint 7, day \d+ of \d+/i }));
     expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
   });
 
-  it('renders the phone-only (< md) collapsed Health dropdown', () => {
+  // (h) Esc closes + refocuses trigger ---------------------------------------
+
+  it('Escape closes the popover and returns focus to the chip trigger', async () => {
+    const user = userEvent.setup();
     render();
-    expect(screen.getByRole('button', { name: /project health summary/i })).toBeInTheDocument();
+    const chip = screen.getByTestId('health-cluster');
+    await user.click(chip);
+    expect(screen.getByRole('dialog', { name: 'Project health' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
+    expect(chip).toHaveFocus();
   });
 
-  it('tablet breakpoint (issue 1562): expanded cluster shows from md, dropdown hides from md', () => {
-    // jsdom does not evaluate media queries, so assert the responsive contract on
-    // the Tailwind classes: the expanded cluster is visible from the tablet
-    // breakpoint up (md, ≥ 768px) and the collapsed "Health ▾" dropdown is the
-    // phone-only fallback (md:hidden) — not lg-gated any more.
-    render();
-    const cluster = screen.getByRole('group', { name: 'Project health' });
-    expect(cluster).toHaveClass('hidden', 'md:flex');
-    expect(cluster.className).not.toContain('lg:flex');
-
-    const collapsedBtn = screen.getByRole('button', { name: /project health summary/i });
-    // The dropdown wrapper (button's parent) carries the md:hidden visibility toggle.
-    expect(collapsedBtn.parentElement).toHaveClass('md:hidden');
-    expect(collapsedBtn.parentElement?.className).not.toContain('lg:hidden');
-  });
+  // (g) project-scoped suppression -------------------------------------------
 
   it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {
     const { container } = renderWithRouter(<HealthCluster onTaskNavigate={vi.fn()} />, {

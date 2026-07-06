@@ -166,7 +166,22 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
   );
 }
 
-test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => {
+// The v2 methodology cluster is now a single all-width status chip + health
+// popover (issue #1644 — progressive disclosure). The always-inline segmented
+// cluster and the phone-only "Health ▾" dropdown are gone: the chip is one
+// control at every width, and its rows (forecast band, at-risk/critical drills,
+// sprint/points/velocity) live inside the popover the chip opens. The fixture
+// project resolves to HYBRID, so the popover shows Sprint · Forecast · Critical.
+
+/** Open the health popover from the status chip and return the dialog locator. */
+async function openHealthPopover(page: import('@playwright/test').Page) {
+  await page.getByTestId('health-cluster').click();
+  const dialog = page.getByRole('dialog', { name: 'Project health' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test.describe('Wave 1 — TopBar health chip + popover (desktop)', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
   test.beforeEach(async ({ page }) => {
@@ -174,51 +189,58 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
     await page.goto(`${BASE_URL}/overview`);
   });
 
-  test('the bordered health cluster renders', async ({ page }) => {
-    await expect(page.getByTestId('health-cluster')).toBeVisible();
+  test('the status chip renders with the worst-state word and P80 fragment', async ({ page }) => {
+    const chip = page.getByTestId('health-cluster');
+    await expect(chip).toBeVisible();
+    // critical_count = 1 → "At risk"; monte_carlo_p80 = 2026-11-03 → "Nov 3".
+    await expect(chip).toContainText('At risk');
+    await expect(chip).toContainText('P80');
+    await expect(chip).toContainText('Nov 3');
+    await expect(chip).toHaveAttribute('aria-haspopup', 'dialog');
   });
 
-  test('Forecast segment renders the P50·P80 band with month-day dates (#1197)', async ({
+  test('the chip opens the health popover with the forecast P50·P80 band (#1197)', async ({
     page,
   }) => {
-    const forecastBtn = page.getByRole('button', { name: /monte carlo forecast/i });
-    await expect(forecastBtn).toBeVisible();
-    await expect(forecastBtn).toContainText('P50');
-    await expect(forecastBtn).toContainText('Oct'); // P50 = 2026-10-20
-    await expect(forecastBtn).toContainText('P80');
-    await expect(forecastBtn).toContainText('Nov'); // P80 = 2026-11-03
+    const dialog = await openHealthPopover(page);
+    await expect(dialog.getByText('Forecast P50')).toBeVisible();
+    await expect(dialog.getByText('Forecast P80')).toBeVisible();
+    await expect(dialog).toContainText('Oct'); // P50 = 2026-10-20
+    await expect(dialog).toContainText('Nov'); // P80 = 2026-11-03
   });
 
-  test('clicking Forecast segment opens MC distribution panel', async ({ page }) => {
-    await page.getByRole('button', { name: /monte carlo forecast/i }).click();
-    await expect(
-      page.getByRole('dialog', { name: /monte carlo confidence/i }),
-    ).toBeVisible();
+  test('the forecast "Details ›" row opens the MC distribution panel', async ({ page }) => {
+    const dialog = await openHealthPopover(page);
+    await dialog.getByRole('button', { name: /monte carlo forecast/i }).click();
+    await expect(page.getByRole('dialog', { name: /monte carlo confidence/i })).toBeVisible();
   });
 
-  test('critical segment renders count from status-summary', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /1 critical task/i })).toBeVisible();
+  test('the critical row drills the offending task and closes the popover', async ({ page }) => {
+    const dialog = await openHealthPopover(page);
+    // HYBRID cluster's critical row (count 1) lists the offending task.
+    const taskBtn = dialog.getByRole('button', { name: /database migration/i });
+    await expect(taskBtn).toBeVisible();
+    await taskBtn.click();
+    // Drilling closes the popover (the task navigation is owned by TopBar).
+    await expect(page.getByRole('dialog', { name: 'Project health' })).toBeHidden();
   });
 
-  test('clicking critical segment opens popover with task items', async ({ page }) => {
-    await page.getByRole('button', { name: /1 critical task/i }).click();
-    const menu = page.getByRole('menu', { name: /1 critical task/i });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
+  test('the popover reads "No active Sprint" when there is no active sprint', async ({ page }) => {
+    const dialog = await openHealthPopover(page);
+    await expect(dialog.getByText(/no active sprint/i)).toBeVisible();
   });
 
-  test('Sprint segment reads "No active Sprint" when there is no active sprint', async ({
+  test('Escape closes the popover and returns focus to the chip', async ({ page }) => {
+    const chip = page.getByTestId('health-cluster');
+    await openHealthPopover(page);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Project health' })).toBeHidden();
+    await expect(chip).toBeFocused();
+  });
+
+  test('the chip reads "On track" with calm zero/— rows when there are no signals', async ({
     page,
   }) => {
-    const cluster = page.getByTestId('health-cluster');
-    await expect(cluster.getByText(/no active sprint/i)).toBeVisible();
-  });
-
-  test('cluster shows calm zero/— reads (no actionable buttons) when there are no signals', async ({
-    page,
-  }) => {
-    // The v2 cluster has fixed slots (ADR-0128) — it does not vanish; each segment
-    // renders a calm static read: P80 "—", "0 critical". None are drill-down buttons.
     await page.route('**/api/v1/projects/*/status-summary/', (route) =>
       route.fulfill({
         status: 200,
@@ -226,50 +248,34 @@ test.describe('Wave 1 — TopBar health cluster (desktop, lg+ viewport)', () => 
         body: JSON.stringify(EMPTY_STATUS_SUMMARY),
       }),
     );
-    // "No signals" also means no forecast has been run: a 404 from /latest/ is
-    // the genuine not-run state. The forecast segment now falls back to the live
-    // MC P80 when the status summary omits it (ADR-0144 "P80 —" fix), so the live
-    // result must also be empty here for the segment to read "—".
+    // No forecast run: a 404 from /latest/ is the genuine not-run state (the
+    // forecast segment falls back to the live MC P80 otherwise — ADR-0144).
     await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
       route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
     );
     await page.reload();
-    const cluster = page.getByTestId('health-cluster');
-    await expect(cluster).toBeVisible();
-    await expect(cluster).toContainText('—');
-    await expect(page.getByRole('button', { name: /monte carlo/i })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: /critical task/i })).not.toBeVisible();
+    const chip = page.getByTestId('health-cluster');
+    await expect(chip).toContainText('On track');
+    const dialog = await openHealthPopover(page);
+    await expect(dialog).toContainText('0 tasks'); // "Critical path — 0 tasks"
+    await expect(dialog).toContainText('—'); // "Forecast P80 —"
+    // With no MC result cached there is no Details drill.
+    await expect(dialog.getByRole('button', { name: /monte carlo/i })).toHaveCount(0);
+  });
+
+  test('the chip is suppressed on a project settings route (rule 123 / ADR-0128 §C)', async ({
+    page,
+  }) => {
+    await page.goto(`${BASE_URL}/settings/general`);
+    await expect(page.getByTestId('health-cluster')).toHaveCount(0);
   });
 });
 
-test.describe('TopBar health cluster (tablet, 768–1024px — issue #1562)', () => {
-  // Janet reads P80/health on a tablet before board meetings; the 768–1024px range
-  // must keep the cluster expanded with the P80 forecast inline, not buried behind
-  // the "Health ▾" dropdown. Width 900px sits squarely in the tablet band.
-  test.use({ viewport: { width: 900, height: 1200 } });
-
-  test.beforeEach(async ({ page }) => {
-    await setupBase(page, HEALTH_STATUS_SUMMARY);
-    await page.goto(`${BASE_URL}/overview`);
-  });
-
-  test('expanded cluster is visible at tablet width', async ({ page }) => {
-    await expect(page.getByTestId('health-cluster')).toBeVisible();
-  });
-
-  test('P80 forecast is inline (not collapsed to the Health dropdown)', async ({ page }) => {
-    const forecastBtn = page.getByRole('button', { name: /monte carlo forecast/i });
-    await expect(forecastBtn).toBeVisible();
-    await expect(forecastBtn).toContainText('P80');
-    await expect(forecastBtn).toContainText('Nov'); // P80 = 2026-11-03
-    // The phone-only collapsed dropdown must NOT be shown in the tablet band.
-    await expect(
-      page.getByRole('button', { name: /project health summary/i }),
-    ).not.toBeVisible();
-  });
-});
-
-test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdown)', () => {
+test.describe('TopBar health chip (mobile — all-width, no dropdown)', () => {
+  // The chip is one all-width control at every viewport (issue #1644): the old
+  // phone-only "Health ▾" dropdown is gone. The P80 fragment may drop below the
+  // sm breakpoint, but the dot + state word are always shown, and the popover
+  // still opens.
   test.use({ viewport: { width: 375, height: 812 } });
 
   test.beforeEach(async ({ page }) => {
@@ -277,38 +283,17 @@ test.describe('Wave 1 — TopBar health cluster (mobile, collapsed Health dropdo
     await page.goto(`${BASE_URL}/overview`);
   });
 
-  test('collapsed Health button is visible on mobile', async ({ page }) => {
-    await expect(page.getByRole('button', { name: /project health summary/i })).toBeVisible();
+  test('the status chip is visible on a phone and shows the state word', async ({ page }) => {
+    const chip = page.getByTestId('health-cluster');
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText('At risk');
+    // The removed phone-only "Health ▾" dropdown must not exist.
+    await expect(page.getByRole('button', { name: /project health summary/i })).toHaveCount(0);
   });
 
-  test('collapsed Health expands to show segment reads and task items on click', async ({
-    page,
-  }) => {
-    const btn = page.getByRole('button', { name: /project health summary/i });
-    await btn.click();
-    await expect(btn).toHaveAttribute('aria-expanded', 'true');
-    const menu = page.getByRole('menu', { name: /project health summary/i });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /database migration/i })).toBeVisible();
-  });
-
-  test('collapsed Health stays present and shows zero/— reads when there are no signals', async ({
-    page,
-  }) => {
-    // The v2 cluster has fixed slots (ADR-0128) — its collapsed form does not vanish.
-    await page.route('**/api/v1/projects/*/status-summary/', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(EMPTY_STATUS_SUMMARY),
-      }),
-    );
-    await page.reload();
-    const btn = page.getByRole('button', { name: /project health summary/i });
-    await expect(btn).toBeVisible();
-    await btn.click();
-    const menu = page.getByRole('menu', { name: /project health summary/i });
-    await expect(menu).toContainText('0 critical');
+  test('the chip still opens the health popover on a phone', async ({ page }) => {
+    const dialog = await openHealthPopover(page);
+    await expect(dialog.getByRole('button', { name: /database migration/i })).toBeVisible();
   });
 });
 
