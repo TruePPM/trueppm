@@ -195,10 +195,12 @@ test.describe('Load demo data', () => {
 
     await page.goto('/programs');
 
-    const nav = page.getByRole('navigation', { name: 'Workspace navigation' });
-    const projectRow = nav.getByRole('button', { name: 'Atlas Core Platform, health unknown' });
+    // 3-tier rail (#1642): the orphan-project list relocated into the Tier-3
+    // "Browse projects and programs" switcher, so scope to the whole rail aside.
+    const sidebar = page.locator('aside[aria-label="Primary navigation"]');
+    const projectRow = sidebar.getByRole('button', { name: 'Atlas Core Platform, health unknown' });
 
-    // Not present before the sample is loaded.
+    // Not present before the sample is loaded (the switcher has no Projects list yet).
     await expect(projectRow).toHaveCount(0);
 
     // The invalidation triggers a *second* GET /projects/ — the one that runs
@@ -219,6 +221,8 @@ test.describe('Load demo data', () => {
     // The mutation invalidates ['projects'], so the sidebar refetches and shows
     // the new project — no page.reload() here is the whole point of the test.
     await refetch;
+    // Reveal the relocated Projects list in the Tier-3 switcher (#1642).
+    await sidebar.getByRole('button', { name: 'Browse projects and programs' }).click();
     await expect(projectRow).toBeVisible();
   });
 

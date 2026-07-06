@@ -651,13 +651,14 @@ test.describe('Programs — ungrouped projects (#697, ADR-0171)', () => {
 });
 
 test.describe('Programs — sidebar entry', () => {
-  test('the v2 rail lists the program in the Programs tree after creation', async ({ page }) => {
+  test('the rail lists the program in the Programs tree after creation', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     const sidebar = page.locator('aside[aria-label="Primary navigation"]');
     await expect(sidebar).toBeVisible();
-    // The #959 scope picker was replaced by the v2 rail's Programs tree — the
-    // program is a row (its name is the open button's accessible name).
+    // 3-tier rail (#1642): the Programs tree relocated into the Tier-3 "Browse"
+    // switcher — open it, then the program is a row (name = the open button's name).
+    await sidebar.getByRole('button', { name: 'Browse projects and programs' }).click();
     await expect(
       sidebar.getByRole('button', { name: 'Phase 2 Modernization', exact: true }),
     ).toBeVisible();
@@ -669,9 +670,10 @@ test.describe('Programs — sidebar entry', () => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     const sidebar = page.locator('aside[aria-label="Primary navigation"]');
-    // The v2 rail rewrite dropped the only clickable path to /programs; this
-    // proves the header is a link again and lands on the gateway (where the
-    // "Load demo data" on-ramp lives), so the regression can't return silently.
+    // The Programs gateway link now lives in the Tier-3 "Browse" switcher (#1642);
+    // it is still a link to /programs (where the "Load demo data" on-ramp lives),
+    // so the #1334 regression (no clickable path to /programs) can't return silently.
+    await sidebar.getByRole('button', { name: 'Browse projects and programs' }).click();
     const gateway = sidebar.getByRole('link', { name: 'Programs', exact: true });
     await expect(gateway).toBeVisible();
     await gateway.click();

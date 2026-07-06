@@ -51,7 +51,12 @@ async function openImportDialog(page: import('@playwright/test').Page) {
 
   await page.goto('/programs');
 
-  // Gate on the shell chrome being rendered before interacting with it.
+  // The New-project / Import affordances now live behind the rail's Tier-3
+  // "Browse projects and programs" switcher (#1642) — open it first.
+  const browse = page.getByRole('button', { name: 'Browse projects and programs' });
+  await expect(browse).toBeVisible();
+  await browse.click();
+
   const importButton = page.getByRole('button', { name: 'Import a project from a file' });
   await expect(importButton).toBeVisible();
   await importButton.click();

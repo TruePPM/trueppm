@@ -1,18 +1,8 @@
 import { NavLink, useLocation, useMatch } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProject } from '@/hooks/useProject';
-import { useIterationLabel } from '@/hooks/useIterationLabel';
-import {
-  groupedVisibleViewsForUser,
-  surfaceHiddenViews,
-  STANDALONE_LEADING,
-  STANDALONE_TRAILING,
-} from '@/features/shell/methodologyTabs';
-import { applyRoleContextLensOrder } from '@/features/shell/lensOrder';
+import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META, type ViewIconType } from '@/features/shell/viewMeta';
-import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 
 type IconType = ViewIconType;
@@ -79,11 +69,12 @@ function Tab({ projectId, view, label, Icon, currentView }: TabProps) {
 export function ViewTabs() {
   const location = useLocation();
   const projectId = useProjectId();
-  const { role } = useCurrentUserRole(projectId ?? undefined);
-  const { user } = useCurrentUser();
-  const project = useProject(projectId);
-  const iteration = useIterationLabel(projectId);
   const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
+  // The grouped composition is shared with the left-rail "This project" tier via
+  // this one hook (issue 1642) — the bar and the rail can never drift because both
+  // read the same methodology-filtered, hidden-views-aware, role-gated groups.
+  const { groups, labelFor, standaloneLeading, standaloneTrailing } =
+    useGroupedProjectViews(projectId);
 
   if (!projectId || onSettingsRoute) return null;
 
@@ -93,51 +84,13 @@ export function ViewTabs() {
   const currentView =
     (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
 
-  // Default to HYBRID (all tabs visible) until the project loads. Read the
-  // SERVER-RESOLVED methodology (ADR-0107, issue 955): project ?? program ??
-  // workspace, gated by the workspace override policy. Tab visibility follows the
-  // effective preset, not the raw per-project override, so a workspace INHERIT
-  // lock correctly hides the other methodology's chrome.
-  const methodology = project.data?.effective_methodology ?? 'HYBRID';
-
-  // Role gate (pessimistic): the Team view is hidden while role is loading (null)
-  // or for role < SCHEDULER. Direct URL access still works (PermissionDeniedNotice).
-  const roleAllows = (view: string) =>
-    view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
-
-  // Per-view label: Sprints adopts the configured container label (ADR-0111/0116).
-  const labelFor = (view: string) =>
-    view === 'sprints' ? iteration.plural : (TAB_META[view]?.label ?? view);
-
-  // Per-user nav visibility (ADR-0139) + per-project leaf-surface toggles
-  // (ADR-0193, issue 956): both compose into one hidden-set on top of the
-  // methodology filter, then the role gate. Only `reporting` maps to a tab
-  // (`reports`); the other surfaces gate in-view. `overview` leads standalone
-  // (outside the hidden-set) so the bar can never be emptied.
-  const hiddenViews = new Set([
-    ...(user?.hidden_views ?? []),
-    ...surfaceHiddenViews(
-      project.data?.effective_surface_visibility ?? { reporting: true },
-    ),
-  ]);
-  // Role-context lens (issue 1263, ADR-0162): promote the active lens's priority views
-  // to the front of their group. Composes AFTER the methodology / hidden-views /
-  // role filters — it only re-orders already-permitted views, never reveals one.
-  // `unified` (default while `user` is loading) is the identity → no flash.
-  const groups = applyRoleContextLensOrder(
-    groupedVisibleViewsForUser(methodology, hiddenViews)
-      .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
-      .filter((g) => g.visibleViews.length > 0),
-    user?.role_context ?? 'unified',
-  );
-
   return (
     <nav aria-label="View" className="hidden md:flex items-stretch h-full">
       <Tab
         projectId={projectId}
-        view={STANDALONE_LEADING}
-        label={labelFor(STANDALONE_LEADING)}
-        Icon={TAB_META[STANDALONE_LEADING].Icon}
+        view={standaloneLeading}
+        label={labelFor(standaloneLeading)}
+        Icon={TAB_META[standaloneLeading].Icon}
         currentView={currentView}
       />
 
@@ -168,9 +121,9 @@ export function ViewTabs() {
       <Divider />
       <Tab
         projectId={projectId}
-        view={STANDALONE_TRAILING}
-        label={labelFor(STANDALONE_TRAILING)}
-        Icon={TAB_META[STANDALONE_TRAILING].Icon}
+        view={standaloneTrailing}
+        label={labelFor(standaloneTrailing)}
+        Icon={TAB_META[standaloneTrailing].Icon}
         currentView={currentView}
       />
     </nav>

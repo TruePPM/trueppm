@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures';
 
 /**
  * Roster pool E2E — Team tab (Roster sub-view) with route mocking.
@@ -43,8 +44,57 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
     );
   });
 
+  // 401-guard net (registered FIRST so the specific routes below win): without it,
+  // any endpoint this sparse spec doesn't mock falls through to the preview proxy
+  // and, under the 3-tier rail's added shell reads (#1642), pops the session-expired
+  // modal that blanks the roster. A 404 catch-all keeps unmocked reads inert.
+  await setupCatchAll(page);
+
+  // Shell/auth endpoints the app boots on. The 3-tier rail (#1642) resolves more
+  // of these synchronously (identity, edition), so a missing /auth/me (previously
+  // tolerated as an ECONNREFUSED on the preview proxy) now loses the race and the
+  // session-expired modal pops mid-render, blanking the roster. Mock them so the
+  // shell boots cleanly and no 401/session-expired can fire.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-user', username: 'e2euser', display_name: 'E2E User', initials: 'EU', email: 'e2e@example.com', max_project_role: 200, workspace_role: null, can_access_admin_settings: true, default_landing: 'my_work', landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' }, hidden_views: [], role_context: 'unified' }) }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+  );
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ticket: 'e2e-ticket', expires_in: 30 }) }),
+  );
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }) }),
+  );
+  // The 3-tier rail's "This project" tier (#1642) reads the project DETAIL for
+  // methodology/health/name (useProject → the same query ProjectShell gates on,
+  // issue #1111). Without this the bare GET /projects/:id/ falls through to the
+  // preview proxy and ProjectShell renders its "not available" state, replacing
+  // the roster page. Mock it with a HYBRID shape so the rail (and shell) resolve.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...FIXTURE_PROJECTS[0], program: null, program_detail: null, health: 'AUTO', methodology: 'HYBRID', effective_methodology: 'HYBRID' }),
+      });
+    }
+    return route.continue();
+  });
+  // The rail also reads /me/work (You-card badge) and /programs (Jump switcher);
+  // mock both so their fetches resolve instead of hanging on the proxy.
+  await page.route('**/api/v1/me/work/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [], next: null, previous: null, active_sprints: [], due_today_count: 0, server_version_high_water: 0, retro_action_items: [] }) }),
+  );
+  await page.route('**/api/v1/programs/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -100,7 +150,11 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
 
 test('Team tab is present in ViewTabs and labelled "Team"', async ({ page }) => {
   await seedAuthAndNavigate(page);
-  await expect(page.getByRole('link', { name: 'Team' })).toBeVisible();
+  // Scope to the TopBar's view nav: the left-rail "This project" tier (issue 1642)
+  // now also renders a "Team" row, so an unscoped locator is strict-mode ambiguous.
+  await expect(
+    page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Team' }),
+  ).toBeVisible();
 });
 
 test('Roster sub-nav shows Roster and Allocation tabs', async ({ page }) => {

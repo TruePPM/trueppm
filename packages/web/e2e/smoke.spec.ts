@@ -95,9 +95,12 @@ test('top bar renders with logo and nav', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
 });
 
-test('rail shows the Programs section header', async ({ page }) => {
+test('rail exposes the Programs section header via the Jump switcher', async ({ page }) => {
   await page.goto('/');
-  // v2 rail: the always-present "Programs" group heading (replaced "PROJECTS").
+  // 3-tier rail (#1642): Organization + Programs + orphan Projects relocated into
+  // the Tier-3 "Browse projects and programs" switcher (closed by default). Open
+  // it to reveal the Programs section heading.
+  await page.getByRole('button', { name: 'Browse projects and programs' }).click();
   await expect(page.getByRole('heading', { name: 'Programs' })).toBeVisible();
 });
 

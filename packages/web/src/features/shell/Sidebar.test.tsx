@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 import { useShellStore } from '@/stores/shellStore';
@@ -18,20 +18,57 @@ vi.mock('@/hooks/useProjects', () => ({
   }),
 }));
 vi.mock('@/hooks/usePrograms', () => ({
-  usePrograms: () => ({ data: [{ id: 'prog1', name: 'Artemis', code: 'ART' }] }),
+  usePrograms: () => ({ data: [{ id: 'prog1', name: 'Artemis', code: 'ART', color: null }] }),
 }));
 vi.mock('@/hooks/useMyWork', () => ({
   useMyWork: () => ({ data: { pages: [{ due_today_count: 3 }] } }),
 }));
 vi.mock('@/hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({
-    user: { initials: 'AK', display_name: 'Anika K.', can_access_admin_settings: true },
-  }),
+  useCurrentUser: vi.fn(() => ({
+    user: {
+      initials: 'AK',
+      display_name: 'Anika K.',
+      can_access_admin_settings: true,
+      hidden_views: [],
+      role_context: 'unified',
+    },
+  })),
 }));
 vi.mock('@/hooks/useEdition', () => ({ useEdition: () => ({ edition: 'community' }) }));
+// Default: off a project. Tier-2 tests override to a project id.
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: vi.fn(() => undefined) }));
+// Default: a HYBRID project with a program. Methodology tests override per-case.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: vi.fn(() => ({
+    data: {
+      id: 'p1',
+      name: 'Alpha Platform',
+      program: 'prog1',
+      program_detail: { id: 'prog1', name: 'Artemis' },
+      health: 'AT_RISK',
+      methodology: 'HYBRID',
+      effective_methodology: 'HYBRID',
+    },
+    isLoading: false,
+    error: null,
+  })),
+}));
+// Default: SCHEDULER so the Team view is visible. Role-gate test overrides.
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: vi.fn(() => ({ role: 200, isLoading: false })),
+}));
 vi.mock('./NewProjectModal', () => ({ NewProjectModal: () => null }));
 vi.mock('@/features/programs/NewProgramModal', () => ({ NewProgramModal: () => null }));
 vi.mock('@/components/import/ImportProjectModal', () => ({ ImportProjectModal: () => null }));
+
+import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
+const mockUseProject = useProject as ReturnType<typeof vi.fn>;
+const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
+const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
 
 function renderRail(props = {}) {
   return render(
@@ -40,6 +77,26 @@ function renderRail(props = {}) {
     </MemoryRouter>,
   );
 }
+
+const HYBRID_PROJECT = {
+  id: 'p1',
+  name: 'Alpha Platform',
+  program: 'prog1',
+  program_detail: { id: 'prog1', name: 'Artemis' },
+  health: 'AT_RISK',
+  methodology: 'HYBRID',
+  effective_methodology: 'HYBRID',
+};
+
+const DEFAULT_USER = {
+  user: {
+    initials: 'AK',
+    display_name: 'Anika K.',
+    can_access_admin_settings: true,
+    hidden_views: [],
+    role_context: 'unified',
+  },
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -50,83 +107,190 @@ beforeEach(() => {
     expandedProgramIds: [],
   });
   useCommandPaletteStore.setState({ open: false });
+  mockUseProjectId.mockReturnValue(undefined);
+  mockUseProject.mockReturnValue({ data: HYBRID_PROJECT, isLoading: false, error: null });
+  mockUseRole.mockReturnValue({ role: 200, isLoading: false });
+  mockUseCurrentUser.mockReturnValue(DEFAULT_USER);
 });
 
-describe('Sidebar (v2 left rail)', () => {
-  it('renders the brand, ⌘K trigger, and the Personal group', () => {
+describe('Sidebar rail — Tier 1 "You"', () => {
+  it('renders the brand and the identity + personal destinations in the You card', () => {
     renderRail();
     expect(screen.getByText('True')).toBeInTheDocument();
     expect(screen.getByText('PPM')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Search or jump to/i })).toBeInTheDocument();
+    // Identity appears in both the You card and the footer — assert at least one.
+    expect(screen.getAllByText('Anika K.').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: /My Work, 3 due today/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Timesheet' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Inbox' })).toBeInTheDocument();
   });
+});
 
-  it('opens the command palette from the rail ⌘K trigger', () => {
+describe('Sidebar rail — Tier 3 "Jump"', () => {
+  it('opens the command palette from the ⌘K trigger', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: /Search or jump to/i }));
     expect(useCommandPaletteStore.getState().open).toBe(true);
   });
 
-  it('expands a program to reveal its projects', () => {
+  it('hosts Organization + Programs behind the Browse switcher (closed by default)', () => {
     renderRail();
+    // The Organization group is not in the a11y tree until the switcher opens.
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Programs' })).toHaveAttribute('href', '/programs');
+    // Community edition: the cross-program Portfolio rollup renders NOTHING on the
+    // OSS daily path (rule 231 / ADR-0266, #1677) — it is an empty
+    // `nav.portfolio_section` slot, not a padlocked row; discovery moves to /programs.
+    expect(screen.queryByRole('button', { name: /Portfolio rollup/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Portfolio rollup/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
+  });
+
+  it('does not use the "Switch project" accessible name (avoids the TopBar switcher collision)', () => {
+    renderRail();
+    expect(screen.queryByRole('button', { name: /Switch project/ })).not.toBeInTheDocument();
+  });
+
+  it('closes the Browse switcher on Escape and returns focus to the trigger', () => {
+    renderRail();
+    const trigger = screen.getByRole('button', { name: 'Browse projects and programs' });
+    fireEvent.click(trigger);
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('expands a program inside the switcher to reveal its projects', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     expect(screen.queryByRole('button', { name: /Alpha Platform/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    // Health maps from server data ('at risk', 'on track'), not a hardcoded
-    // 'unknown' — and the open-task count rides in the accessible name (rule 6).
     expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
   });
 
-  it('colors each row health dot from server data and renders the open-task count badge (#960)', () => {
+  it('shows standalone (no-program) projects inside the switcher', () => {
     renderRail();
-    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    // The right-aligned mono count renders for projects with open tasks (7, 4)
-    // and is suppressed at zero (Beta Migration, on track).
-    expect(screen.getByText('7')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
-    // Health words are carried in each row's accessible name, mapped from data.
-    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ })).toBeInTheDocument();
-  });
-
-  it('links the Programs section header to the /programs gateway (#1334 regression)', () => {
-    renderRail();
-    // /programs is a real index page (the demo-data on-ramp lives there), so
-    // unlike Personal/Organization the header is a link, not a dead label.
-    const gateway = screen.getByRole('link', { name: 'Programs' });
-    expect(gateway).toHaveAttribute('href', '/programs');
-    // It is still a heading so the rail structure / smoke a11y assertion holds.
-    expect(screen.getByRole('heading', { name: 'Programs' })).toBeInTheDocument();
-  });
-
-  it('closes the drawer when the Programs gateway link is followed', () => {
-    const onClose = vi.fn();
-    renderRail({ isDrawer: true, onClose });
-    fireEvent.click(screen.getByRole('link', { name: 'Programs' }));
-    expect(onClose).toHaveBeenCalled();
-  });
-
-  it('pins a project into the Shortcuts group', () => {
-    renderRail();
-    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    // Before pinning: Alpha appears once (in the program tree).
-    expect(screen.getAllByRole('button', { name: /Alpha Platform, at risk/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: /Pin Alpha Platform to Shortcuts/ }));
-    expect(useShellStore.getState().pinnedProjectIds).toContain('p1');
-    expect(screen.getByText('Shortcuts')).toBeInTheDocument();
-    // After pinning: it appears twice (Shortcuts + the tree).
-    expect(screen.getAllByRole('button', { name: /Alpha Platform, at risk/ })).toHaveLength(2);
-  });
-
-  it('shows standalone (no-program) projects under Projects', () => {
-    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: /Standalone Site, health unknown, 4 open tasks/ }),
     ).toBeInTheDocument();
   });
+});
 
+describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
+  it('shows a pinned-projects band, not a "This project" view band', () => {
+    useShellStore.setState({ pinnedProjectIds: ['p1'] });
+    renderRail();
+    expect(screen.getByText('Pinned projects')).toBeInTheDocument();
+    expect(screen.queryByText('This project')).not.toBeInTheDocument();
+    // No view groups off a project.
+    expect(screen.queryByRole('group', { name: 'Track views' })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a calm empty state when nothing is pinned (never a blank band)', () => {
+    renderRail();
+    expect(screen.getByRole('status')).toHaveTextContent('Pin a project for quick access.');
+  });
+});
+
+describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
+  beforeEach(() => {
+    mockUseProjectId.mockReturnValue('p1');
+  });
+
+  it('renders the project header card + ALL HYBRID grouped views, incl. Activity + Assets', () => {
+    renderRail();
+    expect(screen.getByText('This project')).toBeInTheDocument();
+    // Header card: program subtitle + a health circle carrying the health word.
+    expect(screen.getByText('Artemis')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'at risk' })).toBeInTheDocument();
+    // Post-mockup regression guard: Activity (ADR-0201) + Assets (ADR-0215) present.
+    expect(screen.getByRole('link', { name: 'Activity' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Assets' })).toBeInTheDocument();
+    // The rest of the HYBRID set.
+    for (const label of ['Schedule', 'Grid', 'Calendar', 'Backlog', 'Sprints', 'Board', 'Risks', 'Reports', 'Team']) {
+      expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('leads with Overview, linking to the /overview segment (rule 108)', () => {
+    renderRail();
+    const overview = screen.getByRole('link', { name: 'Overview' });
+    expect(overview).toHaveAttribute('href', '/projects/p1/overview');
+    // The grouped headers are present with their accessible names (rule 172).
+    expect(screen.getByRole('group', { name: 'Plan views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Deliver views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Track views' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
+  });
+
+  it('AGILE hides Schedule/Calendar and keeps the DELIVER trio', () => {
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, effective_methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Calendar' })).not.toBeInTheDocument();
+    const deliver = screen.getByRole('group', { name: 'Deliver views' });
+    expect(within(deliver).getByRole('link', { name: 'Backlog' })).toBeInTheDocument();
+    expect(within(deliver).getByRole('link', { name: 'Sprints' })).toBeInTheDocument();
+    expect(within(deliver).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+  });
+
+  it('WATERFALL hides Sprints/Backlog and Board falls to TRACK (no DELIVER group)', () => {
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, effective_methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.queryByRole('link', { name: 'Sprints' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Backlog' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Deliver views' })).not.toBeInTheDocument();
+    const track = screen.getByRole('group', { name: 'Track views' });
+    expect(within(track).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+  });
+
+  it('hides the Team view below Scheduler role (pessimistic gate)', () => {
+    mockUseRole.mockReturnValue({ role: 100, isLoading: false }); // MEMBER
+    renderRail();
+    expect(screen.queryByRole('link', { name: 'Team' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'People views' })).not.toBeInTheDocument();
+  });
+
+  it('removes a personally-hidden view from the rail (ADR-0139)', () => {
+    mockUseCurrentUser.mockReturnValue({
+      user: { initials: 'AK', display_name: 'Anika K.', can_access_admin_settings: true, hidden_views: ['schedule'], role_context: 'unified' },
+    });
+    renderRail();
+    expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Grid' })).toBeInTheDocument();
+  });
+
+  it('drives the set from effective_methodology, not the raw override (rule 196)', () => {
+    // Raw AGILE but server-resolved WATERFALL — the WATERFALL set must win.
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, methodology: 'AGILE', effective_methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Sprints' })).not.toBeInTheDocument();
+  });
+});
+
+describe('Sidebar rail — preserved behaviors', () => {
   it('toggles collapse', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: /Collapse sidebar/i }));
@@ -140,35 +304,22 @@ describe('Sidebar (v2 left rail)', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows the OSS Resources link and renders nothing for the cross-program Portfolio rollup in the community edition (rule 231 / ADR-0266)', () => {
-    renderRail();
-    // Organization group is present for the OSS Resources catalog...
-    expect(screen.getByText('Organization')).toBeInTheDocument();
+  it('in the drawer the switcher content is inline-expanded (no Browse button)', () => {
+    renderRail({ isDrawer: true, onClose: vi.fn() });
+    // Drawer expands every tier — Organization/Programs are visible without a toggle.
+    expect(screen.queryByRole('button', { name: 'Browse projects and programs' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
-    // ...and the cross-program Portfolio rollup renders NOTHING on the OSS daily
-    // path: no padlocked/disabled teaser (the former rule-178 row), no link. It
-    // is an empty `nav.portfolio_section` slot; discovery moves to the /programs
-    // seam per rule 231.
-    expect(
-      screen.queryByRole('button', { name: /Portfolio rollup/i }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: /Portfolio rollup/i }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText('Portfolio rollup')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
   });
 
-  it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127, supersedes #1176)', () => {
-    // User-controlled collapse so the mount-time resize effect leaves it collapsed.
+  it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127)', () => {
     useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
     renderRail();
-    // There is no icon rail anymore: collapsing hides the rail entirely (0px,
-    // inert + aria-hidden), so its nav links leave the accessibility tree —
-    // the unified shell bar ≡ is the re-open affordance.
     const rail = document.getElementById('primary-nav-rail');
     expect(rail).toHaveAttribute('aria-hidden', 'true');
     expect(rail).toHaveAttribute('inert');
-    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
-    expect(screen.queryByText('Organization')).not.toBeInTheDocument();
+    // Content leaves the accessibility tree.
+    expect(screen.queryByRole('link', { name: /My Work/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Search or jump to/i })).not.toBeInTheDocument();
   });
 });

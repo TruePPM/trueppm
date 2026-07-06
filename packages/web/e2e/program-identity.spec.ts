@@ -107,6 +107,8 @@ test('the v2 rail program row shows the accent identity square; the name is the 
 }) => {
   await page.goto('/me/work');
   const sb = sidebar(page);
+  // The Programs tree relocated into the Tier-3 Browse switcher (#1642) — open it.
+  await sb.getByRole('button', { name: 'Browse projects and programs' }).click();
   // The program NAME is the row's open-button accessible name — the square is decorative.
   const nameBtn = sb.getByRole('button', { name: 'Cloud Migration', exact: true });
   await expect(nameBtn).toBeVisible();
@@ -123,9 +125,11 @@ test('an unset-color program row labels its identity tile with name initials (is
 }) => {
   await page.goto('/me/work');
   const sb = sidebar(page);
+  // The Programs tree relocated into the Tier-3 Browse switcher (#1642) — open it.
+  await sb.getByRole('button', { name: 'Browse projects and programs' }).click();
   // Mobile Platform has no accent — its tile is the faint neutral square. Without
-  // the initials, every uncolored program in this dense scope-picker list would
-  // look identical; the xs-label variant labels it "MP" so it stays distinguishable.
+  // the initials, every uncolored program in this dense list would look identical;
+  // the xs-label variant labels it "MP" so it stays distinguishable.
   const nameBtn = sb.getByRole('button', { name: 'Mobile Platform', exact: true });
   await expect(nameBtn).toBeVisible();
   const row = nameBtn.locator('xpath=..');

@@ -178,6 +178,9 @@ test('sidebar has Resources link', async ({ page }) => {
   await mockResourceRoutes(page);
   await seedAuthAndNavigate(page);
 
+  // Resources now lives in the rail's Tier-3 "Browse projects and programs"
+  // switcher (#1642) — open it before asserting the link.
+  await page.getByRole('button', { name: 'Browse projects and programs' }).click();
   await expect(page.getByRole('link', { name: /resources catalog/i })).toBeVisible();
 });
 
