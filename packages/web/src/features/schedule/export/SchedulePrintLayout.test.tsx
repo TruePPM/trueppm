@@ -2,7 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SchedulePrintLayout } from './SchedulePrintLayout';
 import { buildSchedulePrintData } from './schedulePrintData';
+import { planSheetColumns } from './scheduleSheetPlan';
 import type { Task, TaskLink } from '@/types';
+
+/**
+ * Feed the geometry the layout stamps on its root node into the rasterizer's
+ * band planner (at the same pixelRatio 2), to assert the resulting sheet count.
+ */
+function sheetsFor(root: HTMLElement): number {
+  const R = 2;
+  const labelStripImg = Number(root.dataset.printLabelStripPx) * R;
+  const contentImg = labelStripImg + Number(root.dataset.printChartContentPx) * R;
+  return planSheetColumns({
+    imageWidthPx: contentImg,
+    chartLeftPx: labelStripImg,
+    pageWidthPx: Number(root.dataset.printPageWidthPx) * R,
+    weekPx: Number(root.dataset.printWeekPx) * R,
+  }).columns.length;
+}
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
   return {
@@ -113,5 +130,95 @@ describe('SchedulePrintLayout', () => {
   it('honors the A4 paper width without throwing', () => {
     const { container } = render(<SchedulePrintLayout data={data()} paper="a4" />);
     expect(container.firstChild).toBeTruthy();
+  });
+
+  it('keeps the WBS code in its own non-shrinking span so only the name ellipsizes', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} />);
+    // The name sits alone in a truncating span (not "1 Design" together) so the
+    // ellipsis only ever eats the name, never the WBS join key (issue 1440).
+    const nameSpans = Array.from(container.querySelectorAll('span.truncate')).filter(
+      (s) => s.textContent === 'Design',
+    );
+    expect(nameSpans.length).toBeGreaterThanOrEqual(1);
+    // The WBS code lives in a flex-shrink-0 mono span — never clipped.
+    const wbsSpans = Array.from(container.querySelectorAll('span.tppm-mono.flex-shrink-0')).filter(
+      (s) => s.textContent === '1',
+    );
+    expect(wbsSpans.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('stamps the banding geometry on the root node for the rasterizer', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} />);
+    const root = container.firstChild as HTMLElement;
+    expect(Number(root.dataset.printLabelStripPx)).toBeGreaterThan(0);
+    expect(Number(root.dataset.printWeekPx)).toBeGreaterThan(0);
+    expect(Number(root.dataset.printPageWidthPx)).toBeGreaterThan(0);
+  });
+
+  it('renders the masthead + KPI strip (— / 0 cells) on an empty schedule, not a blank page', () => {
+    const empty = buildSchedulePrintData({
+      projectName: 'Empty',
+      tasks: [],
+      links: [],
+      userName: null,
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+    render(<SchedulePrintLayout data={empty} />);
+
+    // Masthead + KPI strip still render, so the cover reads as an intentional
+    // dated document rather than a broken/blank page (issue 1440).
+    expect(screen.getByText('Empty')).toBeInTheDocument();
+    expect(screen.getByText('Window')).toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/No activities to plot/)).toBeInTheDocument();
+    expect(screen.getByText(/no dated activities/)).toBeInTheDocument();
+  });
+
+  it('bands a long (multi-year) timeline across multiple sheets', () => {
+    // A ~18-month schedule would compress below the legibility floor if squeezed
+    // to one page, so the scale holds MIN density and the content overflows one
+    // sheet — the band planner returns more than one column (issue 1440).
+    const long = buildSchedulePrintData({
+      projectName: 'Long',
+      tasks: [
+        task('a', { wbs: '1', name: 'Kickoff', start: '2026-01-01', finish: '2026-02-01' }),
+        task('b', { wbs: '2', name: 'Closeout', start: '2027-05-01', finish: '2027-06-30' }),
+      ],
+      links: [],
+      userName: null,
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+    const { container } = render(<SchedulePrintLayout data={long} />);
+    expect(sheetsFor(container.firstChild as HTMLElement)).toBeGreaterThan(1);
+  });
+
+  it('keeps a short schedule on a single sheet (trailing buffer never spills a page)', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} />);
+    expect(sheetsFor(container.firstChild as HTMLElement)).toBe(1);
+  });
+
+  it('paints hard (solid) links above soft (dashed) links so the driving chain stays on top', () => {
+    const withSoft = buildSchedulePrintData({
+      projectName: 'Apollo',
+      tasks: [
+        task('a', { wbs: '1', name: 'Design', start: '2026-04-01', finish: '2026-04-08' }),
+        task('b', { wbs: '2', name: 'Build', start: '2026-04-10', finish: '2026-04-20' }),
+        task('c', { wbs: '3', name: 'Draft', start: '2026-04-10', finish: '2026-04-15' }),
+      ],
+      links: [
+        // Hard FS (no lag) a→b, and a discretionary SS a→c (soft).
+        { id: 'hard', sourceId: 'a', targetId: 'b', type: 'FS', lag: 0, isCritical: true },
+        { id: 'soft', sourceId: 'a', targetId: 'c', type: 'SS', lag: 0, isCritical: false },
+      ],
+      userName: 'Jane',
+      generatedAtLabel: 'Jun 30, 2026',
+    });
+    const { container } = render(<SchedulePrintLayout data={withSoft} />);
+    const paths = Array.from(container.querySelectorAll('svg path'));
+    expect(paths.length).toBe(2);
+    // Soft links carry a dash array; hard links do not. The LAST path (painted on
+    // top) must be the hard one.
+    expect(paths[0].getAttribute('stroke-dasharray')).toBe('3 2');
+    expect(paths[paths.length - 1].getAttribute('stroke-dasharray')).toBeNull();
   });
 });

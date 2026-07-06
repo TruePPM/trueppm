@@ -3,8 +3,13 @@ import {
   buildSchedulePrintData,
   compareWbs,
   classifyLinkHardness,
+  orderLinksForPaint,
+  labelIndentPx,
   scheduleContentSha,
   MAX_INDENT_LEVELS,
+  LABEL_INDENT_BASE_PX,
+  LABEL_INDENT_STEP_PX,
+  type SchedulePrintLink,
   type BuildSchedulePrintArgs,
 } from './schedulePrintData';
 import type { Task, TaskLink, MonteCarloResult } from '@/types';
@@ -360,5 +365,52 @@ describe('buildSchedulePrintData — issue 1438 chart filters', () => {
   it('is unchanged from the pre-1438 behavior when no filters are passed', () => {
     const data = build({ tasks: [A, B] });
     expect(data.rows.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('orderLinksForPaint', () => {
+  const mk = (id: string, hard: boolean): SchedulePrintLink => ({
+    id,
+    fromId: 'a',
+    toId: 'b',
+    type: 'FS',
+    hard,
+  });
+
+  it('paints soft links first and hard links last (hard on top)', () => {
+    const ordered = orderLinksForPaint([mk('h1', true), mk('s1', false), mk('h2', true)]);
+    expect(ordered.map((l) => l.id)).toEqual(['s1', 'h1', 'h2']);
+  });
+
+  it('preserves incoming order within each group so channel seq stays stable', () => {
+    const ordered = orderLinksForPaint([mk('s1', false), mk('s2', false), mk('h1', true)]);
+    expect(ordered.map((l) => l.id)).toEqual(['s1', 's2', 'h1']);
+  });
+
+  it('does not mutate the input array', () => {
+    const input = [mk('h', true), mk('s', false)];
+    orderLinksForPaint(input);
+    expect(input.map((l) => l.id)).toEqual(['h', 's']);
+  });
+});
+
+describe('labelIndentPx', () => {
+  it('starts at the base padding for level 1', () => {
+    expect(labelIndentPx(1)).toBe(LABEL_INDENT_BASE_PX);
+  });
+
+  it('adds one step per level up to the cap', () => {
+    expect(labelIndentPx(2)).toBe(LABEL_INDENT_BASE_PX + LABEL_INDENT_STEP_PX);
+    expect(labelIndentPx(3)).toBe(LABEL_INDENT_BASE_PX + 2 * LABEL_INDENT_STEP_PX);
+  });
+
+  it('caps the indent at MAX_INDENT_LEVELS even for a deep WBS', () => {
+    const capped = labelIndentPx(MAX_INDENT_LEVELS);
+    expect(labelIndentPx(4)).toBe(capped);
+    expect(labelIndentPx(9)).toBe(capped);
+  });
+
+  it('floors sub-1 levels at the base padding', () => {
+    expect(labelIndentPx(0)).toBe(LABEL_INDENT_BASE_PX);
   });
 });

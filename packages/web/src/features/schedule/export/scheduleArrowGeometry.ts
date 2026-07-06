@@ -24,6 +24,28 @@ export const MILESTONE_HALF_PX = 7;
 /** Horizontal stub length out of the source / into the target, in px. */
 export const CONNECTOR_STUB_PX = 10;
 
+/**
+ * Per-arrow vertical-channel stagger (px) so parallel FS connectors between the
+ * same bar band don't collapse onto one line in a dense graph (issue 1440).
+ */
+export const CHANNEL_STAGGER_PX = 4;
+
+/**
+ * Vertical-channel X offset for the `seq`-th arrow that shares a routing band.
+ *
+ * Spreads a fan of parallel connectors across distinct channels by walking
+ * outward — `0, +4, −4, +8, −8, …` — so the turn points stagger instead of
+ * stacking into a single indistinguishable line. Deterministic in `seq`; the
+ * layout assigns `seq` per (source-column) group so the offsets are stable
+ * across a re-render.
+ */
+export function channelOffsetPx(seq: number): number {
+  if (seq <= 0) return 0;
+  const step = Math.ceil(seq / 2);
+  const sign = seq % 2 === 1 ? 1 : -1;
+  return sign * step * CHANNEL_STAGGER_PX;
+}
+
 /** A bar's horizontal extent in chart-local pixels (scrollLeft is never applied). */
 export interface BarExtent {
   left: number;
@@ -65,15 +87,22 @@ export function barBox(row: SchedulePrintRow, rowCenterY: number, scales: GanttS
  * begins at the source right-edge center and ends at the target left-edge center
  * (the stable endpoint contract). When the target starts well to the right of the
  * source finish the channel sits midway; otherwise it routes around with the stub.
+ *
+ * `channelOffset` (issue 1440) nudges the vertical channel sideways so parallel
+ * connectors in a dense graph occupy separate channels; it never moves the
+ * endpoints, so the arrow still anchors exactly on both bars. The offset is
+ * clamped so the channel stays right of the source stub (a large offset can't
+ * pull the turn back through the source bar).
  */
-export function fsConnectorPath(from: BarBox, to: BarBox): string {
+export function fsConnectorPath(from: BarBox, to: BarBox, channelOffset = 0): string {
   const x1 = from.right;
   const y1 = from.centerY;
   const x2 = to.left;
   const y2 = to.centerY;
   // Vertical channel X: midpoint when there is forward slack, else a stub past
   // the source so the path turns cleanly rather than back-tracking through bars.
-  const channelX = x2 - CONNECTOR_STUB_PX > x1 ? (x1 + x2) / 2 : x1 + CONNECTOR_STUB_PX;
+  const baseChannelX = x2 - CONNECTOR_STUB_PX > x1 ? (x1 + x2) / 2 : x1 + CONNECTOR_STUB_PX;
+  const channelX = Math.max(x1 + CONNECTOR_STUB_PX, baseChannelX + channelOffset);
   return [
     `M ${round(x1)} ${round(y1)}`,
     `L ${round(channelX)} ${round(y1)}`,
