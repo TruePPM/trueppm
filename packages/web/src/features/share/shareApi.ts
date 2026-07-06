@@ -31,17 +31,26 @@ export interface PublicBoard {
   truncated: boolean;
 }
 
-/** 'revoked' → 410, 'not_found' → 404 (invalid/unknown/disabled), 'error' → other. */
-export type PublicBoardErrorKind = 'revoked' | 'not_found' | 'error';
+/**
+ * '410' — the link was real and is intentionally gone (revoked OR expired); a single
+ * kind because the recipient's action is identical (ask the owner for a new link).
+ * '404' — never existed / invalid / sharing disabled. '429' — rate-limited.
+ */
+export type PublicShareErrorKind = 'revoked' | 'not_found' | 'rate_limited' | 'error';
+
+/** @deprecated Alias kept for #283 board callers; use `PublicShareErrorKind`. */
+export type PublicBoardErrorKind = PublicShareErrorKind;
 
 export async function fetchPublicBoard(token: string): Promise<PublicBoard> {
   const res = await axios.get<PublicBoard>(`/api/v1/share/board/${encodeURIComponent(token)}/`);
   return res.data;
 }
 
-export function classifyShareError(err: unknown): PublicBoardErrorKind {
+export function classifyShareError(err: unknown): PublicShareErrorKind {
   if (axios.isAxiosError(err)) {
+    // 410 covers both revoked and expired links — same "no longer active" copy.
     if (err.response?.status === 410) return 'revoked';
+    if (err.response?.status === 429) return 'rate_limited';
     if (err.response?.status === 404) return 'not_found';
   }
   return 'error';

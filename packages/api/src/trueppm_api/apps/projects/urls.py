@@ -28,6 +28,7 @@ from trueppm_api.apps.projects.share_views import (
     ProjectShareLinkListCreateView,
     ProjectShareLinkRevokeView,
     PublicBoardShareView,
+    PublicScheduleShareView,
 )
 from trueppm_api.apps.projects.signal_privacy_views import (
     SignalCeilingProposalListView,
@@ -676,6 +677,11 @@ urlpatterns = [
         "share/board/<token>/",
         PublicBoardShareView.as_view(),
         name="public-board-share",
+    ),
+    path(
+        "share/schedule/<token>/",
+        PublicScheduleShareView.as_view(),
+        name="public-schedule-share",
     ),
     # Program-scoped API tokens (ADR-0076 program extension, #600)
     path(

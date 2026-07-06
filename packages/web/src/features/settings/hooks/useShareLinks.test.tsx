@@ -80,6 +80,8 @@ describe('useCreateShareLink', () => {
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/share-links/', {
       label: 'X',
       show_assignees: true,
+      content_kind: 'board',
+      expires_at: null,
     });
     expect(created?.token).toBe('RAWTOKEN');
     expect(created?.sharePath).toBe('/share/board/RAWTOKEN');

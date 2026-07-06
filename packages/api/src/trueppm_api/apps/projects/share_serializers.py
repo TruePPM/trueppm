@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.utils import timezone
 from rest_framework import serializers
 
-from trueppm_api.apps.projects.models import ShareLink
+from trueppm_api.apps.projects.models import ShareContentKind, ShareLink
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 
@@ -36,10 +37,12 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "show_assignees",
             "created_by",
             "created_at",
+            "expires_at",
             "revoked_at",
             "access_count",
             "last_accessed_at",
             "is_active",
+            "is_expired",
         ]
         read_only_fields = fields
 
@@ -51,7 +54,7 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
 
 
 class ShareLinkCreateSerializer(serializers.Serializer[Any]):
-    """Write serializer for minting a link. Both fields optional; safe defaults."""
+    """Write serializer for minting a link. All fields optional; safe defaults."""
 
     # ``label`` shadows DRF's ``Field.label`` attribute; the stub flags the
     # assignment though it is valid at runtime (same pattern as observability).
@@ -59,6 +62,21 @@ class ShareLinkCreateSerializer(serializers.Serializer[Any]):
         max_length=120, required=False, allow_blank=True, default=""
     )
     show_assignees = serializers.BooleanField(required=False, default=False)
+    # Which view the link exposes; defaults to board for backward compatibility
+    # with pre-#1486 clients that never sent the field.
+    content_kind = serializers.ChoiceField(
+        choices=ShareContentKind.choices,
+        default=ShareContentKind.BOARD,
+    )
+    # Optional auto-expiry (#1486). Null/absent = never expires.
+    expires_at = serializers.DateTimeField(required=False, allow_null=True, default=None)
+
+    def validate_expires_at(self, value: Any) -> Any:
+        """Reject an expiry in the past — a link that is born already-gone is a
+        client bug, not a valid state, and would confusingly mint then 410."""
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("Expiry must be in the future.")
+        return value
 
 
 class ShareLinkCreateResponseSerializer(ShareLinkSerializer):

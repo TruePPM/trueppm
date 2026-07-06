@@ -898,17 +898,21 @@ REST_FRAMEWORK = {
 # found in production. The conformance test asserts the two agree.
 SYNC_WATERMARK_USE_COLUMN = env.bool("SYNC_WATERMARK_USE_COLUMN", default=True)
 
-# Public read-only board sharing (#283, ADR-0245). The instance kill switch: when
-# False, both minting new links (403) and the public board endpoint (uniform 404,
-# retroactively disabling existing links) are turned off org-wide — the operator/PMO
-# off lever for the unauthenticated egress surface. Default True is safe because no
-# data is exposed until an Owner/Admin explicitly mints a link. SHARE_BOARD_MAX_CARDS
-# bounds the public snapshot payload (a shared board flags "truncated" past the cap
-# rather than silently dropping cards).
+# Public read-only sharing — board (#283, ADR-0245) and schedule (#1486, ADR-0265).
+# The instance kill switch governs BOTH share kinds: when False, minting new links
+# (403) and every public share endpoint (uniform 404, retroactively disabling
+# existing links) are turned off org-wide — the operator/PMO off lever for the
+# unauthenticated egress surface. One lever, one mental model: a deployment can
+# never leak schedules while "board sharing" reads off. Default True is safe because
+# no data is exposed until an Owner/Admin explicitly mints a link. The SHARE_*_MAX_*
+# caps bound each public snapshot payload (the projection flags "truncated" past the
+# cap rather than silently dropping content). The env var keeps its #283 name for
+# back-compat with deployments that already set it.
 TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED = env.bool(
     "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED", default=True
 )
 SHARE_BOARD_MAX_CARDS = env.int("TRUEPPM_SHARE_BOARD_MAX_CARDS", default=1000)
+SHARE_SCHEDULE_MAX_TASKS = env.int("TRUEPPM_SHARE_SCHEDULE_MAX_TASKS", default=1000)
 
 # ---------------------------------------------------------------------------
 # django-allauth

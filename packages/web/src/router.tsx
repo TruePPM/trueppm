@@ -208,6 +208,14 @@ const PublicBoardSharePage = lazy(() =>
   })),
 );
 
+// Public read-only schedule share viewer (#1486, ADR-0265) — unauthenticated sibling
+// of the board viewer; lazy so it adds nothing to the logged-in app bundle.
+const PublicScheduleSharePage = lazy(() =>
+  import('@/features/share/PublicScheduleSharePage').then((m) => ({
+    default: m.PublicScheduleSharePage,
+  })),
+);
+
 // ── Self-service password reset (issue 765, ADR-0209) — five public (no-auth) screens.
 //    Lazy-loaded so the recovery flow adds nothing to the initial login bundle. ──
 const ForgotPasswordPage = lazy(() =>
@@ -364,6 +372,15 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <PublicBoardSharePage />
+      </Suspense>
+    ),
+  },
+  // Public route — no auth required (#1486, ADR-0265). Read-only schedule share viewer.
+  {
+    path: '/share/schedule/:token',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <PublicScheduleSharePage />
       </Suspense>
     ),
   },

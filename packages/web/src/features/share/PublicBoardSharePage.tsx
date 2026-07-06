@@ -7,6 +7,7 @@ import {
   type PublicBoardCard,
   type PublicBoardErrorKind,
 } from './shareApi';
+import { useNoReferrer } from './useNoReferrer';
 
 /**
  * Public, unauthenticated, read-only board viewer (#283, ADR-0245). Standalone —
@@ -128,6 +129,7 @@ export function PublicBoardSharePage() {
   const [board, setBoard] = useState<PublicBoard | null>(null);
   const [error, setError] = useState<PublicBoardErrorKind | null>(null);
   const [loading, setLoading] = useState(true);
+  useNoReferrer();
 
   useEffect(() => {
     let active = true;
@@ -154,8 +156,16 @@ export function PublicBoardSharePage() {
   if (error === 'revoked') {
     return (
       <StatePage
-        title="This link has been revoked"
-        body="Ask the project owner for a new share link."
+        title="This link is no longer active"
+        body="It was revoked, or it has expired. Ask the project owner for a new share link."
+      />
+    );
+  }
+  if (error === 'rate_limited') {
+    return (
+      <StatePage
+        title="Too many requests"
+        body="This link has been opened a lot recently. Wait a minute and refresh."
       />
     );
   }

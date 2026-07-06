@@ -297,6 +297,8 @@ export interface CalmToolbarProps {
   onEvmChange: (m: EvmMode) => void;
   onOpenColumns: () => void;
   onOpenCheatsheet: () => void;
+  // Public board share (#1486). Undefined for non-Admins → the item is hidden.
+  onShare?: () => void;
   // Export PDF (issue 326) — rasterizes the off-screen print layout BoardView
   // mounts. Hidden at sm (a deck export is a desktop action) and disabled while
   // a generation is in flight to prevent re-entrant rasterize calls.
@@ -739,6 +741,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
             <MoreItem onClick={props.onOpenColumns} ariaLabel="Open board column settings">
               ⚙ Columns…
             </MoreItem>
+            {props.onShare && (
+              <MoreItem onClick={props.onShare} ariaLabel="Share this board with a public link">
+                ↗ Share this board…
+              </MoreItem>
+            )}
             <MoreItem onClick={props.onOpenCheatsheet}>? Keyboard shortcuts</MoreItem>
             {showQuietTogglesInline && (
               <MoreItem
