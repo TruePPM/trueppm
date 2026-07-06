@@ -11098,6 +11098,12 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
             for milestone in milestones:
                 milestone["velocity_low"] = None
                 milestone["velocity_high"] = None
+                # The prior snapshot (#730) carries the same band, so it re-leaks
+                # it through the delta read unless nulled here too (same #981 gate).
+                prev = milestone.get("previous")
+                if prev is not None:
+                    prev["velocity_low"] = None
+                    prev["velocity_high"] = None
         return Response(
             {
                 "velocity": velocity,

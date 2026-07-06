@@ -9,6 +9,7 @@ import { daysUntil, formatShortDate } from './sprintMath';
 import { PromoteMilestoneDialog } from './PromoteMilestoneDialog';
 import type { IterationLabelForms } from '@/lib/iterationLabel';
 import { ScopeChangedChip } from './ScopeChangedChip';
+import { MilestoneBridgeForecast } from './MilestoneBridgeForecast';
 import { useSprintScopeChanges } from '@/hooks/useSprints';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import {
@@ -100,6 +101,16 @@ export function AdvancingToMilestoneCard({ sprint, projectId, predecessorsInSpri
               totalFloatDays={milestoneTask?.totalFloat ?? null}
             />
           )}
+
+          {/* Hybrid-bridge proof (#730, ADR-0241): velocity vs CPM finish,
+              delta-since-last-close, and the "if velocity holds" projection —
+              the on-screen proof that sprint velocity feeds the schedule. */}
+          <MilestoneBridgeForecast
+            projectId={projectId}
+            targetMilestoneId={detail.id}
+            onCriticalPath={milestoneTask?.isCritical ?? null}
+            totalFloatDays={milestoneTask?.totalFloat ?? null}
+          />
 
           {predecessorsInSprint && predecessorsInSprint.total > 0 && (
             <p className="text-xs text-neutral-text-secondary">
