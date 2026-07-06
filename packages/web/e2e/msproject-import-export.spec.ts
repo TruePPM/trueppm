@@ -246,6 +246,40 @@ test.describe('MS Project import', () => {
   });
 });
 
+test.describe('MS Project import — mobile full-screen sheet (#788)', () => {
+  // A phone-sized viewport (< md, 768px) so the modal takes its full-screen-sheet
+  // variant rather than the centered desktop card.
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('renders the import modal as an edge-to-edge full-screen sheet', async ({ page }) => {
+    await gotoSchedule(page);
+    // Open via the always-present Project actions (⋯) menu — on a phone the
+    // schedule grid may be virtualized off-screen, so gate on the toolbar
+    // control rather than the grid.
+    await page.getByRole('button', { name: 'Project actions' }).click();
+    await page.getByRole('menuitem', { name: 'Import from MS Project…' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Import from MS Project' });
+    await expect(dialog).toBeVisible();
+
+    // Full-screen sheet: the dialog fills the viewport edge-to-edge and top-to-bottom
+    // (the desktop card would be max-w 560px and shrink-wrapped in height).
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBe(375);
+    expect(box!.height).toBe(812);
+    expect(box!.x).toBe(0);
+    expect(box!.y).toBe(0);
+
+    // The docked footer actions stay on-screen alongside the scrollable body.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Import', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: /Choose file or drag one here/ })).toBeVisible();
+  });
+});
+
 test.describe('MS Project export', () => {
   test('exports the schedule as MS Project XML', async ({ page }) => {
     await page.route('**/api/v1/projects/*/export/msproject.xml', (route) =>
