@@ -10,6 +10,7 @@ import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
 import { modifierKeyLabel } from '@/lib/platform';
+import { registry } from '@/lib/widget-registry';
 import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
 import { NewProgramModal } from '@/features/programs/NewProgramModal';
@@ -276,12 +277,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
           {/* Organization — org-level destinations. Resources catalog is OSS and
               always present (its icon persists in the collapsed rail, parity with
-              My Work / Inbox); Portfolio rollup is cross-program (Enterprise,
-              post-1.0): under the enterprise edition it routes to the real
-              slot-registered view, under community it is a disabled, grayed-out
-              row with a tooltip (rule 177) rather than vanishing (rule 15) or
-              being promoted before it ships. The group heading + Portfolio are
-              expanded-only. */}
+              My Work / Inbox); Portfolio rollup is cross-program (Enterprise): the
+              rail is the OSS daily path, so per rule 231 (ADR-0266) the community
+              edition renders nothing for it — the cross-program seam is discovered
+              at /programs, not via a padlocked rail row. The group heading +
+              Portfolio are expanded-only. */}
           {showFull && <h2 className={GROUP_LABEL}>Organization</h2>}
           <NavLink
             to="/resources"
@@ -306,31 +306,18 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <span className="min-w-0 truncate">Portfolio rollup</span>
             </NavLink>
           )}
-          {/* Community edition: the cross-program Portfolio rollup is Enterprise
-              and not purchasable until post-1.0, so it is neither hidden (which
-              reads as broken OSS) nor promoted (a prominent badge/marketing page
-              for a feature you can't buy yet is premature). It renders as a
-              disabled, grayed-out row with a tooltip — the rule-122 disabled-
-              control pattern (rule 177), reserved for a post-1.0 not-yet-buyable
-              feature. (A pre-1.0 extension-point slot renders empty instead, no
-              teaser — see the resources_heatmap.level_loads fix in issue 1614.)
-              Promote to the rule-121 EE-badge upsell once the feature ships at
-              1.0. */}
-          {showFull && edition === 'community' && (
-            <button
-              type="button"
-              disabled
-              aria-disabled="true"
-              aria-label="Portfolio rollup — available in TruePPM Enterprise (post-1.0)"
-              title="Available in TruePPM Enterprise (post-1.0)"
-              className="group flex w-full items-center gap-2 rounded-control border-l-2 border-transparent py-2 pl-2.5 pr-2 text-sm text-chrome-text-secondary opacity-50 cursor-not-allowed"
-            >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
-                <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-              </svg>
-              <span className="min-w-0 truncate">Portfolio rollup</span>
-            </button>
-          )}
+          {/* The cross-program Portfolio rollup is a daily-path nav destination,
+              so per rule 231 (ADR-0266) it renders through the
+              `nav.portfolio_section` extension-point slot: empty in the community
+              edition (no disabled teaser, no padlock — the former rule-178 row),
+              populated by the enterprise module. This is the empty-slot pattern
+              of `resources_heatmap.level_loads` (issue 1614). The enterprise
+              NavLink above is the built-in enterprise path until the enterprise
+              module migrates its portfolio nav onto this slot. */}
+          {showFull &&
+            registry
+              .get('nav.portfolio_section')
+              .map(({ id, component: Component }) => <Component key={id} />)}
 
           {/* Programs — the group header is a NavLink to the /programs gateway,
               not a dead <h2> label like Personal/Organization: /programs is a

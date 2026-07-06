@@ -218,6 +218,7 @@ describe('Slot contract freeze — LIVE vs RESERVED', () => {
   it('freezes the LIVE slot set (each has an OSS render point today)', () => {
     expect([...LIVE_SLOTS].sort()).toEqual(
       [
+        'nav.portfolio_section',
         'project_settings.integrations',
         'resources_heatmap.level_loads',
         'task_detail.section',
@@ -230,7 +231,6 @@ describe('Slot contract freeze — LIVE vs RESERVED', () => {
   it('freezes the RESERVED slot set (in the contract, no OSS render point yet)', () => {
     expect([...RESERVED_SLOTS].sort()).toEqual(
       [
-        'nav.portfolio_section',
         'project_overview.below_hero',
         'project_overview.hero_right',
         'project_overview.kpi_row',
@@ -250,8 +250,8 @@ describe('Slot contract freeze — LIVE vs RESERVED', () => {
   });
 
   it('isReservedSlot reflects the classification', () => {
-    expect(isReservedSlot('nav.portfolio_section')).toBe(true);
     expect(isReservedSlot('task_detail.external_links')).toBe(true);
+    expect(isReservedSlot('nav.portfolio_section')).toBe(false); // now LIVE — hosted in Sidebar (rule 231)
     expect(isReservedSlot('task_detail.section')).toBe(false);
     expect(isReservedSlot('today_view.gate_status')).toBe(false);
   });
