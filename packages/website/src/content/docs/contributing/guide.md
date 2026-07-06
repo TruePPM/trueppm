@@ -69,6 +69,13 @@ cd packages/web && npm test
 - **API:** pytest with testcontainers PostgreSQL, coverage >= 80%
 - **Web:** vitest, coverage >= 75%
 
+The API suite bans real outbound network sockets: a test that reaches the live
+network (usually a misdirected mock) fails fast with a `SocketConnectBlockedError`
+instead of hanging on a connect timeout and flaking. Only the configured database
+and Redis hosts are allowed. A test that genuinely needs the network must opt out
+explicitly with `@pytest.mark.enable_socket` — keeping the exception visible and
+reviewable.
+
 All MRs require a green pipeline before merge.
 
 Run `make pre-push` before every `git push` — it mirrors the blocking CI gates (lint, typecheck, migrations-check, schema-check).
