@@ -166,4 +166,13 @@ describe('QuickLogTime', () => {
     expect(screen.getByText(/No assigned tasks to log against/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Log \d/ })).toBeDisabled();
   });
+
+  it('tolerates a non-paginated /me/work/ page without tearing down the app', () => {
+    // Global TopBar widget: a page that is not the `{ results }` shape (API skew,
+    // partial outage, or a bare-array test catch-all) must degrade to the empty
+    // state, never crash on `tasks.find(t => t.id)` (regression: #1416 shell teardown).
+    useMyWorkMock.mockReturnValue({ data: { pages: [[]] } });
+    expect(() => openPopover()).not.toThrow();
+    expect(screen.getByText(/No assigned tasks to log against/)).toBeInTheDocument();
+  });
 });

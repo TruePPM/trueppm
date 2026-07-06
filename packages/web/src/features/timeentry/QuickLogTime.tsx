@@ -74,7 +74,14 @@ export function QuickLogTime() {
   const [entryDate, setEntryDate] = useState(localTodayIso());
   const [note, setNote] = useState('');
 
-  const tasks = useMemo(() => (data?.pages ?? []).flatMap((p) => p.results), [data]);
+  // Mounted globally in the TopBar, this fires on every route — so it must
+  // tolerate an unexpected `/me/work/` payload (API skew, partial outage) and
+  // render "no tasks" rather than tear down the whole app via the root error
+  // boundary. `p?.results ?? []` guards a page that isn't the paginated shape.
+  const tasks = useMemo(
+    () => (data?.pages ?? []).flatMap((p) => p?.results ?? []),
+    [data],
+  );
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return tasks;
