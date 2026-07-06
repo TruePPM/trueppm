@@ -3,6 +3,8 @@ import {
   barExtent,
   barBox,
   fsConnectorPath,
+  channelOffsetPx,
+  CHANNEL_STAGGER_PX,
   MILESTONE_HALF_PX,
   CONNECTOR_STUB_PX,
   type BarBox,
@@ -93,5 +95,45 @@ describe('fsConnectorPath', () => {
     const to: BarBox = { left: 305, right: 400, centerY: 50 }; // 305 - stub(10) <= 300
     const channelX = 300 + CONNECTOR_STUB_PX; // 310
     expect(fsConnectorPath(from, to)).toContain(`L ${channelX} 10`);
+  });
+
+  it('shifts the vertical channel by the stagger offset without moving endpoints', () => {
+    const from: BarBox = { left: 0, right: 100, centerY: 10 };
+    const to: BarBox = { left: 300, right: 400, centerY: 50 };
+    const d = fsConnectorPath(from, to, 12);
+    // Endpoints are unchanged...
+    expect(d.startsWith('M 100 10')).toBe(true);
+    expect(d.endsWith('L 300 50')).toBe(true);
+    // ...but the channel is nudged from midpoint 200 to 212.
+    expect(d).toContain('L 212 10');
+    expect(d).toContain('L 212 50');
+  });
+
+  it('clamps the staggered channel so it never falls back through the source stub', () => {
+    const from: BarBox = { left: 0, right: 100, centerY: 10 };
+    const to: BarBox = { left: 300, right: 400, centerY: 50 };
+    // A large negative offset would pull the channel to 200-500 = -300; clamp to
+    // source right + stub (110) so the path always turns forward.
+    const d = fsConnectorPath(from, to, -500);
+    expect(d).toContain(`L ${100 + CONNECTOR_STUB_PX} 10`);
+  });
+});
+
+describe('channelOffsetPx', () => {
+  it('places the first arrow on the center channel', () => {
+    expect(channelOffsetPx(0)).toBe(0);
+  });
+
+  it('walks outward, alternating sign, so parallel arrows spread apart', () => {
+    expect(channelOffsetPx(1)).toBe(CHANNEL_STAGGER_PX); // +4
+    expect(channelOffsetPx(2)).toBe(-CHANNEL_STAGGER_PX); // -4
+    expect(channelOffsetPx(3)).toBe(2 * CHANNEL_STAGGER_PX); // +8
+    expect(channelOffsetPx(4)).toBe(-2 * CHANNEL_STAGGER_PX); // -8
+  });
+
+  it('is deterministic and unique per adjacent seq (no two share a channel)', () => {
+    const seen = new Set<number>();
+    for (let i = 0; i < 8; i++) seen.add(channelOffsetPx(i));
+    expect(seen.size).toBe(8);
   });
 });

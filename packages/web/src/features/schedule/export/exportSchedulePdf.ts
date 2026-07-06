@@ -11,11 +11,20 @@
  *   1. a cancel signal (`AbortSignal`) + determinate `onProgress` callback, for the
  *      issue 1438 generation states (cancel aborts between bands; nothing is saved); and
  *   2. horizontal banding — wide timelines exceed one landscape page *horizontally*,
- *      so the bitmap is sliced into a column × row grid. The foundation exposes the
- *      seam via `bandWidthPx`; issue 1440 owns week-boundary snapping. Letter AND A4.
+ *      so the bitmap is sliced into a column × row grid. issue 1440 adds
+ *      week-boundary snapping and a repeated label column: when the print surface
+ *      reports its geometry (`data-print-*`), `planSheetColumns` bands the chart on
+ *      whole-week seams and every sheet re-draws the frozen label strip + a "Sheet n
+ *      of N" caption. The raw `bandWidthPx` seam remains for geometry-less callers.
+ *      Letter AND A4.
  */
 
+import { planSheetColumns, sheetLabel } from './scheduleSheetPlan';
+
 export type SchedulePaper = 'letter' | 'a4';
+
+/** Rasterizer sampling ratio — CSS px × this = source image px (crisp labels). */
+const PIXEL_RATIO = 2;
 
 export interface ExportProgress {
   /** Coarse phase label for the activity counter. */
@@ -58,6 +67,63 @@ export interface ExportResult {
    * the URL and MUST `URL.revokeObjectURL` it when done (the dialog revokes on close).
    */
   blobUrl: string | null;
+}
+
+/**
+ * Print-surface geometry the layout stamps onto its root node (CSS px), used to
+ * band a wide timeline at week boundaries with a repeated label column (issue
+ * 1440). Absent (older callers, or a bare node in a unit test) → the plain
+ * bitmap-band path runs instead, unchanged.
+ */
+interface BandGeometry {
+  /** Frozen label-column strip width (CSS px), repeated on every sheet. */
+  labelStripPx: number;
+  /** Chart px per 7 days (CSS px), for week-boundary snapping. */
+  weekPx: number;
+  /** One-sheet print width (CSS px). */
+  pageWidthPx: number;
+  /**
+   * Chart width from origin to the last bar (CSS px), excluding the scale's
+   * trailing "endless scroll" buffer. Banding counts only this, so trailing
+   * whitespace never spills a short schedule onto an extra sheet. 0 → unknown.
+   */
+  chartContentPx: number;
+}
+
+function readBandGeometry(node: HTMLElement): BandGeometry | null {
+  const ds = node.dataset;
+  if (!ds) return null;
+  const labelStripPx = Number(ds.printLabelStripPx);
+  const weekPx = Number(ds.printWeekPx);
+  const pageWidthPx = Number(ds.printPageWidthPx);
+  const chartContentPx = Number(ds.printChartContentPx);
+  if (!Number.isFinite(labelStripPx) || labelStripPx <= 0) return null;
+  if (!Number.isFinite(pageWidthPx) || pageWidthPx <= 0) return null;
+  if (!Number.isFinite(weekPx) || weekPx < 0) return null;
+  return {
+    labelStripPx,
+    weekPx,
+    pageWidthPx,
+    chartContentPx: Number.isFinite(chartContentPx) && chartContentPx > 0 ? chartContentPx : 0,
+  };
+}
+
+/**
+ * Stamp a "Sheet n of N" caption in the page's bottom-right as a REAL PDF text
+ * run (selectable/searchable), so banded sheets are self-identifying even once
+ * printed and shuffled. Guarded via `typeof` so the jsPDF test double — which
+ * only stubs the image/save surface — is unaffected.
+ */
+function drawSheetCaption(pdf: unknown, caption: string, pageW: number, pageH: number): void {
+  const p = pdf as {
+    text?: (t: string, x: number, y: number, opts?: unknown) => void;
+    setFontSize?: (n: number) => void;
+    setTextColor?: (r: number, g: number, b: number) => void;
+  };
+  if (typeof p.text !== 'function') return;
+  p.setFontSize?.(8);
+  p.setTextColor?.(120, 120, 120);
+  p.text(caption, pageW - 6, pageH - 6, { align: 'right' });
 }
 
 /** Load a data-URL into an HTMLImageElement, resolving once decoded. */
@@ -118,7 +184,7 @@ export async function exportSchedulePdf(
   onProgress?.({ phase: 'rasterize', done: 0, total: 1 });
   // pixelRatio 2 keeps row labels and the date scale crisp; backgroundColor is
   // left to the node's own `bg-white` so the rasterizer captures a clean page.
-  const dataUrl = await toPng(node, { pixelRatio: 2 });
+  const dataUrl = await toPng(node, { pixelRatio: PIXEL_RATIO });
   if (signal?.aborted) return canceledResult(fileName, paper);
   const img = await loadImage(dataUrl);
   if (signal?.aborted) return canceledResult(fileName, paper);
@@ -126,6 +192,84 @@ export async function exportSchedulePdf(
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: paper });
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
+
+  // ── Week-snapped horizontal banding with a repeated label column (issue 1440) ──
+  // When the print surface reports its geometry and the timeline is wider than one
+  // sheet, band the bitmap on week boundaries: each sheet re-draws the frozen label
+  // strip (source x 0..labelStripImg) then its own chart slice, and carries a
+  // "Sheet n of N" caption. A single fixed scale keeps bars the same size on every
+  // sheet so they read across the seams. Falls through to the plain bitmap-band
+  // path below when geometry is absent or the timeline fits one sheet wide.
+  const geom = readBandGeometry(node);
+  if (geom) {
+    const labelStripImg = Math.min(geom.labelStripPx * PIXEL_RATIO, img.width);
+    // Band only the content region (label strip + chart up to the last bar), so
+    // the scale's trailing buffer whitespace never counts toward the sheet count.
+    const contentWidthImg = geom.chartContentPx
+      ? Math.min(img.width, labelStripImg + geom.chartContentPx * PIXEL_RATIO)
+      : img.width;
+    const plan = planSheetColumns({
+      imageWidthPx: contentWidthImg,
+      chartLeftPx: labelStripImg,
+      pageWidthPx: geom.pageWidthPx * PIXEL_RATIO,
+      weekPx: geom.weekPx * PIXEL_RATIO,
+    });
+    const bandCanvas = document.createElement('canvas');
+    const bandCtx = bandCanvas.getContext('2d');
+    if (plan.columns.length > 1 && bandCtx) {
+      const sheetSrcW = labelStripImg + plan.bandWidthPx;
+      const scale = pageW / sheetSrcW;
+      const pageImgH = pageH / scale;
+      const rowBands = Math.max(1, Math.ceil(img.height / (pageImgH + 1)));
+      const total = plan.columns.length * rowBands;
+
+      let placed = 0;
+      for (const column of plan.columns) {
+        for (let r = 0; r < rowBands; r++) {
+          // Cancel between sheets: stop without saving, so nothing reaches disk.
+          if (signal?.aborted) return canceledResult(fileName, paper);
+
+          const sy = r * pageImgH;
+          const sliceH = Math.min(pageImgH, img.height - sy);
+          bandCanvas.width = labelStripImg + column.sliceW;
+          bandCanvas.height = sliceH;
+          bandCtx.clearRect(0, 0, bandCanvas.width, bandCanvas.height);
+          // Frozen label strip, repeated on every sheet so activity rows line up.
+          bandCtx.drawImage(img, 0, sy, labelStripImg, sliceH, 0, 0, labelStripImg, sliceH);
+          // This sheet's chart band, drawn to the right of the label strip.
+          bandCtx.drawImage(
+            img,
+            column.chartSx,
+            sy,
+            column.sliceW,
+            sliceH,
+            labelStripImg,
+            0,
+            column.sliceW,
+            sliceH,
+          );
+          const sheetUrl = bandCanvas.toDataURL('image/png');
+          if (placed > 0) pdf.addPage();
+          pdf.addImage(
+            sheetUrl,
+            'PNG',
+            0,
+            0,
+            (labelStripImg + column.sliceW) * scale,
+            sliceH * scale,
+          );
+          placed += 1;
+          drawSheetCaption(pdf, sheetLabel(placed, total), pageW, pageH);
+          onProgress?.({ phase: 'paginate', done: placed, total });
+        }
+      }
+
+      if (signal?.aborted) return canceledResult(fileName, paper);
+      onProgress?.({ phase: 'finalize', done: total, total });
+      const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+      return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
+    }
+  }
 
   // One horizontal band is `columnWidth` source px wide, scaled to the page
   // width. Default (full width) → a single column, so this degenerates to the

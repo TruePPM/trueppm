@@ -27,6 +27,7 @@ import {
   buildScaleDataFromPxPerDay,
   clampPxPerDay,
   dateToLeft,
+  dateToRight,
   type GanttScaleData,
 } from '../engine';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
@@ -38,8 +39,19 @@ import {
   arrowFillClass,
   roleBgClass,
 } from './schedulePrintTheme';
-import { barBox, barExtent, fsConnectorPath, MILESTONE_HALF_PX } from './scheduleArrowGeometry';
-import type { SchedulePrintData, SchedulePrintRow } from './schedulePrintData';
+import {
+  barBox,
+  barExtent,
+  fsConnectorPath,
+  channelOffsetPx,
+  MILESTONE_HALF_PX,
+} from './scheduleArrowGeometry';
+import {
+  labelIndentPx,
+  orderLinksForPaint,
+  type SchedulePrintData,
+  type SchedulePrintRow,
+} from './schedulePrintData';
 import type { SchedulePaper } from './exportSchedulePdf';
 
 /** Fixed print width per paper at 96 dpi, landscape — a stable rasterizer canvas. */
@@ -55,6 +67,16 @@ const HEADER_H = 36;
 const BAR_H = 12;
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * Legibility floor for the print scale (issue 1440). Rather than compress an
+ * arbitrarily long timeline onto one page — which shrinks a week to a few px and
+ * collapses short bars into indistinguishable slivers — the scale holds this
+ * minimum density and the export bands the over-wide surface across sheets. At
+ * ≈ 2 px/day a week stays ~14 px wide (readable), and a timeline longer than
+ * roughly a year spills onto a second sheet instead of becoming illegible.
+ */
+const MIN_PRINT_PX_PER_DAY = 2;
+
 /** Min/max ISO date across dated rows, or null when none are dated. */
 function projectSpan(rows: SchedulePrintRow[]): { start: string; finish: string } | null {
   const starts = rows.filter((r) => r.start).map((r) => r.start as string);
@@ -66,8 +88,10 @@ function projectSpan(rows: SchedulePrintRow[]): { start: string; finish: string 
 /**
  * Choose a `pxPerDay` that fits the timeline into the print chart width, then
  * refine once to absorb the scale builder's zoom-dependent padding. The chart
- * container then uses the resulting `totalWidth` so bars never clip; wide
- * timelines that exceed the page are handled by the export's horizontal banding.
+ * container then uses the resulting `totalWidth` so bars never clip. A timeline
+ * that would compress below {@link MIN_PRINT_PX_PER_DAY} instead holds that
+ * density and overflows the page — the export bands it across sheets at a
+ * readable scale (issue 1440), rather than squeezing it into one illegible page.
  */
 function buildPrintScale(startIso: string, finishIso: string, chartW: number): GanttScaleData {
   const rawSpanDays = Math.max(
@@ -79,6 +103,10 @@ function buildPrintScale(startIso: string, finishIso: string, chartW: number): G
   let scales = buildScaleDataFromPxPerDay(pxPerDay, startIso, finishIso);
   if (scales.totalWidth > 0) {
     pxPerDay = clampPxPerDay(pxPerDay * (chartW / scales.totalWidth));
+    scales = buildScaleDataFromPxPerDay(pxPerDay, startIso, finishIso);
+  }
+  if (pxPerDay < MIN_PRINT_PX_PER_DAY) {
+    pxPerDay = clampPxPerDay(MIN_PRINT_PX_PER_DAY);
     scales = buildScaleDataFromPxPerDay(pxPerDay, startIso, finishIso);
   }
   return scales;
@@ -150,11 +178,39 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       if (!span) return null;
       const scales = buildPrintScale(span.start, span.finish, chartTargetW);
       const rowIndex = new Map(rows.map((r, i) => [r.id, i]));
-      return { scales, rowIndex, chartW: scales.totalWidth };
+      // Content width = chart origin → the last bar's right edge (+ a small
+      // margin), NOT scales.totalWidth. The scale pads a 28-day "endless scroll"
+      // buffer past the finish that the export must NOT count as chart when
+      // deciding how many sheets a wide timeline needs — otherwise the buffer
+      // whitespace alone would spill a short schedule onto a near-empty 2nd sheet.
+      const contentW = Math.min(scales.totalWidth, dateToRight(span.finish, scales) + SHEET_PAD_PX);
+      return { scales, rowIndex, chartW: scales.totalWidth, contentW };
     }, [rows, chartTargetW]);
 
     const sheetWidth = layout ? labelColPx + layout.chartW + SHEET_PAD_PX * 2 : printWidth;
     const rowsAreaH = rows.length * ROW_H;
+
+    // Geometry the rasterizer reads off the node to band a wide timeline on week
+    // boundaries with a repeated label column (issue 1440). The label strip is the
+    // sheet's left pad (p-6 === SHEET_PAD_PX) + the label column + its two 1px
+    // borders; `printWidth` is one sheet's width; the week pitch is 7 · pxPerDay.
+    const labelStripPx = SHEET_PAD_PX + labelColPx + 2;
+    // The scale carries px-per-millisecond (not px-per-day), so derive the week
+    // pitch from it; this is the same geometry the week gridlines step by.
+    const weekPx = layout ? layout.scales.pxPerMs * 7 * MS_PER_DAY : null;
+
+    // Order links so soft draw under hard, and give each arrow leaving a shared
+    // source its own staggered vertical channel so a dense fan doesn't collapse
+    // into one line (issue 1440). `seq` is derived from the stable source order,
+    // independent of the paint order, so a re-render keeps the same channels.
+    const paintLinks = orderLinksForPaint(links);
+    const channelSeqByLink = new Map<string, number>();
+    const perSourceCount = new Map<string, number>();
+    for (const l of links) {
+      const n = perSourceCount.get(l.fromId) ?? 0;
+      channelSeqByLink.set(l.id, n);
+      perSourceCount.set(l.fromId, n + 1);
+    }
 
     const dataDateX =
       layout && dataDate
@@ -177,6 +233,10 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
         ref={ref}
         style={{ width: sheetWidth }}
         className={`${roleBgClass('sheetSurface')} p-6 font-sans text-neutral-text-primary`}
+        data-print-page-width-px={printWidth}
+        data-print-label-strip-px={layout ? labelStripPx : undefined}
+        data-print-week-px={layout && weekPx != null ? weekPx : undefined}
+        data-print-chart-content-px={layout ? layout.contentW : undefined}
       >
         {/* Masthead */}
         <header className="mb-3 border-b border-neutral-border pb-3">
@@ -232,7 +292,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  style={{ height: ROW_H, paddingLeft: 8 + (row.indentLevel - 1) * 12 }}
+                  style={{ height: ROW_H, paddingLeft: labelIndentPx(row.indentLevel) }}
                   className={`flex items-center gap-1.5 pr-2 text-xs ${
                     row.kind === 'phase' ? 'font-semibold' : ''
                   } text-neutral-text-primary`}
@@ -246,8 +306,17 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                       )}`}
                     />
                   )}
-                  <span className="flex-1 truncate" title={`${row.wbsCode} ${row.name}`}>
-                    <span className="text-neutral-text-secondary">{row.wbsCode}</span> {row.name}
+                  {/* The mono WBS code is the stable join key across sheets, so it is
+                      flex-shrink-0 and never clipped; only the name ellipsizes (it
+                      never wraps — one row stays one bar-height tall). issue 1440. */}
+                  <span
+                    className="tppm-mono flex-shrink-0 text-neutral-text-secondary"
+                    title={row.wbsCode}
+                  >
+                    {row.wbsCode}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate" title={row.name}>
+                    {row.name}
                   </span>
                   {includeOwnerColumn && row.ownerInitials && (
                     <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-secondary">
@@ -358,19 +427,24 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                     height={rowsAreaH}
                     aria-hidden="true"
                   >
-                    {links.map((link) => {
+                    {paintLinks.map((link) => {
                       const fi = layout.rowIndex.get(link.fromId);
                       const ti = layout.rowIndex.get(link.toId);
                       if (fi == null || ti == null) return null;
                       const from = barBox(rows[fi], fi * ROW_H + ROW_H / 2, layout.scales);
                       const to = barBox(rows[ti], ti * ROW_H + ROW_H / 2, layout.scales);
-                      const d = fsConnectorPath(from, to);
+                      const offset = channelOffsetPx(channelSeqByLink.get(link.id) ?? 0);
+                      const d = fsConnectorPath(from, to, offset);
+                      // Hard (driving) links draw at full opacity above soft links so
+                      // the critical chain stays readable through arrow crossings.
+                      const opacity = link.hard ? 1 : 0.6;
                       return (
                         <g key={link.id}>
                           <path
                             d={d}
                             fill="none"
                             strokeWidth={1}
+                            strokeOpacity={opacity}
                             strokeDasharray={link.hard ? undefined : '3 2'}
                             className={arrowStrokeClass(link.hard)}
                           />
@@ -378,6 +452,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                             points={`${to.left - 5},${to.centerY - 3} ${to.left},${to.centerY} ${
                               to.left - 5
                             },${to.centerY + 3}`}
+                            fillOpacity={opacity}
                             className={arrowFillClass(link.hard)}
                           />
                         </g>
@@ -389,8 +464,16 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
             </div>
           </div>
         ) : (
-          <div className="rounded-card border border-neutral-border bg-neutral-surface px-4 py-10 text-center text-sm text-neutral-text-secondary">
-            No activities to plot.
+          <div className="rounded-card border border-neutral-border bg-neutral-surface px-4 py-10 text-center">
+            {/* Empty schedule (issue 1440): the masthead + KPI strip above still
+                render (cells read — / 0), so the cover is an intentional, dated
+                document rather than a broken/blank page. */}
+            <div className="text-sm font-medium text-neutral-text-primary">
+              No activities to plot
+            </div>
+            <div className="mt-1 text-xs text-neutral-text-secondary">
+              This schedule has no dated activities in the selected range.
+            </div>
           </div>
         )}
 

@@ -118,6 +118,21 @@ export interface SchedulePrintData {
 /** Visual indent levels before the WBS indent flattens (full path is retained). */
 export const MAX_INDENT_LEVELS = 3;
 
+/** Base left padding (px) of a label row, and the per-level indent step. */
+export const LABEL_INDENT_BASE_PX = 8;
+export const LABEL_INDENT_STEP_PX = 12;
+
+/**
+ * Left padding (px) for a print label at a given indent level. Re-clamps to
+ * {@link MAX_INDENT_LEVELS} so a deep WBS (`'1.2.3.4.5'`) stops indenting at
+ * level 3 even if an uncapped level slips through — the full dotted code is still
+ * shown, it just stops walking right so the name keeps its width (issue 1440).
+ */
+export function labelIndentPx(indentLevel: number): number {
+  const lvl = Math.min(Math.max(indentLevel, 1), MAX_INDENT_LEVELS);
+  return LABEL_INDENT_BASE_PX + (lvl - 1) * LABEL_INDENT_STEP_PX;
+}
+
 /** WBS depth from the dotted path (`'1.2.3'` → 3, `''` → 0). */
 function wbsDepth(wbs: string): number {
   if (!wbs) return 0;
@@ -155,6 +170,19 @@ export function compareWbs(a: string, b: string): number {
  */
 export function classifyLinkHardness(link: TaskLink): boolean {
   return link.type === 'FS' && link.lag <= 0;
+}
+
+/**
+ * Order links for painting so soft (gray, dashed) connectors draw first and hard
+ * (critical, solid) connectors draw last — SVG paints in document order, so the
+ * driving chain lands on top and stays legible where arrows cross (issue 1440).
+ * A partition (not a comparator sort) preserves each group's incoming order, so
+ * the stagger channel a link is assigned stays stable across re-renders.
+ */
+export function orderLinksForPaint(links: SchedulePrintLink[]): SchedulePrintLink[] {
+  const soft = links.filter((l) => !l.hard);
+  const hard = links.filter((l) => l.hard);
+  return [...soft, ...hard];
 }
 
 /**

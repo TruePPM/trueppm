@@ -3,13 +3,18 @@ import { exportSchedulePdf, scheduledPdfFileName, type ExportProgress } from './
 
 // html-to-image + jspdf are dynamically imported by the helper; mock both. Spies
 // go through vi.hoisted so the hoisted vi.mock factories can close over them.
-const { toPng, addImage, addPage, save, output } = vi.hoisted(() => ({
-  toPng: vi.fn(),
-  addImage: vi.fn(),
-  addPage: vi.fn(),
-  save: vi.fn(),
-  output: vi.fn(),
-}));
+const { toPng, addImage, addPage, save, output, text, setFontSize, setTextColor } = vi.hoisted(
+  () => ({
+    toPng: vi.fn(),
+    addImage: vi.fn(),
+    addPage: vi.fn(),
+    save: vi.fn(),
+    output: vi.fn(),
+    text: vi.fn(),
+    setFontSize: vi.fn(),
+    setTextColor: vi.fn(),
+  }),
+);
 vi.mock('html-to-image', () => ({ toPng }));
 vi.mock('jspdf', () => ({
   jsPDF: class {
@@ -17,6 +22,10 @@ vi.mock('jspdf', () => ({
     addPage = addPage;
     save = save;
     output = output;
+    // Real jsPDF exposes a text layer; the banded path stamps "Sheet n of N".
+    text = text;
+    setFontSize = setFontSize;
+    setTextColor = setTextColor;
     // A4 landscape in points; the mock ignores the `format` option.
     internal = { pageSize: { getWidth: () => 841.89, getHeight: () => 595.28 } };
   },
@@ -60,6 +69,9 @@ beforeEach(() => {
   addPage.mockClear();
   save.mockClear();
   output.mockReset().mockImplementation((type: string) => (type === 'blob' ? { size: 2048 } : ''));
+  text.mockClear();
+  setFontSize.mockClear();
+  setTextColor.mockClear();
 });
 
 afterEach(() => {
@@ -145,6 +157,66 @@ describe('exportSchedulePdf — horizontal banding', () => {
     expect(addImage).toHaveBeenCalledTimes(1);
     expect(result.pageCount).toBe(1);
     expect(save).toHaveBeenCalledWith('noctx.pdf');
+  });
+});
+
+describe('exportSchedulePdf — week-snapped banding with a repeated label column', () => {
+  /** A node stamped with the print surface's geometry (CSS px), as the layout does. */
+  function geomNode(): HTMLElement {
+    const node = document.createElement('div');
+    node.dataset.printLabelStripPx = '150'; // ×2 → 300 img px
+    node.dataset.printWeekPx = '35'; // ×2 → 70 img px per week
+    node.dataset.printPageWidthPx = '500'; // ×2 → 1000 img px per sheet
+    return node;
+  }
+
+  it('repeats the label strip on every sheet and stamps a "Sheet n of N" caption', async () => {
+    // 2000px-wide bitmap → chart 300..2000 (1700) at a 700px week-snapped band → 3 sheets.
+    stubImage(2000, 400);
+    const drawImage = vi.fn();
+    installFakeCanvas({ clearRect: vi.fn(), drawImage });
+
+    const result = await exportSchedulePdf(geomNode(), { fileName: 'wide.pdf' });
+
+    expect(result.pageCount).toBe(3);
+    expect(addPage).toHaveBeenCalledTimes(2);
+    expect(addImage).toHaveBeenCalledTimes(3);
+    // Two draws per sheet: the frozen label strip, then the chart band.
+    expect(drawImage).toHaveBeenCalledTimes(6);
+    // Every sheet carries a real (selectable) caption.
+    expect(text).toHaveBeenCalledWith('Sheet 1 of 3', expect.any(Number), expect.any(Number), {
+      align: 'right',
+    });
+    expect(text).toHaveBeenCalledWith('Sheet 3 of 3', expect.any(Number), expect.any(Number), {
+      align: 'right',
+    });
+    expect(save).toHaveBeenCalledWith('wide.pdf');
+  });
+
+  it('stays on the single-page fast path when the timeline fits one sheet wide', async () => {
+    stubImage(700, 400); // chart 300..700 (400) < one 700px band → 1 column
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const result = await exportSchedulePdf(geomNode(), { fileName: 'narrow.pdf' });
+
+    expect(result.pageCount).toBe(1);
+    expect(addPage).not.toHaveBeenCalled();
+    expect(text).not.toHaveBeenCalled();
+  });
+
+  it('aborts mid-banding between sheets without saving', async () => {
+    stubImage(2000, 400);
+    const controller = new AbortController();
+    const drawImage = vi.fn(() => controller.abort());
+    installFakeCanvas({ clearRect: vi.fn(), drawImage });
+
+    const result = await exportSchedulePdf(geomNode(), {
+      fileName: 'cancel-band.pdf',
+      signal: controller.signal,
+    });
+
+    expect(result.canceled).toBe(true);
+    expect(save).not.toHaveBeenCalled();
   });
 });
 

@@ -203,4 +203,54 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
 
     await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toBeDisabled();
   });
+
+  test('A wide (multi-year) schedule bands across sheets and still exports cleanly (lg)', async ({
+    page,
+  }) => {
+    // An ~18-month timeline exceeds one page at a legible density, so the export
+    // runs its week-snapped horizontal banding path (repeated label column +
+    // "Sheet n of N") end to end. The artifact-hardening acceptance is that this
+    // does not throw or hang — it produces a valid multi-sheet download (issue 1440).
+    const WIDE_TASKS = [
+      { ...FIXTURE_TASKS[0], early_start: '2026-01-05', early_finish: '2026-03-01', planned_start: '2026-01-05' },
+      {
+        ...FIXTURE_TASKS[1],
+        id: 'task-wide-b',
+        wbs_path: '2',
+        early_start: '2026-08-01',
+        early_finish: '2026-12-01',
+        planned_start: '2026-08-01',
+        predecessor_count: 0,
+      },
+      {
+        ...FIXTURE_TASKS[2],
+        id: 'task-wide-ms',
+        wbs_path: '3',
+        early_start: '2027-06-15',
+        early_finish: '2027-06-15',
+        planned_start: '2027-06-15',
+        predecessor_count: 0,
+      },
+    ];
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setup(page, WIDE_TASKS);
+    await page.goto(BASE_URL);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Export schedule' });
+    await expect(dialog).toBeVisible();
+
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
+    await dialog.getByRole('button', { name: 'Export PDF' }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(
+      /^Gantt_Export_Project_Schedule_\d{4}-\d{2}-\d{2}\.pdf$/,
+    );
+    await expect(dialog.getByRole('heading', { name: /PDF ready/ })).toBeVisible({
+      timeout: 30_000,
+    });
+  });
 });
