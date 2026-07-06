@@ -1,10 +1,12 @@
-"""URL routing for ``/api/v1/me/credentials/`` (ADR-0049 §3, #587) and the
-per-project Git-event board automation (#329, ADR-0158)."""
+"""URL routing for ``/api/v1/me/credentials/`` (ADR-0049 §3, #587),
+``/api/v1/me/connections/`` (ADR-0097 §3, #1418), and the per-project Git-event
+board automation (#329, ADR-0158)."""
 
 from __future__ import annotations
 
 from django.urls import path
 
+from .connections import ExternalConnectionView
 from .views import (
     GitAutomationConfigView,
     GitAutomationRotateSecretView,
@@ -28,6 +30,14 @@ urlpatterns = [
             {"get": "retrieve", "post": "create", "delete": "destroy"}
         ),
         name="me-credentials-detail",
+    ),
+    # User-scoped external task source connections (ADR-0097 §3, #1418). The
+    # source key is a distinct EXTERNAL_TASK_SOURCES key (e.g. ``jira``); the
+    # view re-validates it against the registry, so a typo returns a clean 400.
+    path(
+        "me/connections/<slug:source>/",
+        ExternalConnectionView.as_view(),
+        name="me-connections-detail",
     ),
     # Git-event board automation (#329, ADR-0158). The kwarg MUST be ``project_pk``
     # so ``IsProjectAdmin`` can resolve project membership on the config routes.

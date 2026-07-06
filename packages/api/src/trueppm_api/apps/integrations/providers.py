@@ -498,7 +498,17 @@ def resolve_provider_key(url: str, *, user: Any) -> str:
         # Lazy import to avoid a models import at app-load / registry time.
         from .models import IntegrationCredential
 
+        # ``IntegrationCredential`` is shared by two provider namespaces: git-link
+        # PATs (TASK_LINK_PROVIDERS) and user-scoped external task sources
+        # (EXTERNAL_TASK_SOURCES, e.g. a ``jira`` connection on an atlassian.net
+        # base_url — ADR-0097). Only the former resolve a task link; skip a row
+        # whose provider isn't a registered TaskLinkProvider, otherwise a stored
+        # Jira connection would route an atlassian.net link to ``"jira"``, which
+        # is not a TASK_LINK_PROVIDERS key → TaskLink.clean() would 400 a link
+        # that previously resolved to ``"generic"`` (#1418 cross-registry guard).
         for cred in IntegrationCredential.objects.filter(user=user).exclude(base_url=""):
+            if TASK_LINK_PROVIDERS.get(cred.provider) is None:
+                continue
             if (urlparse(cred.base_url).hostname or "").lower() == host:
                 return cred.provider
     return "generic"

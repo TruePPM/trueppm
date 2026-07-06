@@ -74,6 +74,14 @@ class IntegrationCredential(models.Model):
     # PAT lapses. Not enforced server-side — PAT validity is enforced by
     # the upstream provider — this is purely a UX hint.
     expires_at = models.DateTimeField(null=True, blank=True)
+    # Per-connection settings for a user-scoped external task source (ADR-0097 §2).
+    # For an EXTERNAL_TASK_SOURCES connection (e.g. ``jira``) this holds
+    # ``{"account_email", "jql", "project_keys"}``; for a plain git-PAT
+    # TASK_LINK_PROVIDERS credential it stays ``{}``. Extending the existing
+    # credential row (rather than a new model) keeps one row per (user, provider)
+    # and reuses the Fernet-encrypted ``secret_ciphertext`` store — the ADR-0097
+    # §2 "reuse IntegrationCredential" decision. Never carries the secret itself.
+    config = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [
@@ -339,3 +347,88 @@ class BoardAutomation(models.Model):
 
         self.secret_ciphertext = encrypt_secret(plaintext)
         self.secret_set_at = timezone.now()
+
+
+class ExternalWorkItem(models.Model):
+    """A per-user cached snapshot of one remote work item (ADR-0097 §2).
+
+    Populated read-only by the #1419 sync worker from an ``EXTERNAL_TASK_SOURCES``
+    source (e.g. the user's assigned Jira issues) and surfaced in My Work. It is
+    a **personal cache, not project data.**
+
+    **Isolation invariant (ADR-0097 §2, test-enforced in ``tests/``):** this is a
+    plain ``models.Model``, deliberately **not** ``VersionedModel``. It carries no
+    ``server_version``, never enters the WebSocket board broadcast, never joins
+    the project sync delta / offline tombstone protocol, and the pull can **never**
+    mint a ``Task``. That line is what keeps the feature OSS-and-read-only: the day
+    someone makes this a ``VersionedModel`` "to get mobile offline," the Apache-2.0
+    boundary silently breaks, so a regression test asserts every clause here.
+
+    Strictly personal visibility: every read filters ``user=request.user``; no
+    project member, Admin, or Owner can see another user's items (ADR-0097 §3).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="external_work_items",
+    )
+    # Source key, validated against EXTERNAL_TASK_SOURCES at write time (clean()).
+    # Free-form CharField (not DB choices) so Enterprise sources need no OSS
+    # migration — mirrors the IntegrationCredential.provider pattern.
+    source = models.CharField(max_length=32)
+    # Provider-side identifier — the human key for Jira ("RIV-482").
+    external_id = models.CharField(max_length=255)
+    external_url = models.URLField(max_length=2000, blank=True, default="")
+    title = models.CharField(max_length=512, blank=True, default="")
+    # Raw provider status ("In Review") preserved for display; the coarse
+    # grouping bucket is ``display_bucket``.
+    external_status = models.CharField(max_length=64, blank=True, default="")
+    # One of external_sources.DISPLAY_BUCKETS (todo / in_progress / done).
+    display_bucket = models.CharField(max_length=12, default="todo")
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Soft-remove: set True when an item stops being returned by a *successful*
+    # pull (ADR-0097 §5), so a transient partial response never wipes the list.
+    # My Work hides stale items; the nightly purge hard-deletes old ones (#1419).
+    is_stale = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            # One cached row per (user, source, external_id). The unique index it
+            # creates leads with ``user``, so the per-user My Work read
+            # (``WHERE user_id = X``) uses its prefix — no separate user index.
+            models.UniqueConstraint(
+                fields=("user", "source", "external_id"),
+                name="integrations_external_item_unique",
+            ),
+        ]
+        indexes = [
+            # My Work groups a user's live items by bucket; index the group key so
+            # the section read is an index range scan over the bounded (≤500) set.
+            models.Index(
+                fields=("user", "is_stale", "display_bucket"),
+                name="external_item_user_bucket_idx",
+            ),
+        ]
+        ordering = ("display_bucket", "external_id")
+        verbose_name = "External work item"
+        verbose_name_plural = "External work items"
+
+    def __str__(self) -> str:  # pragma: no cover — debugging aid only
+        return f"{self.source}:{self.external_id} for user {self.user_id}"
+
+    def clean(self) -> None:
+        """Validate ``source`` against the live EXTERNAL_TASK_SOURCES registry.
+
+        Defense in depth — the #1419 worker only writes source keys that came
+        from a validated connection, but validating here keeps the model the
+        single source of truth (mirrors ``IntegrationCredential``/``TaskLink``).
+        """
+        super().clean()
+        from django.core.exceptions import ValidationError
+
+        from .external_sources import EXTERNAL_TASK_SOURCES
+
+        if EXTERNAL_TASK_SOURCES.get(self.source) is None:
+            raise ValidationError({"source": f"Unknown external task source {self.source!r}."})

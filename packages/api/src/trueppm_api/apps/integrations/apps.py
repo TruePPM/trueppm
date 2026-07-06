@@ -21,6 +21,7 @@ class IntegrationsConfig(AppConfig):
         ``OUTGOING_CHANNEL_PROVIDERS`` is populated here by #638 with the OSS
         ``generic`` and ``slack`` renderers.
         """
+        from .external_sources import EXTERNAL_TASK_SOURCES, OSS_EXTERNAL_TASK_SOURCES
         from .notification_channels import OSS_NOTIFICATION_CHANNELS
         from .outgoing import OSS_OUTGOING_CHANNEL_PROVIDERS
         from .providers import OSS_TASK_LINK_PROVIDERS
@@ -29,6 +30,13 @@ class IntegrationsConfig(AppConfig):
             OUTGOING_CHANNEL_PROVIDERS,
             TASK_LINK_PROVIDERS,
         )
+
+        # EXTERNAL_TASK_SOURCES (ADR-0097): user-scoped read-only pull sources.
+        # A separate registry from TASK_LINK_PROVIDERS — OSS owns ``jira`` here
+        # for personal read-only pull; Enterprise appends governance sources.
+        for source in OSS_EXTERNAL_TASK_SOURCES:
+            if EXTERNAL_TASK_SOURCES.get(source.key) is None:
+                EXTERNAL_TASK_SOURCES.register(source.key, source)
 
         for handler in OSS_TASK_LINK_PROVIDERS:
             # Idempotent: skip if a re-import (e.g. tests reloading the app)
