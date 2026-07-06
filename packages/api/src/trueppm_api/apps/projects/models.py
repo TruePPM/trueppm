@@ -2859,14 +2859,15 @@ class BoardSavedView(models.Model):
 class ShareContentKind(models.TextChoices):
     """What a :class:`ShareLink` exposes.
 
-    Only ``BOARD`` ships in 0.4 (#283). ``SCHEDULE`` is reserved for #1486, which
-    extends this same model rather than adding a second table — the endpoint,
-    throttle, kill switch, and web shell are all shared. The discriminator is
-    validated at the public endpoint so a board token can never resolve a
-    schedule view or vice-versa.
+    ``BOARD`` shipped in 0.4 (#283); ``SCHEDULE`` (#1486) extends this same model
+    rather than adding a second table — the endpoint, throttle, kill switch, and
+    web shell are all shared. The discriminator is validated at the public
+    endpoint (``resolve_share_link`` filters on ``content_kind``) so a board token
+    can never resolve a schedule view or vice-versa.
     """
 
     BOARD = "board", "Board"
+    SCHEDULE = "schedule", "Schedule"
 
 
 class ShareLink(models.Model):
@@ -2899,7 +2900,7 @@ class ShareLink(models.Model):
         max_length=16,
         choices=ShareContentKind.choices,
         default=ShareContentKind.BOARD,
-        help_text="What the link exposes. 'board' today; #1486 adds 'schedule'.",
+        help_text="What the link exposes — 'board' (#283) or 'schedule' (#1486).",
     )
     token_prefix = models.CharField(
         max_length=12,
@@ -2929,6 +2930,12 @@ class ShareLink(models.Model):
         related_name="+",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Optional auto-expiry (#1486). Null = never expires. Once past, the "
+        "public endpoint returns 410 (gone) exactly like a revoked link.",
+    )
     revoked_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -2959,9 +2966,18 @@ class ShareLink(models.Model):
         return f"ShareLink({self.project_id}, {self.content_kind}, {self.token_prefix}…)"
 
     @property
+    def is_expired(self) -> bool:
+        """Whether an expiry was set and has passed (#1486)."""
+        return self.expires_at is not None and self.expires_at <= timezone.now()
+
+    @property
     def is_active(self) -> bool:
-        """Whether the link still resolves (not soft-revoked)."""
-        return self.revoked_at is None
+        """Whether the link still resolves (neither soft-revoked nor expired).
+
+        Backward-compatible with #283: a link with no ``expires_at`` is active iff
+        it is not revoked, exactly as before.
+        """
+        return self.revoked_at is None and not self.is_expired
 
 
 # ---------------------------------------------------------------------------

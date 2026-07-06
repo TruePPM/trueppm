@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -132,12 +133,16 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
             request.user,
             label=write.validated_data["label"],
             show_assignees=write.validated_data["show_assignees"],
+            content_kind=write.validated_data["content_kind"],
+            expires_at=write.validated_data["expires_at"],
         )
         data: dict[str, Any] = dict(ShareLinkSerializer(link).data)
         # One-time reveal: the raw token and its relative path exist only here. The
-        # web client composes the absolute URL from its own origin.
+        # web client composes the absolute URL from its own origin. The path segment
+        # mirrors content_kind (/share/board/… or /share/schedule/…), but the token's
+        # authority is bound to the (hash, content_kind) tuple, not the route.
         data["token"] = raw
-        data["share_path"] = f"/share/board/{raw}"
+        data["share_path"] = f"/share/{link.content_kind}/{raw}"
         return Response(data, status=status.HTTP_201_CREATED)
 
 
@@ -170,6 +175,79 @@ class ProjectShareLinkRevokeView(IdempotencyMixin, APIView):
         return Response(ShareLinkSerializer(link).data)
 
 
+def _serve_public_share(
+    request: Request,
+    token: str,
+    content_kind: str,
+    serialize: Callable[[ShareLink], dict[str, Any]],
+) -> Response:
+    """Shared serve path for a public read-only share token (#283, #1486).
+
+    Board and schedule expose different projections but share an identical security
+    envelope: instance kill switch → uniform ``404``; unknown/wrong-kind token →
+    ``404``; revoked → ``410``; ADR-0135 policy off → ``404``; otherwise a weak
+    ``ETag`` + ``private, max-age=30`` so embeds re-poll cheaply. The wrong-kind
+    firewall is the ``content_kind`` filter inside ``resolve_share_link``: a board
+    token resolved here as ``SCHEDULE`` (or vice-versa) returns ``None`` → ``404``.
+    """
+    # Kill switch → uniform 404 (do not reveal the feature exists, and
+    # retroactively disable every existing link while off).
+    if not _sharing_enabled():
+        return Response(
+            {"detail": "This share link isn't available."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    link = share_services.resolve_share_link(token, content_kind)
+    if link is None:
+        return Response(
+            {"detail": "This share link isn't available."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if link.revoked_at is not None:
+        return Response(
+            {"detail": "This share link has been revoked."},
+            status=status.HTTP_410_GONE,
+        )
+    if link.is_expired:
+        # Expiry and revocation are both "intentionally gone" → 410 (not 404), so
+        # the recipient knows the link was real and asks the owner for a new one.
+        return Response(
+            {"detail": "This share link has expired."},
+            status=status.HTTP_410_GONE,
+        )
+    if not _public_sharing_allowed(link.project):
+        # The "Public sharing" policy (ADR-0135) was turned off for this project
+        # (or an ancestor) after the link was minted — stop resolving it, uniform
+        # 404 like the instance kill switch.
+        return Response(
+            {"detail": "This share link isn't available."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    payload = serialize(link)
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    etag = 'W/"' + hashlib.sha256(body.encode()).hexdigest()[:32] + '"'
+
+    if request.headers.get("If-None-Match") == etag:
+        resp = Response(status=status.HTTP_304_NOT_MODIFIED)
+    else:
+        resp = Response(payload)
+        # Count a fresh delivery only; 304 re-polls of unchanged content don't
+        # inflate the "viewed N times" meter.
+        share_services.record_access(link)
+    resp["ETag"] = etag
+    # `private` (not `public`): a revoked link must stop resolving promptly, so a
+    # shared/CDN cache must never serve a since-revoked snapshot to another viewer.
+    # The per-viewer browser cache + ETag still make re-polls cheap.
+    resp["Cache-Control"] = "private, max-age=30"
+    # The token is a capability URL; keep it out of any Referer sent from the
+    # public page's subresource/outbound requests (defense-in-depth alongside the
+    # page's own <meta name="referrer">).
+    resp["Referrer-Policy"] = "no-referrer"
+    return resp
+
+
 class PublicBoardShareView(APIView):
     """GET ``/api/v1/share/board/{token}/`` — public, unauthenticated, read-only.
 
@@ -195,48 +273,36 @@ class PublicBoardShareView(APIView):
         },
     )
     def get(self, request: Request, token: str) -> Response:
-        # Kill switch → uniform 404 (do not reveal the feature exists, and
-        # retroactively disable every existing link while off).
-        if not _sharing_enabled():
-            return Response(
-                {"detail": "This share link isn't available."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        return _serve_public_share(
+            request, token, ShareContentKind.BOARD, share_services.serialize_public_board
+        )
 
-        link = share_services.resolve_share_link(token, ShareContentKind.BOARD)
-        if link is None:
-            return Response(
-                {"detail": "This share link isn't available."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        if link.revoked_at is not None:
-            return Response(
-                {"detail": "This share link has been revoked."},
-                status=status.HTTP_410_GONE,
-            )
-        if not _public_sharing_allowed(link.project):
-            # The "Public sharing" policy (ADR-0135) was turned off for this project
-            # (or an ancestor) after the link was minted — stop resolving it, uniform
-            # 404 like the instance kill switch.
-            return Response(
-                {"detail": "This share link isn't available."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
 
-        payload = share_services.serialize_public_board(link)
-        body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        etag = 'W/"' + hashlib.sha256(body.encode()).hexdigest()[:32] + '"'
+class PublicScheduleShareView(APIView):
+    """GET ``/api/v1/share/schedule/{token}/`` — public, unauthenticated, read-only.
 
-        if request.headers.get("If-None-Match") == etag:
-            resp = Response(status=status.HTTP_304_NOT_MODIFIED)
-        else:
-            resp = Response(payload)
-            # Count a fresh delivery only; 304 re-polls of unchanged content don't
-            # inflate the "viewed N times" meter.
-            share_services.record_access(link)
-        resp["ETag"] = etag
-        # `private` (not `public`): a revoked link must stop resolving promptly, so a
-        # shared/CDN cache must never serve a since-revoked board to another viewer.
-        # The per-viewer browser cache + ETag still make re-polls cheap.
-        resp["Cache-Control"] = "private, max-age=30"
-        return resp
+    Sibling of :class:`PublicBoardShareView` for the schedule/Gantt projection
+    (#1486, ADR-0265). Same security envelope; only the resolved ``content_kind``
+    and the projection differ. A board token can never resolve here — the
+    ``content_kind`` discriminator in ``resolve_share_link`` returns ``None`` → 404.
+    """
+
+    permission_classes = [AllowAny]  # noqa: RUF012
+    authentication_classes: list[Any] = []  # noqa: RUF012
+    throttle_classes = [ShareLinkAccessThrottle]  # noqa: RUF012
+    http_method_names = ["get"]  # noqa: RUF012
+
+    @extend_schema(
+        summary="Public read-only schedule snapshot for a share token",
+        responses={
+            200: OpenApiResponse(
+                description="Minimized schedule snapshot (tasks + dependency edges)."
+            ),
+            404: OpenApiResponse(description="Unknown/invalid token, or sharing disabled."),
+            410: OpenApiResponse(description="This share link has been revoked."),
+        },
+    )
+    def get(self, request: Request, token: str) -> Response:
+        return _serve_public_share(
+            request, token, ShareContentKind.SCHEDULE, share_services.serialize_public_schedule
+        )

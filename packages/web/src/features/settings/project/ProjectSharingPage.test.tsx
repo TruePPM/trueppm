@@ -40,10 +40,12 @@ function link(overrides: Partial<ShareLink> = {}): ShareLink {
     showAssignees: false,
     createdBy: 'Kelly',
     createdAt: '2026-07-06T00:00:00Z',
+    expiresAt: null,
     revokedAt: null,
     accessCount: 3,
     lastAccessedAt: '2026-07-06T01:00:00Z',
     isActive: true,
+    isExpired: false,
     ...overrides,
   };
 }
@@ -55,7 +57,7 @@ beforeEach(() => {
   sharedLinksResult = { data: [], isLoading: false };
 });
 
-describe('ProjectSharingPage (#283)', () => {
+describe('ProjectSharingPage (#283 / #1486)', () => {
   it('shows the loading state', () => {
     sharedLinksResult = { data: undefined, isLoading: true };
     render(<ProjectSharingPage />);
@@ -67,32 +69,57 @@ describe('ProjectSharingPage (#283)', () => {
     expect(screen.getByText(/No share links yet/i)).toBeInTheDocument();
   });
 
-  it('lists an active link with its label and access count', () => {
-    sharedLinksResult = { data: [link()], isLoading: false };
+  it('groups active links by kind with a count and expiry clause', () => {
+    sharedLinksResult = {
+      data: [
+        link({ id: 'b1', contentKind: 'board', label: 'Vendor board' }),
+        link({
+          id: 's1',
+          contentKind: 'schedule',
+          label: 'Client review',
+          expiresAt: '2026-08-05T00:00:00Z',
+        }),
+      ],
+      isLoading: false,
+    };
     render(<ProjectSharingPage />);
-    expect(screen.getByText('Client board')).toBeInTheDocument();
-    expect(screen.getByText(/Viewed 3×/)).toBeInTheDocument();
-    expect(screen.getByText(/names hidden/)).toBeInTheDocument();
+    expect(screen.getByText(/Schedule links/)).toBeInTheDocument();
+    expect(screen.getByText(/Board links/)).toBeInTheDocument();
+    expect(screen.getByText('Vendor board')).toBeInTheDocument();
+    expect(screen.getByText('Client review')).toBeInTheDocument();
+    // The schedule link carries an expiry clause, the board link does not.
+    expect(screen.getByText(/expires in/)).toBeInTheDocument();
+    expect(screen.getByText(/never expires/)).toBeInTheDocument();
   });
 
-  it('creates a link and reveals the one-time token', async () => {
+  it('creates a schedule link (with a content kind + expiry) and reveals the one-time token', async () => {
     const user = userEvent.setup();
     createMutate.mockImplementation(
       (_input, { onSuccess }: { onSuccess: (l: unknown) => void }) => {
-        onSuccess({ ...link(), token: 'RAWTOKEN', sharePath: '/share/board/RAWTOKEN' });
+        onSuccess({
+          ...link({ contentKind: 'schedule' }),
+          token: 'RAWTOKEN',
+          sharePath: '/share/schedule/RAWTOKEN',
+        });
       },
     );
     render(<ProjectSharingPage />);
 
     await user.click(screen.getByRole('button', { name: 'Create link…' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Create share link' });
+    const dialog = await screen.findByRole('dialog', { name: 'Share this schedule' });
     expect(dialog).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/Label/), 'Client review board');
+    await user.type(screen.getByLabelText(/Label/), 'Client review');
     await user.click(screen.getByRole('button', { name: 'Create link' }));
 
     expect(createMutate).toHaveBeenCalledWith(
-      { label: 'Client review board', showAssignees: false },
+      expect.objectContaining({
+        label: 'Client review',
+        showAssignees: false,
+        contentKind: 'schedule',
+        // Default nudge is a 30-day expiry (a computed ISO timestamp).
+        expiresAt: expect.any(String) as unknown,
+      }),
       expect.objectContaining({ onSuccess: expect.any(Function) as unknown }),
     );
 
@@ -100,21 +127,22 @@ describe('ProjectSharingPage (#283)', () => {
       expect(screen.getByText(/won.t be able to see it again/i)).toBeInTheDocument(),
     );
     const reveal = screen.getByLabelText<HTMLInputElement>('Public share link');
-    expect(reveal.value).toContain('/share/board/RAWTOKEN');
+    expect(reveal.value).toContain('/share/schedule/RAWTOKEN');
   });
 
-  it('does not discard the create dialog form when Cancel is clicked before minting', async () => {
+  it('can pick "Never" so the minted link has no expiry', async () => {
     const user = userEvent.setup();
     render(<ProjectSharingPage />);
-
     await user.click(screen.getByRole('button', { name: 'Create link…' }));
-    await screen.findByRole('dialog', { name: 'Create share link' });
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await screen.findByRole('dialog', { name: 'Share this schedule' });
 
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Create share link' })).not.toBeInTheDocument(),
+    await user.click(screen.getByRole('button', { name: 'Never' }));
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentKind: 'schedule', expiresAt: null }),
+      expect.anything(),
     );
-    expect(createMutate).not.toHaveBeenCalled();
   });
 
   it('revokes a link after confirmation', async () => {

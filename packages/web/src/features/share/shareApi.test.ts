@@ -47,6 +47,10 @@ describe('classifyShareError', () => {
     expect(classifyShareError(axiosError(404))).toBe('not_found');
   });
 
+  it('maps 429 → rate_limited', () => {
+    expect(classifyShareError(axiosError(429))).toBe('rate_limited');
+  });
+
   it('maps any other status → error', () => {
     expect(classifyShareError(axiosError(500))).toBe('error');
   });

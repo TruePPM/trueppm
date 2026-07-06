@@ -16,10 +16,12 @@ export interface ShareLink {
   showAssignees: boolean;
   createdBy: string | null;
   createdAt: string;
+  expiresAt: string | null;
   revokedAt: string | null;
   accessCount: number;
   lastAccessedAt: string | null;
   isActive: boolean;
+  isExpired: boolean;
 }
 
 /** Create response only — carries the one-time raw token and its relative path. */
@@ -36,10 +38,12 @@ interface ShareLinkRaw {
   show_assignees: boolean;
   created_by: string | null;
   created_at: string;
+  expires_at: string | null;
   revoked_at: string | null;
   access_count: number;
   last_accessed_at: string | null;
   is_active: boolean;
+  is_expired: boolean;
 }
 
 interface CreatedShareLinkRaw extends ShareLinkRaw {
@@ -56,10 +60,12 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
     showAssignees: raw.show_assignees,
     createdBy: raw.created_by,
     createdAt: raw.created_at,
+    expiresAt: raw.expires_at,
     revokedAt: raw.revoked_at,
     accessCount: raw.access_count,
     lastAccessedAt: raw.last_accessed_at,
     isActive: raw.is_active,
+    isExpired: raw.is_expired,
   };
 }
 
@@ -82,6 +88,10 @@ export function useShareLinks(projectId: string, enabled = true) {
 export interface CreateShareLinkInput {
   label?: string;
   showAssignees?: boolean;
+  /** 'board' | 'schedule' — which view the link exposes. Defaults to board. */
+  contentKind?: string;
+  /** ISO timestamp for auto-expiry, or null/undefined for a link that never expires. */
+  expiresAt?: string | null;
 }
 
 /** POST /projects/{id}/share-links/ — mint a link; returns the raw token once. */
@@ -91,7 +101,12 @@ export function useCreateShareLink(projectId: string) {
     mutationFn: async (input: CreateShareLinkInput) => {
       const res = await apiClient.post<CreatedShareLinkRaw>(
         `/projects/${projectId}/share-links/`,
-        { label: input.label ?? '', show_assignees: input.showAssignees ?? false },
+        {
+          label: input.label ?? '',
+          show_assignees: input.showAssignees ?? false,
+          content_kind: input.contentKind ?? 'board',
+          expires_at: input.expiresAt ?? null,
+        },
       );
       const raw = res.data;
       return { ...mapLink(raw), token: raw.token, sharePath: raw.share_path } as CreatedShareLink;

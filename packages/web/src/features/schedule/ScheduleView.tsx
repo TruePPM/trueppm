@@ -73,6 +73,7 @@ import { SchedulePrintLayout } from './export/SchedulePrintLayout';
 import { useScheduleExport } from './export/useScheduleExport';
 import { ScheduleExportButton } from './export/ScheduleExportButton';
 import { ScheduleExportDialog } from './export/ScheduleExportDialog';
+import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import {
   useScheduleFocus,
   BuildModeProvider,
@@ -888,6 +889,11 @@ export function ScheduleView() {
   // useCurrentUserRole pessimistic-gating contract. The server is authoritative.
   const [importOpen, setImportOpen] = useState(false);
   const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
+  // Public share links (#1486): mint/manage is Admin+ (mirrors board sharing). The
+  // instance/workspace kill switch is enforced server-side — the dialog surfaces the
+  // verbatim 403 detail if sharing is off, so the button never silently no-ops.
+  const [shareOpen, setShareOpen] = useState(false);
+  const canShare = currentRole !== null && currentRole >= ROLE_ADMIN;
   const { exportProject, isExporting, error: exportError } = useExportMsProject(projectId);
 
   // Schedule PDF export (issue 1438, ADR-0233; builds on issue 1437). The button,
@@ -1439,6 +1445,25 @@ export function ScheduleView() {
             onOpen={scheduleExport.openDialog}
           />
         )}
+        {/* Share this schedule (#1486) — standalone at md+ for Admin+; folds into the
+            ··· menu at sm (see the overflow items below). */}
+        {projectId && canShare && breakpoint !== 'sm' && (
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            aria-haspopup="dialog"
+            aria-label="Share this schedule"
+            title="Create a public read-only link to this schedule"
+            className={[
+              'inline-flex h-7 flex-shrink-0 items-center gap-1 rounded border border-neutral-border px-3',
+              'text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
+            ].join(' ')}
+          >
+            <span aria-hidden="true">↗</span>
+            <span>Share</span>
+          </button>
+        )}
         {/* Project actions (···) — always present so Import/Export are
             discoverable at every width. The secondary analysis toggles fold in
             here only at the narrowest breakpoint; at md+ they render inline. */}
@@ -1481,6 +1506,17 @@ export function ScheduleView() {
                         label: 'Export schedule as PDF…',
                         disabled: !scheduleExport.canExport,
                         onSelect: scheduleExport.openDialog,
+                      },
+                    ]
+                  : []),
+                // Share (#1486) folds into the ··· menu at sm (standalone at md+).
+                ...(projectId && canShare && breakpoint === 'sm'
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        id: 'share-schedule',
+                        label: 'Share this schedule…',
+                        onSelect: () => setShareOpen(true),
                       },
                     ]
                   : []),
@@ -1788,6 +1824,15 @@ export function ScheduleView() {
       {/* MS Project import modal (#68) — opened from the Project actions menu. */}
       {importOpen && projectId && (
         <ImportModal projectId={projectId} onClose={() => setImportOpen(false)} />
+      )}
+
+      {/* Public schedule share dialog (#1486) — create/reveal/manage in one surface. */}
+      {shareOpen && projectId && (
+        <ShareViewDialog
+          projectId={projectId}
+          contentKind="schedule"
+          onClose={() => setShareOpen(false)}
+        />
       )}
 
       {/* Export status toast (#68) — "Preparing…" while in flight, error after. */}

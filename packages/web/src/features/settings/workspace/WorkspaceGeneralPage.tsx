@@ -472,13 +472,27 @@ export function WorkspaceGeneralPage() {
 
         <FieldRow
           label="Public sharing"
-          hint="Anyone with the link can view selected reports — no sign-in required."
+          hint="Anyone with a link can view selected schedules and boards — no sign-in required. Off turns off all public links across every project."
         >
           <Toggle
             on={publicSharing}
             onChange={setPublicSharing}
             ariaLabel="Allow public link sharing"
           />
+          {/* Cascade legibility (#1486): make the downstream effect explicit so an
+              admin knows exactly what turning this off changes. Programs and projects
+              may narrow this, but cannot widen it. */}
+          {!publicSharing ? (
+            <ul className="mt-2 space-y-1 text-[11px] text-neutral-text-secondary">
+              <li>· Toolbars — the ↗ Share button is disabled with a tooltip.</li>
+              <li>· Project settings — Create is disabled; existing links stop resolving (410).</li>
+              <li>· Public pages — already-open links show the &ldquo;sharing is turned off&rdquo; page.</li>
+            </ul>
+          ) : (
+            <p className="mt-2 text-[11px] text-neutral-text-secondary">
+              Programs and projects may narrow this, but cannot widen it.
+            </p>
+          )}
         </FieldRow>
 
         {/* Forecast history (ADR-0144, issue 1232). Workspace is the non-null root of the

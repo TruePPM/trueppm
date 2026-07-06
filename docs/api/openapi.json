@@ -27009,6 +27009,56 @@
                 }
             }
         },
+        "/api/v1/share/schedule/{token}/": {
+            "get": {
+                "operationId": "v1_share_schedule_retrieve",
+                "description": "GET ``/api/v1/share/schedule/{token}/`` — public, unauthenticated, read-only.\n\nSibling of :class:`PublicBoardShareView` for the schedule/Gantt projection\n(#1486, ADR-0265). Same security envelope; only the resolved ``content_kind``\nand the projection differ. A board token can never resolve here — the\n``content_kind`` discriminator in ``resolve_share_link`` returns ``None`` → 404.",
+                "summary": "Public read-only schedule snapshot for a share token",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "share"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Minimized schedule snapshot (tasks + dependency edges)."
+                    },
+                    "404": {
+                        "description": "Unknown/invalid token, or sharing disabled."
+                    },
+                    "410": {
+                        "description": "This share link has been revoked."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/skills/": {
             "get": {
                 "operationId": "v1_skills_list",
@@ -37638,10 +37688,11 @@
             },
             "ContentKindEnum": {
                 "enum": [
-                    "board"
+                    "board",
+                    "schedule"
                 ],
                 "type": "string",
-                "description": "* `board` - Board"
+                "description": "* `board` - Board\n* `schedule` - Schedule"
             },
             "CredentialSummary": {
                 "type": "object",
@@ -47017,7 +47068,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "What the link exposes. 'board' today; #1486 adds 'schedule'.\n\n* `board` - Board"
+                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule"
                     },
                     "token_prefix": {
                         "type": "string",
@@ -47044,6 +47095,13 @@
                         "format": "date-time",
                         "readOnly": true
                     },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Optional auto-expiry (#1486). Null = never expires. Once past, the public endpoint returns 410 (gone) exactly like a revoked link."
+                    },
                     "revoked_at": {
                         "type": "string",
                         "format": "date-time",
@@ -47065,6 +47123,11 @@
                     "is_active": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "is_expired": {
+                        "type": "boolean",
+                        "description": "Whether an expiry was set and has passed (#1486).",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -47072,8 +47135,10 @@
                     "content_kind",
                     "created_at",
                     "created_by",
+                    "expires_at",
                     "id",
                     "is_active",
+                    "is_expired",
                     "label",
                     "last_accessed_at",
                     "revoked_at",
@@ -47083,7 +47148,7 @@
             },
             "ShareLinkCreateRequest": {
                 "type": "object",
-                "description": "Write serializer for minting a link. Both fields optional; safe defaults.",
+                "description": "Write serializer for minting a link. All fields optional; safe defaults.",
                 "properties": {
                     "label": {
                         "type": "string",
@@ -47093,6 +47158,19 @@
                     "show_assignees": {
                         "type": "boolean",
                         "default": false
+                    },
+                    "content_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ContentKindEnum"
+                            }
+                        ],
+                        "default": "board"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
                     }
                 }
             },
@@ -47112,7 +47190,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "What the link exposes. 'board' today; #1486 adds 'schedule'.\n\n* `board` - Board"
+                        "description": "What the link exposes — 'board' (#283) or 'schedule' (#1486).\n\n* `board` - Board\n* `schedule` - Schedule"
                     },
                     "token_prefix": {
                         "type": "string",
@@ -47139,6 +47217,13 @@
                         "format": "date-time",
                         "readOnly": true
                     },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Optional auto-expiry (#1486). Null = never expires. Once past, the public endpoint returns 410 (gone) exactly like a revoked link."
+                    },
                     "revoked_at": {
                         "type": "string",
                         "format": "date-time",
@@ -47161,6 +47246,11 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "is_expired": {
+                        "type": "boolean",
+                        "description": "Whether an expiry was set and has passed (#1486).",
+                        "readOnly": true
+                    },
                     "token": {
                         "type": "string",
                         "readOnly": true
@@ -47175,8 +47265,10 @@
                     "content_kind",
                     "created_at",
                     "created_by",
+                    "expires_at",
                     "id",
                     "is_active",
+                    "is_expired",
                     "label",
                     "last_accessed_at",
                     "revoked_at",

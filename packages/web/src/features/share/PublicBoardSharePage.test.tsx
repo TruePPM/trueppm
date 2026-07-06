@@ -57,11 +57,18 @@ describe('PublicBoardSharePage', () => {
     expect(screen.getByText('Riverside')).toBeInTheDocument();
   });
 
-  it('shows the branded revoked page on a 410', async () => {
+  it('shows the branded revoked/expired page on a 410', async () => {
     fetchMock.mockRejectedValueOnce(new Error('gone'));
     classifyMock.mockReturnValueOnce('revoked');
     renderAt();
-    expect(await screen.findByText('This link has been revoked')).toBeInTheDocument();
+    expect(await screen.findByText('This link is no longer active')).toBeInTheDocument();
+  });
+
+  it('shows the rate-limited page on a 429', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('throttled'));
+    classifyMock.mockReturnValueOnce('rate_limited');
+    renderAt();
+    expect(await screen.findByText('Too many requests')).toBeInTheDocument();
   });
 
   it('shows the not-available page on a 404', async () => {

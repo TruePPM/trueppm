@@ -28,6 +28,9 @@ import {
 } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_ADMIN } from '@/lib/roles';
+import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import {
@@ -1502,6 +1505,11 @@ function MobileBoard({
 export function BoardView() {
   usePageTitle('Board');
   const projectId = useProjectId() ?? '';
+  // Public board share (#1486): mint/manage is Admin+; the toolbar item is hidden
+  // for lower roles and the dialog surfaces the server kill-switch 403 verbatim.
+  const { role: currentRole } = useCurrentUserRole(projectId || undefined);
+  const canShareBoard = currentRole !== null && currentRole >= ROLE_ADMIN;
+  const [shareOpen, setShareOpen] = useState(false);
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
@@ -2909,6 +2917,7 @@ export function BoardView() {
             onEvmChange={setEvmMode}
             onOpenColumns={() => setShowSettings(true)}
             onOpenCheatsheet={() => setShowCheatsheet(true)}
+            onShare={canShareBoard && projectId ? () => setShareOpen(true) : undefined}
             onExportPdf={onExportPdf}
             exportingPdf={exportingPdf}
             workshopMode={workshopMode}
@@ -3727,6 +3736,13 @@ export function BoardView() {
 
       {/* Board batch 3 overlays — at most one open at a time. */}
       {showCheatsheet && <KeyboardCheatsheet onClose={() => setShowCheatsheet(false)} />}
+      {shareOpen && projectId && (
+        <ShareViewDialog
+          projectId={projectId}
+          contentKind="board"
+          onClose={() => setShareOpen(false)}
+        />
+      )}
       {showSettings && (
         <BoardSettingsPanel
           columns={rawColumns}
