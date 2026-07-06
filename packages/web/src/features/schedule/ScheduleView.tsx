@@ -11,7 +11,7 @@ import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import type { GanttEngine, GanttScaleData } from './engine';
-import { dateToLeft, ZOOM_STEP_FACTOR } from './engine';
+import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -69,11 +69,10 @@ import { useScheduleCommit } from './useScheduleCommit';
 import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { toast } from '@/components/Toast/toast';
-import { fmtUtcLong } from '@/lib/formatUtcDate';
 import { SchedulePrintLayout } from './export/SchedulePrintLayout';
-import { buildSchedulePrintData } from './export/schedulePrintData';
-import { exportSchedulePdf, scheduledPdfFileName } from './export/exportSchedulePdf';
+import { useScheduleExport } from './export/useScheduleExport';
+import { ScheduleExportButton } from './export/ScheduleExportButton';
+import { ScheduleExportDialog } from './export/ScheduleExportDialog';
 import {
   useScheduleFocus,
   BuildModeProvider,
@@ -824,77 +823,62 @@ export function ScheduleView() {
   const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
   const { exportProject, isExporting, error: exportError } = useExportMsProject(projectId);
 
-  // Schedule PDF export (issue 1437, ADR-0188). Mirrors the board's client-side
-  // path (issue 326): an off-screen `SchedulePrintLayout` (mounted below only
-  // while an export runs) is rasterized on demand from the SAME live
-  // `allTasks`/`allLinks`/`mcResult` the view already holds — no re-fetch, no new
-  // compute. This is the minimal Layout-A entry; the options dialog, paper
-  // picker, generation states, and ⌘⇧E shortcut are issue 1438.
+  // Schedule PDF export (issue 1438, ADR-0233; builds on issue 1437). The button,
+  // options dialog, and generation states live in `useScheduleExport`; ScheduleView
+  // only renders them and the off-screen print surface below. Options thread into
+  // the same buildSchedulePrintData / SchedulePrintLayout / exportSchedulePdf
+  // pipeline — no re-fetch, no new compute (ADR-0188).
   const { user: currentUser } = useCurrentUser();
-  const schedulePrintRef = useRef<HTMLDivElement>(null);
-  const [exportingPdf, setExportingPdf] = useState(false);
-  // The print surface mounts only while an export is in flight so its duplicate
-  // projection of every activity name never lingers to collide with the live
-  // grid's text nodes (which would break single-match queries app-wide).
-  const [pdfExportRequested, setPdfExportRequested] = useState(false);
 
-  const schedulePrintData = useMemo(
-    () =>
-      buildSchedulePrintData({
-        projectName: projectDetail?.name ?? 'Schedule',
-        projectKey: projectDetail?.code || null,
-        workspaceUrl: typeof window !== 'undefined' ? window.location.origin : null,
-        tasks: allTasks,
-        links: allLinks,
-        forecast: mcResult ?? null,
-        userName: currentUser?.display_name ?? null,
-        generatedAtLabel: fmtUtcLong(new Date().toISOString()),
-      }),
-    [
-      projectDetail?.name,
-      projectDetail?.code,
-      allTasks,
-      allLinks,
-      mcResult,
-      currentUser?.display_name,
-    ],
-  );
-
-  // Requesting an export only flips `pdfExportRequested`, which mounts the print
-  // surface (below); the rasterize runs in the effect once the node is committed.
-  const onExportSchedulePdf = useCallback(() => {
-    if (pdfExportRequested || exportingPdf) return;
-    setPdfExportRequested(true);
-  }, [pdfExportRequested, exportingPdf]);
-
-  useEffect(() => {
-    if (!pdfExportRequested) return;
-    const node = schedulePrintRef.current;
-    let cancelled = false;
-    setExportingPdf(true);
-    void (async () => {
-      try {
-        if (node) {
-          await exportSchedulePdf(node, {
-            fileName: scheduledPdfFileName(
-              projectDetail?.name ?? 'Project',
-              new Date().toISOString(),
-            ),
-          });
-        }
-      } catch {
-        if (!cancelled) toast.error("Couldn't generate the PDF — try again.");
-      } finally {
-        if (!cancelled) {
-          setExportingPdf(false);
-          setPdfExportRequested(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
+  // "Visible window" range: clip the export to whatever is scrolled into view when
+  // Export is opened, derived from the engine scale + the scroll-container width
+  // (no engine method needed, ADR-0233 §4).
+  const getVisibleWindow = useCallback(() => {
+    const eng = engine;
+    const el = canvasScrollRef.current;
+    if (!eng?.scales || !el) return null;
+    const width = el.clientWidth;
+    if (width <= 0) return null;
+    return {
+      start: leftToDate(eng.scrollLeft, eng.scales).toISOString().slice(0, 10),
+      end: leftToDate(eng.scrollLeft + width, eng.scales)
+        .toISOString()
+        .slice(0, 10),
     };
-  }, [pdfExportRequested, projectDetail?.name]);
+  }, [engine]);
+
+  const scheduleExport = useScheduleExport({
+    projectName: projectDetail?.name ?? 'Schedule',
+    projectKey: projectDetail?.code || null,
+    workspaceUrl: typeof window !== 'undefined' ? window.location.origin : null,
+    userName: currentUser?.display_name ?? null,
+    tasks: allTasks,
+    links: allLinks,
+    forecast: mcResult ?? null,
+    getVisibleWindow,
+    visibleWindowAvailable: engine?.scales != null,
+  });
+  const { openDialog: openExportDialog, canExport: canExportSchedule } = scheduleExport;
+
+  // ⌘⇧E / Ctrl+Shift+E opens the export dialog. Ignored while typing in a field
+  // and below `md` (export is a desk task, hidden on phones).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'e' || e.key === 'E'))) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      ) {
+        return;
+      }
+      if (breakpoint === 'sm' || !canExportSchedule) return;
+      e.preventDefault();
+      openExportDialog();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [breakpoint, canExportSchedule, openExportDialog]);
 
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
@@ -1153,7 +1137,10 @@ export function ScheduleView() {
       >
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-7 rounded-card motion-safe:animate-pulse bg-brand-primary/10" />
+            <div
+              key={i}
+              className="h-7 rounded-card motion-safe:animate-pulse bg-brand-primary/10"
+            />
           ))}
         </div>
         <div className="flex-1 bg-neutral-surface" />
@@ -1358,6 +1345,14 @@ export function ScheduleView() {
             folded into the overflow menu at sm. Self-hides off quarter/year
             zoom and when the workspace fiscal year starts in January. */}
         {toolbarShowSecondaryInline && <QuarterModeControl />}
+        {/* Dedicated Export button (issue 1438) — standalone + labelled at lg;
+            below lg it folds into the ··· Project-actions menu; hidden at sm. */}
+        {projectId && breakpoint === 'lg' && (
+          <ScheduleExportButton
+            disabled={!scheduleExport.canExport}
+            onOpen={scheduleExport.openDialog}
+          />
+        )}
         {/* Project actions (···) — always present so Import/Export are
             discoverable at every width. The secondary analysis toggles fold in
             here only at the narrowest breakpoint; at md+ they render inline. */}
@@ -1389,17 +1384,17 @@ export function ScheduleView() {
                       },
                     ]
                   : []),
-                // Schedule PDF (issue 1437). A deck-style export is a desktop task,
-                // so — like the board (issue 326) — it's hidden below `sm`; the
-                // design folds the entry into this overflow at 768–1100px.
-                ...(projectId && breakpoint !== 'sm'
+                // Schedule PDF export (issue 1438). At lg it's a standalone toolbar
+                // button (above); at md it folds into this ··· menu and opens the
+                // options dialog. Hidden at sm — a deck-style export is a desk task.
+                ...(projectId && breakpoint === 'md'
                   ? [
                       {
                         kind: 'action' as const,
                         id: 'export-pdf',
-                        label: exportingPdf ? 'Generating PDF…' : 'Export schedule as PDF',
-                        disabled: exportingPdf,
-                        onSelect: onExportSchedulePdf,
+                        label: 'Export schedule as PDF…',
+                        disabled: !scheduleExport.canExport,
+                        onSelect: scheduleExport.openDialog,
                       },
                     ]
                   : []),
@@ -1457,9 +1452,7 @@ export function ScheduleView() {
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another
           team has proposed inert cross-project links against this project's
           tasks. Renders nothing otherwise — safe to mount unconditionally. */}
-      {projectId && (
-        <PendingCrossProjectReview projectId={projectId} currentRole={currentRole} />
-      )}
+      {projectId && <PendingCrossProjectReview projectId={projectId} currentRole={currentRole} />}
 
       {/* Task creation modal — replaces the inline AddTaskForm strip
           (issue #305 / ADR-0052). The unified TaskFormModal handles both
@@ -1720,20 +1713,6 @@ export function ScheduleView() {
         </div>
       )}
 
-      {/* PDF export status (issue 1437). The trigger lives in the overflow menu, which
-          closes on select — so a busy label on the menu item would be invisible.
-          This persistent `role="status"` region is the only feedback during the
-          1–2s client-side rasterization, mirroring the MS Project status above
-          and the board export's always-visible button. */}
-      {exportingPdf && (
-        <div
-          role="status"
-          className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-card border border-neutral-border bg-neutral-surface px-4 py-2 text-sm text-neutral-text-primary"
-        >
-          Generating your PDF…
-        </div>
-      )}
-
       {/* Dependency picker modal (#477) — opened from the right-click menu. */}
       {depPickerState && projectId && (
         <ScheduleDependencyPicker
@@ -1771,17 +1750,41 @@ export function ScheduleView() {
         <BuildModeCheatsheet open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
       )}
 
-      {/* Off-screen schedule-export print surface (issue 1437, ADR-0188). Mounted
-          only while an export is in flight so its duplicate projection of every
-          activity name never lingers in the DOM. Positioned out of view (never
-          display:none — html-to-image must render it) and aria-hidden so it's
-          invisible to assistive tech and pointer input. */}
-      {pdfExportRequested && (
+      {/* Schedule-export options + generation dialog (issue 1438, ADR-0233). */}
+      {scheduleExport.open && (
+        <ScheduleExportDialog
+          phase={scheduleExport.phase}
+          options={scheduleExport.options}
+          setOption={scheduleExport.setOption}
+          filteredCount={scheduleExport.filteredCount}
+          estimateMs={scheduleExport.estimateMs}
+          progress={scheduleExport.progress}
+          result={scheduleExport.result}
+          error={scheduleExport.error}
+          visibleWindowAvailable={scheduleExport.visibleWindowAvailable}
+          onExport={scheduleExport.startExport}
+          onCancelGenerating={scheduleExport.cancel}
+          onReset={scheduleExport.reset}
+          onOpenInViewer={scheduleExport.openInViewer}
+          onClose={scheduleExport.closeDialog}
+        />
+      )}
+
+      {/* Off-screen schedule-export print surface (issue 1438, ADR-0233). Mounted
+          only while generating so its duplicate projection of every activity name
+          never lingers in the DOM to collide with the live grid's text nodes.
+          Positioned out of view (never display:none — html-to-image must render it)
+          and aria-hidden. It reflects the chosen paper + include options. */}
+      {scheduleExport.printSurfaceMounted && (
         <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
           <SchedulePrintLayout
-            ref={schedulePrintRef}
-            data={schedulePrintData}
-            dataDate={new Date().toISOString()}
+            ref={scheduleExport.printRef}
+            data={scheduleExport.printData}
+            paper={scheduleExport.options.paper}
+            dataDate={scheduleExport.printDataDate || undefined}
+            includeArrows={scheduleExport.options.includeArrows}
+            includeOwnerColumn={scheduleExport.options.includeOwnerColumn}
+            includeCpSummary={scheduleExport.options.includeCpSummary}
           />
         </div>
       )}

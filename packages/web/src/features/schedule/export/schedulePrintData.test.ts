@@ -314,3 +314,51 @@ describe('scheduleContentSha', () => {
     expect(scheduleContentSha(data.rows, data.links, data.kpis)).toBe(data.footer.contentSha);
   });
 });
+
+describe('buildSchedulePrintData — issue 1438 chart filters', () => {
+  const A = task('a', { wbs: '1', start: '2026-04-01', finish: '2026-04-08', isCritical: true });
+  const B = task('b', { wbs: '2', start: '2026-04-20', finish: '2026-04-30', isCritical: false });
+  const UNDATED = task('u', { wbs: '3', start: undefined, finish: undefined, isCritical: false });
+
+  it('criticalOnly charts only critical rows but leaves KPIs/CP-chain over the full set', () => {
+    const full = build({ tasks: [A, B] });
+    const filtered = build({ tasks: [A, B], criticalOnly: true });
+    expect(filtered.rows.map((r) => r.id)).toEqual(['a']);
+    // KPIs describe the whole project regardless of the chart declutter.
+    expect(filtered.kpis).toEqual(full.kpis);
+    expect(filtered.cpChain).toEqual(full.cpChain);
+  });
+
+  it('windowStart/windowEnd keeps only rows overlapping the window and drops undated rows', () => {
+    const data = build({
+      tasks: [A, B, UNDATED],
+      windowStart: '2026-04-15',
+      windowEnd: '2026-05-01',
+    });
+    // A (Apr 1–8) is out of the window; B (Apr 20–30) overlaps; undated dropped.
+    expect(data.rows.map((r) => r.id)).toEqual(['b']);
+  });
+
+  it('window overlap is inclusive at the boundary (row finishing on windowStart is kept)', () => {
+    const boundary = task('x', { wbs: '1', start: '2026-04-01', finish: '2026-04-15' });
+    const data = build({ tasks: [boundary], windowStart: '2026-04-15', windowEnd: '2026-04-30' });
+    expect(data.rows.map((r) => r.id)).toEqual(['x']);
+  });
+
+  it('prunes links whose endpoint fell outside the window', () => {
+    const data = build({
+      tasks: [A, B],
+      links: [link('l', { sourceId: 'a', targetId: 'b', type: 'FS', lag: 0 })],
+      windowStart: '2026-04-18',
+      windowEnd: '2026-05-01',
+    });
+    // Only B survives the window, so the a→b link has a missing endpoint and prunes.
+    expect(data.rows.map((r) => r.id)).toEqual(['b']);
+    expect(data.links).toEqual([]);
+  });
+
+  it('is unchanged from the pre-1438 behavior when no filters are passed', () => {
+    const data = build({ tasks: [A, B] });
+    expect(data.rows.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+});

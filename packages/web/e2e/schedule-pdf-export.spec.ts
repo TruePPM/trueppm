@@ -1,12 +1,14 @@
 /**
- * E2E for the Schedule "Export schedule as PDF" action (issue 1437, ADR-0188).
+ * E2E for the Schedule export in-app surfaces (issue 1438, ADR-0233; builds on the
+ * issue-1437 Layout-A pipeline).
  *
- * Golden path: open the Project-actions ⋯ overflow on a desktop viewport, click
- * "Export schedule as PDF", and assert a `<Project>_Schedule_<date>.pdf` download
- * is produced by the client-side html-to-image + jsPDF pipeline rasterizing the
- * off-screen Layout-A print surface.
- * Mobile: the action is hidden below the `sm` breakpoint (a one-page Gantt deck
- * is a desktop task) — mirrors the board export (issue 326).
+ * Golden path (lg): a dedicated "Export" toolbar button opens the options dialog;
+ * clicking "Export PDF" runs the client-side html-to-image + jsPDF pipeline over
+ * the off-screen Layout-A print surface and produces a `<Project>_Schedule_<date>.pdf`
+ * download, then the dialog shows the success state.
+ * Responsive: at md the button folds into the Project-actions ⋯ menu (opening the
+ * same dialog); below sm export is hidden entirely (a deck export is a desk task).
+ * Empty state: with no activities the Export button is disabled.
  */
 import { test, expect } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -99,34 +101,31 @@ const FIXTURE_DEPENDENCY = {
   lag: 0,
 };
 
-async function setup(page: import('@playwright/test').Page): Promise<void> {
+async function setup(
+  page: import('@playwright/test').Page,
+  tasks: typeof FIXTURE_TASKS = FIXTURE_TASKS,
+): Promise<void> {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
     projects: FIXTURE_PROJECTS,
     projectId: FIXTURE_PROJECT_ID,
-    tasks: FIXTURE_TASKS,
+    tasks,
     dependencies: [FIXTURE_DEPENDENCY],
   });
   // The schedule reads its grid from GET /tasks/ — override the default-empty
-  // route with the dated fixture so Layout A renders the Gantt, not the
-  // no-activities empty state.
+  // route with the fixture so Layout A renders the Gantt (or the empty state).
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        count: FIXTURE_TASKS.length,
-        next: null,
-        previous: null,
-        results: FIXTURE_TASKS,
-      }),
+      body: JSON.stringify({ count: tasks.length, next: null, previous: null, results: tasks }),
     }),
   );
 }
 
-test.describe('Schedule PDF export (issue 1437)', () => {
-  test('Export schedule as PDF produces a <Project>_Schedule_<date>.pdf download', async ({
+test.describe('Schedule export surfaces (issue 1438)', () => {
+  test('Export button opens the options dialog and produces a PDF download (lg)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -136,20 +135,48 @@ test.describe('Schedule PDF export (issue 1437)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    const menu = page.getByRole('menu', { name: 'Project actions' });
-    const exportItem = menu.getByRole('menuitem', { name: 'Export schedule as PDF' });
-    await expect(exportItem).toBeVisible();
+    // At lg the export is a dedicated, always-visible toolbar button.
+    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Export schedule' });
+    await expect(dialog).toBeVisible();
+    // Layout B is present but disabled until #1439.
+    await expect(dialog.getByRole('radio', { name: 'B — Report' })).toBeDisabled();
+    // Paper picker is a segmented radiogroup.
+    await expect(dialog.getByRole('radio', { name: 'Letter' })).toBeChecked();
 
     const downloadPromise = page.waitForEvent('download', { timeout: 20_000 });
-    await exportItem.click();
+    await dialog.getByRole('button', { name: 'Export PDF' }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(
       /^Gantt_Export_Project_Schedule_\d{4}-\d{2}-\d{2}\.pdf$/,
     );
+
+    // The generation state machine reaches success.
+    await expect(dialog.getByRole('heading', { name: /PDF ready/ })).toBeVisible({
+      timeout: 20_000,
+    });
   });
 
-  test('Export schedule as PDF is hidden at the mobile breakpoint', async ({ page }) => {
+  test('Export folds into the Project-actions ⋯ menu at the md breakpoint', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+
+    // No standalone button at md — it lives in the overflow menu instead.
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
+
+    await toolbar.getByRole('button', { name: 'Project actions' }).click();
+    const menu = page.getByRole('menu', { name: 'Project actions' });
+    await menu.getByRole('menuitem', { name: 'Export schedule as PDF…' }).click();
+
+    await expect(page.getByRole('dialog', { name: 'Export schedule' })).toBeVisible();
+  });
+
+  test('Export is hidden at the mobile breakpoint (sm)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await setup(page);
     await page.goto(BASE_URL);
@@ -157,12 +184,23 @@ test.describe('Schedule PDF export (issue 1437)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // The Project-actions ⋯ overflow still exists on mobile (it holds the
-    // collapsed analysis toggles), but the deck-export action is gated out
-    // below `sm`.
+    // No standalone button, and the ⋯ overflow (which still holds the collapsed
+    // analysis toggles) carries no export entry below sm.
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
     await toolbar.getByRole('button', { name: 'Project actions' }).click();
     const menu = page.getByRole('menu', { name: 'Project actions' });
     await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: 'Export schedule as PDF' })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /Export schedule as PDF/ })).toHaveCount(0);
+  });
+
+  test('Export button is disabled when the schedule is empty (lg)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setup(page, []);
+    await page.goto(BASE_URL);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+
+    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toBeDisabled();
   });
 });
