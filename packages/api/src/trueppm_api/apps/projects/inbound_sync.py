@@ -230,6 +230,13 @@ def upsert_inbound_task(
             wbs_path = None  # let Task.save() leave WBS unset; backlog tasks don't need a path
             is_subtask = False
 
+        # Hybrid-by-construction note (#1665): this agent write path creates only
+        # Tasks — never Dependency edges — so there is no dependency graph to
+        # validate here and the shared cycle/self-reference guard
+        # (scheduling.graph_guard.validate_task_graph) is vacuous. If inbound sync
+        # ever grows dependency writes, route the proposed edges through that guard
+        # before persisting, exactly as the offline importer (#1664) does, so an
+        # agent principal is governed identically to the human write path.
         task = Task.objects.create(
             project=project,
             name=name[:512],
