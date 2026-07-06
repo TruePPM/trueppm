@@ -9,11 +9,13 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.jiraimport.models import JiraImportRequest, JiraImportStatus
 from trueppm_api.apps.jiraimport.parser import parse_jira_xml
+from trueppm_api.apps.jiraimport.views import _require_project_admin
 from trueppm_api.apps.msproject.importer import import_project
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
 from trueppm_api.apps.scheduling.graph_guard import (
@@ -180,3 +182,59 @@ class TestJiraImportViewRBAC:
         )
         assert r.status_code == 400
         assert not JiraImportRequest.objects.filter(project=project).exists()
+
+    def test_rejects_missing_file_field(self, project: Project) -> None:
+        admin = get_user_model().objects.create_user(username="admin3", password="pw")
+        ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+        r = self._client(admin).post(
+            f"/api/v1/projects/{project.pk}/import/jira/", {}, format="multipart"
+        )
+        assert r.status_code == 400
+        assert "No file provided" in r.data["detail"]
+        assert not JiraImportRequest.objects.filter(project=project).exists()
+
+    def test_rejects_upload_exceeding_max_size(self, project: Project, settings: object) -> None:
+        # Any nonzero upload exceeds a 0 MB cap — avoids uploading a real
+        # multi-megabyte fixture just to exercise the size-limit branch.
+        settings.JIRA_IMPORT_MAX_UPLOAD_MB = 0  # type: ignore[attr-defined]
+        admin = get_user_model().objects.create_user(username="admin4", password="pw")
+        ProjectMembership.objects.create(project=project, user=admin, role=Role.ADMIN)
+        r = self._client(admin).post(
+            f"/api/v1/projects/{project.pk}/import/jira/",
+            {"file": self._upload()},
+            format="multipart",
+        )
+        assert r.status_code == 400
+        assert "too large" in r.data["detail"].lower()
+        assert not JiraImportRequest.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+class TestRequireProjectAdmin:
+    """Direct unit tests of the in-body defense-in-depth Admin check.
+
+    IsProjectAdmin already rejects these callers at the DRF permission layer,
+    so the view-level tests above never reach _require_project_admin's own
+    raise — exercise it directly to cover its no-membership and below-Admin
+    branches.
+    """
+
+    def test_raises_when_no_membership(self, project: Project) -> None:
+        user = get_user_model().objects.create_user(username="nomember", password="pw")
+        with pytest.raises(PermissionDenied):
+            _require_project_admin(user, str(project.pk))
+
+    def test_raises_when_role_below_admin(self, project: Project) -> None:
+        user = get_user_model().objects.create_user(username="belowadmin", password="pw")
+        ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+        with pytest.raises(PermissionDenied):
+            _require_project_admin(user, str(project.pk))
+
+
+@pytest.mark.django_db
+class TestJiraImportRequestStr:
+    def test_str_includes_project_filename_and_status(self, project: Project) -> None:
+        req = JiraImportRequest.objects.create(
+            project=project, filename="export.xml", file_content_b64=""
+        )
+        assert str(req) == f"JiraImportRequest({project.pk}, export.xml, pending)"

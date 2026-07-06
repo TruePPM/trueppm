@@ -112,3 +112,52 @@ CYCLIC_EXPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 </rss>
 """
+
+# Exercises the remaining parser edge cases in one export:
+#   - "No key issue"  — no <key> at all -> skipped + warned
+#   - "First"         — no <summary> -> falls back to the <title>, prefix
+#                       stripped; also carries a non-"Blocks" issuelinktype
+#                       ("Duplicate"), which must be ignored, not followed
+#   - a second PROJ-1 -- duplicate key -> skipped + warned, first one kept
+#   - "Second"        — unparseable timeoriginalestimate seconds -> 1 day
+#   - "Third"         — zero-second timeoriginalestimate -> 1 day (never 0)
+EDGE_CASE_EXPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="0.92">
+<channel>
+  <title>Edge Cases</title>
+  <item>
+    <title>[NOPE] No key issue</title>
+    <summary>No key</summary>
+  </item>
+  <item>
+    <title>[PROJ-1] First</title>
+    <key id="10001">PROJ-1</key>
+    <issuelinks>
+      <issuelinktype id="10001">
+        <name>Duplicate</name>
+        <outwardlinks description="duplicates">
+          <issuelink><issuekey id="10002">PROJ-2</issuekey></issuelink>
+        </outwardlinks>
+      </issuelinktype>
+    </issuelinks>
+  </item>
+  <item>
+    <title>[PROJ-1] Duplicate key repeat</title>
+    <key id="10001">PROJ-1</key>
+    <summary>Duplicate key repeat</summary>
+  </item>
+  <item>
+    <title>[PROJ-2] Second</title>
+    <key id="10002">PROJ-2</key>
+    <summary>Second</summary>
+    <timeoriginalestimate seconds="not-a-number">bad</timeoriginalestimate>
+  </item>
+  <item>
+    <title>[PROJ-3] Third</title>
+    <key id="10003">PROJ-3</key>
+    <summary>Third</summary>
+    <timeoriginalestimate seconds="0">zero</timeoriginalestimate>
+  </item>
+</channel>
+</rss>
+"""

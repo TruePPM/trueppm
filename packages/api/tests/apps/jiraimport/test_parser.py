@@ -6,7 +6,7 @@ import pytest
 
 from trueppm_api.apps.jiraimport.parser import JiraImportError, parse_jira_xml
 
-from .fixtures import CHAIN_EXPORT, CYCLIC_EXPORT, MESSY_EXPORT
+from .fixtures import CHAIN_EXPORT, CYCLIC_EXPORT, EDGE_CASE_EXPORT, MESSY_EXPORT
 
 
 def test_parses_tasks_names_and_durations() -> None:
@@ -70,3 +70,46 @@ def test_cyclic_edges_left_intact_for_the_guard() -> None:
 def test_rejects_unparseable_or_empty(content: bytes) -> None:
     with pytest.raises(JiraImportError):
         parse_jira_xml(content)
+
+
+def test_skips_issue_with_no_key_and_warns() -> None:
+    data = parse_jira_xml(EDGE_CASE_EXPORT)
+    names = {t.name for t in data.tasks}
+    assert "No key issue" not in names
+    assert any("Skipped an issue with no key" in w for w in data.warnings)
+
+
+def test_duplicate_key_skipped_keeping_the_first() -> None:
+    data = parse_jira_xml(EDGE_CASE_EXPORT)
+    # "First" (the first PROJ-1) is kept; "Duplicate key repeat" (the second
+    # PROJ-1) is dropped.
+    names = [t.name for t in data.tasks]
+    assert names.count("First") == 1
+    assert "Duplicate key repeat" not in names
+    assert any("Duplicate issue key PROJ-1 skipped" in w for w in data.warnings)
+
+
+def test_issue_name_falls_back_to_title_when_summary_missing() -> None:
+    data = parse_jira_xml(EDGE_CASE_EXPORT)
+    # No <summary> on PROJ-1 -> falls back to <title>, with the "[PROJ-1] "
+    # prefix stripped.
+    assert "First" in {t.name for t in data.tasks}
+
+
+def test_non_blocks_link_type_is_ignored() -> None:
+    data = parse_jira_xml(EDGE_CASE_EXPORT)
+    first = next(t for t in data.tasks if t.name == "First")
+    second = next(t for t in data.tasks if t.name == "Second")
+    # The "Duplicate" issuelinktype on PROJ-1 must not be read as a dependency.
+    assert first.predecessor_links == []
+    assert second.predecessor_links == []
+
+
+@pytest.mark.parametrize("name", ["Second", "Third"])
+def test_seconds_to_days_edge_cases_default_to_one_day(name: str) -> None:
+    # "Second" has an unparseable estimate (ValueError); "Third" has a
+    # zero-second estimate. Both must floor to 1 day so CPM never sees a
+    # zero-length (invisible) task.
+    data = parse_jira_xml(EDGE_CASE_EXPORT)
+    task = next(t for t in data.tasks if t.name == name)
+    assert task.duration_days == 1
