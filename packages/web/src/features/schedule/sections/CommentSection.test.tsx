@@ -29,6 +29,12 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: ROLE_ADMIN, isLoading: false }),
 }));
 
+// #514: CommentComposer reads useProject to decide whether to offer @program-*
+// groups. These tests don't exercise mentions, so a standalone project is fine.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: { program: null } }),
+}));
+
 function comment(overrides: Partial<TaskComment> = {}): TaskComment {
   return {
     id: 'c1',
