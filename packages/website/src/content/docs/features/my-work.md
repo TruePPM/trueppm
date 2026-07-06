@@ -81,6 +81,17 @@ Tap the status chip on any row. A small picker opens with four choices. Pick one
 
 If the update fails (server unreachable, conflict with someone else's change), the chip rolls back and a toast explains what happened.
 
+## Log time *(ships in 0.4)*
+
+Every task row carries a **Log time** action — click it, or press **L** while the row has focus, and a compact popover opens right there, no navigation.
+
+- **Presets for the common cases** — one tap for 15m, 30m, 1h, 2h, or 4h.
+- **Or type your own** — `1:30` and `1.5` both mean an hour and a half; the big read-out shows what you're about to log.
+- **Date** defaults to today and can be backdated within the entry window; add an optional **note** for context.
+- **Press ↵ to log, Esc to cancel.** A confirmation toast offers **Undo** for a few seconds if you logged the wrong thing.
+
+Each row shows what you've already **logged today**, and the page header keeps a running **today · this week** total, so a full day of logging takes seconds without leaving My Work. For the whole-week view — filling gaps and submitting — use the [Timesheet](/features/timesheet/). A running [timer](/features/timesheet/) is available too when you'd rather track live than log after the fact.
+
 ## Working offline
 
 The page is cacheable and the mobile app keeps it available without a signal. Status taps queue while you're offline and replay when the connection comes back. A banner at the top of the page tells you when you're working offline so changes aren't a surprise.
