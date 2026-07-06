@@ -55,6 +55,11 @@ import type { CpmError } from '@/stores/schedulerStore';
 interface WsEnvelope {
   event_type: string;
   payload: Record<string, unknown>;
+  // ADR-0236 (#321): monotonic replay sequence for a persisted event, null for an
+  // ephemeral one (presence / task-run progress) and absent on legacy servers.
+  seq?: number | null;
+  // True on a frame streamed from the reconnect replay buffer (informational).
+  replayed?: boolean;
 }
 
 const WS_BASE = (() => {
@@ -110,6 +115,15 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // redundant refetch.
   const seenTaskVersionsRef = useRef<Map<string, number>>(new Map());
 
+  // ADR-0236 (#321): highest replay sequence processed for the current project.
+  // Sent as ?since= on reconnect so the server replays only missed events, and
+  // used to drop a replay↔live duplicate (or a re-delivered replay) at the same
+  // seq. lastSeqProjectRef guards the reset: the cursor is zeroed only when the
+  // project actually changes, NOT on a token-refresh reconnect (which must keep
+  // replaying across the gap).
+  const lastSeqRef = useRef<number>(0);
+  const lastSeqProjectRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -125,6 +139,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     // Re-arm mountedRef so connect() doesn't exit early after the previous
     // cleanup set it false on a projectId/token change.
     mountedRef.current = true;
+
+    // ADR-0236: reset the replay cursor only when the project actually changes,
+    // not on a token-refresh reconnect (which must keep replaying across the gap).
+    if (lastSeqProjectRef.current !== projectId) {
+      lastSeqRef.current = 0;
+      lastSeqProjectRef.current = projectId;
+    }
 
     if (!projectId || !accessToken) return;
 
@@ -163,6 +184,34 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       const { event_type, payload } = envelope;
+
+      // --- ADR-0236 (#321): replay sequence dedup ---
+      // Frames carrying a numeric seq are strictly ordered; drop any at or below
+      // the highest we've processed. This neutralizes the one duplicate the replay
+      // protocol can produce (an event both replayed and re-delivered live at the
+      // same seq during the group_add race) and any redundant replay. Frames
+      // without a seq (presence, task_run_*, and legacy servers) are never gated.
+      const seq = envelope.seq;
+      if (typeof seq === 'number') {
+        if (seq <= lastSeqRef.current) return;
+        lastSeqRef.current = seq;
+      }
+
+      // --- ADR-0236 (#321): server could not replay the full gap ---
+      // The requested ?since= aged out of the retention window (or the client was
+      // further behind than the replay cap). Refetch the project-scoped caches and
+      // baseline the cursor to the buffer head so the next reconnect doesn't
+      // re-request the purged gap. resync_required carries seq: null, so the gate
+      // above never drops it.
+      if (event_type === 'resync_required') {
+        const latest = (payload as { latest_seq?: unknown }).latest_seq;
+        void queryClient.invalidateQueries({
+          predicate: (q) => q.queryKey.includes(projectIdRef.current),
+        });
+        void queryClient.invalidateQueries({ queryKey: ['projects'] });
+        if (typeof latest === 'number') lastSeqRef.current = latest;
+        return;
+      }
 
       // --- Task run progress events ---
       if (event_type === 'task_run_started') {
@@ -738,7 +787,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
           // The component may have unmounted, or projectId changed, during the
           // ticket round-trip — bail rather than open a stale socket.
           if (!mountedRef.current || projectIdRef.current !== pid) return;
-          openSocket(pid, ticket);
+          // Pass the last-processed sequence so a reconnect replays only the
+          // missed events (ADR-0236). 0 on a fresh mount → the server skips
+          // replay and the initial REST load provides current state.
+          openSocket(pid, ticket, lastSeqRef.current);
         })
         .catch(() => {
           if (!mountedRef.current) return;
@@ -754,8 +806,11 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         });
     }
 
-    function openSocket(pid: string, ticket: string) {
-      const url = `${WS_BASE}/ws/v1/projects/${pid}/?ticket=${encodeURIComponent(ticket)}`;
+    function openSocket(pid: string, ticket: string, since: number) {
+      const base = `${WS_BASE}/ws/v1/projects/${pid}/?ticket=${encodeURIComponent(ticket)}`;
+      // Only append &since= on a reconnect that has processed events (since > 0);
+      // a fresh connect omits it so the server streams live without replay.
+      const url = since > 0 ? `${base}&since=${since}` : base;
       ws = new WebSocket(url);
 
       ws.addEventListener('message', handleMessage);

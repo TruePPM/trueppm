@@ -23,13 +23,78 @@ logger = logging.getLogger(__name__)
 # can branch on it. Bump only on a backward-incompatible envelope change.
 WS_PROTOCOL_VERSION = 1
 
+# Event types that are deliberately NOT persisted to the BoardEvent replay buffer
+# (ADR-0236, #321). Everything else is persisted so a reconnecting client can
+# replay it via ``?since=``. A *denylist* (not an allowlist) is the fail-safe
+# default: every mutation event maps to an idempotent client cache-invalidation,
+# so replaying one is always safe, and a newly-added mutation event should be
+# replayable without anyone remembering to register it. Two reasons to exclude:
+#
+#   1. **Ephemeral** high-frequency live progress / presence pings — a stale
+#      progress bar or a presence ping for a since-departed peer carries no value
+#      on replay.
+#   2. **Post-delete** — ``project_hard_deleted`` fires from an on_commit callback
+#      *after* the project row (and its cascade-deleted buffer rows) are gone, so
+#      persisting a BoardEvent for it would dangle the project FK. The DEFERRABLE
+#      FK check surfaces at COMMIT, past ``_persist_board_event``'s try/except, so
+#      it cannot be swallowed — it must not be attempted. A hard-deleted project
+#      has no replay value anyway (a reconnecting member is evicted or 404s).
+DONT_PERSIST_EVENT_TYPES = frozenset(
+    {
+        "presence_join",
+        "presence_leave",
+        "task_run_started",
+        "task_run_progress",
+        "task_run_completed",
+        "task_run_failed",
+        "task_run_cancelled",
+        "project_hard_deleted",
+    }
+)
+
 
 def _group_name(project_id: str) -> str:
     """Return the channel layer group name for a project."""
     return f"project_{project_id}"
 
 
-def _board_message(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _persist_board_event(project_id: str, event_type: str, payload: dict[str, Any]) -> int | None:
+    """Persist a replayable event to the BoardEvent buffer; return its sequence.
+
+    The sequence is the row's ``BigAutoField`` PK — globally monotonic, assigned
+    atomically by Postgres, so it survives concurrent commits with no lost or
+    duplicate values (ADR-0236). Returns ``None`` for non-persisted events
+    (``DONT_PERSIST_EVENT_TYPES``) and on any DB failure: best-effort exactly like the
+    broadcast itself, so a failed insert logs and is swallowed — the live event
+    still goes out (without a ``seq``) and the client recovers the gap via a
+    ``resync_required`` on its next reconnect.
+
+    Callers already run this inside a ``transaction.on_commit`` callback, so the
+    INSERT happens post-commit in autocommit — the row is the durable truth, the
+    broadcast is the best-effort echo.
+    """
+    if event_type in DONT_PERSIST_EVENT_TYPES:
+        return None
+
+    from django.db import DatabaseError
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    try:
+        row = BoardEvent.objects.create(
+            project_id=project_id, event_type=event_type, payload=payload
+        )
+    except DatabaseError:
+        logger.exception(
+            "broadcast: failed to persist BoardEvent %s for project %s", event_type, project_id
+        )
+        return None
+    return row.pk
+
+
+def _board_message(
+    event_type: str, payload: dict[str, Any], seq: int | None = None
+) -> dict[str, Any]:
     """Build the ``board.event`` channel-layer envelope consumers expect.
 
     Shared by the sync and async broadcast helpers so the wire shape stays in
@@ -37,12 +102,18 @@ def _board_message(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     off the top level (unlike the workshop channel, which nests under
     ``content``). The ``protocol_version`` field is the single source of the wire
     version for every board event (#1325).
+
+    ``seq`` is the BoardEvent sequence for a persisted (replayable) event, or
+    ``None`` for an ephemeral event that was not buffered (ADR-0236). It is
+    additive: a client that ignores it behaves exactly as before, so
+    ``protocol_version`` stays ``1``.
     """
     return {
         "type": "board.event",
         "protocol_version": WS_PROTOCOL_VERSION,
         "event_type": event_type,
         "payload": payload,
+        "seq": seq,
     }
 
 
@@ -125,9 +196,14 @@ def broadcast_board_event(
         logger.warning("broadcast_board_event: no channel layer configured, skipping broadcast")
         return
 
+    # Persist the replay-buffer row first so its sequence can ride the live
+    # payload (ADR-0236). Best-effort: a persist failure yields seq=None and the
+    # event still broadcasts.
+    seq = _persist_board_event(project_id, event_type, payload)
+
     group = _group_name(project_id)
     try:
-        async_to_sync(channel_layer.group_send)(group, _board_message(event_type, payload))
+        async_to_sync(channel_layer.group_send)(group, _board_message(event_type, payload, seq))
     except Exception:
         logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
 
@@ -161,9 +237,21 @@ async def abroadcast_board_event(
         logger.warning("abroadcast_board_event: no channel layer configured, skipping broadcast")
         return
 
+    # Persist the replay-buffer row (ADR-0236). The only async callers today are
+    # presence join/leave, which are ephemeral and short-circuit to seq=None
+    # without touching the DB; the database_sync_to_async hop only runs if a future
+    # async caller broadcasts a replayable event, keeping this path symmetric with
+    # the sync helper rather than silently dropping such an event from the buffer.
+    if event_type in DONT_PERSIST_EVENT_TYPES:
+        seq = None
+    else:
+        from channels.db import database_sync_to_async
+
+        seq = await database_sync_to_async(_persist_board_event)(project_id, event_type, payload)
+
     group = _group_name(project_id)
     try:
-        await channel_layer.group_send(group, _board_message(event_type, payload))
+        await channel_layer.group_send(group, _board_message(event_type, payload, seq))
     except Exception:
         logger.exception("abroadcast_board_event: failed to send %s to group %s", event_type, group)
 

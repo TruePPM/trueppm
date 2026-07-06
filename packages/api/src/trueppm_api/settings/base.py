@@ -275,6 +275,16 @@ CELERY_BEAT_SCHEDULE = {
         # 02:25 UTC — after the Monte Carlo purge.
         "schedule": crontab(hour=2, minute=25),
     },
+    # Nightly cleanup: reaps WebSocket replay-buffer rows (BoardEvent) older than
+    # TRUEPPM_BOARD_EVENT_RETENTION_HOURS so the buffer stays bounded (ADR-0236,
+    # #321). Standalone rather than in the ADR-0173 operator coordinator: the
+    # buffer is internal transport plumbing, deliberately not surfaced as an
+    # operator-tunable retention row.
+    "purge-board-events-nightly": {
+        "task": "sync.purge_board_events",
+        # 02:35 UTC — after the slip-conflict purge.
+        "schedule": crontab(hour=2, minute=35),
+    },
     # Nightly cleanup: trims project Monte Carlo run history to the newest
     # MC_HISTORY_CAP rows per project (ADR-0175, #961). No-ops when the cap is
     # None (Enterprise unlimited).
@@ -951,6 +961,15 @@ TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=
 # stored response; past it, the id is allowed to re-run and the nightly
 # sync.purge_sync_batches task reaps the stale row.
 TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_HOURS", default=24)
+
+# Retention window in hours for the WebSocket event replay buffer (ADR-0236,
+# #321). BoardEvent rows older than this are reaped by the nightly
+# sync.purge_board_events task so the buffer stays bounded; a client reconnecting
+# with a ?since= older than the retained window gets a resync_required frame and
+# refetches. Kept deliberately short (a reconnect gap is minutes, not days).
+TRUEPPM_BOARD_EVENT_RETENTION_HOURS: int = env.int(
+    "TRUEPPM_BOARD_EVENT_RETENTION_HOURS", default=24
+)
 
 # Retention window in days for soft-deleted (trashed) projects. Once a project has
 # been soft-deleted for longer than this, the consolidated retention purge

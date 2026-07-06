@@ -1100,3 +1100,127 @@ describe('useProjectWebSocket — wave-2 missing handlers (#1323)', () => {
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 });
+
+describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  function dispatch(payloadObj: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', { data: JSON.stringify(payloadObj) });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  it('fresh connect omits &since (nothing processed yet)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    expect(MockWebSocket.instances[0].url).not.toContain('since=');
+    expect(MockWebSocket.instances[0].url).toContain('ticket=test-ticket');
+  });
+
+  it('reconnect carries &since=<highest seq processed>', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // Process a persisted (seq-bearing) event.
+    dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 7 });
+    flushDebounce();
+
+    // Trigger a retryable close → backoff reconnect.
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000); // first backoff window
+    });
+
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(MockWebSocket.instances[1].url).toContain('&since=7');
+  });
+
+  it('drops an event whose seq was already processed (replay↔live dedup)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // Advance the cursor to 5 via a task event.
+    dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 5 });
+    flushDebounce();
+
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    // A stale/duplicate event at seq <= 5 must be dropped entirely.
+    dispatch({ event_type: 'dependency_created', payload: { id: 'd1' }, seq: 3 });
+    flushDebounce();
+
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['dependencies', 'proj-1'] });
+  });
+
+  it('does not gate ephemeral frames without a seq, and they do not advance the cursor', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ event_type: 'task_created', payload: { id: 't1' }, seq: 9 });
+    flushDebounce();
+    // A seq-less presence frame processes normally and must NOT bump the cursor.
+    dispatch({ event_type: 'presence_join', payload: { user_id: 'u2', display_name: 'Bo' } });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    // Cursor stayed at 9 (presence did not advance it).
+    expect(MockWebSocket.instances[1].url).toContain('&since=9');
+  });
+
+  it('resync_required refetches project caches and does not throw', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 42 }, seq: null });
+
+    // The projects list is refetched, plus a project-scoped predicate sweep.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+    const sawPredicateSweep = invalidateSpy.mock.calls.some(
+      (call) => typeof call[0]?.predicate === 'function',
+    );
+    expect(sawPredicateSweep).toBe(true);
+  });
+
+  it('after resync, the next reconnect requests since=latest_seq from the frame', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ event_type: 'resync_required', payload: { latest_seq: 42 }, seq: null });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(MockWebSocket.instances[1].url).toContain('&since=42');
+  });
+});

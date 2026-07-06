@@ -7,12 +7,17 @@ workshop groups, including its best-effort failure handling.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-from trueppm_api.apps.sync.broadcast import abroadcast_board_event, evict_project_connection
+from trueppm_api.apps.sync.broadcast import (
+    abroadcast_board_event,
+    broadcast_board_event,
+    evict_project_connection,
+)
 
 _GET_LAYER = "channels.layers.get_channel_layer"
 
@@ -73,6 +78,8 @@ async def test_abroadcast_awaits_group_send_with_board_envelope() -> None:
                 "protocol_version": 1,
                 "event_type": "presence_join",
                 "payload": {"user_id": "u9"},
+                # presence_join is ephemeral → not persisted → no replay sequence.
+                "seq": None,
             },
         )
     ]
@@ -94,6 +101,110 @@ async def test_abroadcast_swallows_group_send_failure() -> None:
 
     with patch(_GET_LAYER, return_value=_BoomLayer()):
         await abroadcast_board_event("p1", "presence_join", {"user_id": "u9"})
+
+
+# ---------------------------------------------------------------------------
+# BoardEvent replay-buffer persistence (ADR-0236, #321)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def replay_project(db: object) -> Any:
+    """A real Project so BoardEvent's FK insert succeeds."""
+    from trueppm_api.apps.projects.models import Calendar, Project
+
+    calendar = Calendar.objects.create(name="Standard")
+    return Project.objects.create(
+        name="Replay Proj", start_date=date(2026, 1, 1), calendar=calendar
+    )
+
+
+@pytest.mark.django_db
+def test_broadcast_persists_boardevent_with_seq_in_payload(replay_project: Any) -> None:
+    """A replayable broadcast writes a BoardEvent row and rides its seq on the wire."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
+
+    row = BoardEvent.objects.get(project_id=replay_project.pk, event_type="task_created")
+    assert row.payload == {"id": "t1"}
+    # The live envelope carries the persisted row's sequence (its PK).
+    _group, message = layer.sent[0]
+    assert message["seq"] == row.pk
+    assert message["event_type"] == "task_created"
+
+
+@pytest.mark.django_db
+def test_broadcast_sequence_is_monotonic_per_project(replay_project: Any) -> None:
+    """Successive persisted events get strictly increasing sequences (ADR-0236)."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
+        broadcast_board_event(str(replay_project.pk), "task_updated", {"id": "t1"})
+        broadcast_board_event(str(replay_project.pk), "task_deleted", {"id": "t1"})
+
+    seqs = [msg["seq"] for _g, msg in layer.sent]
+    assert seqs == sorted(seqs) and len(set(seqs)) == 3
+    assert BoardEvent.objects.filter(project_id=replay_project.pk).count() == 3
+
+
+@pytest.mark.django_db
+def test_broadcast_does_not_persist_ephemeral_events(replay_project: Any) -> None:
+    """Ephemeral events (task_run progress) broadcast live but are never buffered."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(
+            str(replay_project.pk), "task_run_progress", {"task_run_id": "r1", "pct": 40}
+        )
+
+    assert BoardEvent.objects.filter(project_id=replay_project.pk).count() == 0
+    # Still broadcast live, just with no replay sequence.
+    _group, message = layer.sent[0]
+    assert message["event_type"] == "task_run_progress"
+    assert message["seq"] is None
+
+
+@pytest.mark.django_db
+def test_project_hard_deleted_is_not_persisted(replay_project: Any) -> None:
+    """project_hard_deleted fires after the project row is gone — persisting it would
+    dangle the FK (the DEFERRABLE check surfaces at COMMIT, past the try/except), so
+    it must be denylisted. Regression for the CI FK-violation on project hard-delete."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(
+            str(replay_project.pk), "project_hard_deleted", {"id": str(replay_project.pk)}
+        )
+
+    assert BoardEvent.objects.filter(project_id=replay_project.pk).count() == 0
+    _group, message = layer.sent[0]
+    assert message["event_type"] == "project_hard_deleted"
+    assert message["seq"] is None  # not buffered → no replay sequence
+
+
+@pytest.mark.django_db
+def test_broadcast_swallows_persist_failure_and_still_sends(replay_project: Any) -> None:
+    """A BoardEvent insert failure is logged, not raised; the live event still goes out."""
+    layer = _FakeChannelLayer()
+    with (
+        patch(_GET_LAYER, return_value=layer),
+        patch(
+            "trueppm_api.apps.sync.models.BoardEvent.objects.create",
+            side_effect=__import__("django.db", fromlist=["DatabaseError"]).DatabaseError("boom"),
+        ),
+    ):
+        broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
+
+    _group, message = layer.sent[0]
+    assert message["event_type"] == "task_created"
+    assert message["seq"] is None  # persistence failed → no sequence, best-effort
 
 
 # ---------------------------------------------------------------------------

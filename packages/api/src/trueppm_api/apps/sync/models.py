@@ -118,3 +118,62 @@ class SyncBatch(models.Model):
         ``settings.TRUEPPM_SYNC_BATCH_RETENTION_HOURS``.
         """
         return self.created_at > timezone.now() - timedelta(hours=ttl_hours)
+
+
+class BoardEvent(models.Model):
+    """Bounded per-project replay buffer for WebSocket events (ADR-0236, #321).
+
+    Real-time broadcasts are best-effort: a client that disconnects loses every
+    event sent during the gap. Each replayable broadcast persists one ``BoardEvent``
+    row here so a reconnecting client can request ``?since=<seq>`` and replay only
+    the events it missed — instead of a broad refetch storm — and recover the
+    incremental ``task_dates_updated`` CPM splices a refetch-on-focus would drop.
+
+    Like :class:`SyncBatch`, this is server infrastructure, never pulled as a synced
+    domain row, so it is a plain ``models.Model`` (no ``server_version``).
+
+    **The primary key is the sequence.** The ``BigAutoField`` ``id`` is assigned
+    atomically by Postgres at INSERT, so it is globally monotonic with no lost or
+    duplicate values under concurrent commits. Clients only need a strictly
+    increasing-per-project value for a ``seq > since`` comparison and tolerate gaps
+    (other projects' rows interleave the global sequence), so the PK *is* the
+    per-project sequence — no per-project counter row or dedicated sequence is
+    needed. The wire exposes it as ``seq``.
+
+    Rows are reaped past ``TRUEPPM_BOARD_EVENT_RETENTION_HOURS`` (default 24h) by
+    the ``sync.purge_board_events`` Beat task, keeping the buffer bounded (the
+    ADR-0081 purge convention). Because ``created_at`` is monotonic with ``id`` at
+    that granularity, the purge removes a contiguous low-``id`` prefix — which is
+    what lets the consumer use "oldest surviving id" as the gap-detection
+    watermark (see ``consumers.py``).
+    """
+
+    # id: implicit BigAutoField PK (DEFAULT_AUTO_FIELD) — doubles as the sequence.
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="board_events",
+    )
+    event_type = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects: models.Manager[BoardEvent] = models.Manager()
+
+    class Meta:
+        # Replay streams strictly by ascending sequence (the PK).
+        ordering = ["id"]
+        indexes = [
+            # The replay query: WHERE project_id=? AND id > ? ORDER BY id.
+            models.Index(fields=["project", "id"], name="boardevent_project_seq_idx"),
+            # The reaper scans by age; keeps the nightly purge cheap.
+            models.Index(fields=["created_at"], name="boardevent_created_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BoardEvent(seq={self.pk}, {self.event_type}, project={self.project_id})"
+
+    @property
+    def seq(self) -> int:
+        """The wire sequence — an alias for the monotonic PK (ADR-0236)."""
+        return self.pk

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+import sys
+from typing import Any, cast
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
@@ -15,9 +16,35 @@ logger = logging.getLogger(__name__)
 
 _PRESENCE_TTL = 60  # seconds — refreshed on every received message (heartbeat)
 
+# Upper bound on events replayed on a single reconnect (ADR-0236). A client
+# further behind than this is cheaper to fully refetch than to stream, so it gets
+# a ``resync_required`` frame instead — matching the "since older than retention"
+# fallback.
+_REPLAY_CAP = 1000
+
 
 def _presence_key(project_pk: str) -> str:
     return f"project:{project_pk}:presence"
+
+
+def _parse_since(query_string: bytes) -> int:
+    """Parse a non-negative ``?since=<seq>`` from the raw ASGI query string.
+
+    Returns 0 when the param is absent or non-numeric — 0 means "no replay, I am
+    a fresh client" (the initial REST load already has current state). Mirrors the
+    naive byte-split parsing in ``ws_auth._parse_query``; ``since`` is plain digits
+    so no percent-decoding is needed.
+    """
+    for pair in query_string.split(b"&"):
+        if pair.startswith(b"since="):
+            try:
+                # Clamp to [0, bigint max]: a value above Postgres' bigint range
+                # (sys.maxsize == 2**63-1 on 64-bit) would raise mid-query when
+                # bound as a bigint, closing the socket on a bogus input.
+                return max(min(int(pair[len(b"since=") :]), sys.maxsize), 0)
+            except ValueError:
+                return 0
+    return 0
 
 
 class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
@@ -83,6 +110,20 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         await super().websocket_connect(message)
 
+        # Replay events missed while this client was disconnected (ADR-0236).
+        # Runs AFTER accept (send_json needs an open socket) but still inside
+        # websocket_connect: AsyncJsonWebsocketConsumer's dispatch loop is blocked
+        # until this coroutine returns, so no live board_event is delivered during
+        # replay — replayed (older seq) frames always precede live (newer seq)
+        # ones. group_add ran first, so an event broadcast mid-replay is queued and
+        # delivered right after these frames, never lost. Only members reach here
+        # (Viewers were rejected above), and the query is scoped to this project,
+        # so replay honors the same authz as the live stream (no cross-project
+        # leak).
+        since = _parse_since(scope.get("query_string", b""))
+        if since > 0:
+            await self._replay_missed_events(since)
+
     async def disconnect(self, code: int) -> None:
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
@@ -128,12 +169,91 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                     "protocol_version": event.get("protocol_version", WS_PROTOCOL_VERSION),
                     "event_type": event.get("event_type"),
                     "payload": event.get("payload"),
+                    # Replay sequence for persisted events, or None for ephemeral
+                    # ones (presence / task-run progress). The client advances its
+                    # last-seen ``seq`` off this and requests ``?since=`` on
+                    # reconnect (ADR-0236).
+                    "seq": event.get("seq"),
                 }
             )
         except RuntimeError:
             logger.debug(
                 "Dropped board.event for closed socket on project %s",
                 getattr(self, "project_pk", "?"),
+            )
+
+    async def _replay_missed_events(self, since: int) -> None:
+        """Stream buffered BoardEvents with ``seq > since``, or signal a resync.
+
+        Gap detection (ADR-0236): the purge deletes a contiguous low-``id`` prefix
+        (``created_at`` is monotonic with ``id`` at 24 h granularity), so the
+        smallest surviving global ``id`` is a valid watermark. If the first event
+        the client wants (``since + 1``) is older than that watermark — i.e.
+        ``since < oldest - 1`` — some missed events were purged and completeness
+        can't be guaranteed, so we send a single ``resync_required`` frame (the
+        client refetches) rather than a partial replay. The same fallback fires
+        when the client is further behind than ``_REPLAY_CAP`` (cheaper to refetch
+        than to stream).
+        """
+        from channels.db import database_sync_to_async
+
+        from trueppm_api.apps.sync.broadcast import WS_PROTOCOL_VERSION
+
+        @database_sync_to_async  # type: ignore[untyped-decorator]
+        def _fetch() -> tuple[list[dict[str, Any]], int | None, int | None]:
+            from trueppm_api.apps.sync.models import BoardEvent
+
+            # oldest is GLOBAL by design: gap detection relies on the purge
+            # trimming a contiguous global low-id prefix, so the smallest surviving
+            # id across all projects is the valid retention watermark. latest, by
+            # contrast, is scoped to THIS project — it only baselines the client's
+            # cursor after a resync, and a global max would leak the instance-wide
+            # event-counter (cross-tenant activity volume) to any single member.
+            oldest = BoardEvent.objects.order_by("id").values_list("id", flat=True).first()
+            latest = (
+                BoardEvent.objects.filter(project_id=self.project_pk)
+                .order_by("-id")
+                .values_list("id", flat=True)
+                .first()
+            )
+            # Fetch one past the cap so we can detect truncation cheaply.
+            rows = cast(
+                "list[dict[str, Any]]",
+                list(
+                    BoardEvent.objects.filter(project_id=self.project_pk, id__gt=since)
+                    .order_by("id")
+                    .values("id", "event_type", "payload")[: _REPLAY_CAP + 1]
+                ),
+            )
+            return rows, oldest, latest
+
+        rows, oldest, latest = await _fetch()
+
+        purged_gap = oldest is None or since < oldest - 1
+        truncated = len(rows) > _REPLAY_CAP
+        if purged_gap or truncated:
+            await self.send_json(
+                {
+                    "protocol_version": WS_PROTOCOL_VERSION,
+                    "event_type": "resync_required",
+                    # latest_seq lets the client baseline its last-seen sequence to
+                    # the buffer head after it refetches, so the next reconnect
+                    # doesn't re-request the purged gap.
+                    "payload": {"latest_seq": latest},
+                    "seq": None,
+                }
+            )
+            return
+
+        for row in rows:
+            await self.send_json(
+                {
+                    "protocol_version": WS_PROTOCOL_VERSION,
+                    "event_type": row["event_type"],
+                    "payload": row["payload"],
+                    "seq": row["id"],
+                    "replayed": True,
+                }
             )
 
     async def connection_evict(self, event: dict[str, Any]) -> None:

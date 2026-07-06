@@ -16,7 +16,7 @@ event type.
 Every board event arrives as the same JSON envelope:
 
 ```json
-{ "protocol_version": 1, "event_type": "<name>", "payload": { ... } }
+{ "protocol_version": 1, "event_type": "<name>", "payload": { ... }, "seq": 1234 }
 ```
 
 `protocol_version` is a bare integer identifying the wire version of the envelope
@@ -28,6 +28,42 @@ backward-incompatible envelope change, never for a new `event_type`.
 `payload` is intentionally minimal — usually an id or a small id set. Treat
 delivery as best-effort and refetch the affected resource on reconnect rather than
 relying on having seen every event.
+
+`seq` is the monotonic replay sequence for a persisted (replayable) event, or
+`null` for an ephemeral one (presence, task-run progress). It is additive — a
+client that ignores it behaves exactly as before, so it does not bump
+`protocol_version` — and it powers reconnect replay, below.
+
+## Reconnect replay & sequence numbers
+
+Broadcast delivery is best-effort: an event sent while a client is disconnected is
+lost. Rather than force a full refetch storm on every reconnect, each replayable
+event is persisted to a bounded per-project buffer (`BoardEvent`) and stamped with
+a monotonic `seq` (ADR-0236). The mechanism:
+
+- **Sequence** — the `seq` is the buffer row's global auto-increment primary key.
+  It is strictly increasing and gap-tolerant per project (other projects' rows
+  interleave the global sequence); clients only ever compare it, never count on
+  contiguity.
+- **What is buffered** — every mutation event, but **not** the high-frequency
+  ephemeral ones (`presence_*`, `task_run_*`), which carry `seq: null` and are
+  pointless to replay. This is a denylist, so a newly-added mutation event is
+  replayable by default.
+- **The handshake** — a client tracks the highest `seq` it has processed and, on
+  reconnect, opens the socket with `?since=<seq>`. The consumer streams the
+  buffered events with `seq > since` (each flagged `"replayed": true`) before the
+  live stream resumes. Replayed (older `seq`) frames always precede live (newer
+  `seq`) ones, and the client drops any frame whose `seq` it has already processed,
+  so replay is idempotent.
+- **Gap fallback** — if `since` predates the retained window (the buffer purges
+  rows past `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, default 24h) or the client is
+  further behind than the replay cap, the consumer sends a single
+  `resync_required` control frame carrying `{ "latest_seq": <n> }`; the client
+  refetches its project-scoped caches and baselines its cursor to `latest_seq`.
+
+`resync_required` is a **consumer-emitted control frame**, not a broadcast event —
+it never passes through `broadcast_board_event()`, so it is deliberately *not* part
+of `FROZEN_WS_EVENT_TYPES`.
 
 ## Naming convention
 
