@@ -35,18 +35,19 @@ Clients only need a value that is **strictly increasing per project** for a `seq
 
 This deliberately avoids a per-project counter row (`SELECT … FOR UPDATE` contention) and a dedicated Postgres sequence (no benefit over the PK). The wire field is named `seq` and equals the row `id`.
 
-### 3. Persist policy — **default-persist with an ephemeral denylist**
-`broadcast_board_event` persists a `BoardEvent` **unless** the event type is ephemeral:
+### 3. Persist policy — **default-persist with a denylist**
+`broadcast_board_event` persists a `BoardEvent` **unless** the event type is on the denylist:
 
 ```
-EPHEMERAL_EVENT_TYPES = {
+DONT_PERSIST_EVENT_TYPES = {
     "presence_join", "presence_leave",
     "task_run_started", "task_run_progress", "task_run_completed",
     "task_run_failed", "task_run_cancelled",
+    "project_hard_deleted",
 }
 ```
 
-Rationale for a *denylist* rather than an allowlist: every one of the ~60 mutation events maps to an **idempotent** cache invalidation on the client, so replaying one is always safe, and new mutation events should be replayable by default (fail-safe). The excluded events are high-frequency live progress / presence that are pointless to replay (a stale progress bar, a presence ping for a since-departed peer). Persisting is best-effort: a DB failure is logged and swallowed (`seq` becomes `None`), never raised — identical to the existing broadcast contract.
+Rationale for a *denylist* rather than an allowlist: every one of the ~60 mutation events maps to an **idempotent** cache invalidation on the client, so replaying one is always safe, and new mutation events should be replayable by default (fail-safe). Two reasons to exclude an event: (1) **ephemeral** high-frequency live progress / presence that is pointless to replay (a stale progress bar, a presence ping for a since-departed peer); and (2) **post-delete** — `project_hard_deleted` fires from an `on_commit` callback *after* the project row (and its cascade-deleted buffer rows) are gone, so persisting a `BoardEvent` for it would dangle the project FK. Because the FK is `DEFERRABLE INITIALLY DEFERRED`, that violation surfaces at COMMIT — past `_persist_board_event`'s `try/except` — so it cannot be swallowed and must not be attempted; a hard-deleted project has no replay value anyway. Persisting is otherwise best-effort: a DB failure is logged and swallowed (`seq` becomes `None`), never raised — identical to the existing broadcast contract.
 
 The sequence is threaded into the **live** payload: persist first, then `group_send` with `seq=row.id`. Because callers already run `broadcast_board_event` inside `transaction.on_commit()`, the INSERT happens post-commit in autocommit — the row is the durable truth; the broadcast is the best-effort echo.
 

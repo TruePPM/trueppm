@@ -28,10 +28,18 @@ WS_PROTOCOL_VERSION = 1
 # replay it via ``?since=``. A *denylist* (not an allowlist) is the fail-safe
 # default: every mutation event maps to an idempotent client cache-invalidation,
 # so replaying one is always safe, and a newly-added mutation event should be
-# replayable without anyone remembering to register it. The excluded events are
-# high-frequency live progress / presence pings — a stale progress bar or a
-# presence ping for a since-departed peer carries no value on replay.
-EPHEMERAL_EVENT_TYPES = frozenset(
+# replayable without anyone remembering to register it. Two reasons to exclude:
+#
+#   1. **Ephemeral** high-frequency live progress / presence pings — a stale
+#      progress bar or a presence ping for a since-departed peer carries no value
+#      on replay.
+#   2. **Post-delete** — ``project_hard_deleted`` fires from an on_commit callback
+#      *after* the project row (and its cascade-deleted buffer rows) are gone, so
+#      persisting a BoardEvent for it would dangle the project FK. The DEFERRABLE
+#      FK check surfaces at COMMIT, past ``_persist_board_event``'s try/except, so
+#      it cannot be swallowed — it must not be attempted. A hard-deleted project
+#      has no replay value anyway (a reconnecting member is evicted or 404s).
+DONT_PERSIST_EVENT_TYPES = frozenset(
     {
         "presence_join",
         "presence_leave",
@@ -40,6 +48,7 @@ EPHEMERAL_EVENT_TYPES = frozenset(
         "task_run_completed",
         "task_run_failed",
         "task_run_cancelled",
+        "project_hard_deleted",
     }
 )
 
@@ -54,8 +63,8 @@ def _persist_board_event(project_id: str, event_type: str, payload: dict[str, An
 
     The sequence is the row's ``BigAutoField`` PK — globally monotonic, assigned
     atomically by Postgres, so it survives concurrent commits with no lost or
-    duplicate values (ADR-0236). Returns ``None`` for ephemeral events (not
-    persisted) and on any DB failure: persistence is best-effort exactly like the
+    duplicate values (ADR-0236). Returns ``None`` for non-persisted events
+    (``DONT_PERSIST_EVENT_TYPES``) and on any DB failure: best-effort exactly like the
     broadcast itself, so a failed insert logs and is swallowed — the live event
     still goes out (without a ``seq``) and the client recovers the gap via a
     ``resync_required`` on its next reconnect.
@@ -64,7 +73,7 @@ def _persist_board_event(project_id: str, event_type: str, payload: dict[str, An
     INSERT happens post-commit in autocommit — the row is the durable truth, the
     broadcast is the best-effort echo.
     """
-    if event_type in EPHEMERAL_EVENT_TYPES:
+    if event_type in DONT_PERSIST_EVENT_TYPES:
         return None
 
     from django.db import DatabaseError
@@ -233,7 +242,7 @@ async def abroadcast_board_event(
     # without touching the DB; the database_sync_to_async hop only runs if a future
     # async caller broadcasts a replayable event, keeping this path symmetric with
     # the sync helper rather than silently dropping such an event from the buffer.
-    if event_type in EPHEMERAL_EVENT_TYPES:
+    if event_type in DONT_PERSIST_EVENT_TYPES:
         seq = None
     else:
         from channels.db import database_sync_to_async

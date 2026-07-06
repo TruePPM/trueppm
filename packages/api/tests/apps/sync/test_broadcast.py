@@ -171,6 +171,25 @@ def test_broadcast_does_not_persist_ephemeral_events(replay_project: Any) -> Non
 
 
 @pytest.mark.django_db
+def test_project_hard_deleted_is_not_persisted(replay_project: Any) -> None:
+    """project_hard_deleted fires after the project row is gone — persisting it would
+    dangle the FK (the DEFERRABLE check surfaces at COMMIT, past the try/except), so
+    it must be denylisted. Regression for the CI FK-violation on project hard-delete."""
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    layer = _FakeChannelLayer()
+    with patch(_GET_LAYER, return_value=layer):
+        broadcast_board_event(
+            str(replay_project.pk), "project_hard_deleted", {"id": str(replay_project.pk)}
+        )
+
+    assert BoardEvent.objects.filter(project_id=replay_project.pk).count() == 0
+    _group, message = layer.sent[0]
+    assert message["event_type"] == "project_hard_deleted"
+    assert message["seq"] is None  # not buffered → no replay sequence
+
+
+@pytest.mark.django_db
 def test_broadcast_swallows_persist_failure_and_still_sends(replay_project: Any) -> None:
     """A BoardEvent insert failure is logged, not raised; the live event still goes out."""
     layer = _FakeChannelLayer()
