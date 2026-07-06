@@ -387,6 +387,10 @@ class ExternalWorkItem(models.Model):
     external_status = models.CharField(max_length=64, blank=True, default="")
     # One of external_sources.DISPLAY_BUCKETS (todo / in_progress / done).
     display_bucket = models.CharField(max_length=12, default="todo")
+    # Provider-side due date, or null when the item has none. Drives the My Work
+    # ordering (``due_date asc nulls last``, #1422) and today/upcoming grouping;
+    # the source already fetches it (Jira ``duedate``) and the DTO carries it.
+    due_date = models.DateField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     # Soft-remove: set True when an item stops being returned by a *successful*
     # pull (ADR-0097 §5), so a transient partial response never wipes the list.

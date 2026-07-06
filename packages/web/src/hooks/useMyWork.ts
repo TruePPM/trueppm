@@ -149,6 +149,42 @@ export interface MyWorkSignals {
   };
 }
 
+/** Coarse status bucket shared by external sources (mirrors the API DISPLAY_BUCKETS). */
+export type ExternalStatusCategory = 'todo' | 'in_progress' | 'done';
+
+/**
+ * One read-only external work item (a connected Jira issue, etc.) surfaced in
+ * My Work alongside native tasks (#1422, ADR-0097 §4). It is a personal cache
+ * row, never a Task — it carries no schedule/board fields and no write actions.
+ */
+export interface MyWorkExternalItem {
+  id: string;
+  /** Cross-source discriminator: 'jira', 'github', … */
+  source_type: string;
+  /** Provider-side human key, e.g. 'RIV-482'. */
+  key: string;
+  title: string;
+  /** Raw provider status for display, e.g. 'In Review'. */
+  external_status: string;
+  status_category: ExternalStatusCategory;
+  /** ISO date (YYYY-MM-DD) or null when the item has no due date. */
+  due_date: string | null;
+  /** Deep link into the provider. Opens in a new tab. */
+  url: string;
+  synced_at: string | null;
+}
+
+/** Connection freshness/status for one external source (#1422). */
+export interface MyWorkExternalSource {
+  source_type: string;
+  /** Human label, e.g. 'Jira'. */
+  label: string;
+  /** Bare host, e.g. 'truescope.atlassian.net'. */
+  site_url: string;
+  status: 'connected' | 'auth_failed' | 'not_connected';
+  last_synced_at: string | null;
+}
+
 export interface MyWorkPage {
   results: MyWorkTask[];
   next: string | null;
@@ -163,6 +199,15 @@ export interface MyWorkPage {
    * `undefined` on subsequent pages and when the payload predates this field.
    */
   signals?: MyWorkSignals;
+  /**
+   * Read-only external work items (Jira etc.) and per-source freshness (#1422).
+   * First page only, like `signals`; `undefined` on later pages. Both are always
+   * present (possibly empty) on page 1, so an empty `external_sources` means "no
+   * source connected" while a source with an empty item list means "connected,
+   * nothing assigned".
+   */
+  external_items?: MyWorkExternalItem[];
+  external_sources?: MyWorkExternalSource[];
 }
 
 /**

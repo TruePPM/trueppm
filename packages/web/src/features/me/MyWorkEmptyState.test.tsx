@@ -78,6 +78,17 @@ describe('MyWorkEmptyState v2 (#499 / ADR-0129)', () => {
     expect(screen.getByRole('link', { name: /Learn more/i })).toBeInTheDocument();
   });
 
+  it('flavor B — offers a Connect Jira nudge when no external source is connected (#1422)', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects hasConnectedExternalSource={false} />);
+    const link = screen.getByRole('link', { name: /Connect Jira/i });
+    expect(link).toHaveAttribute('href', '/me/settings/connected-accounts');
+  });
+
+  it('flavor B — no Connect Jira nudge once a source is already connected (#1422)', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects hasConnectedExternalSource />);
+    expect(screen.queryByRole('link', { name: /Connect Jira/i })).toBeNull();
+  });
+
   it('offline — shows the offline copy and disables the demo CTA', () => {
     vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
     renderWithRouter(<MyWorkEmptyState hasProjects={false} />);

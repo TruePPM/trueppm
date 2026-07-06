@@ -106,6 +106,22 @@ Tasks appear in My Work when:
 
 Separately, [Connected accounts](/features/connected-accounts/) let you attach your own GitLab/GitHub credentials to see live MR, PR, and issue status on the tasks themselves.
 
+## Work from connected tools *(ships in 0.4)*
+
+If you connect a personal, read-only Jira account, 0.4 will surface your assigned Jira issues **alongside** your native TruePPM tasks in the same feed — folded into the same Today / Upcoming sections so your day is one list, not two. Connecting Jira is a separate step: go to **Settings → Connected Accounts** (`/me/settings/connected-accounts`) and link your own Jira account first. This is the personal, one-way, read-only pull, not an org connector — only you see your own external items, and nothing about them is shared with your team.
+
+External items are **strictly read-only**. Each one shows:
+
+- **The provider key** — for example `RIV-482`.
+- **The title** — a deep link that opens the item in Jira in a new tab.
+- **The raw provider status** — exactly as Jira reports it, not translated into TruePPM's status vocabulary.
+- **A due date**, when the source has one.
+- **A `Read-only` chip**, so it's always clear this row isn't yours to change here.
+
+There is no complete checkbox, no timer, no log-time, and no status change on an external item. It is **never** a TruePPM task: it doesn't enter the schedule, the critical-path math, sprints, or the board, and it never counts toward your load or burndown. To act on it, open it in Jira via its title link. Items whose provider status is `done` are hidden from the feed, so the list stays focused on what's still open.
+
+Under the external items, a per-source freshness line shows when each connection last synced — for example **"Jira · synced 2 min ago"**. If the connection's token has failed, that line becomes an amber **Reconnect Jira** link that takes you to **Settings → Connected Accounts** to re-authorize.
+
 ## What you don't see
 
 This page deliberately omits:
