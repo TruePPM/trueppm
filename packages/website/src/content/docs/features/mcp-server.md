@@ -145,6 +145,7 @@ the API.
 |------|-----------|---------|
 | `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count. |
 | `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. |
+| `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse). |
 | `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). Cite the reason, not just the number. |
 | `list_risks` | `project_id` | The project's risk register (impact, probability, status). |
 
@@ -170,6 +171,30 @@ the right tool:
 - "Show me the critical path for the Apollo project and how much slack the near-critical tasks have."
 - "What's on my plate this sprint?"
 - "List the open high-impact risks for the Mercury program."
+- "What breaks if I slip the integration task 5 days?"
+
+### "What breaks if I slip this task 5 days?"
+
+This is the tool no metered-connector agent can answer — it needs a scheduling
+engine, not a database read. Ask it in plain language and your assistant chains
+the tools for you:
+
+1. `list_tasks` (or `get_task`) to resolve the task you named to its `task_id`.
+2. `whatif` with that `task_id` and `duration_delta: 5`.
+
+The engine runs a baseline and a perturbed pass, then answers with computed
+numbers — not a guess:
+
+> Slipping **"Integration testing"** by 5 days pushes the **P80 finish from
+> 2026-09-15 to 2026-09-22** (+7 calendar days) and the deterministic CPM finish
+> by the same. **`critical_path_changed: true`** — the slip pulls the "Data
+> migration" task onto the critical path, so it is now the one to watch.
+
+`whatif` persists nothing: it writes no rows, caches nothing, and enqueues no
+recompute. Run it as many times as you like to compare options — pass
+`duration_delta: -2` to see the effect of *pulling a task in*, or `new_duration`
+to set an absolute duration. It is reachable by any `mcp:read` token because it
+is a pure read/compute modeled as a `GET`.
 
 ## Security notes
 

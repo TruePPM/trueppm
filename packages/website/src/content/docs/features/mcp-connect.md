@@ -149,7 +149,9 @@ endpoint and returning only what your role permits:
   criticality, type, and `updated_after`), `get_task`, `get_board_state`,
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
-  (latest persisted run; read-only, never triggers a new simulation),
+  (latest persisted run; read-only, never triggers a new simulation), `whatif`
+  (perturb one task's duration and recompute CPM + Monte Carlo in memory —
+  persists nothing — for "what breaks if this task slips?"),
   `get_schedule_derivation` (the server-computed *why* behind a CPM value or Monte
   Carlo percentile — the driving constraint, lag, and calendar contribution),
   `list_risks`.

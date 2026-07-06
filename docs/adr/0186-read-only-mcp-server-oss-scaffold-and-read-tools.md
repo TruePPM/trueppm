@@ -255,6 +255,11 @@ read surface ships `get_monte_carlo_forecast` (latest persisted run) and the
 what-if tool is held. This keeps the read MCP from triggering a schedule
 recompute write.
 
+> **Update (#1663):** the precondition is now met. `MonteCarloWhatIfView`
+> (`GET /projects/<pk>/monte-carlo/whatif/`, #993) provides the provably
+> non-mutating what-if compute, so the `whatif` read tool was added to the
+> surface. It recomputes CPM + Monte Carlo in memory and persists nothing.
+
 ### H. Deployment surface
 
 - **Dockerfile: in scope** for the #503 scaffold — a single-stage image whose

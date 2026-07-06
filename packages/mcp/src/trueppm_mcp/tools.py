@@ -229,6 +229,37 @@ async def _get_monte_carlo_forecast(client: TruePPMClient, project_id: str) -> d
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
+async def _whatif(
+    client: TruePPMClient,
+    project_id: str,
+    task_id: str,
+    *,
+    duration_delta: int | None = None,
+    new_duration: int | None = None,
+    n_simulations: int | None = None,
+) -> dict[str, Any]:
+    """Perturb one task's duration and recompute CPM + Monte Carlo (non-mutating).
+
+    Wraps ``GET /projects/<pk>/monte-carlo/whatif/`` (#993): the endpoint runs a
+    baseline and a perturbed pass through the engine in memory — persisting
+    nothing — and returns ``current`` vs ``whatif`` percentiles, the deterministic
+    CPM finish, ``critical_path_changed``, and the signed ``delta_vs_current``.
+    Exactly one of ``duration_delta`` / ``new_duration`` must be supplied; the
+    endpoint returns 400 otherwise (surfaced here as an :class:`ApiError`). The
+    result is compacted like every other tool, so ``critical_path_changed`` (a
+    ``bool``) and zero-day deltas survive — only ``None`` deltas are dropped.
+    """
+    params: dict[str, Any] = {"task_id": task_id}
+    if duration_delta is not None:
+        params["duration_delta"] = duration_delta
+    if new_duration is not None:
+        params["new_duration"] = new_duration
+    if n_simulations is not None:
+        params["n_simulations"] = n_simulations
+    payload = await client.get(f"projects/{project_id}/monte-carlo/whatif/", params=params)
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _get_schedule_derivation(
     client: TruePPMClient,
     project_id: str,
@@ -391,12 +422,53 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """The latest persisted Monte Carlo forecast (P50/P80/P95, cpm_finish, delta).
 
         Read-only: returns the most recent stored run and never triggers a new
-        simulation. (The non-mutating what-if tool is held to a later release.)
+        simulation. Use ``whatif`` to ask "what breaks if this task slips?" —
+        it recomputes in memory without persisting anything.
 
         Args:
             project_id: The project's UUID.
         """
         return await _get_monte_carlo_forecast(client, project_id)
+
+    @server.tool()
+    async def whatif(
+        project_id: str,
+        task_id: str,
+        duration_delta: int | None = None,
+        new_duration: int | None = None,
+        n_simulations: int | None = None,
+    ) -> dict[str, Any]:
+        """What breaks if this task's duration changes — an engine-computed answer.
+
+        Perturbs one task's duration and recomputes the whole schedule (CPM +
+        Monte Carlo) **in memory, persisting nothing**. Returns the current vs.
+        what-if P50/P80/P95 forecast, the deterministic CPM finish for each,
+        whether the critical path changed (``critical_path_changed``), and the
+        signed calendar-day shift of each figure (``delta_vs_current``, positive =
+        later/worse). Use it to answer "what happens to the delivery date if I
+        slip this task 5 days?" with a computed number, not a guess.
+
+        Read-only and side-effect-free (modeled as a GET): it writes no rows,
+        caches nothing, and enqueues no recompute.
+
+        Args:
+            project_id: The project's UUID.
+            task_id: The committed task whose duration to perturb.
+            duration_delta: Signed day offset on the task's current duration
+                (e.g. ``5`` to slip it a working week, ``-2`` to pull it in).
+                Supply exactly one of ``duration_delta`` or ``new_duration``.
+            new_duration: Absolute day count to set the duration to (>= 0).
+                Supply exactly one of ``duration_delta`` or ``new_duration``.
+            n_simulations: Monte Carlo iterations; defaults to the server cap.
+        """
+        return await _whatif(
+            client,
+            project_id,
+            task_id,
+            duration_delta=duration_delta,
+            new_duration=new_duration,
+            n_simulations=n_simulations,
+        )
 
     @server.tool()
     async def get_schedule_derivation(

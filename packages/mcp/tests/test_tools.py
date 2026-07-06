@@ -39,6 +39,7 @@ from trueppm_mcp.tools import (
     _list_risks,
     _list_sprints,
     _list_tasks,
+    _whatif,
     _whoami,
     _with_caller_role,
 )
@@ -332,6 +333,61 @@ async def test_get_monte_carlo_forecast_returns_latest_run(settings: Settings) -
     assert result["p80"] == "2026-09-15"
 
 
+async def test_whatif_passes_through_delta_and_critical_path_change(settings: Settings) -> None:
+    """``whatif`` forwards its perturbation params and passes the engine result through.
+
+    Asserts the tool GETs the what-if endpoint with ``task_id`` + ``duration_delta``,
+    and that ``critical_path_changed`` (here ``False``) and ``delta_vs_current``
+    survive compaction unmodified — the two figures the tool exists to surface.
+    """
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return _json(
+            {
+                "task_id": "t-9",
+                "applied": {
+                    "base_duration_days": 4,
+                    "duration_delta_days": 5,
+                    "new_duration_days": 9,
+                },
+                "current": {"p50": "2026-09-01", "p80": "2026-09-15", "p95": "2026-10-01"},
+                "whatif": {"p50": "2026-09-08", "p80": "2026-09-22", "p95": "2026-10-08"},
+                "critical_path_changed": False,
+                "delta_vs_current": {"p50": 7, "p80": 7, "p95": 7, "cpm_finish": 7},
+                "runs": 5000,
+                "seed": 993_993,
+            }
+        )
+
+    routes: Routes = {"projects/p-1/monte-carlo/whatif/": handler}
+    async with _client(settings, routes) as client:
+        result = await _whatif(client, "p-1", "t-9", duration_delta=5)
+
+    assert seen == {"task_id": "t-9", "duration_delta": "5"}
+    # ``False`` is preserved by compaction (only None/empty are dropped).
+    assert result["critical_path_changed"] is False
+    assert result["delta_vs_current"] == {"p50": 7, "p80": 7, "p95": 7, "cpm_finish": 7}
+    assert result["whatif"]["p50"] == "2026-09-08"
+
+
+async def test_whatif_forwards_new_duration_and_n_simulations(settings: Settings) -> None:
+    """The absolute-duration and iteration params forward only when supplied."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return _json({"task_id": "t-9", "critical_path_changed": True})
+
+    routes: Routes = {"projects/p-1/monte-carlo/whatif/": handler}
+    async with _client(settings, routes) as client:
+        result = await _whatif(client, "p-1", "t-9", new_duration=12, n_simulations=2000)
+
+    assert seen == {"task_id": "t-9", "new_duration": "12", "n_simulations": "2000"}
+    assert result["critical_path_changed"] is True
+
+
 async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
     routes: Routes = {
         "projects/p-1/schedule/derivation/": _json(
@@ -472,6 +528,9 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         "projects/p-1/forecast/": _json({"cpm_finish": "2026-09-01"}),
         "projects/p-1/risks/": _json(_page([])),
         "projects/p-1/monte-carlo/latest/": _json({"p50": "2026-09-01"}),
+        "projects/p-1/monte-carlo/whatif/": _json(
+            {"task_id": "t-1", "critical_path_changed": False}
+        ),
         "projects/p-1/sprints/": _json(_page([])),
         "sprints/s-1/": _json({"id": "s-1"}),
         "me/work/": _json(_page([])),
@@ -496,6 +555,9 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
         assert "critical_task_count" in await call("get_schedule_summary", project_id="p-1")
         assert await call("list_risks", project_id="p-1") == []
         assert (await call("get_monte_carlo_forecast", project_id="p-1"))["p50"] == "2026-09-01"
+        assert (await call("whatif", project_id="p-1", task_id="t-1", duration_delta=5))[
+            "critical_path_changed"
+        ] is False
         assert await call("list_sprints", project_id="p-1") == []
         assert (await call("get_sprint", sprint_id="s-1"))["id"] == "s-1"
         assert await call("list_my_work") == []
