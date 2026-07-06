@@ -34,7 +34,7 @@ else:
     UserType = get_user_model()
 
 from trueppm_api.apps.access.groups import (
-    KNOWN_GROUP_KEYS,
+    ALL_AUTO_GROUP_KEYS,
     GroupTooLargeError,
     InvalidGroupKeyError,
     resolve_group_members,
@@ -104,7 +104,8 @@ def _mask_code_regions(body: str) -> str:
 def parse_mentions(body: str) -> list[ParsedMention]:
     """Extract distinct @mentions from a comment body.
 
-    - `@scrum-team` and other KNOWN_GROUP_KEYS are returned as `kind='group'`
+    - `@scrum-team`, `@program-pms`, and other auto-group keys (project +
+      program scope) are returned as `kind='group'`
     - Anything else matching the @name pattern is returned as `kind='user'`
     - `\\@name` is treated as escaped — not a mention
     - `@name` inside ``` ``` ``` ``` fences or `single-backtick` code is NOT a mention
@@ -121,7 +122,7 @@ def parse_mentions(body: str) -> list[ParsedMention]:
         if match.group("esc"):  # escaped: \@name
             continue
         name = match.group("name")
-        kind = "group" if name.lower() in KNOWN_GROUP_KEYS else "user"
+        kind = "group" if name.lower() in ALL_AUTO_GROUP_KEYS else "user"
         key = (kind, name if kind == "user" else name.lower())
         if key in seen:
             continue
@@ -307,15 +308,15 @@ def resolve_parsed_mentions(
 
     - User mentions are filtered to current project members; non-members go to
       `skipped_users` so the caller can surface a structured 400.
-    - A `@name` that resolves to neither a member nor a `KNOWN_GROUP_KEYS`
-      auto-group is reinterpreted as a **user-defined group** (ADR-0212, #515):
+    - A `@name` that resolves to neither a member nor an auto-group key
+      is reinterpreted as a **user-defined group** (ADR-0212, #515):
       the parser is pure and cannot know a name is a group, so this project-aware
       step promotes it to a group target when a live
       `UserDefinedMentionGroup` with that name exists in the project. A real
       member always wins on an exact name collision.
-    - Group mentions go through `resolve_group_members`; `@all` requires
-      actor_role >= ADMIN (ADR-0075 locked constraint #2). Oversized groups
-      land in `skipped_groups` with a structured marker.
+    - Group mentions go through `resolve_group_members`; `@all` and
+      `@program-all` require actor_role >= ADMIN (ADR-0075 locked constraint
+      #2). Oversized groups land in `skipped_groups` with a structured marker.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
 
@@ -376,8 +377,10 @@ def resolve_parsed_mentions(
         if m.kind != "group":
             continue
         key = m.value
-        # @all role gate (ADR-0075 locked constraint #2)
-        if key == "all" and (actor_role is None or actor_role < Role.ADMIN):
+        # @all / @program-all role gate (ADR-0075 locked constraint #2). Both
+        # are unbounded fan-outs — the program variant is even wider — so both
+        # require the actor to be Admin+ in the current project.
+        if key in ("all", "program-all") and (actor_role is None or actor_role < Role.ADMIN):
             skipped_groups.append(key)
             continue
         try:

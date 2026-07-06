@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
-from trueppm_api.apps.access.groups import KNOWN_GROUP_KEYS
+from trueppm_api.apps.access.groups import ALL_AUTO_GROUP_KEYS
 from trueppm_api.apps.access.models import (
     ProgramMembership,
     ProjectMembership,
@@ -255,8 +255,9 @@ class UserDefinedMentionGroupWriteSerializer(serializers.ModelSerializer[UserDef
             raise serializers.ValidationError(
                 "Group name may only contain letters, digits, and the characters . _ -"
             )
-        # An auto-group name (@admins, @scrum-team, …) must never be shadowed.
-        if name.lower() in KNOWN_GROUP_KEYS:
+        # An auto-group name (@admins, @scrum-team, @program-pms, …) must never
+        # be shadowed — project- and program-scoped keys alike.
+        if name.lower() in ALL_AUTO_GROUP_KEYS:
             raise serializers.ValidationError(
                 f"'@{name}' is a reserved automatic group and cannot be used."
             )

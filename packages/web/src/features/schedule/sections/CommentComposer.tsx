@@ -13,6 +13,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import { Button } from '@/components/Button';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProject } from '@/hooks/useProject';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useCreateComment } from '@/hooks/useTaskComments';
 import {
@@ -72,6 +73,10 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   const createComment = useCreateComment();
   const { role: currentRole } = useCurrentUserRole(projectId);
   const { members } = useProjectMembers(projectId);
+  // Surface @program-* auto-groups only when this project belongs to a program
+  // (#514). `program` is the program UUID or null for a standalone project.
+  const { data: project } = useProject(projectId);
+  const hasProgram = !!project?.program;
 
   // Recompute the @-token + suggestions on every keystroke. Cheap; member
   // list is cached for 5 min so this doesn't hit the API.
@@ -79,8 +84,8 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
   const activeToken = useMemo(() => findActiveMentionToken(body, caret), [body, caret]);
   const suggestions = useMemo<MentionSuggestion[]>(() => {
     if (!activeToken) return [];
-    return buildMentionSuggestions(activeToken.query, members, currentRole);
-  }, [activeToken, members, currentRole]);
+    return buildMentionSuggestions(activeToken.query, members, currentRole, hasProgram);
+  }, [activeToken, members, currentRole, hasProgram]);
 
   const charCount = body.length;
   const charCounterColor =
@@ -221,6 +226,7 @@ export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCa
           query={activeToken.query}
           members={members}
           currentRole={currentRole}
+          hasProgram={hasProgram}
           highlightIndex={highlightIndex}
           listboxId={`mention-listbox-${taskId}-${parentId ?? 'top'}`}
           onSelect={insertSuggestion}

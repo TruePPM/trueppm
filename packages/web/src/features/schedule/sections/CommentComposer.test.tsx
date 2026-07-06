@@ -5,6 +5,7 @@ import { CommentComposer } from './CommentComposer';
 
 const mutateMock = vi.hoisted(() => vi.fn());
 const useCreateMock = vi.hoisted(() => vi.fn());
+const useProjectMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/hooks/useTaskComments', () => ({
   useCreateComment: useCreateMock,
@@ -24,6 +25,13 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: ROLE_ADMIN, isLoading: false }),
 }));
 
+// #514: CommentComposer reads useProject to decide whether to offer @program-*
+// groups. Default to a standalone project (no program) so the existing specs
+// keep their project-only suggestion set; individual specs override.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: useProjectMock,
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   useCreateMock.mockReturnValue({
@@ -31,6 +39,7 @@ beforeEach(() => {
     isPending: false,
     isError: false,
   });
+  useProjectMock.mockReturnValue({ data: { program: null } });
 });
 
 function getTextarea(): HTMLTextAreaElement {
@@ -206,5 +215,27 @@ describe('CommentComposer — submit', () => {
     useCreateMock.mockReturnValue({ mutate: mutateMock, isPending: false, isError: true });
     render(<CommentComposer projectId="p1" taskId="t1" />);
     expect(screen.getByRole('alert').textContent).toContain("Couldn't post");
+  });
+});
+
+describe('CommentComposer — program-scoped mention groups (#514)', () => {
+  it('offers @program-* groups when the project belongs to a program', () => {
+    useProjectMock.mockReturnValue({ data: { program: 'prog-1' } });
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    fireEvent.change(ta, { target: { value: 'ping @program', selectionStart: 13 } });
+    fireEvent.select(ta, { target: { selectionStart: 13 } });
+    expect(screen.getByText('@program-all')).toBeTruthy();
+    expect(screen.getByText('@program-pms')).toBeTruthy();
+  });
+
+  it('does not offer @program-* groups for a standalone project', () => {
+    useProjectMock.mockReturnValue({ data: { program: null } });
+    render(<CommentComposer projectId="p1" taskId="t1" />);
+    const ta = getTextarea();
+    fireEvent.change(ta, { target: { value: 'ping @program', selectionStart: 13 } });
+    fireEvent.select(ta, { target: { selectionStart: 13 } });
+    // No group or member matches "program" → the popover shows the empty state.
+    expect(screen.getByText('No matches')).toBeTruthy();
   });
 });

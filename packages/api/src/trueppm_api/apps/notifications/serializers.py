@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 from rest_framework import serializers
 
@@ -95,12 +95,16 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         Truncated to 200 chars. Returns empty string if the source is
         unavailable (e.g. comment soft-deleted).
 
-        NOTE (ADR-0075 §A.5, MentionScope): only PROJECT_VISIBLE scope is in
-        play in 0.2, so any recipient (who was a project member at mention
-        time) can see the body via this snippet — historical-record semantics.
-        When #476 lands TEAM_ONLY scope this method MUST re-check current
-        project membership at read time and return "" if the user is no
-        longer a member of the source project. See N-1 in RBAC audit.
+        Cross-project gate (#514): the snippet is a project member's-eyes view
+        of the source comment body, so it is returned ONLY to a recipient who
+        is a *current* member of the mention's source project. Program-scoped
+        auto-groups (`@program-*`) fan a mention out to members of sibling
+        projects who are NOT members of the source project — for them the row
+        still surfaces (they know they were pinged) but the body is redacted, so
+        a program ping never leaks one project's comment content to another
+        project's team. This also honors the standing rule that a departed
+        member no longer sees the body. Project membership is the read boundary
+        in OSS; the program is a coordination unit, not a shared-content unit.
         """
         mention = obj.mention
         if mention is None:
@@ -108,8 +112,42 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
         comment = mention.task_comment
         if comment is None or comment.is_deleted:
             return ""
+        if not self._recipient_can_see_source(obj, mention):
+            return ""
         body = comment.body or ""
         return body[:200]
+
+    def _recipient_can_see_source(self, obj: Notification, mention: Mention) -> bool:
+        """True if the notification's recipient currently belongs to the source
+        project of ``mention`` (so the body snippet is safe to reveal).
+
+        The set of the recipient's member projects is resolved once per response
+        and memoized on the serializer context, so the inbox list stays O(1)
+        queries rather than one membership query per row. Falls open only when
+        there is no request/user context at all (e.g. a bare unit test
+        serializing without a request) — every real read path (the viewset)
+        supplies it.
+        """
+        source_project_id = mention.project_id
+        if source_project_id is None:
+            return True
+        member_project_ids = self.context.get("member_project_ids")
+        if member_project_ids is None:
+            request = self.context.get("request")
+            user = getattr(request, "user", None) if request is not None else None
+            if user is None or not getattr(user, "is_authenticated", False):
+                return True  # no user context to gate against — preserve behavior
+            from trueppm_api.apps.access.models import ProjectMembership
+
+            member_project_ids = set(
+                ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+                    "project_id", flat=True
+                )
+            )
+            # DRF's serializer context is a plain dict at runtime (typed Mapping
+            # in the stubs); memoize so the list path resolves membership once.
+            cast(dict[str, Any], self.context)["member_project_ids"] = member_project_ids
+        return source_project_id in member_project_ids
 
     def get_task_id(self, obj: Notification) -> str | None:
         # Event-sourced rows (#497/#861) carry a direct deep-link FK; mention

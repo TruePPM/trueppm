@@ -185,7 +185,8 @@ class UserDefinedMentionGroup(VersionedModel):
     ``name`` is the mention key *without* the leading ``@`` and is bounded to 32
     chars so it fits ``notifications.Mention.mentioned_group_key``. It is
     case-insensitively unique per project and may not collide with an auto-group
-    key (validated in the serializer against ``KNOWN_GROUP_KEYS``).
+    key (validated in the serializer against ``ALL_AUTO_GROUP_KEYS`` — project-
+    and program-scoped keys alike).
 
     Mention resolution snapshots the member list at write time — the same
     semantics as the auto-group resolver — so members added after a mention are

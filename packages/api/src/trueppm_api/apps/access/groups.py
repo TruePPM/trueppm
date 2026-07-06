@@ -18,6 +18,17 @@ ADR-0075 locked constraints enforced by this module:
     @all cardinality cap: 200 (raises GroupTooLargeError above)
     @all role gate:       ADMIN+ (enforced by the parser, not this module)
 
+Program auto-groups (#514, ADR-0075 §C extension):
+    @program-pms          Owner/Admin across every project in the mention's program
+    @program-schedulers   Scheduler+ across the program
+    @program-stakeholders Viewer-role (exact) across the program
+    @program-all          Every member of every project in the program
+
+Program groups resolve against the program that contains the project the
+mention was written in (``Project.program``). They draw from the UNION of
+``ProjectMembership`` across the program's projects — the people actually
+working the program's projects — not from program-level ``ProgramMembership``.
+
 User-defined groups (#515, ADR-0212) are curated per project and resolved by
 the separate ``resolve_user_defined_group_members`` path below — distinct from
 the RBAC-derived auto-groups above.
@@ -31,7 +42,7 @@ from typing import cast
 # ADR-0075 locked constraint #1 — @all resolve cardinality cap.
 ALL_GROUP_HARD_CAP: int = 200
 
-# Auto-group keys recognized in 0.2.
+# Project-scoped auto-group keys recognized since 0.2.
 KNOWN_GROUP_KEYS: frozenset[str] = frozenset(
     {
         "owners",
@@ -43,6 +54,23 @@ KNOWN_GROUP_KEYS: frozenset[str] = frozenset(
         "scrum-team",
     }
 )
+
+# Program-scoped auto-group keys (#514). Resolved from the union of
+# ``ProjectMembership`` across every project in the mention's program.
+PROGRAM_GROUP_KEYS: frozenset[str] = frozenset(
+    {
+        "program-pms",
+        "program-schedulers",
+        "program-stakeholders",
+        "program-all",
+    }
+)
+
+# Every recognized auto-group key (project + program scope). The mention parser
+# classifies a ``@name`` as a group when it is in this set, and the user-defined
+# group validator reserves the whole set so a curated group can never shadow an
+# auto-group.
+ALL_AUTO_GROUP_KEYS: frozenset[str] = KNOWN_GROUP_KEYS | PROGRAM_GROUP_KEYS
 
 
 class InvalidGroupKeyError(ValueError):
@@ -75,8 +103,10 @@ def resolve_group_members(
     Inputs are validated; output is deduplicated.
 
     Raises:
-        InvalidGroupKeyError: group_key is not in KNOWN_GROUP_KEYS
-        GroupTooLargeError:   @all expands to more than ALL_GROUP_HARD_CAP users
+        InvalidGroupKeyError: group_key is not in ALL_AUTO_GROUP_KEYS, or a
+            ``@program-*`` key was used on a standalone project (no program).
+        GroupTooLargeError:   @all / @program-all expands to more than
+            ALL_GROUP_HARD_CAP users
     """
     # Local imports to avoid app-loading ordering surprises during AppConfig
     # ready() — resolver is only ever called from request paths.
@@ -84,8 +114,13 @@ def resolve_group_members(
     from trueppm_api.apps.projects.models import Sprint, SprintState, Task
 
     key = group_key.strip().lower()
-    if key not in KNOWN_GROUP_KEYS:
+    if key not in ALL_AUTO_GROUP_KEYS:
         raise InvalidGroupKeyError(group_key)
+
+    # Program-scoped groups (#514) fan out across the mention's whole program;
+    # they resolve differently (join through Project.program) so branch early.
+    if key in PROGRAM_GROUP_KEYS:
+        return _resolve_program_group_members(project_id, key)
 
     # Role-bounded groups. Each "bucket" returns members at or above the
     # named role floor (band-boundary semantics per ADR-0072). E.g. @admins
@@ -143,8 +178,64 @@ def resolve_group_members(
         )
         return cast(list[uuid.UUID], list(dict.fromkeys(scrum_rows)))
 
-    # Unreachable — KNOWN_GROUP_KEYS membership was checked above.
+    # Unreachable — ALL_AUTO_GROUP_KEYS membership was checked above and program
+    # keys were dispatched earlier.
     raise InvalidGroupKeyError(group_key)  # pragma: no cover
+
+
+def _resolve_program_group_members(
+    project_id: uuid.UUID | str,
+    key: str,
+) -> list[uuid.UUID]:
+    """Snapshot-resolve a ``@program-*`` key to member UUIDs across the program.
+
+    The mention was written on a task in ``project_id``; the group resolves to
+    the program that contains that project (``Project.program``). Membership is
+    the *union* of ``ProjectMembership`` across every live project in the
+    program, filtered by the role band the key names, deduplicated across
+    projects.
+
+    Raises:
+        InvalidGroupKeyError: the project is standalone (``program`` is NULL),
+            so there is no program to resolve against. The autocomplete never
+            offers ``@program-*`` for a standalone project; this only fires on a
+            hand-typed key, and surfaces to the caller as a skipped group.
+        GroupTooLargeError: ``@program-all`` exceeds ``ALL_GROUP_HARD_CAP`` — a
+            program-wide fan-out is exactly the blast radius ADR-0075 caps.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.projects.models import Project
+
+    program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+    if program_id is None:
+        raise InvalidGroupKeyError(f"{key} (project has no program)")
+
+    # Join through the sibling projects in one query rather than materializing
+    # their ids first — bounded by (# projects in program × members), no N+1.
+    # Exclude soft-deleted sibling projects and soft-deleted memberships.
+    memberships = ProjectMembership.objects.filter(
+        project__program_id=program_id,
+        project__is_deleted=False,
+        is_deleted=False,
+    )
+    if key == "program-pms":
+        memberships = memberships.filter(role__gte=Role.ADMIN)
+    elif key == "program-schedulers":
+        memberships = memberships.filter(role__gte=Role.SCHEDULER)
+    elif key == "program-stakeholders":
+        # Stakeholders are the view-only audience — an EXACT Viewer role, not the
+        # role>=VIEWER floor project-level @viewers uses (which, since Viewer is
+        # the lowest band, would resolve to everyone and duplicate @program-all).
+        # The AC's "+ external stakeholder list" has no backing model yet and is
+        # deferred to a follow-up.
+        memberships = memberships.filter(role=Role.VIEWER)
+    # program-all: no role filter — every member of every project in the program.
+
+    rows = list(memberships.values_list("user_id", flat=True).distinct())
+    result = cast(list[uuid.UUID], list(dict.fromkeys(rows)))
+    if key == "program-all" and len(result) > ALL_GROUP_HARD_CAP:
+        raise GroupTooLargeError(key, len(result))
+    return result
 
 
 def resolve_user_defined_group_members(

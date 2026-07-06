@@ -38365,7 +38365,7 @@
                     },
                     "snippet": {
                         "type": "string",
-                        "description": "Short preview of the source mention's body.\n\nTruncated to 200 chars. Returns empty string if the source is\nunavailable (e.g. comment soft-deleted).\n\nNOTE (ADR-0075 §A.5, MentionScope): only PROJECT_VISIBLE scope is in\nplay in 0.2, so any recipient (who was a project member at mention\ntime) can see the body via this snippet — historical-record semantics.\nWhen #476 lands TEAM_ONLY scope this method MUST re-check current\nproject membership at read time and return \"\" if the user is no\nlonger a member of the source project. See N-1 in RBAC audit.",
+                        "description": "Short preview of the source mention's body.\n\nTruncated to 200 chars. Returns empty string if the source is\nunavailable (e.g. comment soft-deleted).\n\nCross-project gate (#514): the snippet is a project member's-eyes view\nof the source comment body, so it is returned ONLY to a recipient who\nis a *current* member of the mention's source project. Program-scoped\nauto-groups (`@program-*`) fan a mention out to members of sibling\nprojects who are NOT members of the source project — for them the row\nstill surfaces (they know they were pinged) but the body is redacted, so\na program ping never leaks one project's comment content to another\nproject's team. This also honors the standing rule that a departed\nmember no longer sees the body. Project membership is the read boundary\nin OSS; the program is a coordination unit, not a shared-content unit.",
                         "readOnly": true
                     },
                     "task_id": {

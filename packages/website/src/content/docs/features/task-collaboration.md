@@ -186,13 +186,26 @@ Typing `@` opens an autocomplete popover with two sections:
   `@scrum-team`. These resolve at write time to whoever currently matches
   the criteria; the people who joined the project *after* a mention was
   posted are not retroactively notified.
+- **Program groups** — when the project belongs to a **program**, the
+  autocomplete also offers `@program-pms` (every Owner/Admin across the
+  program's projects), `@program-schedulers`, `@program-stakeholders` (the
+  view-only audience), and `@program-all` (everyone in the program). They
+  resolve to the combined membership across all of the program's projects, so
+  you can reach a program-wide role band with a single mention. Standalone
+  projects (not in a program) don't show these.
 - **Individuals** — project members whose username matches your typed prefix.
 
 `@all` is restricted to **Admin and Owner roles** to prevent accidental
 high-volume mentions. The autocomplete shows it as disabled with an "Admin+
 only" hint for Viewer/Member/Scheduler users; the server enforces the same
 gate. There is also a hard cap of **200 users** for `@all` resolution —
-larger projects will need a more targeted group key.
+larger projects will need a more targeted group key. `@program-all` carries
+the same Admin gate and 200-user cap.
+
+Because a program mention can reach members of *sibling* projects, the inbox
+shows the comment preview only to recipients who are members of the source
+project; everyone else sees the notification (they know they were pinged) but
+not the comment body, so one project's content never leaks to another's team.
 
 To render a literal `@name` without triggering a mention, escape it with a
 backslash: `\@name`. Mentions inside fenced code blocks or inline backticks
