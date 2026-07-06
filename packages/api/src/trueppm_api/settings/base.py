@@ -870,6 +870,13 @@ REST_FRAMEWORK = {
         # human (or an MCP agent) exploring a handful of "what if I slip this task"
         # scenarios while blunting a scripted resource-exhaustion flood.
         "monte_carlo_whatif": "6/min",
+        # Public board share-link endpoints (#283, ADR-0245). "share_mint" bounds
+        # how fast one Admin account can spray share links; "share_access" bounds
+        # scraping/abuse of the unauthenticated public board endpoint (the 256-bit
+        # token is already non-enumerable — this stops a leaked/viral link becoming
+        # an unthrottled load source on a self-hosted box, per Omar's VoC concern).
+        "share_mint": env("TRUEPPM_THROTTLE_SHARE_MINT_RATE", default="20/min"),
+        "share_access": env("TRUEPPM_THROTTLE_SHARE_ACCESS_RATE", default="60/min"),
     },
 }
 
@@ -878,6 +885,18 @@ REST_FRAMEWORK = {
 # 12-table UNION ALL (_snapshot_max_version) for one release if a drift bug is
 # found in production. The conformance test asserts the two agree.
 SYNC_WATERMARK_USE_COLUMN = env.bool("SYNC_WATERMARK_USE_COLUMN", default=True)
+
+# Public read-only board sharing (#283, ADR-0245). The instance kill switch: when
+# False, both minting new links (403) and the public board endpoint (uniform 404,
+# retroactively disabling existing links) are turned off org-wide — the operator/PMO
+# off lever for the unauthenticated egress surface. Default True is safe because no
+# data is exposed until an Owner/Admin explicitly mints a link. SHARE_BOARD_MAX_CARDS
+# bounds the public snapshot payload (a shared board flags "truncated" past the cap
+# rather than silently dropping cards).
+TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED = env.bool(
+    "TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED", default=True
+)
+SHARE_BOARD_MAX_CARDS = env.int("TRUEPPM_SHARE_BOARD_MAX_CARDS", default=1000)
 
 # ---------------------------------------------------------------------------
 # django-allauth

@@ -22,6 +22,7 @@ import { ProjectIntegrationsPage } from './project/ProjectIntegrationsPage';
 import { ProjectNotificationsPage } from './project/ProjectNotificationsPage';
 import { ProjectAttachmentsPage } from './project/ProjectAttachmentsPage';
 import { ProjectVisibilityPage } from './project/ProjectVisibilityPage';
+import { ProjectSharingPage } from './project/ProjectSharingPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
 import {
   OverviewIcon,
@@ -104,6 +105,7 @@ export function ProjectSettingsPage() {
           : []),
         { id: 'attachments', label: 'Attachments', icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
         { id: 'surfaces',    label: 'Surfaces',    icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'sharing',     label: 'Sharing',     icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
         { id: 'integrations',  label: 'Integrations',  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'notifications', label: 'Notifications', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
@@ -141,6 +143,7 @@ export function ProjectSettingsPage() {
       )}
       <SettingsSection id="attachments"><ProjectAttachmentsPage /></SettingsSection>
       <SettingsSection id="surfaces"><ProjectVisibilityPage /></SettingsSection>
+      <SettingsSection id="sharing"><ProjectSharingPage /></SettingsSection>
       <SettingsSection id="integrations"><ProjectIntegrationsPage /></SettingsSection>
       <SettingsSection id="notifications"><ProjectNotificationsPage /></SettingsSection>
       <SettingsSection id="lifecycle"><ProjectArchivePage /></SettingsSection>

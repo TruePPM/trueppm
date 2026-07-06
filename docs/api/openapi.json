@@ -20753,6 +20753,208 @@
                 "summary": "Retrieve scheduler run"
             }
         },
+        "/api/v1/projects/{project_pk}/share-links/": {
+            "get": {
+                "operationId": "v1_projects_share_links_list",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once.",
+                "summary": "List active board share links for a project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ShareLink"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_share_links_create",
+                "description": "GET/POST ``/api/v1/projects/{project_pk}/share-links/`` — Admin+ only.\n\nGET lists the project's *active* links (revoked links drop out). POST mints a\nnew link and returns the raw token exactly once.",
+                "summary": "Create a board share link (returns the raw token once)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ShareLinkCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ShareLinkCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ShareLinkCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ShareLinkCreateResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "description": "Public board sharing is disabled on this instance."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/": {
+            "post": {
+                "operationId": "v1_projects_share_links_revoke_create",
+                "description": "POST ``/api/v1/projects/{project_pk}/share-links/{link_id}/revoke/`` — Admin+.\n\nIdempotent soft-revoke. Works regardless of the instance kill switch (an\noperator disabling sharing should not strand an Admin from revoking an old link).",
+                "summary": "Revoke a board share link",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "link_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ShareLink"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No such share link on this project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/signal-privacy/": {
             "get": {
                 "operationId": "v1_projects_signal_privacy_retrieve",
@@ -26445,6 +26647,56 @@
                     },
                     "403": {
                         "description": "Rejecting scope changes is team-owned (Admin or SM/PO facet)."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/share/board/{token}/": {
+            "get": {
+                "operationId": "v1_share_board_retrieve",
+                "description": "GET ``/api/v1/share/board/{token}/`` — public, unauthenticated, read-only.\n\nReturns a minimized board snapshot. ``410`` for a revoked link, ``404`` for an\nunknown/invalid token or when the instance kill switch is off (uniform 404 hides\nwhether the feature or a given link exists). A weak ``ETag`` + short\n``Cache-Control`` lets embeds re-poll cheaply.",
+                "summary": "Public read-only board snapshot for a share token",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "share"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Minimized board snapshot (columns + whitelisted cards)."
+                    },
+                    "404": {
+                        "description": "Unknown/invalid token, or sharing disabled."
+                    },
+                    "410": {
+                        "description": "This share link has been revoked."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -36945,6 +37197,13 @@
                     "points"
                 ]
             },
+            "ContentKindEnum": {
+                "enum": [
+                    "board"
+                ],
+                "type": "string",
+                "description": "* `board` - Board"
+            },
             "CredentialSummary": {
                 "type": "object",
                 "description": "One row per provider in the list response.\n\nSurfaces:\n- ``provider`` (machine key) and ``name`` (human label) for the UI header\n- ``exists`` — drives the Connected / Not connected pill\n- ``base_url`` for self-hosted users\n- ``created_at`` / ``updated_at`` / ``last_used_at`` for the audit trail\n- ``expires_at`` for the \"expires in X days\" hint\n- ``requires_credential`` so the UI can hide the Connect button for the\n  ``generic`` provider when no PAT is needed\n\nNotably absent: any field derived from ``secret_ciphertext``.",
@@ -46293,6 +46552,191 @@
                 ],
                 "type": "string",
                 "description": "* `legacy:full` - legacy:full\n* `mcp:read` - mcp:read"
+            },
+            "ShareLink": {
+                "type": "object",
+                "description": "Read serializer for a share link in the management list.\n\nDeliberately omits ``token_hash`` (secret) — the raw token is only ever\nreturned once, in the create response, via ``ShareLinkCreateResponseSerializer``.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "content_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ContentKindEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "What the link exposes. 'board' today; #1486 adds 'schedule'.\n\n* `board` - Board"
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 12 chars of the raw token, for non-revealing display."
+                    },
+                    "label": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Optional human label, e.g. 'Client review board'."
+                    },
+                    "show_assignees": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when an Admin revokes the link. Non-null = inactive."
+                    },
+                    "access_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Successful public views; incremented atomically per hit."
+                    },
+                    "last_accessed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "access_count",
+                    "content_kind",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "is_active",
+                    "label",
+                    "last_accessed_at",
+                    "revoked_at",
+                    "show_assignees",
+                    "token_prefix"
+                ]
+            },
+            "ShareLinkCreateRequest": {
+                "type": "object",
+                "description": "Write serializer for minting a link. Both fields optional; safe defaults.",
+                "properties": {
+                    "label": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 120
+                    },
+                    "show_assignees": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                }
+            },
+            "ShareLinkCreateResponse": {
+                "type": "object",
+                "description": "Create response: the full row plus the one-time raw token and its relative path.\n\n``token`` and ``share_path`` are present ONLY on this response and never again —\nthe web client composes the absolute URL from ``window.location.origin`` so the\nAPI stays decoupled from the frontend origin.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "content_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ContentKindEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "What the link exposes. 'board' today; #1486 adds 'schedule'.\n\n* `board` - Board"
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 12 chars of the raw token, for non-revealing display."
+                    },
+                    "label": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Optional human label, e.g. 'Client review board'."
+                    },
+                    "show_assignees": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "When false (default), assignee names are omitted from the public view so no individual is exposed without an explicit opt-in."
+                    },
+                    "created_by": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when an Admin revokes the link. Non-null = inactive."
+                    },
+                    "access_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Successful public views; incremented atomically per hit."
+                    },
+                    "last_accessed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "token": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "share_path": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "access_count",
+                    "content_kind",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "is_active",
+                    "label",
+                    "last_accessed_at",
+                    "revoked_at",
+                    "share_path",
+                    "show_assignees",
+                    "token",
+                    "token_prefix"
+                ]
             },
             "SignalAudienceEnum": {
                 "enum": [
