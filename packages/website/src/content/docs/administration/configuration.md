@@ -39,6 +39,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. To disable automatic purging, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window makes the cutoff "now" and purges all rows on the next run. |
 | `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/canceled Celery task-run records to keep before the nightly purge. To disable, set the Django setting to `None` in a settings override or toggle the table off in the [Retention & purge](/administration/retention/) editor. **Do not set `0`** — a zero-day window purges all rows on the next run. |
 | `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
+| `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | Per-file size cap for [Jira XML](/features/jira-import/) imports, in megabytes. See [Jira import limit](#jira-import-limit) below. |
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
@@ -138,6 +139,32 @@ Imported files are stored base64-encoded in an `ImportRequest` row only until
 the import is processed, then purged on the schedule set by
 `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7 days). See
 [Outbox & Record Retention](/administration/retention/) to tune that window.
+
+## Jira import limit
+
+[Jira import](/features/jira-import/) accepts a **Jira Server / Data Center XML
+export** (`.xml` only). The per-file size cap is configurable:
+
+| Variable | Default | Unit | What it bounds |
+|----------|---------|------|----------------|
+| `JIRA_IMPORT_MAX_UPLOAD_MB` | `25` | MB | Maximum size of a single Jira XML import upload |
+
+The default is lower than the MS Project cap because a Jira issue export is
+typically small and, like the MS Project importer, an upload is read fully into
+memory and stored base64-encoded in a single database row (about +33%) until the
+import is processed. Files larger than the cap are rejected with HTTP 400 before
+any parsing happens.
+
+```bash
+# Allow Jira XML imports up to 40 MB. Same edge caps apply as MS Project imports:
+# keep it at or below DATA_UPLOAD_MAX_MEMORY_SIZE (100 MB) and your nginx
+# client_max_body_size, or the request is rejected upstream before the importer.
+JIRA_IMPORT_MAX_UPLOAD_MB=40
+```
+
+The Jira XML parse goes through `defusedxml` (no entity expansion, no
+external-entity resolution), so an XXE / billion-laughs payload is rejected at
+parse time — the same unconditional protection the MS Project importer has.
 
 ## Monte Carlo simulation caps
 
