@@ -38,6 +38,15 @@ export interface CreateProjectPayload {
   agile_features?: boolean;
   /** Optional Program assignment at creation time (ADR-0070). Requires ADMIN on the target program. */
   program?: string;
+  /**
+   * Optional source project to seed settings from at create time (copy-at-create,
+   * #157 / ADR-0242). UUID of a project the caller can read; the server copies the
+   * source's stored settings (calendar, default view, board cadence, visibility,
+   * sharing/attachment/Monte Carlo policies, etc.). Precedence is explicit request
+   * value > copied > default, so any field also sent in this payload still wins.
+   * Omit for today's blank-defaults behavior.
+   */
+  copy_settings_from?: string;
 }
 
 /** POST /api/v1/projects/ — create a new project and invalidate the project list cache. */

@@ -416,6 +416,95 @@ test.describe('Programs — shell tabs', () => {
     expect(capturedBody).not.toBeNull();
     expect(capturedBody!.program).toBe(PROGRAM_ID);
     expect(capturedBody!.name).toBe('Tower A Buildout');
+    // No source project picked (the projects list is empty) → copy_settings_from
+    // is omitted so the new project starts with blank defaults (#1659, ADR-0242).
+    expect(capturedBody).not.toHaveProperty('copy_settings_from');
+  });
+
+  test('New project "Copy settings from" picker sends copy_settings_from (#1659)', async ({
+    page,
+  }) => {
+    const NEW_PROJECT_ID = 'e2e-new-project-uuid-0002';
+    const SOURCE_PROJECT_ID = 'e2e-source-project-uuid-0001';
+    let capturedBody: Record<string, unknown> | null = null;
+
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+
+    // GET returns a readable source project so the picker has an option; POST
+    // records the create body. (Overrides the empty-list default from setup.)
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        capturedBody = r.request().postDataJSON() as Record<string, unknown>;
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: NEW_PROJECT_ID,
+            server_version: 1,
+            name: capturedBody.name,
+            description: '',
+            start_date: capturedBody.start_date,
+            calendar: null,
+            methodology: capturedBody.methodology ?? 'HYBRID',
+            program: capturedBody.program ?? null,
+          }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [
+            {
+              id: SOURCE_PROJECT_ID,
+              name: 'Reference Waterfall',
+              description: '',
+              start_date: '2026-01-01',
+              calendar: null,
+              methodology: 'WATERFALL',
+              program: null,
+            },
+          ],
+          count: 1,
+          next: null,
+          previous: null,
+        }),
+      });
+    });
+
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: NEW_PROJECT_ID,
+          server_version: 1,
+          name: 'Seeded Project',
+          description: '',
+          start_date: '2026-05-18',
+          methodology: 'HYBRID',
+          program: PROGRAM_ID,
+        }),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await page
+      .getByRole('toolbar', { name: /program projects actions/i })
+      .getByRole('button', { name: /^New project$/i })
+      .click();
+    await page.getByLabel(/^name/i).fill('Seeded Project');
+    await page.getByRole('button', { name: /next/i }).click(); // step 1 → 2
+    await page.getByRole('button', { name: /next/i }).click(); // step 2 → 3
+    await page
+      .getByRole('combobox', { name: /copy settings from/i })
+      .selectOption(SOURCE_PROJECT_ID);
+    await page.getByRole('button', { name: /create project/i }).click();
+
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!.copy_settings_from).toBe(SOURCE_PROJECT_ID);
+    expect(capturedBody!.name).toBe('Seeded Project');
   });
 
   test('Members tab shows the auto-OWNER row', async ({ page }) => {
