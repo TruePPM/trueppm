@@ -23,3 +23,9 @@ class ObservabilityConfig(AppConfig):
         # bootstrap()'s cost profile. WebSocket/ASGI spans are added separately in
         # asgi.py (otel.wrap_asgi_app) because the ASGI app is composed there.
         otel.instrument(context)
+        # Phase 2 (#710): register the TruePPM-specific observable gauges (outbox
+        # depth/lag, DB backend counts) that have no library auto-instrumentor. The
+        # HTTP-request and Celery-task metric families come from the auto-instrumentors
+        # above (a meter provider is now threaded into instrument()). Strict no-op when
+        # metrics are disabled and idempotent across repeated ready() calls.
+        otel.install_metrics(context)

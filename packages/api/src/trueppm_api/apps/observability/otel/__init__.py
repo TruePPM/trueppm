@@ -11,6 +11,7 @@ never imports enterprise; enterprise imports this module (one-way boundary).
 * :func:`get_tracer` / :func:`get_meter` — stable accessors over the OTel API.
 * :func:`is_enabled` — whether export is active.
 * :func:`instrument` / :func:`wrap_asgi_app` — Phase 1 auto-instrumentation (#709).
+* :func:`install_metrics` — Phase 2 native metric emission (#710).
 * :mod:`attributes` — the ``trueppm.*`` attribute-key convention.
 """
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 from . import attributes
 from .instrumentation import instrument, wrap_asgi_app
+from .metrics import install_metrics
 from .provider import (
     OTelBootstrapContext,
     ProviderHook,
@@ -35,6 +37,7 @@ __all__ = [
     "bootstrap",
     "get_meter",
     "get_tracer",
+    "install_metrics",
     "instrument",
     "is_enabled",
     "register_provider_hook",

@@ -339,14 +339,16 @@ def reset_for_testing() -> None:
     replacing a set provider), so tests that need a clean global provider should
     run in a subprocess or assert on the returned context rather than the global.
 
-    Also reverses any Phase 1 auto-instrumentation (#709) so a subsequent
-    ``instrument()`` starts from an un-patched state. Imported lazily to avoid the
-    import cycle (``instrumentation`` depends on this module).
+    Also reverses any Phase 1 auto-instrumentation (#709) and clears the Phase 2
+    metrics-registration guard (#710) so a subsequent ``instrument()`` /
+    ``install_metrics()`` starts from a clean state. Both are imported lazily to
+    avoid the import cycle (they depend on this module).
     """
     global _context, _bootstrapped
     _hooks.clear()
     _context = None
     _bootstrapped = False
-    from . import instrumentation
+    from . import instrumentation, metrics
 
     instrumentation.reset_for_testing()
+    metrics.reset_for_testing()

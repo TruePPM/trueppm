@@ -56,9 +56,25 @@ SCHEDULE_CRITICAL_COUNT = "trueppm.schedule.critical_count"
 SCHEDULE_SIMULATION_COUNT = "trueppm.schedule.simulation_count"
 REQUEST_EDITION = "trueppm.request.edition"
 
+# --- Metric-dimension attributes (Phase 2, #710) ---------------------------
+# Low-cardinality dimensions on the native OTLP metrics. These are TruePPM-owned
+# facts (which outbox, which lifecycle state, which server-side connection state),
+# so they live under trueppm.* rather than a semantic-convention key. The metric
+# names themselves (e.g. ``trueppm.outbox.depth``) are a separate namespace owned
+# by ``otel.metrics`` and are documented there.
+OUTBOX_NAME = "trueppm.outbox.name"
+"""Which transactional outbox a measurement is for: ``schedule`` | ``workflow``."""
+OUTBOX_STATE = "trueppm.outbox.state"
+"""The outbox-row lifecycle state a depth measurement counts: ``pending`` | ``dispatched``."""
+DB_STATE = "trueppm.db.state"
+"""PostgreSQL backend state bucket: ``active`` | ``idle`` | ``idle_in_transaction`` | ``other``."""
+
 __all__ = [
     "BOARD_ID",
+    "DB_STATE",
     "NAMESPACE",
+    "OUTBOX_NAME",
+    "OUTBOX_STATE",
     "PROGRAM_ID",
     "PROJECT_ID",
     "PROJECT_KEY",

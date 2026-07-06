@@ -34,6 +34,7 @@ from django.conf import settings
 from .provider import is_enabled
 
 if TYPE_CHECKING:
+    from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.trace import TracerProvider
 
     from .provider import OTelBootstrapContext
@@ -50,61 +51,83 @@ def instrument(
     context: OTelBootstrapContext,
     *,
     tracer_provider: TracerProvider | None = None,
+    meter_provider: MeterProvider | None = None,
 ) -> None:
     """Install the library auto-instrumentors against the bootstrap context.
 
     Called from ``ObservabilityConfig.ready()`` immediately after
-    :func:`~.provider.bootstrap`. A strict no-op when telemetry is disabled or
-    traces are turned off, and idempotent across repeated ``ready()`` calls.
+    :func:`~.provider.bootstrap`. A strict no-op when telemetry is disabled or when
+    *both* traces and metrics are off, and idempotent across repeated ``ready()``
+    calls.
+
+    Django and Celery are wired whenever **either** signal is active because both
+    emit metrics as well as spans (Django ``http.server.*``, Celery
+    ``flower.task.runtime.seconds``, #710); each is bound to whichever providers are
+    live, and a ``None`` provider makes that instrumentor fall back to the API's
+    no-op for the disabled signal. psycopg is trace-only, so it is wired **only**
+    when traces are on — a metrics-only deployment must not pay a per-query
+    monkeypatch that would feed a no-op tracer.
 
     Args:
         context: The :class:`~.provider.OTelBootstrapContext` returned by
-            ``bootstrap()``. When ``context.enabled`` is ``False`` this returns
-            immediately, before importing any instrumentor.
-        tracer_provider: The provider to bind instrumentors to. Defaults to
-            ``context.tracer_provider``; a test overrides it to assert spans
-            against an in-memory provider.
+            ``bootstrap()``. When ``context.enabled`` is ``False`` (or both signal
+            providers are ``None``) this returns immediately, before importing any
+            instrumentor.
+        tracer_provider: Provider to bind trace instrumentation to. Defaults to
+            ``context.tracer_provider``; a test overrides it to assert spans against
+            an in-memory provider.
+        meter_provider: Provider to bind metric instrumentation to. Defaults to
+            ``context.meter_provider``; a test overrides it to assert metrics against
+            an in-memory reader.
     """
     global _instrumented
 
     if _instrumented:
         return
-    # Guard BEFORE importing instrumentors: a disabled deployment pays no import
-    # cost and patches nothing. Traces-disabled (metrics-only) is also a no-op
-    # here — this module only wires trace instrumentation (Phase 1).
-    if not context.enabled or context.tracer_provider is None:
+
+    traces_on = context.tracer_provider is not None
+    metrics_on = context.meter_provider is not None
+    # Guard BEFORE importing instrumentors: a disabled deployment (or one with both
+    # signals off) pays no import cost and patches nothing.
+    if not context.enabled or not (traces_on or metrics_on):
         return
 
-    provider = tracer_provider or context.tracer_provider
+    tracer = tracer_provider if tracer_provider is not None else context.tracer_provider
+    meter = meter_provider if meter_provider is not None else context.meter_provider
 
     # Imported lazily, after the enabled-gate, so the no-op path never loads them.
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
     from opentelemetry.instrumentation.django import DjangoInstrumentor
-    from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 
     try:
-        # Django: server span per HTTP request through Django's request handler.
+        # Django: server span per HTTP request, plus http.server.duration /
+        # http.server.active_requests metrics when a meter provider is bound.
         django = DjangoInstrumentor()
-        django.instrument(tracer_provider=provider)
+        django.instrument(tracer_provider=tracer, meter_provider=meter)
         _installed.append(django)
 
-        # Celery: task span + automatic trace-context propagation via task headers
-        # (before_task_publish / task_prerun signals). Both the producer (API/web)
-        # and the worker run ObservabilityConfig.ready(), so both ends are patched
-        # and a task enqueued under a request span becomes its child.
+        # Celery: task span + trace-context propagation via task headers
+        # (before_task_publish / task_prerun signals), plus flower.task.runtime.seconds
+        # when a meter provider is bound. Both the producer (API/web) and the worker
+        # run ObservabilityConfig.ready(), so both ends are patched and a task
+        # enqueued under a request span becomes its child.
         # CeleryInstrumentor lacks a py.typed marker upstream, so its constructor
-        # is untyped to mypy --strict; the wiring is otherwise identical to the others.
+        # is untyped to mypy --strict; the wiring is otherwise identical to Django.
         celery = CeleryInstrumentor()  # type: ignore[no-untyped-call]
-        celery.instrument(tracer_provider=provider)
+        celery.instrument(tracer_provider=tracer, meter_provider=meter)
         _installed.append(celery)
 
-        # psycopg (v3): DB-query span per statement. enable_commenter=False is the
-        # default but set explicitly — SQL comment injection mutates statements and
-        # can interfere with statement caching / pgbouncer, so we never mutate the
-        # query. DB spans are the dominant span volume; BatchSpanProcessor absorbs it.
-        psycopg = PsycopgInstrumentor()
-        psycopg.instrument(tracer_provider=provider, enable_commenter=False)
-        _installed.append(psycopg)
+        # psycopg (v3): DB-query span per statement — trace-only, so it is wired only
+        # when traces are enabled. enable_commenter=False is the default but set
+        # explicitly — SQL comment injection mutates statements and can interfere with
+        # statement caching / pgbouncer, so we never mutate the query. DB spans are the
+        # dominant span volume; BatchSpanProcessor absorbs it.
+        if traces_on:
+            from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+
+            psycopg = PsycopgInstrumentor()
+            psycopg.instrument(tracer_provider=tracer, enable_commenter=False)
+            _installed.append(psycopg)
     except Exception:
         # A patch failure must never crash startup — telemetry is best-effort.
         logger.exception("OpenTelemetry auto-instrumentation failed; continuing")
