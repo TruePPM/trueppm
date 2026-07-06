@@ -41,6 +41,7 @@ from trueppm_api.apps.projects.models import (
     BoardSavedView,
     Calendar,
     CalendarException,
+    CalendarRole,
     CeremonyCadenceType,
     CeremonyTemplate,
     CommentAcknowledgement,
@@ -151,6 +152,98 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
             "exceptions",
         ]
         read_only_fields = ["id", "server_version"]
+
+
+# ---------------------------------------------------------------------------
+# Composable working calendars (#906, ADR-0251)
+# ---------------------------------------------------------------------------
+
+#: Overlay roles a client may assign to an applied calendar. PROJECT is excluded:
+#: it names the base ``Project.calendar`` FK and is never stored on a layer row.
+_OVERLAY_ROLE_CHOICES = [
+    (CalendarRole.HOLIDAYS.value, CalendarRole.HOLIDAYS.label),
+    (CalendarRole.WORKSPACE.value, CalendarRole.WORKSPACE.label),
+]
+
+
+class AppliedCalendarSerializer(serializers.Serializer[Any]):
+    """One entry in a project's ordered applied-calendars list (#906).
+
+    ``role="project"`` marks the base calendar (its ``layer_id`` is ``null`` — the
+    base has no ``ProjectCalendarLayer`` row); every other role is an overlay whose
+    ``layer_id`` is its layer UUID.
+    """
+
+    layer_id = serializers.UUIDField(allow_null=True)
+    role = serializers.ChoiceField(choices=CalendarRole.choices)
+    sort_order = serializers.IntegerField()
+    calendar = CalendarSerializer()
+
+
+class AppliedCalendarsSerializer(serializers.Serializer[Any]):
+    """GET payload for ``/projects/{pk}/calendars/`` — the composed calendar set."""
+
+    base = CalendarSerializer(allow_null=True)
+    overlays = AppliedCalendarSerializer(many=True)
+    #: Flat ordered list ``[base, …overlays]`` for direct rendering.
+    applied = AppliedCalendarSerializer(many=True)
+
+
+class _OverlayInputSerializer(serializers.Serializer[Any]):
+    calendar_id = serializers.UUIDField()
+    role = serializers.ChoiceField(
+        choices=_OVERLAY_ROLE_CHOICES, default=CalendarRole.HOLIDAYS.value
+    )
+
+
+class ApplyCalendarsSerializer(serializers.Serializer[Any]):
+    """PUT payload for ``/projects/{pk}/calendars/`` — atomic replace of the set (#906).
+
+    Rejects an overlay that duplicates another overlay or the base calendar: a
+    calendar AND-ed with itself is a schedule no-op and would render as a confusing
+    duplicate row. The referenced calendars' existence is validated in the view
+    (against the shared org calendar library), where the DB is queried once.
+    """
+
+    base_calendar_id = serializers.UUIDField(required=False, allow_null=True)
+    overlays = _OverlayInputSerializer(many=True)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        base_id = attrs.get("base_calendar_id")
+        overlay_ids = [o["calendar_id"] for o in attrs["overlays"]]
+        if len(overlay_ids) != len(set(overlay_ids)):
+            raise serializers.ValidationError(
+                {"overlays": "The same calendar cannot be applied as an overlay twice."}
+            )
+        if base_id is not None and base_id in overlay_ids:
+            raise serializers.ValidationError(
+                {"overlays": "The base calendar cannot also be applied as an overlay."}
+            )
+        return attrs
+
+
+class CalendarPreviewSourceSerializer(serializers.Serializer[Any]):
+    """Which applied calendar caused a preview day to be non-working (#906)."""
+
+    role = serializers.ChoiceField(choices=CalendarRole.choices)
+    calendar_id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class CalendarPreviewDaySerializer(serializers.Serializer[Any]):
+    """One day in the effective-working-time preview window (#906)."""
+
+    date = serializers.DateField()
+    working = serializers.BooleanField()
+    sources = CalendarPreviewSourceSerializer(many=True)
+
+
+class CalendarPreviewSerializer(serializers.Serializer[Any]):
+    """GET payload for ``/projects/{pk}/calendars/preview/`` — days with provenance."""
+
+    start = serializers.DateField()
+    end = serializers.DateField()
+    days = CalendarPreviewDaySerializer(many=True)
 
 
 #: OpenAPI schema for the resolved leaf-surface visibility maps (ADR-0193, #956) —

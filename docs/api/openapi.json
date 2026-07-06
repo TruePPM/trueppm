@@ -12530,6 +12530,225 @@
                 "summary": "Retrieve burn"
             }
         },
+        "/api/v1/projects/{id}/calendars/": {
+            "get": {
+                "operationId": "v1_projects_calendars_retrieve",
+                "description": "Get or atomically replace a project's composed working-calendar set (#906).\n\nThe project's effective non-working mask for CPM is the overlay (union) of\nits base ``Calendar`` plus every applied ``ProjectCalendarLayer`` — a day is\nnon-working if *any* applied calendar marks it so (ADR-0251). ``GET`` is\nany-member; ``PUT`` is Scheduler+ (gated in ``_rbac_permissions``).",
+                "summary": "Get the calendars applied to a project (base + overlays)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AppliedCalendars"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_projects_calendars_update",
+                "description": "Get or atomically replace a project's composed working-calendar set (#906).\n\nThe project's effective non-working mask for CPM is the overlay (union) of\nits base ``Calendar`` plus every applied ``ProjectCalendarLayer`` — a day is\nnon-working if *any* applied calendar marks it so (ADR-0251). ``GET`` is\nany-member; ``PUT`` is Scheduler+ (gated in ``_rbac_permissions``).",
+                "summary": "Replace the calendars applied to a project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplyCalendarsRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplyCalendarsRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplyCalendarsRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AppliedCalendars"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/calendars/preview/": {
+            "get": {
+                "operationId": "v1_projects_calendars_preview_retrieve",
+                "description": "Per-day effective working time over a window, with source provenance (#906).\n\nFor each day in ``[start, end]`` returns whether it is working and, if not,\nwhich applied calendar(s) blocked it — the \"why is this day off?\" affordance.\nProvenance requires evaluating each applied calendar individually (the merged\ncomposition loses which source caused a block). Window capped at 366 days to\nkeep it O(days × layers). Any project member (Viewer+).",
+                "summary": "Preview effective working time for a project's composed calendars",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "end",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ISO date, inclusive.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ISO date, inclusive.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CalendarPreview"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/decisions/": {
             "get": {
                 "operationId": "v1_projects_decisions_list",
@@ -35868,6 +36087,83 @@
                     "token_prefix"
                 ]
             },
+            "AppliedCalendar": {
+                "type": "object",
+                "description": "One entry in a project's ordered applied-calendars list (#906).\n\n``role=\"project\"`` marks the base calendar (its ``layer_id`` is ``null`` — the\nbase has no ``ProjectCalendarLayer`` row); every other role is an overlay whose\n``layer_id`` is its layer UUID.",
+                "properties": {
+                    "layer_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/RoleF2cEnum"
+                    },
+                    "sort_order": {
+                        "type": "integer"
+                    },
+                    "calendar": {
+                        "$ref": "#/components/schemas/Calendar"
+                    }
+                },
+                "required": [
+                    "calendar",
+                    "layer_id",
+                    "role",
+                    "sort_order"
+                ]
+            },
+            "AppliedCalendars": {
+                "type": "object",
+                "description": "GET payload for ``/projects/{pk}/calendars/`` — the composed calendar set.",
+                "properties": {
+                    "base": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Calendar"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "overlays": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AppliedCalendar"
+                        }
+                    },
+                    "applied": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AppliedCalendar"
+                        }
+                    }
+                },
+                "required": [
+                    "applied",
+                    "base",
+                    "overlays"
+                ]
+            },
+            "ApplyCalendarsRequest": {
+                "type": "object",
+                "description": "PUT payload for ``/projects/{pk}/calendars/`` — atomic replace of the set (#906).\n\nRejects an overlay that duplicates another overlay or the base calendar: a\ncalendar AND-ed with itself is a schedule no-op and would render as a confusing\nduplicate row. The referenced calendars' existence is validated in the view\n(against the shared org calendar library), where the DB is queried once.",
+                "properties": {
+                    "base_calendar_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "overlays": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_OverlayInputRequest"
+                        }
+                    }
+                },
+                "required": [
+                    "overlays"
+                ]
+            },
             "AssetFeedResponse": {
                 "type": "object",
                 "description": "Response envelope for the unified Assets feed (ADR-0215).",
@@ -36741,6 +37037,76 @@
                 "required": [
                     "exc_end",
                     "exc_start"
+                ]
+            },
+            "CalendarPreview": {
+                "type": "object",
+                "description": "GET payload for ``/projects/{pk}/calendars/preview/`` — days with provenance.",
+                "properties": {
+                    "start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "days": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CalendarPreviewDay"
+                        }
+                    }
+                },
+                "required": [
+                    "days",
+                    "end",
+                    "start"
+                ]
+            },
+            "CalendarPreviewDay": {
+                "type": "object",
+                "description": "One day in the effective-working-time preview window (#906).",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "working": {
+                        "type": "boolean"
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CalendarPreviewSource"
+                        }
+                    }
+                },
+                "required": [
+                    "date",
+                    "sources",
+                    "working"
+                ]
+            },
+            "CalendarPreviewSource": {
+                "type": "object",
+                "description": "Which applied calendar caused a preview day to be non-working (#906).",
+                "properties": {
+                    "role": {
+                        "$ref": "#/components/schemas/RoleF2cEnum"
+                    },
+                    "calendar_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "calendar_id",
+                    "name",
+                    "role"
                 ]
             },
             "CalendarRequest": {
@@ -46445,6 +46811,15 @@
                 "type": "integer",
                 "description": "* `0` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin"
             },
+            "RoleF2cEnum": {
+                "enum": [
+                    "project",
+                    "holidays",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `project` - Project\n* `holidays` - Holidays\n* `workspace` - Workspace / shutdown"
+            },
             "SchedulerRun": {
                 "type": "object",
                 "description": "Typed view over TaskRun records for scheduler recalculation runs.\n\nExposes ``initiated_by`` as a username string rather than a user UUID —\nobservability audit readers (Marcus/SOC 2) want a human-readable name, and\nthis avoids leaking user PKs to non-admin project members.",
@@ -50919,6 +51294,34 @@
                     "id",
                     "username"
                 ]
+            },
+            "_OverlayInputRequest": {
+                "type": "object",
+                "properties": {
+                    "calendar_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_OverlayInputRoleEnum"
+                            }
+                        ],
+                        "default": "holidays"
+                    }
+                },
+                "required": [
+                    "calendar_id"
+                ]
+            },
+            "_OverlayInputRoleEnum": {
+                "enum": [
+                    "holidays",
+                    "workspace"
+                ],
+                "type": "string",
+                "description": "* `holidays` - Holidays\n* `workspace` - Workspace / shutdown"
             },
             "_SignalPair": {
                 "type": "object",

@@ -99,6 +99,63 @@ class TestCalendar:
         assert Calendar.from_dict(cal.to_dict()) == cal
 
 
+class TestCalendarCompose:
+    """Overlay semantics for composable working calendars (#906)."""
+
+    def test_empty_iterable_yields_default(self) -> None:
+        cal = Calendar.compose([])
+        assert cal.working_days == 0b0011111
+        assert cal.exceptions == []
+        assert cal.is_working_day(date(2026, 3, 2))  # Monday
+        assert not cal.is_working_day(date(2026, 3, 7))  # Saturday
+
+    def test_single_calendar_passes_through(self) -> None:
+        base = Calendar(exceptions=[DateRange(start=date(2026, 12, 25), end=date(2026, 12, 25))])
+        cal = Calendar.compose([base])
+        assert cal.working_days == base.working_days
+        assert not cal.is_working_day(date(2026, 12, 25))
+
+    def test_exceptions_union_across_calendars(self) -> None:
+        # Project (Mon-Fri) + a holidays calendar contributing Christmas + a
+        # workspace shutdown calendar contributing New Year's Day.
+        project = Calendar()
+        holidays = Calendar(
+            exceptions=[DateRange(start=date(2026, 12, 25), end=date(2026, 12, 25))]
+        )
+        shutdown = Calendar(exceptions=[DateRange(start=date(2027, 1, 1), end=date(2027, 1, 1))])
+        cal = Calendar.compose([project, holidays, shutdown])
+        # A day is non-working if ANY source marks it non-working.
+        assert not cal.is_working_day(date(2026, 12, 25))  # from holidays
+        assert not cal.is_working_day(date(2027, 1, 1))  # from shutdown
+        assert cal.is_working_day(date(2026, 12, 24))  # working in all three
+
+    def test_working_days_is_intersection(self) -> None:
+        # Mon-Fri AND-ed with a Mon-Thu part-time mask yields Mon-Thu: a weekday
+        # is working only when every source treats it as working.
+        full = Calendar(working_days=0b0011111)  # Mon-Fri
+        part_time = Calendar(working_days=0b0001111)  # Mon-Thu
+        cal = Calendar.compose([full, part_time])
+        assert cal.working_days == 0b0001111
+        assert cal.is_working_day(date(2026, 3, 5))  # Thursday
+        assert not cal.is_working_day(date(2026, 3, 6))  # Friday — dropped by part-time
+
+    def test_overlapping_exceptions_collapse(self) -> None:
+        a = Calendar(exceptions=[DateRange(start=date(2026, 12, 22), end=date(2026, 12, 28))])
+        b = Calendar(exceptions=[DateRange(start=date(2026, 12, 25), end=date(2027, 1, 2))])
+        cal = Calendar.compose([a, b])
+        # The merged interval index treats the overlapping ranges as one span.
+        assert not cal.is_working_day(date(2026, 12, 22))
+        assert not cal.is_working_day(date(2027, 1, 1))
+        assert cal.is_working_day(date(2027, 1, 5))  # Monday after, outside both
+
+    def test_reserved_fields_from_first_source(self) -> None:
+        first = Calendar(hours_per_day=6.0, timezone="America/New_York")
+        second = Calendar(hours_per_day=8.0, timezone="UTC")
+        cal = Calendar.compose([first, second])
+        assert cal.hours_per_day == 6.0
+        assert cal.timezone == "America/New_York"
+
+
 class TestProject:
     @pytest.fixture()
     def sample_project(self) -> Project:

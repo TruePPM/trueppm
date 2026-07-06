@@ -32,6 +32,45 @@ default. A **resource** can carry its own calendar to model an individual's avai
 (for example, someone who doesn't work Fridays); where a resource has no calendar, the
 project's calendar applies.
 
+## Composable working calendars
+
+:::note[0.4]
+Applying **multiple** calendars to one project — the overlay described here — ships in
+0.4 in the **Community (OSS)** edition.
+:::
+
+A project's effective non-working time will be the **overlay (union)** of every calendar
+applied to it, not just a single calendar. A project will apply:
+
+- a **base project calendar** — the org standard work week and hours;
+- a reusable **holidays calendar** — public holidays, created once and applied to many
+  projects; and
+- an optional **workspace / shutdown calendar** — for an org-wide winter shutdown.
+
+A day counts as **non-working if *any* applied calendar marks it so**: the weekly
+patterns compose by intersection (a weekday is working only when every applied calendar
+treats it as working) and the holiday/shutdown exceptions compose by union. Because the
+overlay is a union, the order calendars appear in is a display grouping only — it never
+changes the computed schedule.
+
+A **Working calendars** panel in Project Settings will let anyone with the Resource
+Manager (Scheduler) role or above apply and reorder a project's calendars and preview the
+**effective working time** day-by-day — each non-working day showing *which* applied
+calendar blocked it. Reading the applied set and its preview will be open to any project
+member; changing it will require the Scheduler role, the same gate as editing the
+schedule.
+
+Applying calendars to a project draws only on the shared calendar **library** — the same
+calendars managed below. Per-resource / PTO calendars that make a task's duration depend
+on *who* is assigned, holiday-feed (iCal) import, and cross-program calendar governance
+are **not** part of this release.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /api/v1/projects/{id}/calendars/` | The calendars applied to a project (base + overlays) |
+| `PUT /api/v1/projects/{id}/calendars/` | Replace the applied set (base calendar + ordered overlays) |
+| `GET /api/v1/projects/{id}/calendars/preview/?start=&end=` | Per-day effective working time, with the source that blocked each non-working day |
+
 ## Effect on the schedule
 
 During the CPM forward and backward passes, non-working days — weekends, plus any day
@@ -80,6 +119,9 @@ the Project Manager or Project Admin role — the same gate as editing the calen
 itself.
 
 Adding, editing, or removing an exception recomputes every project scheduled against
-the calendar, so dependent task dates stay true to the new working time. The change
-also rides the calendar's sync delta to offline clients, keeping critical-path math
-holiday-aware offline.
+the calendar — whether the calendar is that project's base or one of its overlays — so
+dependent task dates stay true to the new working time. The change also rides the
+calendar's sync delta to offline clients, keeping critical-path math holiday-aware
+offline. (Offline recompute composes against a project's base calendar only until the
+overlay set flows through the sync delta — a tracked follow-up; the server always
+computes against the full composed set.)

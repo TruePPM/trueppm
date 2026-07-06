@@ -6,6 +6,7 @@ import bisect
 import enum
 import json
 import math
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Self
@@ -442,6 +443,56 @@ class Calendar:
             exceptions=[DateRange.from_dict(e) for e in data.get("exceptions", [])],
             hours_per_day=data.get("hours_per_day", 8.0),
             timezone=data.get("timezone", "UTC"),
+        )
+
+    @classmethod
+    def compose(cls, calendars: Iterable[Calendar]) -> Calendar:
+        """Overlay several calendars into one effective non-working mask (#906).
+
+        A day is **non-working** in the composed calendar iff **any** source
+        calendar marks it non-working — the union of every source's non-working
+        time. Two independent axes carry that union:
+
+        - **Weekly pattern**: ``working_days`` is the bitwise-AND of every
+          source mask, so a weekday counts as working only when *every* source
+          treats it as working (e.g. a Mon-Fri project calendar AND-ed with a
+          Mon-Thu part-time calendar yields Mon-Thu).
+        - **Exception ranges**: the composed ``exceptions`` is the concatenation
+          of every source's ranges. ``is_working_day`` already merges overlapping
+          intervals lazily (``_exception_intervals``), so overlapping holidays
+          across calendars collapse correctly and the O(log E) lookup is
+          preserved — no interval structure is needed here (issue #906 Q3).
+
+        ``hours_per_day``/``timezone`` are reserved-but-inert (they do not affect
+        whole-day CPM), so the first source's values are carried for parity and
+        the rest are ignored rather than reconciled.
+
+        This is the OSS composition seam enterprise extends by contributing
+        additional sources (e.g. per-resource PTO) to ``calendars`` — it takes a
+        plain iterable of dataclasses and stays Django-free.
+
+        Args:
+            calendars: The source calendars to overlay, in display order. An
+                empty iterable yields the Mon-Fri/8h/UTC default.
+
+        Returns:
+            A new :class:`Calendar` whose non-working time is the union of every
+            source's non-working time.
+        """
+        cals = list(calendars)
+        if not cals:
+            return cls()
+        working_days = cals[0].working_days
+        for c in cals[1:]:
+            working_days &= c.working_days
+        exceptions: list[DateRange] = []
+        for c in cals:
+            exceptions.extend(c.exceptions)
+        return cls(
+            working_days=working_days,
+            exceptions=exceptions,
+            hours_per_day=cals[0].hours_per_day,
+            timezone=cals[0].timezone,
         )
 
 

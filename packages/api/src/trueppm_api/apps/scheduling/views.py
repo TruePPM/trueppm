@@ -50,6 +50,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Task,
 )
+from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
@@ -68,7 +69,6 @@ from trueppm_api.apps.scheduling.serializers import (
     VelocitySuggestionSerializer,
 )
 from trueppm_api.apps.scheduling.services import (
-    build_sched_calendar,
     build_sched_tasks,
     enqueue_recalculate,
     forecast_diagnostic,
@@ -318,9 +318,12 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     try:
         project = (
             Project.objects.select_related("calendar")
-            # calendar__exceptions: build_sched_calendar reads every
-            # CalendarException row (#1491); prefetch to avoid an N+1.
-            .prefetch_related("tasks", "calendar__exceptions")
+            # calendar__exceptions + calendar_layers__calendar__exceptions:
+            # compose_project_calendar reads the base calendar's exceptions (#1491)
+            # AND every applied overlay's (#906); prefetch both to avoid an N+1.
+            .prefetch_related(
+                "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
+            )
             .get(pk=pk, is_deleted=False)
         )
     except Project.DoesNotExist:
@@ -347,7 +350,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     # Shared converter (#1491): includes the calendar's CalendarException
     # holiday/shutdown ranges, which the previous inline construction dropped —
     # so Monte Carlo silently scheduled straight through configured holidays.
-    sched_calendar = build_sched_calendar(project.calendar)
+    sched_calendar = compose_project_calendar(project)
 
     # Monte Carlo simulates committed delivery only — BACKLOG cards are not
     # part of the forecast. ADR-0057 / Task.committed.
@@ -751,7 +754,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         try:
             project = (
                 Project.objects.select_related("calendar")
-                .prefetch_related("tasks", "calendar__exceptions")
+                .prefetch_related(
+                    "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
+                )
                 .get(pk=pk, is_deleted=False)
             )
         except Project.DoesNotExist:
@@ -768,7 +773,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
         # the shared converters (ADR-0132/#1491) so the what-if forecast is computed on
         # the identical graph the real forecast uses — same calendar exceptions, same
         # planned_start floors, same velocity signal.
-        sched_calendar = build_sched_calendar(project.calendar)
+        sched_calendar = compose_project_calendar(project)
         db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
         if not db_tasks:
             return Response(
@@ -1672,7 +1677,7 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
     """Assemble the scheduler ``Project`` for a deterministic CPM derivation run.
 
     Mirrors the input construction of :func:`run_monte_carlo` exactly — the same
-    shared converters (``build_sched_calendar`` / ``build_sched_tasks``), the same
+    shared converters (``compose_project_calendar`` / ``build_sched_tasks``), the same
     committed-only task set, the same cross-project/non-committed edge drop, and the
     same data-date and velocity inputs — so the schedule the derivation explains is
     the *same* schedule the forecast is anchored on. Keeping one construction path
@@ -1685,7 +1690,7 @@ def _build_cpm_sched_project(project: Project, pk: str) -> Any:
 
     from trueppm_api.apps.projects.services import scheduler_velocity_inputs
 
-    sched_calendar = build_sched_calendar(project.calendar)
+    sched_calendar = compose_project_calendar(project)
     db_tasks = list(Task.committed.filter(project=project).select_related("sprint"))
     suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
     sched_tasks = build_sched_tasks(db_tasks, suggest_approve=suggest_approve)
@@ -1807,7 +1812,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
 
         project = get_object_or_404(
             Project.objects.select_related("calendar").prefetch_related(
-                "tasks", "calendar__exceptions"
+                "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
             ),
             pk=pk,
             is_deleted=False,

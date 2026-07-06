@@ -248,6 +248,37 @@
     --shadow-card: 0 1px 0 rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.35);
     --shadow-pop:  0 1px 2px rgba(0,0,0,.4),  0 14px 36px -12px rgba(0,0,0,.6);
   }
+
+  /* ── Working-calendar day-type tokens (ADR-0251, #906) ────────────────────
+     Each non-working day type carries BOTH a distinct hue AND a fill pattern
+     (WCAG 1.4.1 — never color-alone). The panel builds the pattern fills with
+     inline `background-image` gradients referencing the `-line` vars; the
+     `-fg` var is the AA-contrast ink for the H/S glyph / label on that fill.
+     The `-fg` contrast is measured against the COMPOSITED fill (the translucent
+     `-bg` over the white card, ~#FBF0DB for holiday), not against the raw rgba,
+     which reads lighter. Weekend uses the neutral canvas; holiday = amber;
+     shutdown = violet.                                                         */
+  :root {
+    --cal-weekend-bg:   238 237 232;          /* neutral sunken paper */
+    --cal-weekend-line: rgba(0, 0, 0, 0.10);
+    --cal-holiday-fg:   #8A5800;              /* dark amber — 5.2:1 on the composited holiday fill (~#FBF0DB) */
+    --cal-holiday-bg:   rgba(232, 160, 32, 0.16);
+    --cal-holiday-line: rgba(176, 116, 6, 0.5);
+    --cal-shutdown-fg:  #6D28D9;              /* violet-700 — 5.9:1 on the composited shutdown fill (~#EFE7FC) */
+    --cal-shutdown-bg:  rgba(124, 58, 237, 0.12);
+    --cal-shutdown-line: rgba(109, 40, 217, 0.45);
+  }
+
+  .dark {
+    --cal-weekend-bg:   24 27 39;
+    --cal-weekend-line: rgba(255, 255, 255, 0.10);
+    --cal-holiday-fg:   #F0B44A;
+    --cal-holiday-bg:   rgba(232, 160, 32, 0.22);
+    --cal-holiday-line: rgba(240, 180, 74, 0.6);
+    --cal-shutdown-fg:  #A78BFA;
+    --cal-shutdown-bg:  rgba(124, 58, 237, 0.30);
+    --cal-shutdown-line: rgba(167, 139, 250, 0.6);
+  }
 }
 
 @layer utilities {
