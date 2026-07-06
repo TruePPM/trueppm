@@ -61,7 +61,7 @@ The board keeps working with no signal. If you change a card's status while offl
 
 When you reconnect, the queued moves are sent automatically and the **Pending** badges clear. Moves apply last-write-wins per card: only the most recent status you set for a card is sent. If a card changed on the server while you were offline, your queued move is reverted to the server's latest state and a toast explains what happened, rather than silently overwriting someone else's change.
 
-The board also renders from its last successful fetch when you reopen it offline, so you can review the current state without a connection. Offline support currently covers card status changes only — creating tasks, editing card details, and reordering phases still require a connection.
+The board also renders from its last successful fetch when you reopen it offline, so you can review the current state without a connection. Offline support currently covers card status changes and [flagging a task blocked](/features/my-work/#working-offline) — creating tasks, editing card details, and reordering phases still require a connection.
 
 ## Toolbar
 

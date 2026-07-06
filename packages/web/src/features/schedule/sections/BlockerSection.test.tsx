@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import type { Task } from '@/types';
 import { BlockerSection } from './BlockerSection';
+import { useBlockerOutboxStore } from '@/features/blocker/offline/blockerOutboxStore';
+import type { QueuedBlockerOp } from '@/features/blocker/offline/blockerQueue';
 
 const mutate = vi.fn();
 
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate, isPending: false }),
+}));
+
+// Controllable connectivity — flip `onlineState.value` to exercise the offline path.
+const onlineState = vi.hoisted(() => ({ value: true }));
+vi.mock('@/hooks/useOnlineStatus', () => ({
+  useOnlineStatus: () => onlineState.value,
 }));
 
 let TASKS: Partial<Task>[] = [];
@@ -19,13 +28,37 @@ function setTask(over: Partial<Task>) {
   TASKS = [{ id: 'task-1', name: 'Build login', ...over }];
 }
 
+/** Seed the reactive blocker outbox so the pending badge renders (bypasses IndexedDB). */
+function seedPending(op: Partial<QueuedBlockerOp>) {
+  const full: QueuedBlockerOp = {
+    projectId: 'proj-1',
+    taskId: 'task-1',
+    kind: 'flag',
+    reason: 'inspector no-show',
+    blockerType: 'vendor',
+    blockingTask: null,
+    baseServerVersion: 1,
+    wasFlagged: false,
+    queuedAt: 100,
+    ...op,
+  };
+  useBlockerOutboxStore.setState({ opsByTask: { [full.taskId]: full } });
+}
+
 afterEach(() => {
   vi.clearAllMocks();
   TASKS = [];
+  onlineState.value = true;
+  useBlockerOutboxStore.setState({ opsByTask: {}, hydrated: false, lastSynced: null });
 });
 
 function renderSection(canEdit = false) {
-  return render(<BlockerSection taskId="task-1" projectId="proj-1" canEdit={canEdit} />);
+  const client = new QueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <BlockerSection taskId="task-1" projectId="proj-1" canEdit={canEdit} />
+    </QueryClientProvider>,
+  );
 }
 
 describe('BlockerSection — not flagged', () => {
@@ -147,5 +180,75 @@ describe('BlockerSection — flagged', () => {
       projectId: 'proj-1',
       blocked_reason: '',
     });
+  });
+});
+
+describe('BlockerSection — offline (ADR-0247)', () => {
+  it('queues the flag instead of a live write and announces it', () => {
+    onlineState.value = false;
+    setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
+    renderSection(true);
+    fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'inspector no-show' } });
+    // Both the form and the flagged-state action rows advertise the offline behavior.
+    expect(
+      screen.getAllByText(/saved and synced when you reconnect/i).length,
+    ).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Flag blocked' }));
+    // No live PATCH offline; the durable queue owns the write.
+    expect(mutate).not.toHaveBeenCalled();
+    expect(useBlockerOutboxStore.getState().opsByTask['task-1']?.kind).toBe('flag');
+    expect(screen.getByText(/Blocker flagged\. Queued/i)).toBeInTheDocument();
+  });
+
+  it('queues an unblock instead of a live write when offline', () => {
+    onlineState.value = false;
+    setTask({
+      blockedAgeSeconds: 3600,
+      blockedReason: 'stuck',
+      blockerType: 'vendor',
+      blockedBy: { id: 'u1', username: 'alex' },
+    });
+    renderSection(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Unblock' }));
+    expect(mutate).not.toHaveBeenCalled();
+    expect(useBlockerOutboxStore.getState().opsByTask['task-1']?.kind).toBe('unblock');
+    expect(screen.getByText(/Unblock queued/i)).toBeInTheDocument();
+  });
+
+  it('shows a "queued" label + pending badge for a fresh offline flag', () => {
+    // A fresh flag has no server-stamped age yet — the row reads "queued", not a duration.
+    seedPending({ kind: 'flag', wasFlagged: false });
+    setTask({
+      blockedAgeSeconds: 0,
+      blockedReason: 'inspector no-show',
+      blockerType: 'vendor',
+    });
+    renderSection(true);
+    expect(screen.getByText('queued')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Blocker flag queued — it will save when you reconnect/i),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the pending affordance on the flag control after a queued unblock', () => {
+    // A queued unblock optimistically clears the row, so the badge rides the affordance.
+    seedPending({ kind: 'unblock' });
+    setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
+    renderSection(true);
+    expect(screen.getByText('Not blocked')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/Unblock queued — it will save when you reconnect/i),
+    ).toBeInTheDocument();
+  });
+
+  it('still writes live when online (no regression to the default path)', () => {
+    setTask({ blockedAgeSeconds: null, blockedReason: '', blockerType: '' });
+    renderSection(true);
+    fireEvent.click(screen.getByRole('button', { name: /flag as blocked/i }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'live path' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Flag blocked' }));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(useBlockerOutboxStore.getState().opsByTask['task-1']).toBeUndefined();
   });
 });

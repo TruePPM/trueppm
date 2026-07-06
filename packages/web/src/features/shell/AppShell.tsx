@@ -16,6 +16,7 @@ import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
+import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -25,6 +26,9 @@ export function AppShell() {
   useCommandPaletteHotkey();
   // ⌘B / Ctrl+B toggles the sidebar rail (v2 collapse affordance, ADR-0127).
   useSidebarCollapseHotkey();
+  // Flush any offline-queued blocker writes on reconnect (ADR-0247). Mounted here,
+  // not in the blocker drawer, so a queued flag syncs even if the drawer is closed.
+  useBlockerOffline();
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
