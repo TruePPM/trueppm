@@ -66,6 +66,12 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a task you own goes stale',
     example: '“Foundation pour” has sat in Review for over a week',
   },
+  // Sprint-close carryover reassignment (ADR-0232, #1470). In-app default ON;
+  // email opt-in OFF. Tells you when your work is carried across the close→plan seam.
+  'task.moved_sprint': {
+    title: 'When a task you own is carried to another sprint',
+    example: '“Foundation pour” carries from Sprint 7 to Sprint 8 at close',
+  },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {

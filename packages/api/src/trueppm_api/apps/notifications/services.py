@@ -677,6 +677,76 @@ def create_event_notifications(
     return len(notifications)
 
 
+def create_event_notifications_batch(
+    *,
+    event_type: str,
+    project_id: uuid.UUID | str,
+    rows: Sequence[tuple[int | str | None, str, str, uuid.UUID | str | None]],
+) -> int:
+    """Create per-recipient event Notification rows for a batch of
+    ``(recipient_id, subject, body, task_id)`` tuples in ONE preference lookup
+    and one ``bulk_create``.
+
+    Same gating as ``create_event_notifications`` — each row is written only when
+    the recipient's ``NotificationPreference`` (falling back to
+    ``DEFAULT_PREFERENCES``) enables ``in_app`` for ``event_type``, and
+    ``email_pending`` is set when ``email`` is enabled. Use this instead of
+    calling ``create_event_notifications`` in a loop when one event fans out to
+    many recipients with a *different* per-row subject/body/deep-link (e.g.
+    sprint-close carryover, ADR-0232 #1470): a loop would issue one preference
+    query and one insert *per row* — and repeat the identical query for a
+    recipient who appears more than once — whereas this collapses to a single
+    ``NotificationPreference`` query over the unique recipient set plus one
+    ``bulk_create``.
+
+    Args:
+        event_type: A ``NotificationEventType`` value.
+        project_id: The project the event occurred on (scopes every row).
+        rows: ``(recipient_id, subject, body, task_id)`` tuples. ``None``
+            recipients are skipped; ``task_id`` may be ``None`` for a row with no
+            single task anchor (e.g. a multi-task summary).
+
+    Returns:
+        The number of Notification rows created.
+    """
+    unique_ids = {row[0] for row in rows if row[0] is not None}
+    if not unique_ids:
+        return 0
+
+    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
+    stored: dict[int | str, dict[str, bool]] = {}
+    for pref in NotificationPreference.objects.filter(
+        user_id__in=unique_ids, event_type=event_type
+    ):
+        stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
+
+    def _allows(user_id: int | str, channel: str) -> bool:
+        per_user = stored.get(user_id, {})
+        if channel in per_user:
+            return per_user[channel]
+        return defaults.get((event_type, channel), False)
+
+    notifications: list[Notification] = []
+    for recipient_id, subject, body, task_id in rows:
+        if recipient_id is None or not _allows(recipient_id, NotificationChannel.IN_APP.value):
+            continue
+        notifications.append(
+            Notification(
+                recipient_id=recipient_id,
+                event_type=event_type,
+                subject=subject,
+                body=body,
+                project_id=project_id,
+                task_id=task_id,
+                email_pending=_allows(recipient_id, NotificationChannel.EMAIL.value),
+            )
+        )
+    if not notifications:
+        return 0
+    Notification.objects.bulk_create(notifications)
+    return len(notifications)
+
+
 # Default per-board stale threshold, mirrored on Project.stale_task_threshold_days
 # so a Project that predates the field (or has it cleared) still gets a sane cutoff.
 DEFAULT_STALE_TASK_THRESHOLD_DAYS = 7
