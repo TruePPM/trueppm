@@ -909,3 +909,127 @@ async def test_disconnect_before_connect_does_not_close_missing_client(
 
     # Must not raise even though no group/user/redis lifecycle ran.
     await consumer.disconnect(1000)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket event replay (ADR-0236, #321)
+#
+# ProjectConsumer._replay_missed_events streams buffered BoardEvent rows with
+# seq > since on reconnect, scoped to the connecting project, and falls back to a
+# resync_required frame when the requested point aged out of retention.
+# ---------------------------------------------------------------------------
+
+
+def _make_scope_since(project_pk: str, since: int) -> dict:
+    """Scope dict carrying ?ticket=&since= (authenticate_scope is patched away)."""
+    return {
+        "type": "websocket",
+        "path": f"/ws/v1/projects/{project_pk}/",
+        "query_string": f"ticket=valid&since={since}".encode(),
+        "url_route": {"kwargs": {"pk": project_pk}},
+        "headers": [],
+    }
+
+
+async def _connect_capturing(project_pk: str, user: object, since: int) -> list[dict]:
+    """Drive a member connect with ?since= and return the frames send_json emitted."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope_since(project_pk, since)
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.close = AsyncMock()
+
+    sent: list[dict] = []
+
+    async def _send_json(content: dict, close: bool = False) -> None:
+        sent.append(content)
+
+    consumer.send_json = _send_json  # type: ignore[method-assign]
+
+    with _stack(_connect_ctx(user)):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+    return sent
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_streams_missed_events_scoped_to_project(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """?since=N replays this project's BoardEvents with seq > N, in order, and no other's."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    other = await database_sync_to_async(Project.objects.create)(
+        name="Other", start_date=date(2026, 1, 1), calendar=calendar
+    )
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    make = database_sync_to_async(BoardEvent.objects.create)
+    e1 = await make(project=project, event_type="task_created", payload={"id": "t1"})
+    e2 = await make(project=project, event_type="task_updated", payload={"id": "t1"})
+    e3 = await make(project=project, event_type="task_deleted", payload={"id": "t1"})
+    # An event on a different project must never appear in this replay (no IDOR).
+    await make(project=other, event_type="task_created", payload={"id": "x1"})
+
+    sent = await _connect_capturing(str(project.pk), user, since=e1.pk)
+
+    replayed = [f for f in sent if f.get("replayed")]
+    assert [f["seq"] for f in replayed] == [e2.pk, e3.pk]
+    assert [f["event_type"] for f in replayed] == ["task_updated", "task_deleted"]
+    assert all(f["event_type"] != "resync_required" for f in sent)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_replay_sends_resync_when_since_predates_retention(
+    user: object, project: Project
+) -> None:
+    """A ?since= older than the oldest surviving row yields resync_required, not partial replay."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    make = database_sync_to_async(BoardEvent.objects.create)
+    e1 = await make(project=project, event_type="task_created", payload={"id": "t1"})
+    e2 = await make(project=project, event_type="task_updated", payload={"id": "t1"})
+    e3 = await make(project=project, event_type="task_deleted", payload={"id": "t1"})
+
+    # Simulate the purge trimming the contiguous low-id prefix: delete the two
+    # oldest so the smallest surviving id is e3. A client that had only seen up to
+    # e1 now has a gap it can't stream — expect resync.
+    await database_sync_to_async(BoardEvent.objects.filter(pk__in=[e1.pk, e2.pk]).delete)()
+
+    # e1,e2,e3 are consecutive ids, so (e3 - 2) == e1 — a positive `since` that is
+    # strictly below the oldest surviving id (e3), the resync trigger. Derived from
+    # e3 (never 0) rather than e1-1, which would be 0 on a fresh PK sequence and
+    # skip replay entirely.
+    sent = await _connect_capturing(str(project.pk), user, since=e3.pk - 2)
+
+    resync = [f for f in sent if f["event_type"] == "resync_required"]
+    assert len(resync) == 1
+    assert resync[0]["payload"]["latest_seq"] == e3.pk
+    assert not [f for f in sent if f.get("replayed")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_no_since_skips_replay_entirely(user: object, project: Project) -> None:
+    """A fresh connect (since=0) streams no replay frames — REST provides current state."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    await database_sync_to_async(BoardEvent.objects.create)(
+        project=project, event_type="task_created", payload={"id": "t1"}
+    )
+
+    sent = await _connect_capturing(str(project.pk), user, since=0)
+    assert sent == []

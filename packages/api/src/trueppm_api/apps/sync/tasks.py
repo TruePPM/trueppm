@@ -72,6 +72,52 @@ def _do_purge(*, dry_run: bool = False, override_value: int | None = None) -> in
     return deleted
 
 
+@idempotent_task(
+    lock_key_template="purge_board_events",
+    lock_ttl=300,
+    on_contention="skip",
+    name="sync.purge_board_events",
+)
+def purge_board_events(self: object) -> None:
+    """Delete BoardEvent replay-buffer rows older than the retention window.
+
+    Runs nightly via Celery Beat (ADR-0236, #321). A reconnecting client whose
+    ``?since=`` predates the retained window gets a ``resync_required`` frame and
+    refetches, so aged-out rows carry no value. Idempotent and contention-skipping
+    — a concurrent run is a no-op.
+    """
+    _do_purge_board_events()
+
+
+def _do_purge_board_events(*, dry_run: bool = False, override_value: int | None = None) -> int:
+    """Business logic for purge_board_events — extracted for testability.
+
+    Reads the window directly from ``settings.TRUEPPM_BOARD_EVENT_RETENTION_HOURS``
+    (mirrors ``reap_domain_tombstones``), not the ADR-0173 operator resolver — the
+    replay buffer is internal transport plumbing, not an operator-tunable table.
+    Returns rows deleted, or the eligible count when ``dry_run``; ``override_value``
+    forces a hypothetical window (hours).
+    """
+    from django.conf import settings
+    from django.utils import timezone
+
+    from trueppm_api.apps.sync.models import BoardEvent
+
+    ttl_hours: int = (
+        override_value
+        if override_value is not None
+        else getattr(settings, "TRUEPPM_BOARD_EVENT_RETENTION_HOURS", 24)
+    )
+    cutoff = timezone.now() - timedelta(hours=ttl_hours)
+    qs = BoardEvent.objects.filter(created_at__lt=cutoff)
+    if dry_run:
+        return qs.count()
+    deleted, _ = qs.delete()
+    if deleted:
+        logger.info("purge_board_events: deleted %d expired replay-buffer row(s)", deleted)
+    return deleted
+
+
 # ---------------------------------------------------------------------------
 # reap_domain_tombstones — hard-delete stale per-row soft-delete tombstones
 # ---------------------------------------------------------------------------
