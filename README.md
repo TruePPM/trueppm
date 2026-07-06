@@ -17,6 +17,8 @@ TruePPM removes that reconciliation. A Scrum Master and a project manager look a
 
 It's open source, self-hosted, and built scheduling-first: the Critical Path Method (CPM) — the math that works out which tasks actually drive your deadline — is the engine, and the agile board and sprints sit on top of it, not as a parallel system bolted on the side.
 
+And because that schedule is *computed* — one engine over one data model, never a second system to reconcile — it's answerable. The read-only AI-query server (MCP) landing in the 0.4 beta lets any AI client ask your live schedule real questions and get answers the engine stands behind, never a language model's guess. **Computed, not guessed.**
+
 > ### Status: 0.3-alpha — pre-GA, not yet production-ready
 > The engine and API are solid; the UI works but is still maturing. 0.3 is out as the `0.3.0-alpha.3` pre-release, and **0.4 will be the first beta**. Expect breaking API changes before then. **If you're running real teams, wait for the first beta** — we're still learning what needs to change from early feedback, and we'd rather not lock you in before we do. Kicking the tires, self-hosting a trial, or using the scheduler library? Dive in now.
 
