@@ -803,6 +803,12 @@ export const router = createBrowserRouter([
                 element: <SectionRedirect base="/programs/:programId/settings" anchor="access" />,
               },
               {
+                path: 'settings/stakeholders',
+                element: (
+                  <SectionRedirect base="/programs/:programId/settings" anchor="stakeholders" />
+                ),
+              },
+              {
                 path: 'settings/rollup',
                 element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" />,
               },

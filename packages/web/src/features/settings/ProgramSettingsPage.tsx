@@ -13,6 +13,7 @@ import {
 import { ProgramGeneralPage } from './program/ProgramGeneralPage';
 import { ProgramProjectsPage } from './program/ProgramProjectsPage';
 import { ProgramAccessPage } from './program/ProgramAccessPage';
+import { ProgramStakeholdersPage } from './program/ProgramStakeholdersPage';
 import { ProgramRollupPage } from './program/ProgramRollupPage';
 import { ProgramCadencePage } from './program/ProgramCadencePage';
 import { ProgramRiskPolicyPage } from './program/ProgramRiskPolicyPage';
@@ -32,16 +33,22 @@ import {
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
-  return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
+  return (
+    <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>
+  );
 }
 
 /** Map a program's health override to the settings pill dot; AUTO → neutral. */
 function programHealthDot(health?: ProgramHealth): 'onTrack' | 'atRisk' | 'critical' | null {
   switch (health) {
-    case 'ON_TRACK': return 'onTrack';
-    case 'AT_RISK':  return 'atRisk';
-    case 'CRITICAL': return 'critical';
-    default:         return null; // AUTO / undefined
+    case 'ON_TRACK':
+      return 'onTrack';
+    case 'AT_RISK':
+      return 'atRisk';
+    case 'CRITICAL':
+      return 'critical';
+    default:
+      return null; // AUTO / undefined
   }
 }
 
@@ -59,7 +66,8 @@ export function ProgramSettingsPage() {
   if (!programId) return null;
 
   // Project scope prefers a project belonging to THIS program, else any (issue 776).
-  const projectTarget = projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
+  const projectTarget =
+    projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
 
   // Sibling-program switcher options (issue 776).
   const contextOptions: SettingsContextOption[] = (programs ?? []).map((p) => ({
@@ -73,25 +81,106 @@ export function ProgramSettingsPage() {
     {
       label: 'Program',
       items: [
-        { id: 'general',  label: 'General',     icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
-        { id: 'projects', label: 'Projects',    icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-        { id: 'access',   label: 'Access',      icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
-        { id: 'rollup',   label: 'Rollup KPIs', icon: <NavIcon><BarChartIcon aria-hidden="true" /></NavIcon> },
-        { id: 'cadence',  label: 'Cadence',     icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
-        { id: 'risk',     label: 'Risk policy', icon: <NavIcon><RiskIcon aria-hidden="true" /></NavIcon> },
+        {
+          id: 'general',
+          label: 'General',
+          icon: (
+            <NavIcon>
+              <OverviewIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'projects',
+          label: 'Projects',
+          icon: (
+            <NavIcon>
+              <WbsIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'access',
+          label: 'Access',
+          icon: (
+            <NavIcon>
+              <ResourcesIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'stakeholders',
+          label: 'External stakeholders',
+          icon: (
+            <NavIcon>
+              <ExternalLinkIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'rollup',
+          label: 'Rollup KPIs',
+          icon: (
+            <NavIcon>
+              <BarChartIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'cadence',
+          label: 'Cadence',
+          icon: (
+            <NavIcon>
+              <SprintIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'risk',
+          label: 'Risk policy',
+          icon: (
+            <NavIcon>
+              <RiskIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
       ],
     },
     {
       label: 'Configuration',
       items: [
-        { id: 'attachments',  label: 'Attachments',  icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
-        { id: 'integrations', label: 'Integrations', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+        {
+          id: 'attachments',
+          label: 'Attachments',
+          icon: (
+            <NavIcon>
+              <ExternalLinkIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
+          id: 'integrations',
+          label: 'Integrations',
+          icon: (
+            <NavIcon>
+              <SettingsIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
       ],
     },
     {
       label: 'Danger',
       items: [
-        { id: 'lifecycle', label: 'Archive / Close', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+        {
+          id: 'lifecycle',
+          label: 'Archive / Close',
+          icon: (
+            <NavIcon>
+              <WarningIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
       ],
     },
   ];
@@ -101,8 +190,13 @@ export function ProgramSettingsPage() {
       scope="program"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings' },
-        { scope: 'program',   label: 'Program',   to: `/programs/${programId}/settings` },
-        { scope: 'project',   label: 'Project',   to: projectTarget ? `/projects/${projectTarget}/settings` : null, disabledReason: 'No projects yet' },
+        { scope: 'program', label: 'Program', to: `/programs/${programId}/settings` },
+        {
+          scope: 'project',
+          label: 'Project',
+          to: projectTarget ? `/projects/${projectTarget}/settings` : null,
+          disabledReason: 'No projects yet',
+        },
       ]}
       contextName={program?.name ?? 'Program settings'}
       contextHealth={programHealthDot(program?.health)}
@@ -110,15 +204,36 @@ export function ProgramSettingsPage() {
       contextActiveId={programId}
       navGroups={navGroups}
     >
-      <SettingsSection id="general"><ProgramGeneralPage /></SettingsSection>
-      <SettingsSection id="projects"><ProgramProjectsPage /></SettingsSection>
-      <SettingsSection id="access"><ProgramAccessPage /></SettingsSection>
-      <SettingsSection id="rollup"><ProgramRollupPage /></SettingsSection>
-      <SettingsSection id="cadence"><ProgramCadencePage /></SettingsSection>
-      <SettingsSection id="risk"><ProgramRiskPolicyPage /></SettingsSection>
-      <SettingsSection id="attachments"><ProgramAttachmentsPage /></SettingsSection>
-      <SettingsSection id="integrations"><ProgramIntegrationsPage /></SettingsSection>
-      <SettingsSection id="lifecycle"><ProgramArchivePage /></SettingsSection>
+      <SettingsSection id="general">
+        <ProgramGeneralPage />
+      </SettingsSection>
+      <SettingsSection id="projects">
+        <ProgramProjectsPage />
+      </SettingsSection>
+      <SettingsSection id="access">
+        <ProgramAccessPage />
+      </SettingsSection>
+      <SettingsSection id="stakeholders">
+        <ProgramStakeholdersPage />
+      </SettingsSection>
+      <SettingsSection id="rollup">
+        <ProgramRollupPage />
+      </SettingsSection>
+      <SettingsSection id="cadence">
+        <ProgramCadencePage />
+      </SettingsSection>
+      <SettingsSection id="risk">
+        <ProgramRiskPolicyPage />
+      </SettingsSection>
+      <SettingsSection id="attachments">
+        <ProgramAttachmentsPage />
+      </SettingsSection>
+      <SettingsSection id="integrations">
+        <ProgramIntegrationsPage />
+      </SettingsSection>
+      <SettingsSection id="lifecycle">
+        <ProgramArchivePage />
+      </SettingsSection>
     </SettingsShell>
   );
 }

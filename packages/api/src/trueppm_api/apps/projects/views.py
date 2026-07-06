@@ -12748,6 +12748,13 @@ class TaskCommentViewSet(
         project_id_str = str(project_pk)
         parent_id = str(comment.parent_id) if comment.parent_id else None
 
+        # Count of non-account external stakeholders reached by an
+        # @program-stakeholders mention (#1658, ADR-0264). Surfaced informationally
+        # on the real-time comment event so a client can note "N external
+        # stakeholders would be emailed" — no email is sent (delivery deferred to
+        # #1675) and no Notification rows are created for them.
+        external_recipient_count = 0
+
         # Parse mentions + fan out notifications transactionally
         parsed = parse_mentions(comment.body)
         if parsed:
@@ -12764,6 +12771,7 @@ class TaskCommentViewSet(
                 if resolved.skipped_groups:
                     detail["skipped_groups"] = resolved.skipped_groups
                 raise serializers.ValidationError(detail, code="mention_resolution_failed")
+            external_recipient_count = len(resolved.external_targets)
             created = create_mention_notifications(
                 task_comment=comment,
                 mentioner=self.request.user,  # type: ignore[arg-type]
@@ -12817,6 +12825,10 @@ class TaskCommentViewSet(
                     "id": comment_id_str,
                     "task_id": task_id_str,
                     "parent_id": parent_id,
+                    # Informational only (#1658): how many non-account external
+                    # stakeholders an @program-stakeholders mention reached. 0 unless
+                    # the comment resolved that group. No email is sent yet (#1675).
+                    "external_recipient_count": external_recipient_count,
                 },
             )
         )

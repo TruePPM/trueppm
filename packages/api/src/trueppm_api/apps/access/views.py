@@ -22,6 +22,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import (
+    ExternalStakeholder,
     ProgramMembership,
     ProgramUserDefinedMentionGroup,
     ProjectMembership,
@@ -29,6 +30,7 @@ from trueppm_api.apps.access.models import (
     UserDefinedMentionGroup,
 )
 from trueppm_api.apps.access.permissions import (
+    IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
     IsProgramOwner,
@@ -40,6 +42,7 @@ from trueppm_api.apps.access.permissions import (
     _program_membership_role,
 )
 from trueppm_api.apps.access.serializers import (
+    ExternalStakeholderSerializer,
     MeSerializer,
     ProgramMembershipReadSerializer,
     ProgramMembershipWriteSerializer,
@@ -843,6 +846,82 @@ class ProgramUserDefinedMentionGroupViewSet(
     @action(detail=True, methods=["post"], url_path="unmute")
     def unmute(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         return self._mutate_mute(request, mute=False)
+
+
+class ExternalStakeholderViewSet(IdempotencyMixin, viewsets.ModelViewSet[ExternalStakeholder]):
+    """Program-scoped CRUD for the external stakeholder registry (#1658, ADR-0264).
+
+    URL: ``/api/v1/programs/{program_pk}/external-stakeholders/``
+         ``/api/v1/programs/{program_pk}/external-stakeholders/{pk}/``
+
+    A registry of non-account people (client sponsors, vendor contacts, external
+    reviewers) who are included in the ``@program-stakeholders`` mention fan-out
+    alongside the program's Viewer-role members. Delivery of email to these
+    addresses is **deferred to #1675** — this surface manages the registry only.
+
+    Permission matrix: program **Admin+** (Owner/Admin) for every action, list
+    included — managing who is externally pinged is an administrative act, so a
+    Scheduler/Member/Viewer/non-member is denied. ``IsProgramAdmin`` is the
+    existing program-management gate (Role.ADMIN threshold); reused verbatim rather
+    than reinvented. ``IsProgramNotClosed`` blocks writes to a closed program while
+    still allowing reads (GET passes it).
+    """
+
+    permission_classes = [IsAuthenticated, IsProgramAdmin, IsProgramNotClosed]
+    serializer_class = ExternalStakeholderSerializer
+    lookup_field = "pk"
+    # A program's stakeholder list is small and read whole by the settings UI; a
+    # plain array (no pagination envelope) matches the sibling program-group hook.
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[ExternalStakeholder]:
+        # Scope to the URL's program AND live rows only — never trust a body-supplied
+        # program id (IDOR-safe). The queryset is the sole authority on which program
+        # a stakeholder belongs to, for both list and detail (update/destroy) routes.
+        program_pk = self.kwargs["program_pk"]
+        return (
+            ExternalStakeholder.objects.filter(program_id=program_pk, is_deleted=False)
+            .select_related("created_by")
+            .order_by("name", "email")
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        ctx = dict(super().get_serializer_context())
+        # The serializer's per-program email-uniqueness check reads this.
+        ctx["program_id"] = self.kwargs["program_pk"]
+        return ctx
+
+    def _get_program_or_404(self) -> Program:
+        try:
+            return Program.objects.get(pk=self.kwargs["program_pk"], is_deleted=False)
+        except Program.DoesNotExist as err:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound("Program not found.") from err
+
+    def perform_create(self, serializer: BaseSerializer[ExternalStakeholder]) -> None:
+        program = self._get_program_or_404()
+        # Stamp program from the URL and created_by from the caller — both are
+        # server-controlled, never client-supplied.
+        serializer.save(program=program, created_by=self.request.user)
+
+    def perform_destroy(self, instance: ExternalStakeholder) -> None:
+        # IsProgramNotClosed's bypass set includes "destroy" (so a closed Program can
+        # itself be deleted). This nested viewset also names its delete "destroy", so
+        # re-assert the closed read-only invariant explicitly — mirroring the sibling
+        # ProgramUserDefinedMentionGroupViewSet.destroy. create/update are already
+        # blocked (they are not in the bypass set).
+        program = self._get_program_or_404()
+        if program.is_closed:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied(
+                "This program is closed and cannot be modified. Reopen it first."
+            )
+        # Soft-delete: flip the flag so the email frees up for re-add and the
+        # partial-unique constraint stops binding this row.
+        instance.is_deleted = True
+        instance.save(update_fields=["is_deleted", "updated_at"])
 
 
 class UserSearchView(APIView):
