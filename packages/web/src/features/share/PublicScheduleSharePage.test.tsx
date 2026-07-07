@@ -64,6 +64,24 @@ describe('PublicScheduleSharePage', () => {
     expect(screen.getByText('Critical path (CP)')).toBeInTheDocument();
   });
 
+  it('draws milestones in brand-accent amber, not brand-primary sage (#1684)', async () => {
+    const milestone = task({
+      short_id: 'RIV-2',
+      name: 'Roof complete',
+      wbs_path: '2',
+      duration: 0,
+      is_milestone: true,
+      is_critical: false,
+    });
+    fetchMock.mockResolvedValueOnce({ ...schedule, tasks: [task(), milestone] });
+    const { container } = renderAt();
+    await screen.findByText('Roof complete');
+    // The diamond marker uses the amber token, and no milestone diamond is sage.
+    expect(container.querySelector('.bg-brand-accent.rotate-45')).not.toBeNull();
+    // The legend gains a Milestone entry once a milestone is present.
+    expect(screen.getByText('Milestone')).toBeInTheDocument();
+  });
+
   it('renders the empty-schedule state', async () => {
     fetchMock.mockResolvedValueOnce({ ...schedule, tasks: [] });
     renderAt();

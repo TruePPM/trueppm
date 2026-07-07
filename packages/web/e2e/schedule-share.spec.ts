@@ -86,6 +86,13 @@ test.describe('Public schedule share viewer', () => {
     await expect(page.getByText('Requirements baseline')).toBeVisible();
     // The critical task carries the non-color "CP" signal (WCAG 1.4.1).
     await expect(page.getByText('CP').first()).toBeVisible();
+    // #1684: the milestone renders (amber diamond) with its dated lane label and a
+    // legend entry, and the FS dependency edge (ATLAS-1 → ATLAS-2) is an SVG connector.
+    await expect(page.getByText(/Scope sign-off · \d+ May/)).toBeVisible();
+    await expect(page.getByText('Milestone')).toBeVisible();
+    await expect(page.getByText('Dependency')).toBeVisible();
+    // At least one dependency connector path is present in the timeline overlay.
+    await expect(page.locator('svg polygon').first()).toBeVisible();
     // Read-only: no create/edit affordances anywhere on the page.
     await expect(page.getByRole('button', { name: /add|create|new task|edit/i })).toHaveCount(0);
   });
