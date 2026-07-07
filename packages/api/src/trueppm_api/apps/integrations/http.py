@@ -142,6 +142,24 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return not ip.is_global
 
 
+def _blocked_if_literal(host: str) -> bool | None:
+    """Return the deny-decision for ``host`` if it is an IP literal, else ``None``.
+
+    A literal IP needs no DNS. Classifying it directly avoids a pointless
+    ``getaddrinfo`` round-trip on every IP-literal target and — critically —
+    removes the only resolver dependency from the guard's rejection of a literal
+    SSRF target (``169.254.169.254`` cloud metadata, an RFC1918 host). That deny
+    becomes a pure, syscall-free computation, so a constrained network namespace
+    (e.g. a CI runner) can never turn it into a transient ``EgressError`` /
+    resolver failure and let the caller retry into a real connection (#1628).
+    """
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    return _is_blocked_ip(ip)
+
+
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Disable redirect following so a 3xx can't bounce the request to an
     internal host that the original (validated) URL did not resolve to.
@@ -185,7 +203,12 @@ def assert_url_allowed(url: str) -> None:
     if not host:
         raise EgressBlocked("URL has no host")
     # A bracketed/parseable literal IP still has to clear the deny-list — a
-    # user can paste http://169.254.169.254 directly, no DNS involved.
+    # user can paste http://169.254.169.254 directly — but needs no resolution.
+    literal = _blocked_if_literal(host)
+    if literal is not None:
+        if literal:
+            raise EgressBlocked(f"host {host!r} is a non-public address")
+        return
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
@@ -218,6 +241,12 @@ def assert_host_allowed(host: str, port: int) -> None:
     """
     if not host:
         raise EgressBlocked("SMTP host is empty")
+    # A literal IP SMTP relay needs no resolution — classify it directly (#1628).
+    literal = _blocked_if_literal(host)
+    if literal is not None:
+        if literal:
+            raise EgressBlocked(f"host {host!r} is a non-public address")
+        return
     try:
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:

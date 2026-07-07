@@ -92,6 +92,41 @@ def test_allows_nat64_wrapped_public_ipv4() -> None:
     assert http._is_blocked_ip(ipaddress.ip_address("64:ff9b::808:808")) is False
 
 
+def test_literal_ip_host_is_classified_without_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A literal-IP host is denied/allowed without touching ``getaddrinfo`` (#1628).
+
+    The guard's rejection of a literal SSRF target (cloud metadata, RFC1918)
+    must be a pure computation with no resolver involvement — otherwise a
+    constrained CI network namespace can turn the deny into a transient
+    ``EgressError`` and the caller retries into a real connection. Blow up if
+    ``getaddrinfo`` is reached for any literal IP.
+    """
+
+    def _boom(*args: object, **kwargs: object) -> Any:
+        raise AssertionError("getaddrinfo must not be called for a literal IP")
+
+    monkeypatch.setattr(http.socket, "getaddrinfo", _boom)
+
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://169.254.169.254/latest/meta-data/")
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://[::1]/")
+    # IPv6-tunneled IPv4 literals must be unwrapped and blocked on the fast path
+    # too (guards a future refactor that skips _embedded_ipv4 in the short-circuit).
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://[64:ff9b::a9fe:a9fe]/")  # NAT64 -> 169.254.169.254
+    with pytest.raises(http.EgressBlocked):
+        http.assert_url_allowed("http://[::ffff:10.0.0.5]/")  # IPv4-mapped RFC1918
+    # A public literal returns without resolving.
+    http.assert_url_allowed("https://8.8.8.8/")
+    # assert_host_allowed (SMTP relay) shares the short-circuit.
+    with pytest.raises(http.EgressBlocked):
+        http.assert_host_allowed("10.0.0.5", 25)
+    http.assert_host_allowed("8.8.8.8", 25)
+
+
 def test_unresolvable_host_raises_egress_error(monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> Any:
         raise socket.gaierror("name or service not known")
