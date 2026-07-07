@@ -6,7 +6,9 @@ import {
   roleBgClass,
   barRoleForRiskBand,
   barFillClass,
-  milestoneFillClass,
+  barBorderClass,
+  hatchBackgroundStyle,
+  milestoneDiamondClasses,
   arrowColorVar,
 } from './schedulePrintTheme';
 import type { SchedulePrintRiskBand } from './schedulePrintData';
@@ -90,12 +92,41 @@ describe('risk-band → bar role', () => {
     expect(barFillClass('at-risk')).toBe('bg-semantic-at-risk');
     expect(barFillClass('on-track')).toBe('bg-semantic-on-track');
   });
+
+  it('composes a BORDER frame class per band (risk on the border, ADR-0277)', () => {
+    // Critical/at-risk are the emphasized 2px frames; on-track is a recessive but
+    // 1.4.11-visible hairline (neutral-text-secondary, not the fainter neutral-border).
+    expect(barBorderClass('critical')).toBe('border-2 border-semantic-critical');
+    expect(barBorderClass('at-risk')).toBe('border-2 border-semantic-at-risk');
+    expect(barBorderClass('on-track')).toBe('border border-neutral-text-secondary');
+  });
 });
 
-describe('milestone + arrow composers', () => {
-  it('selects met vs pending milestone fill', () => {
-    expect(milestoneFillClass(true)).toBe('bg-brand-accent');
-    expect(milestoneFillClass(false)).toBe('bg-semantic-at-risk');
+describe('milestone + hatch + arrow composers', () => {
+  it('selects filled / hollow / hollow-red diamond by met/pending/overdue', () => {
+    // Met = filled amber; pending = hollow (a SHAPE cue, resolves the #1686 color-only
+    // gap). Both carry a NAVY outline, not amber — brand-accent (#E8A020) is ~2.2:1 on
+    // white (< WCAG 1.4.11 3:1) so it is the fill only, never the sole boundary.
+    expect(milestoneDiamondClasses(true, false)).toBe(
+      'bg-brand-accent border border-neutral-text-primary',
+    );
+    expect(milestoneDiamondClasses(false, false)).toBe(
+      'bg-transparent border border-neutral-text-primary',
+    );
+    expect(milestoneDiamondClasses(false, true)).toBe(
+      'bg-transparent border-2 border-semantic-critical',
+    );
+    // Met always wins over an (irrelevant) overdue flag — a met milestone is never late.
+    expect(milestoneDiamondClasses(true, true)).toBe(
+      'bg-brand-accent border border-neutral-text-primary',
+    );
+  });
+
+  it('exposes the "behind" hatch as an inline-style CSS-var background (no hex)', () => {
+    const style = hatchBackgroundStyle();
+    expect(style.backgroundImage).toContain('repeating-linear-gradient');
+    expect(style.backgroundImage).toContain('rgb(var(--neutral-text-primary))');
+    expect(style.backgroundImage).not.toMatch(HEX);
   });
 
   it('exposes the charcoal arrow color as an inline-style CSS-var value (not a class)', () => {

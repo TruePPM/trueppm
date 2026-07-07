@@ -83,6 +83,48 @@ function data() {
   });
 }
 
+/**
+ * A fixture exercising every ADR-0277 state: a critical-AND-complete task (red frame,
+ * full green fill), a behind task (amber frame + hatch), an overdue task, a future
+ * pending milestone, and an overdue pending milestone. Rendered with a data date
+ * inside the span so the overdue markers + data-date pill appear.
+ */
+function richData() {
+  return buildSchedulePrintData({
+    projectName: 'Apollo',
+    tasks: [
+      task('crit', {
+        wbs: '1',
+        name: 'Design',
+        start: '2026-04-01',
+        finish: '2026-04-08',
+        isCritical: true,
+        progress: 100,
+      }),
+      task('beh', {
+        wbs: '2',
+        name: 'Build',
+        start: '2026-04-09',
+        finish: '2026-04-20',
+        totalFloat: -2,
+        progress: 30,
+      }),
+      task('od', {
+        wbs: '3',
+        name: 'Verify',
+        start: '2026-04-10',
+        finish: '2026-04-15',
+        progress: 40,
+      }),
+      task('ms', { wbs: '4', name: 'Launch', isMilestone: true, start: '2026-05-01', finish: '2026-05-01' }),
+      task('msod', { wbs: '5', name: 'Gate', isMilestone: true, start: '2026-04-12', finish: '2026-04-12' }),
+    ],
+    links: [],
+    userName: 'Jane',
+    generatedAtLabel: 'Jun 30, 2026',
+  });
+}
+
 describe('SchedulePrintLayout', () => {
   it('renders the masthead, KPI strip, rows, and a dependency arrow path', () => {
     const { container } = render(<SchedulePrintLayout data={data()} />);
@@ -259,5 +301,109 @@ describe('SchedulePrintLayout', () => {
     // top) must be the hard one.
     expect(paths[0].getAttribute('stroke-dasharray')).toBe('3 2');
     expect(paths[paths.length - 1].getAttribute('stroke-dasharray')).toBeNull();
+  });
+
+  // ── ADR-0277: risk on the border, overdue markers, leaders, expanded legend ──
+  const rowsRegion = (c: HTMLElement) =>
+    c.querySelector('[data-print-vmark="gantt-rows"]') as HTMLElement;
+
+  it('colors the bar BORDER by risk band, with the green progress fill INSIDE the frame', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    const region = rowsRegion(container);
+    // The critical task bar is a red 2px frame — NOT a red fill (so a completed
+    // critical task keeps its critical signal instead of being overpainted green).
+    const critBars = Array.from(
+      region.querySelectorAll('span.rounded-sm.border-2.border-semantic-critical'),
+    );
+    expect(critBars.length).toBeGreaterThanOrEqual(1);
+    expect(critBars[0].className).not.toContain('bg-semantic-critical');
+    // The interior fill is green progress (100% here) sitting inside the red frame.
+    expect(critBars[0].querySelector('.bg-semantic-on-track')).toBeTruthy();
+  });
+
+  it('textures a behind-schedule bar with the diagonal hatch overlay', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    const hatched = Array.from(rowsRegion(container).querySelectorAll('span')).filter((s) =>
+      (s.getAttribute('style') ?? '').includes('repeating-linear-gradient'),
+    );
+    expect(hatched.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('draws an overdue task as a red past-due flag + a dashed red overrun tail', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    const region = rowsRegion(container);
+    const flags = Array.from(region.querySelectorAll('polygon')).filter((p) =>
+      (p.getAttribute('style') ?? '').includes('var(--semantic-critical)'),
+    );
+    const tails = Array.from(region.querySelectorAll('line')).filter((l) =>
+      (l.getAttribute('style') ?? '').includes('var(--semantic-critical)'),
+    );
+    expect(flags.length).toBeGreaterThanOrEqual(1);
+    expect(tails.length).toBeGreaterThanOrEqual(1);
+    expect(tails[0].getAttribute('stroke-dasharray')).toBe('2 2');
+  });
+
+  it('has no overdue markers when no data date is supplied', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} />);
+    const region = rowsRegion(container);
+    const criticalFills = Array.from(region.querySelectorAll('polygon')).filter((p) =>
+      (p.getAttribute('style') ?? '').includes('var(--semantic-critical)'),
+    );
+    expect(criticalFills.length).toBe(0);
+  });
+
+  it('renders milestones as filled/hollow diamonds and an overdue one as hollow-red + "!"', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    const region = rowsRegion(container);
+    // Future pending milestone: hollow diamond with a navy (not amber) outline —
+    // brand-accent is ~2.2:1 on white so it's the fill only (shape cue, resolves #1686).
+    const pendingHollow = Array.from(region.querySelectorAll('span.rotate-45')).filter(
+      (s) =>
+        s.className.includes('bg-transparent') &&
+        s.className.includes('border-neutral-text-primary') &&
+        !s.className.includes('border-2'),
+    );
+    expect(pendingHollow.length).toBeGreaterThanOrEqual(1);
+    // Overdue pending milestone: hollow with a red 2px outline + a bold "!" glyph.
+    const overdueDiamond = Array.from(region.querySelectorAll('span.rotate-45')).filter((s) =>
+      s.className.includes('border-semantic-critical'),
+    );
+    expect(overdueDiamond.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('!').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('draws faint round-dotted row leaders (distinct from dashed soft arrows)', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    const leaders = Array.from(rowsRegion(container).querySelectorAll('line')).filter(
+      (l) => l.getAttribute('stroke-dasharray') === '0.5 4',
+    );
+    expect(leaders.length).toBeGreaterThanOrEqual(1);
+    // Round caps + faint ink (neutral-text-disabled — distinct from gridlines, never
+    // the darker soft-arrow secondary).
+    expect(leaders[0].getAttribute('stroke-linecap')).toBe('round');
+    expect(leaders[0].getAttribute('style')).toContain('var(--neutral-text-disabled)');
+  });
+
+  it('labels the data-date line with a sage pill showing the date', () => {
+    const { container } = render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    // The line span carries no text; the pill is the one bg-brand-primary span with text.
+    const pill = Array.from(container.querySelectorAll('span.bg-brand-primary')).find(
+      (s) => (s.textContent ?? '').trim().length > 0,
+    );
+    expect(pill).toBeTruthy();
+  });
+
+  it('renders the expanded three-group legend explaining every mark', () => {
+    render(<SchedulePrintLayout data={richData()} dataDate="2026-04-25" />);
+    for (const label of ['Bars', 'Links', 'Markers']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    // New entries beyond the original 4-chip legend.
+    expect(screen.getByText('Overdue')).toBeInTheDocument();
+    expect(screen.getByText('At risk / behind')).toBeInTheDocument();
+    expect(screen.getByText('Milestone pending')).toBeInTheDocument();
+    expect(screen.getByText('Row guide')).toBeInTheDocument();
+    expect(screen.getByText(/Driving/)).toBeInTheDocument();
+    expect(screen.getByText(/Discretionary/)).toBeInTheDocument();
   });
 });
