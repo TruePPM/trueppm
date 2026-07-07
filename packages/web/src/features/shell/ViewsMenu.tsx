@@ -15,17 +15,37 @@ import {
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { modifierKeyLabel } from '@/lib/platform';
+import { methodologyLabel } from '@/lib/methodologyLabel';
 import type { Methodology } from '@/types';
 
 type IconProps = { className?: string; 'aria-hidden'?: 'true' };
 
-const METHOD_LABEL: Record<Methodology, string> = {
-  AGILE: 'Agile',
-  WATERFALL: 'Waterfall',
-  HYBRID: 'Hybrid',
-};
+// --- Local glyphs (no Eye/EyeOff/Pin/Sliders in the shared Icons set) --------
 
-// --- Local glyphs (no Eye/EyeOff/Pin in the shared Icons set) ---------------
+/** Sliders/adjustments glyph for the rail trigger. Deliberately NOT the shell
+ *  `SettingsIcon` gear — that reads as "settings" and would collide with the rail
+ *  footer's settings gear; sliders read as "adjust what's shown". */
+function SlidersIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2 4h6M11 4h3M2 12h3M8 12h6M2 8h9M14 8h0" />
+      <circle cx="9.5" cy="4" r="1.6" />
+      <circle cx="6.5" cy="12" r="1.6" />
+      <circle cx="12.5" cy="8" r="1.6" />
+    </svg>
+  );
+}
 
 function EyeIcon({ className, ...rest }: IconProps) {
   return (
@@ -107,38 +127,24 @@ function ResetIcon({ className, ...rest }: IconProps) {
   );
 }
 
-function ChevronIcon({ className, ...rest }: IconProps) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      {...rest}
-    >
-      <path d="M4 6l4 4 4-4" />
-    </svg>
-  );
-}
-
 const GROUP_HEADER =
   'px-4 pt-2 pb-1 text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary select-none';
 
 /**
  * "Customize views" menu (ADR-0139, issue 220) — a per-user control to hide/show
- * which project view tabs appear in the bar. Self-suppresses off-project and on
- * settings routes, exactly like `ViewTabs` / `MethodWorkspaceLabel`. Desktop only.
+ * which project views appear. Since #1680 it mounts in the left rail's "This
+ * project" band (the gear beside the header), not the top bar: its trigger is an
+ * icon-only sliders button and its panel is an **in-flow** disclosure that wraps
+ * full-width beneath the header row (the rail's `overflow-hidden` scroll container
+ * would clip a floating `absolute` popover — hence in-flow, not a dropdown). It
+ * self-suppresses off-project and on settings routes, and renders in the mobile
+ * drawer too (the former `hidden md:block` desktop gate is gone).
  *
  * Only methodology-visible views are toggleable (a view the methodology preset
  * already hides never appears here). Overview is shown as an always-on row with
  * no toggle — the structural guarantee the nav can never be emptied. The hidden
  * set is the per-user global `UserProfile.hidden_views`; toggling PATCHes it with
- * optimistic local state and the bar recomposes on `['current-user']` invalidation.
+ * optimistic local state and the rail recomposes on `['current-user']` invalidation.
  *
  * The menu also carries the Schedule-in-Deliver *placement* opt-in (ADR-0203,
  * #1645): a display-only toggle that *additionally* surfaces Schedule under the
@@ -222,7 +228,7 @@ export function ViewsMenu() {
   // Server-resolved methodology (ADR-0107, issue 955): the effective preset, not
   // the raw per-project override, gates which views appear in the menu.
   const methodology: Methodology = project?.effective_methodology ?? 'HYBRID';
-  const methodLabel = METHOD_LABEL[methodology];
+  const methodLabel = methodologyLabel(methodology);
   const roleAllows = (view: string) =>
     view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER);
 
@@ -287,8 +293,11 @@ export function ViewsMenu() {
     commit(effectiveHidden.filter((v) => !resettable.has(v)));
   }
 
+  // Fragment root (not a positioned wrapper): the trigger and the in-flow panel are
+  // BOTH flex children of the rail header row, so the panel's `basis-full` wraps it
+  // to a full-width line beneath the gear (rule 211-adjacent — one flow, no clip).
   return (
-    <div className="hidden md:block relative" ref={menuRef}>
+    <>
       <button
         ref={buttonRef}
         type="button"
@@ -296,18 +305,17 @@ export function ViewsMenu() {
         aria-expanded={isOpen}
         aria-label="Customize views"
         onClick={() => setIsOpen((p) => !p)}
-        className="inline-flex shrink-0 items-center gap-1 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        className="flex shrink-0 items-center justify-center h-11 w-11 md:h-8 md:w-8 rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
-        <EyeIcon className="text-current" aria-hidden="true" />
-        <span className="hidden lg:inline">Views</span>
-        <ChevronIcon className="text-current" aria-hidden="true" />
+        <SlidersIcon className="text-current" aria-hidden="true" />
       </button>
 
       {isOpen && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label="Customize views"
-          className="absolute top-full right-0 mt-1 z-50 w-72 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
+          className="order-last basis-full w-full mt-1 bg-chrome-surface rounded-card border border-neutral-border flex flex-col py-1"
         >
           <div className="px-4 pt-1 pb-2">
             <h2 className="text-sm font-semibold text-neutral-text-primary leading-tight">
@@ -407,7 +415,7 @@ export function ViewsMenu() {
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

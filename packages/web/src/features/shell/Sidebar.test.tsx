@@ -11,9 +11,30 @@ vi.mock('@/hooks/useProjects', () => ({
     data: [
       // Real, server-mapped health + open-task count (#960) — the dot colors and
       // the count badge render from data, not a hardcoded 'unknown'.
-      { id: 'p1', name: 'Alpha Platform', programId: 'prog1', healthState: 'at-risk', openTaskCount: 7, colorDot: '#3E8C6D' },
-      { id: 'p2', name: 'Beta Migration', programId: 'prog1', healthState: 'on-track', openTaskCount: 0, colorDot: '#E8A020' },
-      { id: 'p3', name: 'Standalone Site', programId: null, healthState: 'unknown', openTaskCount: 4, colorDot: '#B91C1C' },
+      {
+        id: 'p1',
+        name: 'Alpha Platform',
+        programId: 'prog1',
+        healthState: 'at-risk',
+        openTaskCount: 7,
+        colorDot: '#3E8C6D',
+      },
+      {
+        id: 'p2',
+        name: 'Beta Migration',
+        programId: 'prog1',
+        healthState: 'on-track',
+        openTaskCount: 0,
+        colorDot: '#E8A020',
+      },
+      {
+        id: 'p3',
+        name: 'Standalone Site',
+        programId: null,
+        healthState: 'unknown',
+        openTaskCount: 4,
+        colorDot: '#B91C1C',
+      },
     ],
   }),
 }));
@@ -60,6 +81,12 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
 vi.mock('./NewProjectModal', () => ({ NewProjectModal: () => null }));
 vi.mock('@/features/programs/NewProgramModal', () => ({ NewProgramModal: () => null }));
 vi.mock('@/components/import/ImportProjectModal', () => ({ ImportProjectModal: () => null }));
+// The relocated Customize-views control (#1680) owns its own data/mutation hooks and
+// is covered by ViewsMenu.test; stub it to a labelled button so these structural
+// tests assert only its mount point (and avoid needing a QueryClient here).
+vi.mock('./ViewsMenu', () => ({
+  ViewsMenu: () => <button type="button" aria-label="Customize views" />,
+}));
 
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -168,7 +195,9 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     expect(screen.queryByRole('button', { name: /Alpha Platform/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
   });
 
@@ -209,14 +238,27 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
   it('renders the project header card + ALL HYBRID grouped views, incl. Activity + Assets', () => {
     renderRail();
     expect(screen.getByText('This project')).toBeInTheDocument();
-    // Header card: program subtitle + a health circle carrying the health word.
+    // Header card: program · methodology subtitle + a health circle carrying the word.
     expect(screen.getByText('Artemis')).toBeInTheDocument();
+    expect(screen.getByText('Hybrid workspace')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'at risk' })).toBeInTheDocument();
+    // The Customize-views control now lives here in the rail band (#1680).
+    expect(screen.getByRole('button', { name: 'Customize views' })).toBeInTheDocument();
     // Post-mockup regression guard: Activity (ADR-0201) + Assets (ADR-0215) present.
     expect(screen.getByRole('link', { name: 'Activity' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Assets' })).toBeInTheDocument();
     // The rest of the HYBRID set.
-    for (const label of ['Schedule', 'Grid', 'Calendar', 'Backlog', 'Sprints', 'Board', 'Risks', 'Reports', 'Team']) {
+    for (const label of [
+      'Schedule',
+      'Grid',
+      'Calendar',
+      'Backlog',
+      'Sprints',
+      'Board',
+      'Risks',
+      'Reports',
+      'Team',
+    ]) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
   });
@@ -270,7 +312,13 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
 
   it('removes a personally-hidden view from the rail (ADR-0139)', () => {
     mockUseCurrentUser.mockReturnValue({
-      user: { initials: 'AK', display_name: 'Anika K.', can_access_admin_settings: true, hidden_views: ['schedule'], role_context: 'unified' },
+      user: {
+        initials: 'AK',
+        display_name: 'Anika K.',
+        can_access_admin_settings: true,
+        hidden_views: ['schedule'],
+        role_context: 'unified',
+      },
     });
     renderRail();
     expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
@@ -287,6 +335,19 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     renderRail();
     expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Sprints' })).not.toBeInTheDocument();
+  });
+
+  it('shows the effective_methodology as the card subtitle, not the raw override (#1680, rule 196)', () => {
+    // Raw AGILE but server-resolved WATERFALL — the resolved label must win (the
+    // coverage the removed bar `MethodWorkspaceLabel` used to carry).
+    mockUseProject.mockReturnValue({
+      data: { ...HYBRID_PROJECT, methodology: 'AGILE', effective_methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderRail();
+    expect(screen.getByText('Waterfall workspace')).toBeInTheDocument();
+    expect(screen.queryByText('Agile workspace')).not.toBeInTheDocument();
   });
 });
 
@@ -307,7 +368,9 @@ describe('Sidebar rail — preserved behaviors', () => {
   it('in the drawer the switcher content is inline-expanded (no Browse button)', () => {
     renderRail({ isDrawer: true, onClose: vi.fn() });
     // Drawer expands every tier — Organization/Programs are visible without a toggle.
-    expect(screen.queryByRole('button', { name: 'Browse projects and programs' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Browse projects and programs' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
   });

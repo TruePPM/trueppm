@@ -59,6 +59,25 @@ describe('LocationSegment (#1643)', () => {
     expect(within(listbox).queryByRole('option', { name: 'Apollo' })).not.toBeInTheDocument();
   });
 
+  it('renders the current option as a two-line subtitle row when currentSubtitle is set (#1680)', () => {
+    renderWithRouter(
+      <LocationSegment
+        noun="project"
+        options={OPTIONS}
+        currentId="p1"
+        currentName="Apollo"
+        currentSubtitle="Hybrid"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
+    // The current row folds the subtitle into its accessible name and shows it as a
+    // visible second line; other rows stay single-line (name only).
+    const current = screen.getByRole('option', { name: 'Apollo, current, Hybrid workspace' });
+    expect(current).toHaveAttribute('aria-selected', 'true');
+    expect(within(current).getByText('Hybrid workspace')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Gemini' })).toBeInTheDocument();
+  });
+
   it('navigates to the selected option and not to the current one', () => {
     renderSegment();
     fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
