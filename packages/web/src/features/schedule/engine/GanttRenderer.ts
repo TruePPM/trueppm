@@ -41,6 +41,11 @@ export const ROW_HEIGHT = 28;
 export const BAR_TOP_OFFSET = 5;
 export const BAR_HEIGHT = 18;
 export const SUMMARY_BAR_HEIGHT = 8;
+// Minimum bar width (px) below which a selection ring will NOT nest inside a red
+// critical frame — the two concentric rings would collide (#1699). Below this the
+// ring uses the standard inset and the critical frame paints over it (risk >
+// selection), so a narrow selected critical bar keeps its red frame.
+const MIN_NEST_WIDTH = 12;
 export const MILESTONE_SIZE = 12;
 /** Baseline ghost bar and actual-date overlay height (rule 14). */
 export const GHOST_BAR_HEIGHT = 6;
@@ -99,18 +104,18 @@ export const COLOR = {
   selectionRing: '#1B2A4A', // navy-700
   ghostFill: 'rgba(100,116,139,0.12)',
   ghostBorder: 'rgba(100,116,139,0.55)',
-  // Chip text tokens (ADR-0040 #212): named so a future high-contrast theme
-  // can override them without touching draw call sites.
-  // Light mode uses the darker 500/600 bar stops, where white in-bar text reads
-  // (the dark palette flips these to ink — see COLOR_DARK, issue #1032).
-  chipTextOnCritical: '#FFFFFF', // semantic-on-critical
+  // Chip text token (ADR-0040 #212): named so a future high-contrast theme can
+  // override it without touching draw call sites. Light mode uses the darker
+  // 500/600 bar stops, where white in-bar text reads (the dark palette flips this
+  // to ink — see COLOR_DARK, issue #1032). Only the "OnSurface" pairing remains:
+  // no bar is red-filled anymore (#1699, ADR-0280), so the critical chip treatment
+  // was removed.
   chipTextOnSurface: '#FFFFFF', // semantic-on-surface
   // The % chip's translucent backing pill. It flips with the chip TEXT (issue
   // 1032): a dark pill sits behind white text on the light surface. In dark
   // mode the pill flips to light (COLOR_DARK) so it never darkens the area
   // behind the ink chip text — a fixed rgba(0,0,0,…) pill would reduce contrast
   // on the light 400-stop dark-mode bars (issue 1638).
-  chipPillOnCritical: 'rgba(255,255,255,0.22)',
   chipPillOnSurface: 'rgba(0,0,0,0.18)',
   // External-link worst-status dot (issue 767, ADR-0155). Only the two hues the
   // bar palette lacks live here; closed/merged/unknown reuse the bar stops
@@ -155,12 +160,10 @@ export const COLOR_DARK: ColorPalette = {
   // so the dark-surface chip/initial text is ink, not white (brand SKILL §11,
   // issue #1032). Light mode keeps white because its fills are the darker
   // 500/600 stops.
-  chipTextOnCritical: '#1A1917',
   chipTextOnSurface: '#1A1917',
   // Pill flips to light on the dark surface so it lightens (never darkens) the
   // area behind the ink chip text — the mode-aware counterpart to the light
   // palette's dark pill (issue 1638; mirrors the chipText white↔ink flip, 1032).
-  chipPillOnCritical: 'rgba(255,255,255,0.22)',
   chipPillOnSurface: 'rgba(255,255,255,0.18)',
   // Link worst-status dot on the dark surface — the lighter 400 stops read on
   // navy (mirrors the bar-fill light/dark flip above; issue 767, ADR-0155).
@@ -631,13 +634,20 @@ export function drawTimelineHeader(
 
 /** Choose bar fill color based on task state. */
 function barFillColor(task: Task): string {
+  // The fill carries task STATE; the critical path is carried by a red border
+  // frame in drawTaskBar, not by the fill (#1699, ADR-0280). Colouring the fill
+  // red for critical lost a completed critical task's criticality to a
+  // completion-wins-precedence race (isComplete is checked first, so a done
+  // critical bar rendered solid green and the critical path vanished on a
+  // mostly-complete schedule). Keeping state in the fill and risk on the border
+  // means a completed critical task reads as a green bar in a red frame.
+  //
   // Program schedule view (ADR-0182): redacted external tasks reuse the muted
   // secondary text color so they read as "not yours"; their criticality is shown
-  // by a red outline in drawTaskBar, not a red fill.
+  // by a red outline in drawTaskBar, never a red fill.
   if (task.isExternal) return _palette.textSecondary;
   if (task.isSummary) return _palette.barSummary;
   if (task.isComplete || task.progress >= 100) return _palette.barComplete;
-  if (task.isCritical) return _palette.barCritical;
   return _palette.barNormal;
 }
 
@@ -675,13 +685,17 @@ function drawTaskBarChip(
   // Translucent pill behind the % text. Mode-aware via the palette so it flips
   // with the chip text (dark pill/light surface, light pill/dark surface) and
   // never renders a fixed black wash behind ink text in dark mode (issue 1638).
-  const isCritical = task.isCritical && !task.isComplete;
-  ctx.fillStyle = isCritical ? _palette.chipPillOnCritical : _palette.chipPillOnSurface;
+  //
+  // Every bar drawn through this path now carries a STATE fill — blue in-progress
+  // or green complete, never the old red critical fill (#1699, ADR-0280) — so the
+  // surface treatment (dark pill + white text) is the correct pairing for all of
+  // them. The critical path is a red border, which the chip never overlaps.
+  ctx.fillStyle = _palette.chipPillOnSurface;
   ctx.beginPath();
   ctx.roundRect(chipX, chipY, chipW, chipH, 3);
   ctx.fill();
 
-  ctx.fillStyle = isCritical ? _palette.chipTextOnCritical : _palette.chipTextOnSurface;
+  ctx.fillStyle = _palette.chipTextOnSurface;
   ctx.textBaseline = 'middle';
   ctx.fillText(label, chipX + chipPadX, chipY + chipH / 2);
 
@@ -838,16 +852,9 @@ export function drawTaskBar(
     }
   }
 
-  // Selection: 2px inset stroke ring
-  if (isSelected) {
-    ctx.strokeStyle = _palette.selectionRing;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
-    ctx.stroke();
-  }
-
-  // Progress fill overlay (darker tint at 30% opacity on the unprogressed right portion)
+  // Progress fill overlay (darker tint at 30% opacity on the unprogressed right
+  // portion). Drawn BEFORE the borders so the risk frame and selection ring paint
+  // crisply on top of the tint instead of being dimmed by it.
   if (task.progress > 0 && task.progress < 100) {
     const progressWidth = barWidth * (task.progress / 100);
     ctx.globalAlpha = 0.3;
@@ -862,6 +869,49 @@ export function drawTaskBar(
     );
     ctx.fill();
     ctx.globalAlpha = 1;
+  }
+
+  const criticalFrame = !task.isExternal && !task.isSummary && task.isCritical;
+
+  // Selection: navy inset ring. When a red critical frame will also be drawn, the
+  // ring NESTS one step further in (thinner) so both channels stay legible — the
+  // ADR-0103 D4 distinguishability set reads complete=sage fill, critical=red
+  // frame, selected=navy ring, today=sage line, each on its own visual axis.
+  // Nesting needs room: below MIN_NEST_WIDTH the two concentric rings would
+  // collide, so the ring falls back to the standard inset and the critical frame
+  // (drawn AFTER this, below) paints on top — risk outranks selection, so a narrow
+  // selected critical bar keeps its red frame rather than losing it to the ring.
+  if (isSelected) {
+    const nest = criticalFrame && barWidth >= MIN_NEST_WIDTH;
+    const inset = nest ? 3 : 1;
+    ctx.strokeStyle = _palette.selectionRing;
+    ctx.lineWidth = nest ? 1.5 : 2;
+    ctx.beginPath();
+    ctx.roundRect(
+      barLeft + inset,
+      barTop + inset,
+      barWidth - inset * 2,
+      BAR_HEIGHT - inset * 2,
+      nest ? 1.5 : 2,
+    );
+    ctx.stroke();
+  }
+
+  // Critical path — a red risk FRAME on the border, not a red fill (#1699,
+  // ADR-0280). The fill keeps task state (blue in-progress / green complete), so a
+  // COMPLETED critical task stays visibly critical — a green bar in a red frame —
+  // instead of losing its criticality to the completion-wins-precedence race in
+  // barFillColor. External bars carry their own red outline above; summary bars
+  // keep their neutral treatment. Drawn LAST so the higher-priority risk signal is
+  // never occluded by the selection ring on bars too narrow to nest it. The 2px
+  // frame clears WCAG 1.4.11 (>=3:1) against the surface; criticality is also
+  // backed non-color by the task-list red dot.
+  if (criticalFrame) {
+    ctx.strokeStyle = _palette.barCritical;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
+    ctx.stroke();
   }
 
   // % chip inside bar — omit for very narrow bars and for 0% NOT_STARTED tasks
