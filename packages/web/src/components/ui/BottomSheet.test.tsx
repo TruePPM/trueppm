@@ -115,6 +115,39 @@ describe('<BottomSheet>', () => {
     expect(dialog.className).toContain('max-h-[85vh]');
   });
 
+  it('moves focus to the first focusable descendant on open (WCAG 2.4.3, #1503)', () => {
+    render(
+      <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test">
+        <button type="button">First action</button>
+        <button type="button">Second action</button>
+      </BottomSheet>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'First action' }));
+  });
+
+  it('falls back to focusing the dialog container when it has no focusable content', () => {
+    render(
+      <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test">
+        <p>no focusables here</p>
+      </BottomSheet>,
+    );
+    expect(document.activeElement).toBe(screen.getByRole('dialog'));
+  });
+
+  it('preserves a caller autoFocus target instead of stealing focus to the first control', () => {
+    render(
+      <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test">
+        <button type="button">First action</button>
+        {/* Simulate a caller focusing its own field: the callback ref runs at
+            commit, before the sheet's on-open passive effect. */}
+        <input aria-label="Search" ref={(el) => el?.focus()} />
+      </BottomSheet>,
+    );
+    // The sheet already contains the focused input, so the on-open focus move is
+    // a no-op and the caller's intended target keeps focus.
+    expect(document.activeElement).toBe(screen.getByLabelText('Search'));
+  });
+
   it('omits md:hidden when mobileOnly=false (renders across breakpoints)', () => {
     render(
       <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test" mobileOnly={false}>
