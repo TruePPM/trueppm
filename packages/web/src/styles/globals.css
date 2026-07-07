@@ -30,8 +30,7 @@
     color-scheme: light;
   }
 
-  html,
-  body {
+  html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
     /* Warm-paper canvas (design-system v2, ADR-0126): the app sits on warm
@@ -53,29 +52,29 @@
     /* Warm-paper neutrals (design-system v2, ADR-0126). Cards stay white and
        pop against the warm `--app-canvas`; raised/sunken/border warmed from the
        old cool greys to the golden paper/line tones. Navy ink keeps ~12:1. */
-    --app-canvas: 242 238 229; /* #F2EEE5 — paper-2: the app canvas */
-    --neutral-surface: 255 255 255; /* #FFFFFF — card (raised over paper) */
-    --neutral-surface-raised: 250 248 243; /* #FAF8F3 — paper (was cool #F5F5F0) */
-    --neutral-surface-sunken: 234 229 217; /* #EAE5D9 — paper-3 (warm, was #EBEBEB) */
-    --neutral-border: 230 225 214; /* #E6E1D6 — line (warm, was #D4D2CE) */
-    --neutral-text-primary: 27 42 74; /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
-    --neutral-text-secondary: 107 105 101; /* #6B6965 — 4.63:1 on white */
-    --neutral-text-disabled: 160 157 153; /* #A09D99 */
-    --neutral-text-inverse: 255 255 255; /* #FFFFFF */
+    --app-canvas:              242 238 229;   /* #F2EEE5 — paper-2: the app canvas */
+    --neutral-surface:         255 255 255;   /* #FFFFFF — card (raised over paper) */
+    --neutral-surface-raised:  250 248 243;   /* #FAF8F3 — paper (was cool #F5F5F0) */
+    --neutral-surface-sunken:  234 229 217;   /* #EAE5D9 — paper-3 (warm, was #EBEBEB) */
+    --neutral-border:          230 225 214;   /* #E6E1D6 — line (warm, was #D4D2CE) */
+    --neutral-text-primary:    27 42 74;      /* #1B2A4A — navy ink (brand v1.0); ~12.6:1 on white */
+    --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
+    --neutral-text-disabled:   160 157 153;   /* #A09D99 */
+    --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
   }
 
   .dark {
     /* Dark navy family already matches the v2 golden values (ADR-0126):
        canvas #0E1626, surface #15223C, card #1B2A4A. */
-    --app-canvas: 14 22 38; /* #0E1626 — paper (darkest): the canvas */
-    --neutral-surface: 21 34 60; /* #15223C — navy-800 (brand dark surface) */
-    --neutral-surface-raised: 27 42 74; /* #1B2A4A — navy-700 */
-    --neutral-surface-sunken: 11 18 32; /* #0B1220 */
-    --neutral-border: 42 58 87; /* #2A3A57 — navy border */
-    --neutral-text-primary: 233 237 243; /* #E9EDF3 — reversed ink, 12.1:1 on #15223C */
-    --neutral-text-secondary: 148 163 184; /* #94A3B8 — 7.45:1 on surface */
-    --neutral-text-disabled: 100 116 139; /* #64748B */
-    --neutral-text-inverse: 26 25 23; /* #1A1917 */
+    --app-canvas:              14 22 38;      /* #0E1626 — paper (darkest): the canvas */
+    --neutral-surface:         21 34 60;      /* #15223C — navy-800 (brand dark surface) */
+    --neutral-surface-raised:  27 42 74;      /* #1B2A4A — navy-700 */
+    --neutral-surface-sunken:  11 18 32;      /* #0B1220 */
+    --neutral-border:          42 58 87;      /* #2A3A57 — navy border */
+    --neutral-text-primary:    233 237 243;   /* #E9EDF3 — reversed ink, 12.1:1 on #15223C */
+    --neutral-text-secondary:  148 163 184;   /* #94A3B8 — 7.45:1 on surface */
+    --neutral-text-disabled:   100 116 139;   /* #64748B */
+    --neutral-text-inverse:    26 25 23;      /* #1A1917 */
   }
 
   /* ── Brand tokens — navy/sage rebrand (ADR-0103) ──────────────────────────
@@ -92,15 +91,15 @@
     /* sage-700 (not sage-600): the WCAG re-validation found sage-600 is 4.06:1
        on white — fails AA for normal-weight text. sage-700 = 5.93:1 (also fixes
        white-on-fill buttons). The brand doc's "4.6:1" figure is an error. */
-    --brand-primary: 49 111 87; /* sage-700 #316F57 — foreground/ring/border, 5.93:1 */
-    --brand-primary-dark: 39 88 68; /* sage-800 #275844 — hover/pressed */
-    --brand-primary-light: 211 236 224; /* sage-100 #D3ECE0 — tint surfaces / chart fills */
+    --brand-primary:        49 111 87;    /* sage-700 #316F57 — foreground/ring/border, 5.93:1 */
+    --brand-primary-dark:   39 88 68;     /* sage-800 #275844 — hover/pressed */
+    --brand-primary-light:  211 236 224;  /* sage-100 #D3ECE0 — tint surfaces / chart fills */
   }
 
   .dark {
-    --brand-primary: 102 185 152; /* sage-400 #66B998 — affordance on dark */
-    --brand-primary-dark: 79 168 132; /* sage-500 #4FA884 */
-    --brand-primary-light: 39 88 68; /* sage-800 #275844 */
+    --brand-primary:        102 185 152;  /* sage-400 #66B998 — affordance on dark */
+    --brand-primary-dark:   79 168 132;   /* sage-500 #4FA884 */
+    --brand-primary-light:  39 88 68;     /* sage-800 #275844 */
   }
 
   /* ── Semantic status tokens ───────────────────────────────────────────────
@@ -108,17 +107,17 @@
      (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
   :root,
   .theme-light {
-    --semantic-critical: 185 28 28; /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
-    --semantic-warning: 133 77 14; /* #854D0E — yellow-800: AA text/border on warning-bg (6.2:1 white, 5.4:1 warm canvas). Brand amber #D97706 lives only in --sem-warning-bg. Was #D97706 as text = 2.74:1, a 1.4.3 fail (issue 1377). Kept distinct from at-risk #92400E (rule 145). */
-    --semantic-on-track: 49 111 87; /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
-    --semantic-at-risk: 146 64 14; /* #92400E — AA text/border; brand fill #DE9326 via -bg */
+    --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
+    --semantic-warning:   133 77 14;    /* #854D0E — yellow-800: AA text/border on warning-bg (6.2:1 white, 5.4:1 warm canvas). Brand amber #D97706 lives only in --sem-warning-bg. Was #D97706 as text = 2.74:1, a 1.4.3 fail (issue 1377). Kept distinct from at-risk #92400E (rule 145). */
+    --semantic-on-track:  49 111 87;    /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
+    --semantic-at-risk:   146 64 14;    /* #92400E — AA text/border; brand fill #DE9326 via -bg */
   }
 
   .dark {
-    --semantic-critical: 248 113 113; /* #F87171 — Red-400, 4.87:1 on dark surface */
-    --semantic-warning: 251 146 60; /* #FB923C — Orange-400 */
-    --semantic-on-track: 102 185 152; /* #66B998 — sage-400, on-track holds on dark (ADR-0103) */
-    --semantic-at-risk: 251 146 60; /* #FB923C — Orange-400 */
+    --semantic-critical:  248 113 113;  /* #F87171 — Red-400, 4.87:1 on dark surface */
+    --semantic-warning:   251 146 60;   /* #FB923C — Orange-400 */
+    --semantic-on-track:  102 185 152;  /* #66B998 — sage-400, on-track holds on dark (ADR-0103) */
+    --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 
   /* ── Risk matrix zone tokens ────────────────────────────────────────────
@@ -128,18 +127,18 @@
      UX review to achieve visible differentiation while staying accessible.   */
   :root {
     --risk-zone-critical: rgba(185, 28, 28, 0.08);
-    --risk-zone-high: rgba(232, 160, 32, 0.12);
-    --risk-zone-medium: rgba(232, 160, 32, 0.06);
-    --risk-zone-low: rgb(245, 245, 240);
-    --risk-zone-minimal: rgb(255, 255, 255);
+    --risk-zone-high:     rgba(232, 160, 32, 0.12);
+    --risk-zone-medium:   rgba(232, 160, 32, 0.06);
+    --risk-zone-low:      rgb(245, 245, 240);
+    --risk-zone-minimal:  rgb(255, 255, 255);
   }
 
   .dark {
     --risk-zone-critical: rgba(248, 113, 113, 0.28);
-    --risk-zone-high: rgba(251, 146, 60, 0.22);
-    --risk-zone-medium: rgba(251, 191, 36, 0.16);
-    --risk-zone-low: rgba(74, 222, 128, 0.22);
-    --risk-zone-minimal: rgba(74, 222, 128, 0.08);
+    --risk-zone-high:     rgba(251, 146, 60, 0.22);
+    --risk-zone-medium:   rgba(251, 191, 36, 0.16);
+    --risk-zone-low:      rgba(74, 222, 128, 0.22);
+    --risk-zone-minimal:  rgba(74, 222, 128, 0.08);
   }
 
   /* ── Chrome tokens — sidebar and Gantt panel surfaces ────────────────────
@@ -148,32 +147,27 @@
      WCAG 4.5:1 on their respective primary text tokens.
      Overrides the always-dark rule 35 from packages/web/CLAUDE.md (#180).   */
   :root {
-    --chrome-surface: 248 247 243; /* rgb(248 247 243) — warm off-white */
-    --chrome-surface-raised: 238 236 230;
-    --chrome-border: 0 0 0; /* used as rgba(0 0 0 / 0.08) */
-    --chrome-border-opacity: 0.08;
-    --chrome-text-primary: 26 25 23; /* #1A1917 — 16.1:1 on chrome-surface */
-    --chrome-text-secondary: 107 105 101; /* #6B6965 — 4.63:1 on chrome-surface */
-    --chrome-row-hover: rgba(0, 0, 0, 0.04);
-    --chrome-row-active: rgba(
-      62,
-      140,
-      109,
-      0.1
-    ); /* sage-600 #3E8C6D tint at 10% (fill, not the brand-primary text token) */
-    --chrome-grid: rgba(0, 0, 0, 0.06);
+    --chrome-surface:             248 247 243;   /* rgb(248 247 243) — warm off-white */
+    --chrome-surface-raised:      238 236 230;
+    --chrome-border:              0 0 0;         /* used as rgba(0 0 0 / 0.08) */
+    --chrome-border-opacity:      0.08;
+    --chrome-text-primary:        26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
+    --chrome-text-secondary:      107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
+    --chrome-row-hover:           rgba(0, 0, 0, 0.04);
+    --chrome-row-active:          rgba(62, 140, 109, 0.10);  /* sage-600 #3E8C6D tint at 10% (fill, not the brand-primary text token) */
+    --chrome-grid:                rgba(0, 0, 0, 0.06);
   }
 
   .dark {
-    --chrome-surface: 14 22 38; /* #0E1626 — navy-900 (brand dark chrome) */
-    --chrome-surface-raised: 21 34 60; /* #15223C — navy-800 */
-    --chrome-border: 255 255 255;
-    --chrome-border-opacity: 0.08;
-    --chrome-text-primary: 232 232 232; /* #E8E8E8 — 15.3:1 on chrome-surface */
-    --chrome-text-secondary: 148 163 184; /* Slate-400 — 7.45:1 on #0F1117 */
-    --chrome-row-hover: rgba(255, 255, 255, 0.05);
-    --chrome-row-active: rgba(255, 255, 255, 0.08);
-    --chrome-grid: rgba(255, 255, 255, 0.05);
+    --chrome-surface:             14 22 38;      /* #0E1626 — navy-900 (brand dark chrome) */
+    --chrome-surface-raised:      21 34 60;      /* #15223C — navy-800 */
+    --chrome-border:              255 255 255;
+    --chrome-border-opacity:      0.08;
+    --chrome-text-primary:        232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
+    --chrome-text-secondary:      148 163 184;   /* Slate-400 — 7.45:1 on #0F1117 */
+    --chrome-row-hover:           rgba(255, 255, 255, 0.05);
+    --chrome-row-active:          rgba(255, 255, 255, 0.08);
+    --chrome-grid:                rgba(255, 255, 255, 0.05);
   }
 
   /* ── Semantic background tints ─────────────────────────────────────────────
@@ -182,16 +176,16 @@
   :root,
   .theme-light {
     --sem-critical-bg: rgba(185, 28, 28, 0.08);
-    --sem-at-risk-bg: rgba(146, 64, 14, 0.1);
-    --sem-on-track-bg: rgba(62, 140, 109, 0.1);
-    --sem-warning-bg: rgba(217, 119, 6, 0.1);
+    --sem-at-risk-bg:  rgba(146, 64, 14, 0.10);
+    --sem-on-track-bg: rgba(62, 140, 109, 0.10);
+    --sem-warning-bg:  rgba(217, 119, 6, 0.10);
   }
 
   .dark {
     --sem-critical-bg: rgba(248, 113, 113, 0.15);
-    --sem-at-risk-bg: rgba(251, 146, 60, 0.15);
+    --sem-at-risk-bg:  rgba(251, 146, 60, 0.15);
     --sem-on-track-bg: rgba(102, 185, 152, 0.15);
-    --sem-warning-bg: rgba(251, 146, 60, 0.15);
+    --sem-warning-bg:  rgba(251, 146, 60, 0.15);
   }
 
   /* ── Modal/slide-out scrim overlay (rule 8d) ─────────────────────────────
@@ -215,25 +209,25 @@
      Dark-mode values use the same hues at slightly higher lightness so they
      remain legible against dark surfaces without blowing out to pastel.     */
   :root {
-    --avatar-color-0: #3e8c6d; /* sage-600 (fill) */
-    --avatar-color-1: #2563eb; /* blue-600 */
-    --avatar-color-2: #9333ea; /* purple-600 */
-    --avatar-color-3: #d97706; /* amber-600 */
-    --avatar-color-4: #dc2626; /* red-600 */
-    --avatar-color-5: #059669; /* emerald-600 */
-    --avatar-color-6: #0891b2; /* cyan-600 */
-    --avatar-color-7: #c2410c; /* orange-700 */
+    --avatar-color-0: #3E8C6D;  /* sage-600 (fill) */
+    --avatar-color-1: #2563EB;  /* blue-600 */
+    --avatar-color-2: #9333EA;  /* purple-600 */
+    --avatar-color-3: #D97706;  /* amber-600 */
+    --avatar-color-4: #DC2626;  /* red-600 */
+    --avatar-color-5: #059669;  /* emerald-600 */
+    --avatar-color-6: #0891B2;  /* cyan-600 */
+    --avatar-color-7: #C2410C;  /* orange-700 */
   }
 
   .dark {
-    --avatar-color-0: #66b998; /* sage-400 (fill, dark) */
-    --avatar-color-1: #60a5fa; /* blue-400 */
-    --avatar-color-2: #c084fc; /* purple-400 */
-    --avatar-color-3: #fcd34d; /* amber-300 */
-    --avatar-color-4: #f87171; /* red-400 */
-    --avatar-color-5: #34d399; /* emerald-400 */
-    --avatar-color-6: #22d3ee; /* cyan-400 */
-    --avatar-color-7: #fb923c; /* orange-400 */
+    --avatar-color-0: #66B998;  /* sage-400 (fill, dark) */
+    --avatar-color-1: #60A5FA;  /* blue-400 */
+    --avatar-color-2: #C084FC;  /* purple-400 */
+    --avatar-color-3: #FCD34D;  /* amber-300 */
+    --avatar-color-4: #F87171;  /* red-400 */
+    --avatar-color-5: #34D399;  /* emerald-400 */
+    --avatar-color-6: #22D3EE;  /* cyan-400 */
+    --avatar-color-7: #FB923C;  /* orange-400 */
   }
 
   /* ── v2 golden tokens (design-system v2, ADR-0126) ────────────────────────
@@ -246,75 +240,38 @@
      is only 4.06:1 on white and must not be used for body text (see ADR-0126
      §Accessibility). Borders separate; shadow is reserved for pop surfaces.   */
   :root {
-    --paper: #faf8f3;
-    --paper-2: #f2eee5;
-    --paper-3: #eae5d9;
-    --card: #ffffff;
-    --ink: #1b2a4a;
-    --ink-2: #3a4658;
-    --mute: #6b7585;
-    --faint: #9aa4b2;
-    --line: #e6e1d6;
-    --line-2: #d8d2c4;
-    --sage: #3e8c6d;
-    --sage-d: #316f57;
-    --sage-l: #d3ece0;
-    --sage-2: #66b998;
-    --navy: #1b2a4a;
-    --amber: #de9326;
-    --amber-d: #9c6614;
-    --amber-l: #fbf0dc;
-    --crit: #cf4438;
-    --crit-d: #a8352b;
-    --crit-l: #fbe6e4;
-    --info: #2f6fd1;
-    --info-l: #e5eefb;
-    --violet: #6d4ac4;
-    --agile: #6d4ac4;
+    --paper:    #FAF8F3;  --paper-2:  #F2EEE5;  --paper-3:  #EAE5D9;  --card: #FFFFFF;
+    --ink:      #1B2A4A;  --ink-2:    #3A4658;  --mute:     #6B7585;  --faint: #9AA4B2;
+    --line:     #E6E1D6;  --line-2:   #D8D2C4;
+    --sage:     #3E8C6D;  --sage-d:   #316F57;  --sage-l:   #D3ECE0;  --sage-2: #66B998;
+    --navy:     #1B2A4A;
+    --amber:    #DE9326;  --amber-d:  #9C6614;  --amber-l:  #FBF0DC;
+    --crit:     #CF4438;  --crit-d:   #A8352B;  --crit-l:   #FBE6E4;
+    --info:     #2F6FD1;  --info-l:   #E5EEFB;  --violet:   #6D4AC4;  --agile: #6D4AC4;
 
     /* radius · elevation · motion (golden) */
-    --r-card: 12px;
-    --r-control: 8px;
-    --r-chip: 6px;
-    --r-pill: 9999px;
-    --shadow-card: 0 1px 0 rgba(20, 25, 33, 0.02), 0 1px 2px rgba(20, 25, 33, 0.04);
-    --shadow-pop: 0 1px 2px rgba(20, 25, 33, 0.05), 0 14px 36px -12px rgba(20, 25, 33, 0.24);
-    --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-    --dur-1: 120ms;
-    --dur-2: 200ms;
-    --dur-3: 320ms;
+    --r-card: 12px;  --r-control: 8px;  --r-chip: 6px;  --r-pill: 9999px;
+    --shadow-card: 0 1px 0 rgba(20,25,33,.02), 0 1px 2px rgba(20,25,33,.04);
+    --shadow-pop:  0 1px 2px rgba(20,25,33,.05), 0 14px 36px -12px rgba(20,25,33,.24);
+    --ease: cubic-bezier(.2,.7,.2,1);
+    --dur-1: 120ms;  --dur-2: 200ms;  --dur-3: 320ms;
 
     /* fonts (golden roles) */
     --f-display: 'Space Grotesk', system-ui, sans-serif;
-    --f-body: 'Inter', system-ui, sans-serif;
-    --f-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --f-body:    'Inter', system-ui, sans-serif;
+    --f-mono:    'JetBrains Mono', ui-monospace, monospace;
   }
 
   .dark {
-    --paper: #0e1626;
-    --paper-2: #15223c;
-    --paper-3: #0b1220;
-    --card: #1b2a4a;
-    --ink: #e9edf3;
-    --ink-2: #b8c2d4;
-    --mute: #9baac6;
-    --faint: #6e7e9a;
-    --line: #2a3a57;
-    --line-2: #3a4d70;
-    --sage: #66b998;
-    --sage-d: #4fa884;
-    --sage-l: rgba(102, 185, 152, 0.16);
-    --sage-2: #84cbac;
-    --amber: #e9b35a;
-    --amber-d: #e9b35a;
-    --amber-l: rgba(233, 179, 90, 0.16);
-    --crit: #e8645a;
-    --crit-d: #e8645a;
-    --crit-l: rgba(232, 100, 90, 0.16);
-    --info: #6fa0e8;
-    --info-l: rgba(111, 160, 232, 0.16);
-    --shadow-card: 0 1px 0 rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 36px -12px rgba(0, 0, 0, 0.6);
+    --paper:    #0E1626;  --paper-2:  #15223C;  --paper-3:  #0B1220;  --card: #1B2A4A;
+    --ink:      #E9EDF3;  --ink-2:    #B8C2D4;  --mute:     #9BAAC6;  --faint: #6E7E9A;
+    --line:     #2A3A57;  --line-2:   #3A4D70;
+    --sage:     #66B998;  --sage-d:   #4FA884;  --sage-l:   rgba(102,185,152,.16);  --sage-2: #84CBAC;
+    --amber:    #E9B35A;  --amber-d:  #E9B35A;  --amber-l:  rgba(233,179,90,.16);
+    --crit:     #E8645A;  --crit-d:   #E8645A;  --crit-l:   rgba(232,100,90,.16);
+    --info:     #6FA0E8;  --info-l:   rgba(111,160,232,.16);
+    --shadow-card: 0 1px 0 rgba(0,0,0,.25), 0 1px 2px rgba(0,0,0,.35);
+    --shadow-pop:  0 1px 2px rgba(0,0,0,.4),  0 14px 36px -12px rgba(0,0,0,.6);
   }
 
   /* ── Working-calendar day-type tokens (ADR-0251, #906) ────────────────────
@@ -327,24 +284,24 @@
      which reads lighter. Weekend uses the neutral canvas; holiday = amber;
      shutdown = violet.                                                         */
   :root {
-    --cal-weekend-bg: 238 237 232; /* neutral sunken paper */
-    --cal-weekend-line: rgba(0, 0, 0, 0.1);
-    --cal-holiday-fg: #8a5800; /* dark amber — 5.2:1 on the composited holiday fill (~#FBF0DB) */
-    --cal-holiday-bg: rgba(232, 160, 32, 0.16);
+    --cal-weekend-bg:   238 237 232;          /* neutral sunken paper */
+    --cal-weekend-line: rgba(0, 0, 0, 0.10);
+    --cal-holiday-fg:   #8A5800;              /* dark amber — 5.2:1 on the composited holiday fill (~#FBF0DB) */
+    --cal-holiday-bg:   rgba(232, 160, 32, 0.16);
     --cal-holiday-line: rgba(176, 116, 6, 0.5);
-    --cal-shutdown-fg: #6d28d9; /* violet-700 — 5.9:1 on the composited shutdown fill (~#EFE7FC) */
-    --cal-shutdown-bg: rgba(124, 58, 237, 0.12);
+    --cal-shutdown-fg:  #6D28D9;              /* violet-700 — 5.9:1 on the composited shutdown fill (~#EFE7FC) */
+    --cal-shutdown-bg:  rgba(124, 58, 237, 0.12);
     --cal-shutdown-line: rgba(109, 40, 217, 0.45);
   }
 
   .dark {
-    --cal-weekend-bg: 24 27 39;
-    --cal-weekend-line: rgba(255, 255, 255, 0.1);
-    --cal-holiday-fg: #f0b44a;
-    --cal-holiday-bg: rgba(232, 160, 32, 0.22);
+    --cal-weekend-bg:   24 27 39;
+    --cal-weekend-line: rgba(255, 255, 255, 0.10);
+    --cal-holiday-fg:   #F0B44A;
+    --cal-holiday-bg:   rgba(232, 160, 32, 0.22);
     --cal-holiday-line: rgba(240, 180, 74, 0.6);
-    --cal-shutdown-fg: #a78bfa;
-    --cal-shutdown-bg: rgba(124, 58, 237, 0.3);
+    --cal-shutdown-fg:  #A78BFA;
+    --cal-shutdown-bg:  rgba(124, 58, 237, 0.30);
     --cal-shutdown-line: rgba(167, 139, 250, 0.6);
   }
 }
@@ -354,21 +311,15 @@
      KPIs, percentages, dates, durations, counts, build hashes.             */
   .tppm-mono {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-feature-settings: 'tnum';
+    font-feature-settings: "tnum";
   }
 
   /* Milestone diamond pulse (#340) — two concentric SVG circles fade outward
      from the diamond at insert time. Honors prefers-reduced-motion at the
      React layer (component does not mount), so no @media guard needed here. */
   @keyframes milestone-pulse {
-    0% {
-      r: 0;
-      opacity: 0.7;
-    }
-    100% {
-      r: 24;
-      opacity: 0;
-    }
+    0%   { r: 0;  opacity: 0.7; }
+    100% { r: 24; opacity: 0;   }
   }
   .animate-milestone-pulse {
     animation: milestone-pulse 1.5s ease-out forwards;
@@ -379,14 +330,8 @@
      being jarring. Gated to motion-safe at the React layer (the class is only
      applied under motion-safe:), so no @media guard is needed here. */
   @keyframes retro-card-in {
-    0% {
-      opacity: 0;
-      transform: translateY(-4px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    0%   { opacity: 0; transform: translateY(-4px); }
+    100% { opacity: 1; transform: translateY(0);    }
   }
   .animate-retro-card-in {
     animation: retro-card-in 0.25s ease-out;
@@ -397,17 +342,11 @@
      prefers-reduced-motion), so no @media guard is needed here. v2 timing:
      120ms on the brand ease (ADR-0126). */
   @keyframes cmdk-in {
-    0% {
-      opacity: 0;
-      transform: translateY(-6px) scale(0.99);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+    0%   { opacity: 0; transform: translateY(-6px) scale(0.99); }
+    100% { opacity: 1; transform: translateY(0) scale(1);       }
   }
   .animate-cmdk-in {
-    animation: cmdk-in 120ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: cmdk-in 120ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Empty / first-run state entrance (issue 1171) — a single subtle fade + lift
@@ -415,17 +354,11 @@
      layer (the v2 motion contract honors prefers-reduced-motion), so no @media
      guard is needed here. v2 timing: 160ms on the brand ease (ADR-0126). */
   @keyframes empty-state-in {
-    0% {
-      opacity: 0;
-      transform: translateY(6px) scale(0.98);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
+    0%   { opacity: 0; transform: translateY(6px) scale(0.98); }
+    100% { opacity: 1; transform: translateY(0) scale(1);      }
   }
   .animate-empty-state-in {
-    animation: empty-state-in 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: empty-state-in 160ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Task-complete spring (v2 fluidity, ADR-0126) — the checkbox "pops" once when
@@ -434,52 +367,34 @@
      `motion-safe:` at the class layer (rule 70 motion contract), so no @media
      guard is needed here. */
   @keyframes checkpop {
-    0% {
-      transform: scale(1);
-    }
-    50% {
-      transform: scale(1.22);
-    }
-    100% {
-      transform: scale(1);
-    }
+    0%   { transform: scale(1);    }
+    50%  { transform: scale(1.22); }
+    100% { transform: scale(1);    }
   }
   .animate-checkpop {
-    animation: checkpop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: checkpop 220ms cubic-bezier(.34, 1.56, .64, 1);
   }
 
   /* Global toast entrance (v2 fluidity, ADR-0126) — the toast rises + fades in
      from below. v2 timing: 240ms on the brand ease. motion-safe at the class
      layer (rule 70), so no @media guard is needed here. */
   @keyframes toast-rise {
-    0% {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    0%   { opacity: 0; transform: translateY(14px); }
+    100% { opacity: 1; transform: translateY(0);    }
   }
   .animate-toast-rise {
-    animation: toast-rise 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: toast-rise 240ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Modal / dialog entrance (v2 fluidity, ADR-0126) — the panel scales up from
      0.97 + fades. v2 timing: 180ms on the brand ease. motion-safe at the class
      layer (rule 70), so no @media guard is needed here. */
   @keyframes modal-scale-in {
-    0% {
-      opacity: 0;
-      transform: scale(0.97);
-    }
-    100% {
-      opacity: 1;
-      transform: scale(1);
-    }
+    0%   { opacity: 0; transform: scale(.97); }
+    100% { opacity: 1; transform: scale(1);   }
   }
   .animate-modal-scale-in {
-    animation: modal-scale-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: modal-scale-in 180ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Docked save-bar entrance (v2 fluidity, ADR-0126) — the bar slides up from
@@ -487,15 +402,11 @@
      ease. motion-safe at the class layer (rule 70), so no @media guard is
      needed here. */
   @keyframes save-bar-slide {
-    0% {
-      transform: translateY(120%);
-    }
-    100% {
-      transform: translateY(0);
-    }
+    0%   { transform: translateY(120%); }
+    100% { transform: translateY(0);    }
   }
   .animate-save-bar-slide {
-    animation: save-bar-slide 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: save-bar-slide 220ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Overlay scrim fade (v2 fluidity, ADR-0126) — the backdrop fades in behind a
@@ -503,15 +414,11 @@
      tailwindcss-animate). 150ms on the brand ease. motion-safe at the class
      layer (rule 70), so no @media guard is needed here. */
   @keyframes scrim-fade {
-    0% {
-      opacity: 0;
-    }
-    100% {
-      opacity: 1;
-    }
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
   }
   .animate-scrim-fade {
-    animation: scrim-fade 150ms cubic-bezier(0.2, 0.7, 0.2, 1);
+    animation: scrim-fade 150ms cubic-bezier(.2, .7, .2, 1);
   }
 
   /* Disabled-form-control styling for settings pages whose API hasn't shipped
@@ -527,3 +434,4 @@
     opacity: 1;
   }
 }
+
