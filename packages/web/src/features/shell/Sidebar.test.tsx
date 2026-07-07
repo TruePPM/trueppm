@@ -375,6 +375,31 @@ describe('Sidebar rail — preserved behaviors', () => {
     expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
   });
 
+  it('scrolls the drawer body as one region so the inlined Programs tree is reachable (#1688)', () => {
+    renderRail({ isDrawer: true, onClose: vi.fn() });
+    const rail = document.getElementById('primary-nav-rail');
+    // The whole tier column (You + views + the inlined browse tree) scrolls as one.
+    // Before the fix the browse tree sat in a `shrink-0` band below the only scroll
+    // region and overflowed the `overflow-hidden` aside — unreachable on a phone.
+    const scroller = screen.getByRole('link', { name: 'Programs' }).closest('.overflow-y-auto');
+    expect(scroller).not.toBeNull();
+    expect(rail).toContainElement(scroller as HTMLElement);
+    // The inner Workspace nav must not own a second, competing scroll region.
+    const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
+    expect(nav.className).not.toMatch(/overflow-y-auto/);
+  });
+
+  it('keeps the desktop Tier-2 nav as the scroll region and browse behind its popover', () => {
+    renderRail(); // desktop, off a project
+    const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
+    expect(nav.className).toMatch(/flex-1/);
+    expect(nav.className).toMatch(/overflow-y-auto/);
+    // Desktop does not inline the browse tree — it opens from the Browse button.
+    expect(
+      screen.getByRole('button', { name: 'Browse projects and programs' }),
+    ).toBeInTheDocument();
+  });
+
   it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127)', () => {
     useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: true });
     renderRail();
