@@ -1861,3 +1861,106 @@ class TestImportBroadcast:
         assert (str(project.pk), "tasks_restructured", {}) in [
             (str(project.pk), et, payload) for et, payload in events
         ]
+
+
+# ---------------------------------------------------------------------------
+# Import re-dispatch idempotency (#1673)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestImportRedispatchIdempotency:
+    """The additive import-into-existing path must not duplicate on re-dispatch.
+
+    A worker death (or an acks_late / reject_on_worker_lost redelivery) can hand
+    the same ImportRequest to a second delivery. Without an idempotency guard the
+    additive ``import_project(wipe_existing=False)`` re-ran the whole bulk_create,
+    duplicating tasks and FS dependencies (#1673). The outbox row is now the
+    exactly-once token: it is claimed (DISPATCHED -> DONE) inside the import's
+    transaction, so a duplicate delivery finds nothing to claim and skips.
+    """
+
+    def _import_kwargs(self, project: Project, req_id: str, b64: str) -> dict[str, Any]:
+        return {
+            "project_id": str(project.pk),
+            "file_content_b64": b64,
+            "filename": "import.xml",
+            "import_request_id": req_id,
+        }
+
+    def test_redelivery_of_completed_request_skips_duplicate_import(self, project: Project) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+        from trueppm_api.apps.msproject.tasks import import_msproject
+
+        content = (_FIXTURES_DIR / "all_dependency_types.xml").read_bytes()
+        b64 = base64.b64encode(content).decode("ascii")
+        req = ImportRequest.objects.create(
+            project=project,
+            filename="import.xml",
+            file_content_b64=b64,
+            status=ImportRequestStatus.DISPATCHED,
+        )
+
+        with (
+            patch("trueppm_api.apps.msproject.tasks._get_tracker", _stub_tracker),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        ):
+            first = import_msproject.apply(kwargs=self._import_kwargs(project, str(req.id), b64))
+        assert first.successful(), first.result
+        created = first.result["tasks_created"]
+        assert created > 0
+        assert Task.objects.filter(project=project).count() == created
+        deps_after_first = Dependency.objects.filter(successor__project=project).count()
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DONE
+
+        # Redelivery of the same message: the broker still carries the original
+        # payload, but the row is already DONE so the claim wins nothing.
+        with (
+            patch("trueppm_api.apps.msproject.tasks._get_tracker", _stub_tracker),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        ):
+            second = import_msproject.apply(kwargs=self._import_kwargs(project, str(req.id), b64))
+        assert second.successful(), second.result
+        assert second.result.get("skipped") is True
+        # No duplication — counts unchanged after the skipped second delivery.
+        assert Task.objects.filter(project=project).count() == created
+        assert Dependency.objects.filter(successor__project=project).count() == deps_after_first
+
+    def test_import_failure_rolls_back_claim_and_leaves_row_dispatched(
+        self, project: Project
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+        from trueppm_api.apps.msproject.tasks import import_msproject
+
+        content = (_FIXTURES_DIR / "all_dependency_types.xml").read_bytes()
+        b64 = base64.b64encode(content).decode("ascii")
+        req = ImportRequest.objects.create(
+            project=project,
+            filename="import.xml",
+            file_content_b64=b64,
+            status=ImportRequestStatus.DISPATCHED,
+        )
+
+        # The import raises after the claim flipped the row to DONE. Because the
+        # claim and the bulk_create share one transaction, the failure rolls the
+        # claim back too: the row returns to DISPATCHED (payload intact) for a
+        # clean drain retry, and nothing partial persists.
+        with (
+            patch("trueppm_api.apps.msproject.tasks._get_tracker", _stub_tracker),
+            patch(
+                "trueppm_api.apps.msproject.importer.import_project",
+                side_effect=RuntimeError("boom mid-import"),
+            ),
+        ):
+            result = import_msproject.apply(
+                kwargs=self._import_kwargs(project, str(req.id), b64), throw=False
+            )
+
+        assert result.failed()
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DISPATCHED
+        assert req.file_content_b64 == b64
+        assert Task.objects.filter(project=project).count() == 0
