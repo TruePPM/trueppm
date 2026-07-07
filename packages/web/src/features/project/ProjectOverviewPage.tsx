@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse, ProjectHealth } from '@/api/types';
 import type { MonteCarloResult } from '@/types';
@@ -279,9 +279,22 @@ interface KpiCardProps {
    * value clamp than the demoted secondary-strip cards.
    */
   prominent?: boolean;
+  /** Drill-down route; when set the whole card is an interactive `<Link>`. */
+  to?: string;
+  /** Destination noun for the interactive card's `aria-label`. */
+  toLabel?: string;
 }
 
-function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = false }: KpiCardProps) {
+function KpiCard({
+  label,
+  value,
+  sub,
+  variant = 'neutral',
+  title,
+  prominent = false,
+  to,
+  toLabel,
+}: KpiCardProps) {
   const valueColor = {
     'on-track': 'text-semantic-on-track',
     'at-risk': 'text-semantic-at-risk',
@@ -301,18 +314,43 @@ function KpiCard({ label, value, sub, variant = 'neutral', title, prominent = fa
     ? 'text-[clamp(1.125rem,9cqi,1.875rem)]'
     : 'text-[clamp(0.875rem,7cqi,1.5rem)]';
 
-  return (
-    <div
-      title={title}
-      className={`flex flex-col gap-1 ${padding} rounded-card border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`}
-    >
+  const baseClass = `flex flex-col gap-1 ${padding} rounded-card border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]`;
+
+  const body = (
+    <>
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
       </span>
-      <span className={`font-semibold tppm-mono break-words leading-tight ${valueClamp} ${valueColor}`}>
+      <span
+        className={`font-semibold tppm-mono break-words leading-tight ${valueClamp} ${valueColor}`}
+      >
         {value}
       </span>
       {sub && <span className="text-xs text-neutral-text-disabled tppm-mono truncate">{sub}</span>}
+    </>
+  );
+
+  // Interactive drill-down: the whole card is a single <Link> (matching
+  // ProgramCard, rule 181 hover-lift via border+translate, never shadow). The
+  // aria-label replaces the inner text so the destination is announced as one
+  // action. `min-h-[44px]` guarantees the rule-5 touch target (the cards are
+  // taller than that in practice, but the floor is explicit).
+  if (to) {
+    return (
+      <Link
+        to={to}
+        title={title}
+        aria-label={`${label}: ${value}${sub ? `, ${sub}` : ''}. View ${toLabel ?? 'details'}.`}
+        className={`${baseClass} min-h-[44px] transition-[transform,border-color] motion-safe:hover:-translate-y-px hover:border-brand-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`}
+      >
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <div title={title} className={baseClass}>
+      {body}
     </div>
   );
 }
@@ -763,7 +801,13 @@ const HEALTH_VARIANT: Record<OverviewData['schedule_health'], OverviewMetric['va
 function buildOverviewMetrics(
   overview: OverviewData | undefined,
   mcData: MonteCarloResult | undefined,
+  projectId: string | undefined,
+  canSeeResources: boolean,
 ): OverviewMetric[] {
+  // Drill-down targets resolve to `undefined` (static card) whenever there is no
+  // project id yet — the pre-load neutral placeholder set must never be clickable.
+  const base = projectId ? `/projects/${projectId}` : undefined;
+
   // ── Schedule health ────────────────────────────────────────────────────
   const health = overview?.schedule_health ?? 'unknown';
   const scheduleSub =
@@ -778,32 +822,46 @@ function buildOverviewMetrics(
     value: HEALTH_LABEL[health],
     sub: scheduleSub,
     variant: HEALTH_VARIANT[health],
-    title: overview?.spi != null ? `Schedule Performance Index: ${overview.spi.toFixed(2)}` : undefined,
+    title:
+      overview?.spi != null ? `Schedule Performance Index: ${overview.spi.toFixed(2)}` : undefined,
+    // Always actionable when a project exists — for `unknown` the schedule view
+    // is where the scheduler is run, so navigation is the remedy, not a dead end.
+    to: base ? `${base}/schedule` : undefined,
+    toLabel: 'the schedule',
   };
 
   // ── Forecast finish (P80 date — informational, always neutral) ─────────
+  const p80 = mcData?.p80;
   const forecastMetric: OverviewMetric = {
     key: 'forecast_finish',
     label: 'Forecast finish',
-    value: mcData?.p80 ? formatIsoDate(mcData.p80) : '—',
+    value: p80 ? formatIsoDate(p80) : '—',
     sub: '8 in 10 finish by',
     variant: 'neutral',
-    title: mcData?.p80 ? undefined : 'Run the scheduler',
+    title: p80 ? undefined : 'Run the scheduler',
+    to: base && p80 ? `${base}/schedule` : undefined,
+    toLabel: 'the forecast',
   };
 
   // ── Tasks late ─────────────────────────────────────────────────────────
   const lateCount = overview?.tasks_late_count;
+  const hasLate = lateCount != null && lateCount > 0;
   const tasksLateMetric: OverviewMetric = {
     key: 'tasks_late',
     label: 'Tasks late',
     value: lateCount != null ? `${lateCount} late` : '—',
     sub: overview?.total_tasks != null ? `of ${overview.total_tasks} tasks` : undefined,
-    variant: lateCount != null && lateCount > 0 ? 'at-risk' : overview ? 'on-track' : 'neutral',
+    variant: hasLate ? 'at-risk' : overview ? 'on-track' : 'neutral',
+    // Deep-link into the grid pre-filtered to the same "late" set the count
+    // summarizes (`?due=overdue`). Real-zero stays static (rule 172).
+    to: base && hasLate ? `${base}/grid?due=overdue` : undefined,
+    toLabel: 'overdue tasks',
   };
 
   // ── Open risks ─────────────────────────────────────────────────────────
   const high = overview?.high_risk_count;
   const open = overview?.open_risk_count;
+  const hasRisks = (high != null && high > 0) || (open != null && open > 0);
   const risksValue =
     high != null && high > 0 ? `${high} high` : open != null ? `${open} open` : '—';
   const openRisksMetric: OverviewMetric = {
@@ -812,6 +870,13 @@ function buildOverviewMetrics(
     value: risksValue,
     sub: open != null ? `${open} in register` : undefined,
     variant: high != null && high > 0 ? 'at-risk' : overview ? 'on-track' : 'neutral',
+    // Risk register rows already open a RiskDrawer; a high count pre-focuses the
+    // High segment. Real-zero stays static (rule 172).
+    to:
+      base && hasRisks
+        ? `${base}/risk${high != null && high > 0 ? '?severity=high' : ''}`
+        : undefined,
+    toLabel: 'the risk register',
   };
 
   // ── Team utilization ───────────────────────────────────────────────────
@@ -824,6 +889,11 @@ function buildOverviewMetrics(
     value: util != null ? `${Math.round(util)}%` : '—',
     sub: util != null ? 'of capacity' : undefined,
     variant: utilVariant,
+    // The Team/Resources view is role-gated to SCHEDULER+ (rule 94), so only
+    // link it when the viewer can actually see it — a Member/Viewer gets a
+    // static read rather than a click into a 403.
+    to: base && util != null && canSeeResources ? `${base}/resources` : undefined,
+    toLabel: 'team allocation',
   };
 
   // ── Next milestone (informational, always neutral) ─────────────────────
@@ -832,12 +902,16 @@ function buildOverviewMetrics(
     const days = daysFromToday(overview.next_milestone.date);
     milestoneSub = days < 0 ? `${Math.abs(days)}d ago` : days === 0 ? 'Today' : `in ${days}d`;
   }
+  const milestoneId = overview?.next_milestone?.id;
   const milestoneMetric: OverviewMetric = {
     key: 'next_milestone',
     label: 'Next milestone',
     value: overview?.next_milestone?.name ?? '—',
     sub: milestoneSub,
     variant: 'neutral',
+    // Open the milestone task's full-page detail view.
+    to: base && milestoneId ? `${base}/tasks/${milestoneId}` : undefined,
+    toLabel: 'the milestone',
   };
 
   return [
@@ -868,12 +942,20 @@ export function ProjectOverviewPage() {
   const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
   const { data: mcData } = useMonteCarloResult(projectId);
 
+  // The Team utilization card only drills into the role-gated Resources view
+  // (rule 94) for SCHEDULER+; lower roles get a static read (no click into a
+  // 403). Pessimistic while the role loads (role null → not linkable).
+  const { role } = useCurrentUserRole(projectId);
+  const canSeeResources = role !== null && role >= ROLE_SCHEDULER;
+
   // Build the six overview metrics once, then rank them worst-first and split
   // into a 3-card focus row + a 3-card secondary strip. Plain-language
   // leads only — SPI survives only as the schedule card's `title` because the
   // `/overview/` payload has no signed day-variance field to show honestly
-  // (rule 120: never fabricate a day count from SPI).
-  const metrics = buildOverviewMetrics(overview, mcData);
+  // (rule 120: never fabricate a day count from SPI). Each metric also carries
+  // its drill-down route (#1691) — an interactive card when actionable, a
+  // static read for real-zero / no-data / role-gated cases (rule 172).
+  const metrics = buildOverviewMetrics(overview, mcData, projectId, canSeeResources);
   const ranked = rankOverviewMetrics(metrics);
   const focus = ranked.slice(0, 3);
   const secondary = ranked.slice(3);
@@ -913,6 +995,8 @@ export function ProjectOverviewPage() {
                   sub={m.sub}
                   variant={m.variant}
                   title={m.title}
+                  to={m.to}
+                  toLabel={m.toLabel}
                   prominent
                 />
               ))}
@@ -936,6 +1020,8 @@ export function ProjectOverviewPage() {
                     sub={m.sub}
                     variant={m.variant}
                     title={m.title}
+                    to={m.to}
+                    toLabel={m.toLabel}
                   />
                 ))}
               </div>

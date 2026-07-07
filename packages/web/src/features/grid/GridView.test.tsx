@@ -10,7 +10,19 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
     configurable: true,
     value() {
-      return { x: 0, y: 0, top: 0, left: 0, right: 800, bottom: 600, width: 800, height: 600, toJSON() { return this; } };
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 800,
+        bottom: 600,
+        width: 800,
+        height: 600,
+        toJSON() {
+          return this;
+        },
+      };
     },
   });
   // Reset persistence between tests so each test starts at the methodology default.
@@ -19,32 +31,69 @@ beforeEach(() => {
 
 const mockTasks: Task[] = [
   {
-    id: 't1', wbs: '1', name: 'Planning', start: '2026-05-01', finish: '2026-05-10',
-    duration: 10, progress: 50, parentId: null,
-    isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
-    status: 'IN_PROGRESS', assignees: [{ resourceId: 'r1', name: 'Alice Smith', units: 100 }], notes: '',
+    id: 't1',
+    wbs: '1',
+    name: 'Planning',
+    start: '2026-05-01',
+    finish: '2026-05-10',
+    duration: 10,
+    progress: 50,
+    parentId: null,
+    isCritical: false,
+    isComplete: false,
+    isSummary: true,
+    isMilestone: false,
+    status: 'IN_PROGRESS',
+    assignees: [{ resourceId: 'r1', name: 'Alice Smith', units: 100 }],
+    notes: '',
   },
   {
-    id: 't2', wbs: '1.1', name: 'Requirements', start: '2026-05-01', finish: '2026-05-05',
-    duration: 5, progress: 100, parentId: 't1',
-    isCritical: true, isComplete: true, isSummary: false, isMilestone: false,
-    status: 'COMPLETE', assignees: [
+    id: 't2',
+    wbs: '1.1',
+    name: 'Requirements',
+    start: '2026-05-01',
+    finish: '2026-05-05',
+    duration: 5,
+    progress: 100,
+    parentId: 't1',
+    isCritical: true,
+    isComplete: true,
+    isSummary: false,
+    isMilestone: false,
+    status: 'COMPLETE',
+    assignees: [
       { resourceId: 'r1', name: 'Alice Smith', units: 100 },
       { resourceId: 'r2', name: 'Bob Jones', units: 50 },
-    ], notes: '',
+    ],
+    notes: '',
   },
   {
-    id: 't3', wbs: '2', name: 'Design', start: '2026-05-11', finish: '2026-05-20',
-    duration: 10, progress: 0, parentId: null,
-    isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [{ resourceId: 'r2', name: 'Bob Jones', units: 100 }], notes: '',
+    id: 't3',
+    wbs: '2',
+    name: 'Design',
+    start: '2026-05-11',
+    finish: '2026-05-20',
+    duration: 10,
+    progress: 0,
+    parentId: null,
+    isCritical: false,
+    isComplete: false,
+    isSummary: false,
+    isMilestone: false,
+    status: 'NOT_STARTED',
+    assignees: [{ resourceId: 'r2', name: 'Bob Jones', units: 100 }],
+    notes: '',
   },
 ];
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 
-let scheduleTasksMockReturn: { tasks: typeof mockTasks | null; links: never[]; isLoading: boolean; error: unknown } =
-  { tasks: mockTasks, links: [], isLoading: false, error: null };
+let scheduleTasksMockReturn: {
+  tasks: typeof mockTasks | null;
+  links: never[];
+  isLoading: boolean;
+  error: unknown;
+} = { tasks: mockTasks, links: [], isLoading: false, error: null };
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => scheduleTasksMockReturn,
@@ -71,7 +120,11 @@ vi.mock('@/hooks/useTaskMutations', () => ({
 }));
 
 vi.mock('@/hooks/useSprints', () => ({
-  useSprints: () => ({ sprints: [{ id: 's1', name: 'Sprint 1', state: 'ACTIVE' }], isLoading: false, error: null }),
+  useSprints: () => ({
+    sprints: [{ id: 's1', name: 'Sprint 1', state: 'ACTIVE' }],
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 const exportTasksToCsv = vi.fn();
@@ -93,7 +146,13 @@ vi.mock('@/features/board/TaskFormModal', () => ({
 // Stub the virtualizer to render every row at its estimated size — keeps tests
 // focused on behaviour, not virtualisation mechanics.
 vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: (i: number) => number }) => {
+  useVirtualizer: ({
+    count,
+    estimateSize,
+  }: {
+    count: number;
+    estimateSize: (i: number) => number;
+  }) => {
     const items = Array.from({ length: count }, (_, index) => ({
       index,
       key: index,
@@ -111,9 +170,9 @@ vi.mock('@tanstack/react-virtual', () => ({
   },
 }));
 
-async function renderGrid() {
+async function renderGrid(initialEntries?: string[]) {
   const { GridView } = await import('./GridView');
-  return renderWithRouter(<GridView />);
+  return renderWithRouter(<GridView />, initialEntries ? { initialEntries } : undefined);
 }
 
 describe('GridView — methodology default', () => {
@@ -187,6 +246,31 @@ describe('GridView — mode toggle', () => {
     await waitFor(() => {
       expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
     });
+  });
+
+  it('the ?due=overdue drill-down shows flat mode WITHOUT persisting it (#1691)', async () => {
+    projectMethodology = 'HYBRID'; // would default to outline
+    await renderGrid(['/?due=overdue']);
+    await waitFor(() => {
+      // Derived flat view — outline (the methodology default) is not rendered.
+      expect(screen.getByRole('grid', { name: /task list/i })).toBeInTheDocument();
+      expect(screen.queryByRole('treegrid')).not.toBeInTheDocument();
+    });
+    // Crucially, the persisted preference is untouched (regression guard):
+    expect(window.localStorage.getItem('trueppm.grid.mode.proj-1.v1')).toBeNull();
+  });
+
+  it('a deliberate mode change while overdue wins over the derived flat view', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'HYBRID';
+    await renderGrid(['/?due=overdue']);
+    await screen.findByRole('grid', { name: /task list/i }); // derived flat
+    await user.click(screen.getByRole('button', { name: 'Outline tree' }));
+    await waitFor(() => {
+      expect(screen.getByRole('treegrid', { name: /outline task tree/i })).toBeInTheDocument();
+    });
+    // The explicit choice persists.
+    expect(window.localStorage.getItem('trueppm.grid.mode.proj-1.v1')).toBe('outline');
   });
 
   it('aria-pressed reflects active mode on the toggle buttons', async () => {
@@ -319,14 +403,21 @@ describe('GridView — empty / loading / error states', () => {
   it('shows skeleton loader when tasks are loading', async () => {
     scheduleTasksMockReturn = { tasks: null, links: [], isLoading: true, error: null };
     await renderGrid();
-    const region = await screen.findByRole('generic', { hidden: true }, { timeout: 1000 }).catch(() => null);
+    const region = await screen
+      .findByRole('generic', { hidden: true }, { timeout: 1000 })
+      .catch(() => null);
     // The skeleton uses aria-busy on its container; assert that instead.
     expect(document.querySelector('[aria-busy="true"]')).toBeInTheDocument();
     expect(region ?? document.body).toBeTruthy();
   });
 
   it('shows error state with retry on fetch failure', async () => {
-    scheduleTasksMockReturn = { tasks: null, links: [], isLoading: false, error: new Error('boom') };
+    scheduleTasksMockReturn = {
+      tasks: null,
+      links: [],
+      isLoading: false,
+      error: new Error('boom'),
+    };
     await renderGrid();
     expect(screen.getByText(/couldn't load tasks/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
@@ -382,7 +473,10 @@ describe('GridView — toolbar actions', () => {
     await renderGrid();
     await user.click(screen.getByRole('button', { name: /export tasks as csv/i }));
     expect(exportTasksToCsv).toHaveBeenCalledTimes(1);
-    expect(exportTasksToCsv).toHaveBeenCalledWith(expect.any(Array), expect.stringContaining('proj-1'));
+    expect(exportTasksToCsv).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.stringContaining('proj-1'),
+    );
   });
 });
 

@@ -466,11 +466,93 @@ describe('ProjectOverviewPage', () => {
 });
 
 // ---------------------------------------------------------------------------
+// KPI card drill-downs (#1691)
+// ---------------------------------------------------------------------------
+
+describe('KPI card drill-downs', () => {
+  function setupRole(role: number, overview: Record<string, unknown> = OVERVIEW_RESPONSE) {
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/projects/proj-1/') return Promise.resolve({ data: PROJECT_DETAIL });
+      if (url.endsWith('/members/')) return Promise.resolve({ data: [{ id: 'me', role }] });
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: overview });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+  }
+
+  it('Tasks late (>0) links to the grid pre-filtered to overdue', async () => {
+    setupRole(100);
+    renderPage();
+    const link = await screen.findByRole('link', { name: /view overdue tasks/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/grid?due=overdue');
+  });
+
+  it('Open risks (high>0) links to the risk register High segment', async () => {
+    setupRole(100);
+    renderPage();
+    const link = await screen.findByRole('link', { name: /view the risk register/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/risk?severity=high');
+  });
+
+  it('Schedule health always links to the schedule view', async () => {
+    setupRole(100);
+    renderPage();
+    const link = await screen.findByRole('link', { name: /schedule health.*view the schedule/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/schedule');
+  });
+
+  it('Next milestone links to the milestone task detail', async () => {
+    setupRole(100);
+    renderPage();
+    const link = await screen.findByRole('link', { name: /next milestone.*view the milestone/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/tasks/m1');
+  });
+
+  it('Team utilization is a static read for a Member (no click into a 403)', async () => {
+    setupRole(100);
+    renderPage();
+    const value = await screen.findByText('78%');
+    expect(value.closest('a')).toBeNull();
+  });
+
+  it('Team utilization links to Resources for a Scheduler', async () => {
+    setupRole(200);
+    renderPage();
+    const link = await screen.findByRole('link', {
+      name: /team utilization.*view team allocation/i,
+    });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/resources');
+  });
+
+  it('a real-zero Tasks late card is not interactive (rule 172)', async () => {
+    setupRole(100, { ...OVERVIEW_RESPONSE, tasks_late_count: 0 });
+    renderPage();
+    const value = await screen.findByText('0 late');
+    expect(value.closest('a')).toBeNull();
+    expect(screen.queryByRole('link', { name: /view overdue tasks/i })).toBeNull();
+  });
+
+  it('a no-data Forecast finish card (no MC run) is not interactive', async () => {
+    setupRole(100);
+    renderPage();
+    await screen.findByText('On schedule');
+    const label = screen.getByText(/^Forecast finish$/);
+    expect(label.closest('a')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CriticalPathPanel unit tests
 // ---------------------------------------------------------------------------
 
 describe('CriticalPathPanel', () => {
-  function renderPanel(tasks: Parameters<typeof CriticalPathPanel>[0]['tasks'], projectId = 'proj-1') {
+  function renderPanel(
+    tasks: Parameters<typeof CriticalPathPanel>[0]['tasks'],
+    projectId = 'proj-1',
+  ) {
     return render(
       <MemoryRouter>
         <CriticalPathPanel tasks={tasks} projectId={projectId} />
