@@ -71,7 +71,7 @@ function MenuContent({
       {/* Theme row */}
       <div className={`${rowBase} justify-between`}>
         <span className="text-sm text-neutral-text-primary">Theme</span>
-        <ThemeToggle />
+        <ThemeToggle isMobile={isMobile} />
       </div>
 
       {/* View focus — role-context lens switcher (issue 1263, ADR-0162). Presentation
