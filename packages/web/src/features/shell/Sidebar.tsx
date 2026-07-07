@@ -714,42 +714,46 @@ function ProjectViewsTier({
         </span>
       </div>
 
-      {/* Overview leads standalone (no group label). The rows live inside the
-          rail's `Workspace navigation` landmark; there is deliberately NO nested
-          nav here — a nav named with "view" would strict-mode-collide with the
-          TopBar's `aria-label="View"` locators (rule 172 keeps that name on the bar). */}
-      <NavLink
-        to={`/projects/${projectId}/overview`}
-        onClick={closeDrawer}
-        className={({ isActive }) => rowClass(isActive)}
-      >
-        <OverviewIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 truncate">{labelFor(standaloneLeading)}</span>
-      </NavLink>
+      {/* The project view links (Overview + grouped views) live in their own `View`
+          navigation landmark — the same name the TopBar's view-tab strip carried
+          before #1643 removed it. Moving the landmark here (the rail now owns view
+          switching, #1642) keeps the one canonical `View` nav in the tree, so the
+          leaf in the top bar stays a plain label, not a second view nav (rule 172). */}
+      <nav aria-label="View">
+        {/* Overview leads standalone (no group label). */}
+        <NavLink
+          to={`/projects/${projectId}/overview`}
+          onClick={closeDrawer}
+          className={({ isActive }) => rowClass(isActive)}
+        >
+          <OverviewIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 truncate">{labelFor(standaloneLeading)}</span>
+        </NavLink>
 
-      {/* Grouped views (PLAN / DELIVER / TRACK / PEOPLE). The visible mono header
-          is aria-hidden so the group name is not double-read (rule 172/171). */}
-      {groups.map((group) => (
-        <div key={group.id} role="group" aria-label={`${group.label} views`}>
-          <h2 aria-hidden="true" className={GROUP_LABEL}>
-            {group.id}
-          </h2>
-          {group.visibleViews.map((view) => {
-            const Icon = VIEW_TAB_META[view].Icon;
-            return (
-              <NavLink
-                key={view}
-                to={`/projects/${projectId}/${view}`}
-                onClick={closeDrawer}
-                className={({ isActive }) => rowClass(isActive)}
-              >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 truncate">{labelFor(view)}</span>
-              </NavLink>
-            );
-          })}
-        </div>
-      ))}
+        {/* Grouped views (PLAN / DELIVER / TRACK / PEOPLE). The visible mono header
+            is aria-hidden so the group name is not double-read (rule 172/171). */}
+        {groups.map((group) => (
+          <div key={group.id} role="group" aria-label={`${group.label} views`}>
+            <h2 aria-hidden="true" className={GROUP_LABEL}>
+              {group.id}
+            </h2>
+            {group.visibleViews.map((view) => {
+              const Icon = VIEW_TAB_META[view].Icon;
+              return (
+                <NavLink
+                  key={view}
+                  to={`/projects/${projectId}/${view}`}
+                  onClick={closeDrawer}
+                  className={({ isActive }) => rowClass(isActive)}
+                >
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 truncate">{labelFor(view)}</span>
+                </NavLink>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
     </>
   );
 }

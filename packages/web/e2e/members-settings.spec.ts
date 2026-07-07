@@ -144,13 +144,17 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
 // ---------------------------------------------------------------------------
 
 test.describe('Members Settings — golden path', () => {
-  test('project view bar is suppressed on settings routes (ADR-0128 §C)', async ({ page }) => {
+  test('top-bar location switcher is suppressed on settings routes (ADR-0128 §C)', async ({
+    page,
+  }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    // The grouped project ViewTabs self-suppresses on settings routes — the
-    // SettingsShell carries its own chrome (rule 123 / ADR-0128 §C), so the
-    // view row's `nav[aria-label="View"]` is not mounted here.
-    await expect(page.getByRole('navigation', { name: 'View' })).toHaveCount(0);
+    // The SettingsShell owns the scope switcher on settings routes (rule 123 /
+    // ADR-0128 §C), so the top bar's `Location` switcher self-suppresses. Since
+    // #1643 the canonical `View` landmark lives in the persistent left rail (not
+    // the top bar), so it is present on every route — it is no longer the proxy
+    // for "settings chrome is active"; the `Location` switcher is.
+    await expect(page.getByRole('navigation', { name: 'Location' })).toHaveCount(0);
   });
 
   test('settings shell chrome identifies the active project', async ({ page }) => {

@@ -1,22 +1,13 @@
 import { useNavigate } from 'react-router';
 import { useShellStore } from '@/stores/shellStore';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useProjectId } from '@/hooks/useProjectId';
-import { useProgramId } from '@/hooks/useProgramId';
-import { useProject } from '@/hooks/useProject';
-import { useProgram } from '@/hooks/useProgram';
-import { useProjectPresence } from '@/hooks/useProjectPresence';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 import { modifierKeyLabel } from '@/lib/platform';
-import { Breadcrumb, type BreadcrumbItem } from '@/components/Breadcrumb';
-import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { Logo } from './Logo';
-import { ViewTabs, MethodWorkspaceLabel } from './ViewTabs';
-import { ProjectSwitcher } from './ProjectSwitcher';
-import { ViewsMenu } from './ViewsMenu';
+import { MethodWorkspaceLabel } from './ViewTabs';
 import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
+import { LocationSwitcher } from './LocationSwitcher';
+import { ViewsMenu } from './ViewsMenu';
 import { HealthCluster } from './HealthCluster';
 import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
@@ -27,28 +18,28 @@ import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { SyncStatusBadge } from './SyncStatusBadge';
 import { NotificationBell } from './NotificationBell';
 import { UserMenu } from './UserMenu';
+import { useProjectId } from '@/hooks/useProjectId';
+import { useProjectPresence } from '@/hooks/useProjectPresence';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 interface Props {
   onHamburgerClick: () => void;
 }
 
 /**
- * v2 unified shell bar (ADR-0134) — collapses the former two-row top region
- * (`ContextBar` h-10 + `TopBar` h-12, ~88px) into one 56px bar, removing the
- * redundant breadcrumb, the split right cluster, and the duplicate theme toggle.
+ * v2 unified shell bar (ADR-0134, amended by ADR-0203 / issue #1643) — one 56px
+ * bar. After the shell-redesign v2 the left rail owns view switching (#1642), so
+ * the bar no longer carries the view-tab strip: its left region is a **location
+ * switcher** (`Program › Project › Leaf`) that replaces both the former breadcrumb
+ * and the in-chrome `ProjectSwitcher`, and the view/program tab scroller is gone.
  *
- * Left → right: mobile hamburger / desktop rail re-open ≡ · adaptive identity ·
- * scrollable view-or-program nav · pinned right cluster (method label · health
- * cluster · context-aware + New · run indicator · presence · notifications · user
- * menu, which is the single home for the theme toggle).
+ * Left → right: mobile hamburger / desktop rail re-open ≡ · mobile brand ·
+ * `LocationSwitcher` · pinned right cluster (customize-views · current-sprint jump ·
+ * method label · health chip · timer · quick-log · + New · run indicator · presence ·
+ * sync · notifications · user menu, which is the single home for the theme toggle).
  *
- * Adaptive identity (the ADR-0134 unlock): the breadcrumb duplicates the left rail
- * when the rail is open, so on desktop it renders ONLY when the rail is hidden
- * (`sidebarCollapsed`) — where it becomes the only wayfinding and the hidden rail
- * has freed the width for it. When the rail is open it is `md:hidden`
- * (display:none — removed from the a11y tree, never `aria-hidden`). On mobile the
- * rail is a drawer, so identity always shows. Presence (ADR-0127) stays ephemeral:
- * who is online now, never aggregated, empty off-project.
+ * The location switcher's leaf is a plain `aria-current` label, not a dropdown —
+ * the rail owns view switching, so the leaf is the one deliberate dedup.
  */
 export function TopBar({ onHamburgerClick }: Props) {
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
@@ -58,47 +49,11 @@ export function TopBar({ onHamburgerClick }: Props) {
   const navigate = useNavigate();
 
   const projectId = useProjectId();
-  const programId = useProgramId();
-  const { data: project } = useProject(projectId);
-  // A project's program drives the intermediate breadcrumb segment + identity
-  // square; on a program route the program is itself the leaf. Chained id keeps the
-  // hook call unconditional (disabled when falsy).
-  const effectiveProgramId = project?.program_detail?.id ?? programId;
-  const { data: program } = useProgram(effectiveProgramId);
 
   // Ephemeral presence: collaborators currently viewing this project, minus self.
   // Empty off-project (hook disabled when projectId is undefined).
   const { user: currentUser } = useCurrentUser();
   const onlineUsers = useProjectPresence(projectId).filter((u) => u.user_id !== currentUser?.id);
-
-  // Uploaded workspace logo (#969) brands the breadcrumb root. Falls back to no
-  // leading mark when unset — the product <Logo/> on the left rail is unaffected.
-  const { data: workspace } = useWorkspaceSettings();
-  const workspaceLogo = workspace?.logoUrl ? (
-    <img src={workspace.logoUrl} alt="" className="w-4 h-4 rounded-chip object-contain shrink-0" />
-  ) : undefined;
-
-  const items: BreadcrumbItem[] = [{ label: 'Workspace', to: '/', leading: workspaceLogo }];
-  if (project) {
-    if (program) {
-      items.push({
-        label: program.name,
-        to: `/programs/${program.id}/overview`,
-        leading: <ProgramIdentitySquare program={program} size="sm" />,
-      });
-    } else if (project.program_detail) {
-      items.push({
-        label: project.program_detail.name,
-        to: `/programs/${project.program_detail.id}/overview`,
-      });
-    }
-    items.push({ label: project.name });
-  } else if (program) {
-    items.push({
-      label: program.name,
-      leading: <ProgramIdentitySquare program={program} size="sm" />,
-    });
-  }
 
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
@@ -155,43 +110,34 @@ export function TopBar({ onHamburgerClick }: Props) {
         <Logo />
       </span>
 
-      {/* Adaptive identity (ADR-0134): always on mobile (rail is a drawer); on
-          desktop only when the rail is hidden — else `md:hidden` removes it from the
-          a11y tree so it never duplicates the rail's highlighted program/project. */}
-      <Breadcrumb
-        items={items}
-        className={[
-          'shrink min-w-0 max-w-[16rem] md:max-w-[22rem]',
-          sidebarCollapsed ? 'block' : 'block md:hidden',
-        ].join(' ')}
-      />
+      {/* Location switcher (ADR-0203, #1643) — Program › Project › Leaf. Replaces the
+          former breadcrumb + in-chrome ProjectSwitcher; the leaf is a plain
+          "you are here" label because the rail owns view switching. Self-suppresses
+          on settings routes and collapses to leaf-only off a project. */}
+      <LocationSwitcher />
 
-      {/* In-chrome project switcher (issue 1478) — pinned at the left edge of the view-tab
-          bar (outside the scroller so its popover is never clipped). Self-gates to
-          project routes and renders nothing off-project / on settings / with <2 member
-          projects, so it never collides with the program chrome. */}
-      <ProjectSwitcher />
-
-      {/* View / program nav — scrolls horizontally only when it overflows; the right
-          cluster stays pinned. ViewTabs / ProgramTabs are mutually exclusive (ADR-0095)
-          so exactly one renders. */}
+      {/* Program view nav (ADR-0095) — self-gates to program routes (renders nothing
+          on project/global routes). Project views moved to the left rail in #1642,
+          but program views have no rail home yet, so the program tab strip stays in
+          the bar. Scrolls horizontally on overflow; the right cluster stays pinned. */}
       <ShellNavScroller>
-        <ViewTabs />
         <ProgramTabs />
       </ShellNavScroller>
 
       {/* Right cluster — pinned, never compresses. */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Customize views (ADR-0139) — per-user show/hide of the view tabs; sits
-            adjacent to the tab strip, self-suppresses off-project/settings. */}
+        {/* Customize views (ADR-0139) — per-user show/hide of the project views; self-
+            suppresses off-project/settings. Relocates to the rail in a follow-up (#1680). */}
         <ViewsMenu />
 
         {/* Jump to current sprint (issue 1594) — pinned one-click to today's active
-            sprint board; self-suppresses when there is no active sprint anywhere. */}
+            sprint board; self-suppresses when there is no active sprint anywhere.
+            Folds into the health popover in a follow-up (#1680). */}
         <CurrentSprintButton />
 
         {/* Methodology tag — compact 2-letter badge from md, full "{METHOD}
-            Workspace" text at xl and up (issue 1469). */}
+            Workspace" text at xl and up (issue 1469). Moves to the picker subtitle
+            in a follow-up (#1680). */}
         <MethodWorkspaceLabel />
 
         {/* v2 health status chip + popover (ADR-0128, #1644) — project routes only;
