@@ -11,6 +11,25 @@
     color-scheme: dark;
   }
 
+  /* ── Forced-light token island (issue #1683) ─────────────────────────────
+     A subtree that must stay light regardless of the app's active theme —
+     the off-screen PDF/PNG **export** surfaces (`SchedulePrintLayout`,
+     `BoardPrintLayout`). Those surfaces render a deliberately LIGHT document
+     (white sheet, navy ink) but are mounted in the live app DOM, so under
+     `html.dark` every CSS-variable-driven token (`--neutral-text-primary`,
+     `--neutral-surface`, `--semantic-*`, …) resolved to its DARK value and
+     the rasterizer captured light-gray ink on a hard-white sheet — illegible
+     (WCAG 1.4.3). `.theme-light` re-asserts the light values on the subtree:
+     the mode-paired `:root` token blocks below extend their selector to
+     `:root, .theme-light` (single source of truth — no duplicated hex, no
+     drift), so a `.theme-light` element overrides the inherited `.dark`
+     custom properties for itself and its descendants. Was assumed unnecessary
+     by web-rule 48, which predated the Schedule view adopting dark theming
+     (rule 40 / ADR-0103). */
+  .theme-light {
+    color-scheme: light;
+  }
+
   html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
@@ -25,8 +44,11 @@
      CSS custom properties let a single .dark class on <html> swap all
      neutral.* Tailwind tokens without touching any component class lists.
      Light values match the hex literals previously in tailwind.config.ts.
-     Dark values from the high-res mockup design (mockups.html, issue #163).   */
-  :root {
+     Dark values from the high-res mockup design (mockups.html, issue #163).
+     `.theme-light` (issue #1683) shares the light values so export surfaces
+     stay legible when the app is in dark mode.                                */
+  :root,
+  .theme-light {
     /* Warm-paper neutrals (design-system v2, ADR-0126). Cards stay white and
        pop against the warm `--app-canvas`; raised/sunken/border warmed from the
        old cool greys to the golden paper/line tones. Navy ink keeps ~12:1. */
@@ -64,7 +86,8 @@
      sage-400 #66B998 ("sage holds in both modes"). Vivid sage-500 FILLS (with
      navy text) are an explicit recipe applied to primary buttons in Stage 3,
      not this token. brand-accent (amber) stays static in tailwind.config.ts.   */
-  :root {
+  :root,
+  .theme-light {
     /* sage-700 (not sage-600): the WCAG re-validation found sage-600 is 4.06:1
        on white — fails AA for normal-weight text. sage-700 = 5.93:1 (also fixes
        white-on-fill buttons). The brand doc's "4.6:1" figure is an error. */
@@ -82,7 +105,8 @@
   /* ── Semantic status tokens ───────────────────────────────────────────────
      Light values are WCAG AA on white. Dark values use the lighter palette
      (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
-  :root {
+  :root,
+  .theme-light {
     --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
     --semantic-warning:   133 77 14;    /* #854D0E — yellow-800: AA text/border on warning-bg (6.2:1 white, 5.4:1 warm canvas). Brand amber #D97706 lives only in --sem-warning-bg. Was #D97706 as text = 2.74:1, a 1.4.3 fail (issue 1377). Kept distinct from at-risk #92400E (rule 145). */
     --semantic-on-track:  49 111 87;    /* sage-700 #316F57 — on-track text, 5.93:1 AA (brand fill #3E8C6D via -bg) */
@@ -149,7 +173,8 @@
   /* ── Semantic background tints ─────────────────────────────────────────────
      Used for badge pill fills, status cards, and health indicators. Alpha
      chosen so tints are legible on both white and off-white surfaces.        */
-  :root {
+  :root,
+  .theme-light {
     --sem-critical-bg: rgba(185, 28, 28, 0.08);
     --sem-at-risk-bg:  rgba(146, 64, 14, 0.10);
     --sem-on-track-bg: rgba(62, 140, 109, 0.10);

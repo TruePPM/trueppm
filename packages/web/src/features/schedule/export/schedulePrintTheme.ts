@@ -3,9 +3,12 @@
  *
  * The live Gantt is a dark `<canvas>` painting `COLOR_DARK` (GanttRenderer.ts).
  * The print surface is DOM/SVG, so it does NOT swap a runtime palette — it simply
- * uses the **light** Design-System token for the **same semantic role** the
- * canvas paints. No new colors are invented at export; only the resolved light
- * value differs from the live dark canvas.
+ * uses the Design-System token for the **same semantic role** the canvas paints.
+ * No new colors are invented at export; only the resolved value differs from the
+ * live dark canvas. These tokens are CSS-variable-driven and normally swap with
+ * the app's `.dark` class, so the surface root pins them to their **light**
+ * resolution with the `.theme-light` island (issue #1683) — the export is a light
+ * document regardless of the exporter's active theme (see SchedulePrintLayout).
  *
  * This module is the documented role→token contract. Every entry is a
  * Design-System token *className* (never a raw hex), so the design-system-v2 gate
