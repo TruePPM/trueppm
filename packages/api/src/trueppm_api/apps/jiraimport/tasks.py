@@ -120,19 +120,41 @@ def import_jira(
                 _mark_import_dead(import_request_id)
             raise
 
+        from django.db import transaction
+
         from trueppm_api.apps.msproject.importer import import_project
 
-        summary = import_project(project_id, project_data, tracker=tracker)
+        # Make the additive Jira import idempotent under re-dispatch (#1673).
+        # import_project defaults to wipe_existing=False, so a second delivery
+        # would bulk-create the whole network again. The outbox row is the
+        # idempotency token: claim it (DISPATCHED -> DONE) and run the
+        # bulk_create in ONE transaction. A duplicate delivery — a drain
+        # re-dispatch after a worker-death window, or an acks_late /
+        # reject_on_worker_lost redelivery of an already completed message —
+        # finds no DISPATCHED row to claim and skips the import. The claim's row
+        # lock serializes any concurrent delivery; because claim and import share
+        # the transaction, a mid-import failure rolls the claim back too,
+        # returning the row to DISPATCHED for a clean retry. Mirrors the MS
+        # Project import-into-existing fix.
+        with transaction.atomic():
+            if import_request_id and not _claim_import(import_request_id):
+                logger.info(
+                    "import.jira: request %s already completed — skipping duplicate delivery",
+                    import_request_id,
+                )
+                return {"skipped": True, "tasks_created": 0}
+            summary = import_project(project_id, project_data, tracker=tracker)
+
         tracker.set_result(summary)
 
         if summary["tasks_created"] > 0:
             # Trigger CPM via the outbox (survives a broker outage at this point)
             # and emit tasks_restructured so live clients render the imported tree
             # immediately, ahead of the async recalc's cpm_complete (mirrors the
-            # MS Project importer, #1359). Deferred via on_commit for the same
-            # reason the MSP path is.
-            from django.db import transaction
-
+            # MS Project importer, #1359). Both now run just after the import's
+            # atomic() has committed (no ambient transaction remains → on_commit
+            # fires immediately), so peers never see the event for a rolled-back
+            # import.
             from trueppm_api.apps.scheduling.services import enqueue_recalculate
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -141,19 +163,26 @@ def import_jira(
                 lambda: broadcast_board_event(project_id, "tasks_restructured", {})
             )
 
-    if import_request_id:
-        _mark_import_done(import_request_id)
-
     return summary
 
 
-def _mark_import_done(import_request_id: str) -> None:
-    """Flip the row to DONE and clear the payload (only needed for retry)."""
+def _claim_import(import_request_id: str) -> bool:
+    """Atomically claim a DISPATCHED JiraImportRequest, flipping it to DONE.
+
+    The conditional ``UPDATE ... WHERE status=DISPATCHED`` is the exactly-once
+    idempotency token for the import (#1673): run inside the same transaction as
+    the bulk_create, the row transitions to DONE atomically with the imported
+    network. Returns ``True`` when this delivery won the claim (import), ``False``
+    when the row was already terminal — a duplicate delivery whose import must be
+    skipped so the additive path does not bulk-create the network twice. Clears
+    the payload (only needed for pre-terminal retry).
+    """
     from trueppm_api.apps.jiraimport.models import JiraImportRequest, JiraImportStatus
 
-    JiraImportRequest.objects.filter(
+    claimed = JiraImportRequest.objects.filter(
         id=import_request_id, status=JiraImportStatus.DISPATCHED
     ).update(status=JiraImportStatus.DONE, file_content_b64="")
+    return bool(claimed)
 
 
 def _mark_import_dead(import_request_id: str) -> None:

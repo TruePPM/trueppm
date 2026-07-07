@@ -1,4 +1,4 @@
-import { useEffect, useRef, type FocusEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { Task } from '@/types';
 import { StatusPill, OwnerAvatar, fmtDate } from './ui';
 
@@ -13,6 +13,8 @@ interface TaskRowProps {
   onStartRename: () => void;
   onRename: (name: string) => void;
   onCancelRename: () => void;
+  /** Open this task's detail drawer; omit to keep the row inert on click. */
+  onOpenDetail?: () => void;
 }
 
 /**
@@ -30,8 +32,13 @@ export function TaskRow({
   onStartRename,
   onRename,
   onCancelRename,
+  onOpenDetail,
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // Single-click opens detail; double-click renames. A pending-open timer lets a
+  // double-click cancel the open so the two gestures don't both fire (the drawer
+  // would otherwise flash open on the first click of every rename).
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (isRenaming) {
@@ -39,6 +46,30 @@ export function TaskRow({
       inputRef.current?.select();
     }
   }, [isRenaming]);
+
+  useEffect(
+    () => () => {
+      if (openTimer.current) clearTimeout(openTimer.current);
+    },
+    [],
+  );
+
+  const handleRowClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (!onOpenDetail || isRenaming) return;
+    // Ignore clicks that originate on an interactive control (the select
+    // checkbox handles its own toggle and stops propagation, but guard anyway).
+    if ((e.target as HTMLElement).closest('input, button, a')) return;
+    if (openTimer.current) clearTimeout(openTimer.current);
+    openTimer.current = setTimeout(() => onOpenDetail(), 220);
+  };
+
+  const handleRowDoubleClick = () => {
+    if (openTimer.current) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+    if (!task.isSummary) onStartRename();
+  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') onRename(e.currentTarget.value);
@@ -55,6 +86,11 @@ export function TaskRow({
     if (e.key === 'F2') {
       e.preventDefault();
       onStartRename();
+    } else if ((e.key === 'Enter' || e.key === ' ') && onOpenDetail && !isRenaming) {
+      // Keyboard equivalent of the row click — the row is tabbable (tabIndex=0).
+      if ((e.target as HTMLElement).closest('input, button, a')) return;
+      e.preventDefault();
+      onOpenDetail();
     }
   };
 
@@ -72,14 +108,25 @@ export function TaskRow({
     <div
       role="row"
       aria-selected={isSelected}
+      // When the row is a click-to-open detail target, name the affordance so a
+      // screen-reader / pointer user knows Enter/Space/click opens the task
+      // (the row's cells still carry the task data). `ring-inset` (not offset)
+      // because the row lives inside the `role="grid"` scroll container, where an
+      // offset ring is clipped top/bottom (the rule-137/174 constrained-ring case).
+      aria-label={onOpenDetail ? `Open details for ${task.name}` : undefined}
+      title={onOpenDetail ? 'Open task details' : undefined}
       tabIndex={0}
       onKeyDown={handleRowKeyDown}
-      onDoubleClick={task.isSummary ? undefined : onStartRename}
+      onClick={onOpenDetail ? handleRowClick : undefined}
+      onDoubleClick={
+        onOpenDetail ? handleRowDoubleClick : task.isSummary ? undefined : onStartRename
+      }
       className={`
         flex items-center h-11 px-3 gap-2
         border-b border-neutral-border
         hover:bg-neutral-text-primary/5 group
         focus-within:bg-neutral-text-primary/5
+        ${onOpenDetail ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary' : ''}
         ${rowBg}
       `}
     >

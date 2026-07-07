@@ -84,6 +84,7 @@ export function LocationSwitcher() {
             options={model.project.options}
             currentId={model.project.currentId}
             currentName={model.project.currentName}
+            currentSubtitle={model.project.currentMethodologyLabel}
           />
           <Chevron />
         </>

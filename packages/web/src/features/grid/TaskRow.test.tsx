@@ -60,7 +60,8 @@ describe('TaskRow', () => {
 
   it('renders the owner avatar when an assignee is present', () => {
     const task = makeTask({
-      id: 't1', wbs: '1.1',
+      id: 't1',
+      wbs: '1.1',
       assignees: [{ resourceId: 'r1', name: 'Alice Smith', units: 100 }],
     });
     render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
@@ -111,7 +112,9 @@ describe('TaskRow', () => {
   it('Escape inside the rename input invokes onCancelRename', () => {
     const onCancelRename = vi.fn();
     const task = makeTask({ id: 't1', wbs: '1.1' });
-    render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onCancelRename={onCancelRename} />);
+    render(
+      <TaskRow {...baseProps} task={task} phase="—" isRenaming onCancelRename={onCancelRename} />,
+    );
     fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'Escape' });
     expect(onCancelRename).toHaveBeenCalled();
   });
@@ -142,7 +145,9 @@ describe('TaskRow', () => {
     const { unmount } = render(
       <>
         <TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />
-        <button type="button" data-testid="outside">elsewhere</button>
+        <button type="button" data-testid="outside">
+          elsewhere
+        </button>
       </>,
     );
     const input = screen.getByLabelText('Rename task');
@@ -156,14 +161,111 @@ describe('TaskRow', () => {
   it('blur with relatedTarget INSIDE the same row does NOT commit', () => {
     const onRename = vi.fn();
     const task = makeTask({ id: 't1', wbs: '1.1' });
-    render(
-      <TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />,
-    );
+    render(<TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />);
     const input = screen.getByLabelText('Rename task');
     const checkbox = screen.getByLabelText(`Select ${task.name}`);
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.blur(input, { relatedTarget: checkbox });
     expect(onRename).not.toHaveBeenCalled();
+  });
+
+  describe('row click-to-open detail (#1691)', () => {
+    it('single click opens the task detail after the click-vs-dblclick delay', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+        fireEvent.click(screen.getByRole('row'));
+        expect(onOpenDetail).not.toHaveBeenCalled(); // still pending
+        vi.advanceTimersByTime(220);
+        expect(onOpenDetail).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('double-click renames and cancels the pending open', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const onStartRename = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(
+          <TaskRow
+            {...baseProps}
+            task={task}
+            phase="—"
+            onOpenDetail={onOpenDetail}
+            onStartRename={onStartRename}
+          />,
+        );
+        const row = screen.getByRole('row');
+        fireEvent.click(row); // arms the open timer
+        fireEvent.doubleClick(row); // clears it + renames
+        vi.advanceTimersByTime(400);
+        expect(onStartRename).toHaveBeenCalled();
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('clicking the select checkbox does not open detail', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+        fireEvent.click(screen.getByLabelText(`Select ${task.name}`));
+        vi.advanceTimersByTime(400);
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('Enter opens detail (keyboard equivalent, no delay)', () => {
+      const onOpenDetail = vi.fn();
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+      fireEvent.keyDown(screen.getByRole('row'), { key: 'Enter' });
+      expect(onOpenDetail).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not open detail while renaming', () => {
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(
+          <TaskRow {...baseProps} task={task} phase="—" isRenaming onOpenDetail={onOpenDetail} />,
+        );
+        // Click lands on the rename input (closest('input') guard) — no open.
+        fireEvent.click(screen.getByLabelText('Rename task'));
+        vi.advanceTimersByTime(400);
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('is inert on click when onOpenDetail is not provided', () => {
+      const task = makeTask({ id: 't1', wbs: '1.1' });
+      render(<TaskRow {...baseProps} task={task} phase="—" />);
+      // No throw, no cursor-pointer class, no interactive affordance name.
+      const row = screen.getByRole('row');
+      expect(row.className).not.toMatch(/cursor-pointer/);
+      expect(row).not.toHaveAttribute('aria-label');
+    });
+
+    it('interactive row exposes an activation affordance (name + focus ring)', () => {
+      const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+      render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={vi.fn()} />);
+      const row = screen.getByRole('row', { name: 'Open details for Build' });
+      expect(row.className).toMatch(/cursor-pointer/);
+      expect(row.className).toMatch(/focus-visible:ring-2/);
+    });
   });
 
   it('keys other than Enter/Escape inside the rename input are ignored', () => {

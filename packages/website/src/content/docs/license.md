@@ -28,14 +28,18 @@ The dependency is strictly one-way — enterprise code depends on the core, neve
 You do not have to take our word that the dependency tree is clean. Every merge request and every push to `main` runs automated license audits. A dependency carrying an incompatible license **fails the pipeline** and cannot merge.
 
 - **Python dependencies** (`license:check:py`, via `pip-licenses`) — the GPL family (GPLv2, GPLv3, AGPLv3) is **blocked**; introducing a GPL-licensed package fails the build. **LGPL is permitted** under its library-linking (dynamic-linking) exemption: LGPL code is linked at runtime, not statically incorporated into TruePPM's own source, so it does not affect the Apache 2.0 license of TruePPM's code.
-- **JavaScript / npm dependencies** (`license:check:web`, via `license-checker --production --onlyAllow`) — a strict allowlist. Only these licenses are permitted; anything else fails the build:
+- **JavaScript / npm dependencies** (`license:check:web`, via `license-checker --production --onlyAllow`) — a strict allowlist applied to the **shipped** dependency set. Only these licenses are permitted; anything else fails the build:
 
   ```
   MIT  Apache-2.0  BSD-2-Clause  BSD-3-Clause  ISC  0BSD
   CC0-1.0  CC-BY-3.0  CC-BY-4.0  Python-2.0  Unlicense  WTFPL  BlueOak-1.0.0
   ```
 
+  The audit runs against `--production` dependencies only, because license obligations attach to what is **distributed**, not to build- and test-time tooling that never reaches a user.³
+
 The license boundary is therefore mechanically enforced on every change — a copyleft dependency cannot silently enter the codebase between reviews.
+
+³ Because the npm audit is scoped to `--production`, a **`devDependency`** is deliberately outside the allowlist above — it is evaluated on whether it is *distributed*, and dev tooling distributes nothing. The accessibility test tooling [`@axe-core/playwright`](https://github.com/dequelabs/axe-core-npm) (and its `axe-core` engine) is a case worth flagging for reviewers: it is **MPL-2.0**, a file-level copyleft license that is *not* on the permitted list — but it runs only in CI's end-to-end accessibility checks and is never bundled into the Community Edition web artifact, so it carries no obligation on the shipped product and is permitted. The rule of thumb: the allowlist governs what we ship; a `devDependency` is judged on distribution, and it distributes nothing.
 
 ## Principal third-party dependencies
 

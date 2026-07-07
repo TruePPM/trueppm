@@ -196,7 +196,7 @@ describe('OutlineMode — rendering', () => {
   it('renders the filtered-empty state when filters yield zero matches', () => {
     render(
       <OutlineMode
-        filters={{ search: 'no-such-task', ownerFilter: '', statusFilter: '' }}
+        filters={{ search: 'no-such-task', ownerFilter: '', statusFilter: '', dueFilter: 'all' as const }}
         onClearFilters={vi.fn()}
         expandAllCounter={0}
         collapseAllCounter={0}
@@ -210,7 +210,7 @@ describe('OutlineMode — rendering', () => {
     // visible so the tree remains valid. p2 (no descendant matches) is hidden.
     render(
       <OutlineMode
-        filters={{ search: 'discovery', ownerFilter: '', statusFilter: '' }}
+        filters={{ search: 'discovery', ownerFilter: '', statusFilter: '', dueFilter: 'all' as const }}
         onClearFilters={vi.fn()}
         expandAllCounter={0}
         collapseAllCounter={0}

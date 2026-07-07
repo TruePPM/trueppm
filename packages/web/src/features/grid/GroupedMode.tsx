@@ -18,6 +18,7 @@ interface GroupedModeProps {
   groupBy: GridGroupBy;
   filters: GridFilterState;
   onClearFilters: () => void;
+  onOpenDetail?: (task: Task) => void;
 }
 
 /**
@@ -25,7 +26,7 @@ interface GroupedModeProps {
  * grouping intentionally duplicates multi-assignee tasks under each resource
  * group (ADR-0053 § 7); the help-icon tooltip in the toolbar carries that copy.
  */
-export function GroupedMode({ groupBy, filters, onClearFilters }: GroupedModeProps) {
+export function GroupedMode({ groupBy, filters, onClearFilters, onOpenDetail }: GroupedModeProps) {
   const projectId = useProjectId() ?? null;
   const { tasks } = useScheduleTasks();
   const { sprints } = useSprints(projectId ?? undefined);
@@ -36,30 +37,37 @@ export function GroupedMode({ groupBy, filters, onClearFilters }: GroupedModePro
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [renamingId, setRenamingId] = useState<string | null>(null);
 
-  const handleHeaderClick = useCallback((col: SortCol) => {
-    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortCol(col); setSortDir('asc'); }
-  }, [sortCol]);
-
-  const handleRename = useCallback((task: Task, newName: string) => {
-    setRenamingId(null);
-    if (newName.trim() === '' || newName === task.name) return;
-    if (projectId) updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
-  }, [projectId, updateTask]);
-
-  const tasksById = useMemo(
-    () => new Map((tasks ?? []).map((t) => [t.id, t])),
-    [tasks],
+  const handleHeaderClick = useCallback(
+    (col: SortCol) => {
+      if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      else {
+        setSortCol(col);
+        setSortDir('asc');
+      }
+    },
+    [sortCol],
   );
 
-  const sprintNameById = useMemo(
-    () => new Map(sprints.map((s) => [s.id, s.name])),
-    [sprints],
+  const handleRename = useCallback(
+    (task: Task, newName: string) => {
+      setRenamingId(null);
+      if (newName.trim() === '' || newName === task.name) return;
+      if (projectId) updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
+    },
+    [projectId, updateTask],
   );
+
+  const tasksById = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t])), [tasks]);
+
+  const sprintNameById = useMemo(() => new Map(sprints.map((s) => [s.id, s.name])), [sprints]);
 
   const filtered = useMemo(() => {
     const base = tasks ?? [];
-    return sortTasks(base.filter((t) => matchesFilters(t, filters)), sortCol, sortDir);
+    return sortTasks(
+      base.filter((t) => matchesFilters(t, filters)),
+      sortCol,
+      sortDir,
+    );
   }, [tasks, filters, sortCol, sortDir]);
 
   const listItems = useMemo<ListItem[]>(() => {
@@ -108,6 +116,7 @@ export function GroupedMode({ groupBy, filters, onClearFilters }: GroupedModePro
         onStartRename={(id) => setRenamingId(id)}
         onRename={(task, name) => handleRename(task, name)}
         onCancelRename={() => setRenamingId(null)}
+        onOpenDetail={onOpenDetail}
       />
     </>
   );
@@ -132,7 +141,7 @@ function groupKeys(
     case 'status':
       return [STATUS_LABEL[task.status] ?? task.status];
     case 'sprint':
-      return [task.sprintId ? sprintNameById.get(task.sprintId) ?? 'Unknown sprint' : 'Backlog'];
+      return [task.sprintId ? (sprintNameById.get(task.sprintId) ?? 'Unknown sprint') : 'Backlog'];
     case 'resource':
       if (task.assignees.length === 0) return ['Unassigned'];
       return task.assignees.map((a) => a.name);
@@ -149,7 +158,11 @@ interface ColumnHeadersProps {
 
 function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return null;
-  return <span aria-hidden="true" className="ml-0.5">{dir === 'asc' ? '↑' : '↓'}</span>;
+  return (
+    <span aria-hidden="true" className="ml-0.5">
+      {dir === 'asc' ? '↑' : '↓'}
+    </span>
+  );
 }
 
 function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
@@ -162,7 +175,12 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
       <button
         type="button"
         onClick={() => onSort(col)}
-        onKeyDown={(e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSort(col); } }}
+        onKeyDown={(e: KeyboardEvent) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSort(col);
+          }
+        }}
         className="flex items-center gap-0.5 text-left w-full
           hover:text-neutral-text-primary transition-colors
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
@@ -184,12 +202,16 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
       <span className="w-4 flex-shrink-0" />
       {colHeader('wbs', 'WBS', 'w-14 flex-shrink-0 text-right pr-2')}
       {colHeader('name', 'Name', 'flex-1 min-w-0')}
-      <span role="columnheader" className="w-10 flex-shrink-0 text-center">Owner</span>
+      <span role="columnheader" className="w-10 flex-shrink-0 text-center">
+        Owner
+      </span>
       {colHeader('start', 'Start', 'w-20 flex-shrink-0 text-right pr-2')}
       {colHeader('finish', 'Finish', 'w-20 flex-shrink-0 text-right pr-2')}
       {colHeader('duration', 'Dur', 'w-12 flex-shrink-0 text-right pr-2')}
       {colHeader('progress', 'Progress', 'w-28 flex-shrink-0')}
-      <span role="columnheader" className="w-28 flex-shrink-0">Status</span>
+      <span role="columnheader" className="w-28 flex-shrink-0">
+        Status
+      </span>
     </div>
   );
 }

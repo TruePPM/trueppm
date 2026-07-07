@@ -2,7 +2,7 @@ import type { TaskStatus } from '@/types';
 import { STATUS_LABEL } from './ui';
 
 export interface ActiveFilter {
-  key: 'owner' | 'status' | 'search';
+  key: 'owner' | 'status' | 'search' | 'overdue';
   label: string;
   value: string;
 }
@@ -11,6 +11,7 @@ interface ChipStripProps {
   search: string;
   ownerFilter: string;
   statusFilter: TaskStatus | '';
+  overdue: boolean;
   onRemove: (key: ActiveFilter['key']) => void;
 }
 
@@ -19,11 +20,28 @@ interface ChipStripProps {
  * present when at least one filter is set, so the empty case costs zero
  * vertical space.
  */
-export function ChipStrip({ search, ownerFilter, statusFilter, onRemove }: ChipStripProps) {
+export function ChipStrip({
+  search,
+  ownerFilter,
+  statusFilter,
+  overdue,
+  onRemove,
+}: ChipStripProps) {
   const chips: ActiveFilter[] = [
     ...(search ? [{ key: 'search' as const, label: `"${search}"`, value: search }] : []),
-    ...(ownerFilter ? [{ key: 'owner' as const, label: `Owner: ${ownerFilter}`, value: ownerFilter }] : []),
-    ...(statusFilter ? [{ key: 'status' as const, label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`, value: statusFilter }] : []),
+    ...(ownerFilter
+      ? [{ key: 'owner' as const, label: `Owner: ${ownerFilter}`, value: ownerFilter }]
+      : []),
+    ...(statusFilter
+      ? [
+          {
+            key: 'status' as const,
+            label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`,
+            value: statusFilter,
+          },
+        ]
+      : []),
+    ...(overdue ? [{ key: 'overdue' as const, label: 'Overdue', value: 'overdue' }] : []),
   ];
   if (chips.length === 0) return null;
 

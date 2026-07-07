@@ -19,7 +19,12 @@ vi.mock('@/hooks/useProgramId', () => ({ useProgramId: () => programId }));
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({
     data: projectId
-      ? { id: projectId, name: 'Launch Site', program_detail: { id: 'prog-1', name: 'Apollo' } }
+      ? {
+          id: projectId,
+          name: 'Launch Site',
+          program_detail: { id: 'prog-1', name: 'Apollo' },
+          effective_methodology: 'HYBRID',
+        }
       : undefined,
   }),
 }));
@@ -65,6 +70,8 @@ describe('useLocationModel (#1643)', () => {
     expect(result.current.program?.current?.name).toBe('Apollo');
     expect(result.current.project?.currentId).toBe('p1');
     expect(result.current.project?.currentName).toBe('Launch Site');
+    // The methodology label rides the project segment for the picker subtitle (#1680).
+    expect(result.current.project?.currentMethodologyLabel).toBe('Hybrid');
     expect(result.current.leaf).toBe('Board');
     // Switching a project preserves the active view segment.
     expect(result.current.project?.options.find((o) => o.id === 'p2')?.to).toBe(

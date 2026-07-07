@@ -275,3 +275,61 @@ describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
     expect(await screen.findByText(/No matching tasks in this program/)).toBeInTheDocument();
   });
 });
+
+describe('ScheduleDependencyPicker — focus trap (#1637, web-rule 206)', () => {
+  it('moves focus to the search input on open', () => {
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText('Search tasks'));
+  });
+
+  it('closes on Escape (routed through the trap, not lost to stopPropagation)', () => {
+    const onClose = vi.fn();
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('wraps Shift+Tab from the first focusable back to the last (trap engaged)', () => {
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    const dialog = screen.getByRole('dialog');
+    const focusables = within(dialog).getAllByRole('button');
+    const first = focusables[0];
+    first.focus();
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    // Focus wrapped to the last focusable inside the dialog rather than
+    // escaping to the (non-modal) surface behind the scrim.
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(first);
+  });
+});

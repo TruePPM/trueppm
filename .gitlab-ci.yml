@@ -2394,6 +2394,11 @@ license:check:web:
   # node:20-alpine already ships node, so there is no apt install to pay.
   # See license:check:py above for why this was split out.
   stage: security
+  # needs:[] so this starts immediately instead of waiting for the whole test
+  # stage — it runs its own `npm ci` and consumes no build artifact, so stage
+  # gating only made it the last job to finish (its six sibling security jobs
+  # already use needs:[]).
+  needs: []
   image: node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
   cache:
     <<: *web-cache

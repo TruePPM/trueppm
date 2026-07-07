@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import {
   classifyShareError,
@@ -7,7 +7,14 @@ import {
   type PublicScheduleTask,
   type PublicShareErrorKind,
 } from './scheduleShareApi';
+import { buildDependencyPaths, type DepAnchor, type DepSegment } from './scheduleSharePaths';
 import { useNoReferrer } from './useNoReferrer';
+
+// Fixed geometry so the label column, timeline column, and the SVG dependency
+// overlay share one coordinate space (rows never wrap — labels are truncated).
+const LABEL_W = 220; // px, mirrors the canonical Gantt task column default (rule 43)
+const ROW_H = 28; // px per task row (box-border, so borders don't drift the total)
+const HEADER_H = 32; // px month-axis / "Task" header row
 
 /**
  * Public, unauthenticated, read-only schedule viewer (#1486, ADR-0265). Standalone —
@@ -157,10 +164,13 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
 
   if (task.is_milestone) {
     // A diamond at the milestone date, with its name+date labelled to the right.
+    // Milestones are brand-accent amber (#E8A020) to match the canonical canvas
+    // renderer (GanttRenderer COLOR.milestone) — never brand-primary sage, which
+    // would be indistinguishable from a normal task bar.
     return (
       <>
         <span
-          className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-brand-primary"
+          className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 bg-brand-accent"
           style={{ left: `${left}%` }}
           aria-hidden="true"
         />
@@ -201,36 +211,87 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
   );
 }
 
-function Row({ placed, scale }: { placed: Placed; scale: Scale }) {
+/** Left-column task label: WBS indent, id/◆ glyph, CP chip, name. */
+function LabelCell({ placed }: { placed: Placed }) {
   const { task, depth, isSummary } = placed;
   return (
-    <div className="grid grid-cols-[minmax(9rem,2fr)_5fr] items-center gap-2 border-b border-neutral-border py-1 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-1.5">
-        <span style={{ width: depth * 12 }} aria-hidden="true" className="shrink-0" />
-        <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-secondary">
-          {task.is_milestone ? '◆' : task.wbs_path || task.short_id}
+    <div
+      className="flex min-w-0 items-center gap-1.5 border-b border-neutral-border px-3 last:border-b-0"
+      style={{ height: ROW_H }}
+    >
+      <span style={{ width: depth * 12 }} aria-hidden="true" className="shrink-0" />
+      <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-secondary">
+        {task.is_milestone ? '◆' : task.wbs_path || task.short_id}
+      </span>
+      {task.is_critical && !task.is_milestone ? (
+        // Non-color critical signal (WCAG 1.4.1, DS rule 26) alongside the red bar.
+        <span className="shrink-0 rounded-chip bg-semantic-critical-bg px-1 text-[10px] font-semibold text-semantic-critical">
+          CP
         </span>
-        {task.is_critical && !task.is_milestone ? (
-          // Non-color critical signal (WCAG 1.4.1, DS rule 26) alongside the red bar.
-          <span className="shrink-0 rounded-chip bg-semantic-critical-bg px-1 text-[10px] font-semibold text-semantic-critical">
-            CP
-          </span>
-        ) : null}
-        <span
-          className={`truncate text-[12px] leading-snug ${
-            isSummary
-              ? 'font-semibold text-neutral-text-primary'
-              : 'text-neutral-text-primary'
-          }`}
-        >
-          {task.name}
-        </span>
-      </div>
-      <div className="relative h-5">
-        <GridLines months={scale.months} />
-        <Lane placed={placed} scale={scale} />
-      </div>
+      ) : null}
+      <span
+        className={`truncate text-[12px] leading-snug ${
+          isSummary ? 'font-semibold text-neutral-text-primary' : 'text-neutral-text-primary'
+        }`}
+      >
+        {task.name}
+      </span>
     </div>
+  );
+}
+
+/** Right-column timeline row: month gridlines + the task's bar/diamond. */
+function TimelineCell({ placed, scale }: { placed: Placed; scale: Scale }) {
+  return (
+    <div
+      className="relative border-b border-neutral-border last:border-b-0"
+      style={{ height: ROW_H }}
+    >
+      <GridLines months={scale.months} />
+      <Lane placed={placed} scale={scale} />
+    </div>
+  );
+}
+
+/**
+ * SVG overlay drawing one charcoal connector per dependency edge (rule 75:
+ * arrow color is charcoal). Decorative (`aria-hidden`) — the dependency data is
+ * not otherwise surfaced as text on this lightweight external view, matching the
+ * canonical canvas, which is itself `aria-hidden`. Renders nothing until the
+ * timeline width is measured.
+ */
+function DependencyLayer({
+  segments,
+  width,
+  height,
+}: {
+  segments: DepSegment[];
+  width: number;
+  height: number;
+}) {
+  if (width <= 0 || segments.length === 0) return null;
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 text-neutral-text-secondary"
+      width={width}
+      height={height}
+      aria-hidden="true"
+    >
+      {segments.map((seg) => (
+        <g key={seg.key}>
+          <path
+            d={seg.d}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.25}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            opacity={0.7}
+          />
+          <polygon points={seg.arrow} fill="currentColor" opacity={0.7} />
+        </g>
+      ))}
+    </svg>
   );
 }
 
@@ -238,6 +299,40 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
   const placed = useMemo(() => placeTasks(schedule.tasks), [schedule.tasks]);
   const scale = useMemo(() => buildScale(placed), [placed]);
   const criticalCount = placed.filter((p) => p.task.is_critical && !p.task.is_milestone).length;
+  const hasMilestone = placed.some((p) => p.task.is_milestone);
+
+  // Measure the timeline column so the SVG dependency overlay can convert the
+  // bars' percentage positions into pixel coordinates (arrowheads must not scale).
+  const rowsRef = useRef<HTMLDivElement>(null);
+  const [timelineWidth, setTimelineWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = rowsRef.current;
+    if (!el) return;
+    const measure = () => setTimelineWidth(el.clientWidth);
+    measure();
+    // jsdom (unit tests) has no ResizeObserver — guard like the board reflow does.
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [placed.length]);
+
+  // Bar edges (as % of the timeline) keyed by short_id — the same scale the bars use.
+  const anchors = useMemo(() => {
+    const m = new Map<string, DepAnchor>();
+    placed.forEach((p, i) => {
+      const startPct =
+        p.startMs !== null ? ((p.startMs - scale.minMs) / scale.spanMs) * 100 : null;
+      const endPct = p.endMs !== null ? ((p.endMs - scale.minMs) / scale.spanMs) * 100 : null;
+      m.set(p.task.short_id, { startPct, endPct, rowIndex: i });
+    });
+    return m;
+  }, [placed, scale]);
+
+  const depSegments = useMemo(
+    () => buildDependencyPaths(anchors, schedule.dependencies, timelineWidth, ROW_H),
+    [anchors, schedule.dependencies, timelineWidth],
+  );
 
   return (
     <div className="min-h-screen bg-neutral-surface">
@@ -266,33 +361,74 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
           </div>
         ) : (
           <>
-            {criticalCount > 0 ? (
-              <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-neutral-text-secondary">
+            <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-neutral-text-secondary">
+              {criticalCount > 0 ? (
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-4 rounded-full bg-semantic-critical" aria-hidden="true" />
                   Critical path (CP)
                 </span>
+              ) : null}
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-4 rounded-full bg-brand-primary" aria-hidden="true" />
+                Task
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-1.5 rounded-sm bg-neutral-text-secondary" aria-hidden="true" />
+                Summary
+              </span>
+              {hasMilestone ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-4 rounded-full bg-brand-primary" aria-hidden="true" />
-                  Task
+                  <span className="h-2.5 w-2.5 rotate-45 bg-brand-accent" aria-hidden="true" />
+                  Milestone
                 </span>
+              ) : null}
+              {schedule.dependencies.length > 0 ? (
                 <span className="flex items-center gap-1.5">
-                  <span className="h-2 w-1.5 rounded-sm bg-neutral-text-secondary" aria-hidden="true" />
-                  Summary
+                  <svg width="20" height="8" aria-hidden="true" className="text-neutral-text-secondary">
+                    <path
+                      d="M1 4 H13"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.25}
+                      strokeLinecap="round"
+                      opacity={0.7}
+                    />
+                    <polygon points="18,4 13,1.5 13,6.5" fill="currentColor" opacity={0.7} />
+                  </svg>
+                  Dependency
                 </span>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
             <div className="overflow-x-auto rounded-card border border-neutral-border bg-neutral-surface-raised">
-              <div className="min-w-[640px] px-3">
-                {scale.months.length > 0 ? (
-                  <div className="grid grid-cols-[minmax(9rem,2fr)_5fr] items-end gap-2 border-b border-neutral-border pb-1 pt-2">
+              <div className="flex min-w-[640px]">
+                {/* Label column — fixed width so the timeline coordinate space is stable. */}
+                <div className="shrink-0 border-r border-neutral-border" style={{ width: LABEL_W }}>
+                  <div
+                    className="border-b border-neutral-border px-3 pb-1 pt-2"
+                    style={{ height: HEADER_H }}
+                  >
                     <span className="text-[11px] font-semibold text-neutral-text-primary">Task</span>
-                    <MonthAxis months={scale.months} />
                   </div>
-                ) : null}
-                {placed.map((p) => (
-                  <Row key={p.task.short_id} placed={p} scale={scale} />
-                ))}
+                  {placed.map((p) => (
+                    <LabelCell key={p.task.short_id} placed={p} />
+                  ))}
+                </div>
+                {/* Timeline column — bars, gridlines, and the dependency overlay share its width. */}
+                <div className="min-w-0 flex-1 px-3">
+                  <div className="border-b border-neutral-border pb-1 pt-2" style={{ height: HEADER_H }}>
+                    {scale.months.length > 0 ? <MonthAxis months={scale.months} /> : null}
+                  </div>
+                  <div className="relative" ref={rowsRef}>
+                    <DependencyLayer
+                      segments={depSegments}
+                      width={timelineWidth}
+                      height={placed.length * ROW_H}
+                    />
+                    {placed.map((p) => (
+                      <TimelineCell key={p.task.short_id} placed={p} scale={scale} />
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </>

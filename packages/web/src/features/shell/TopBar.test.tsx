@@ -41,7 +41,6 @@ vi.mock('@/hooks/useNotifications', () => ({
 // own specs; stub them so the structural TopBar tests don't fire their XHRs.
 vi.mock('./HealthCluster', () => ({ HealthCluster: () => <div data-testid="health-cluster" /> }));
 vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
-vi.mock('./CurrentSprintButton', () => ({ CurrentSprintButton: () => null }));
 // The running-timer chip owns its own /me/timer/ query (covered by its own spec);
 // stub it so the structural TopBar tests don't fire that XHR (#1415).
 vi.mock('@/features/timer/TimerChip', () => ({ TimerChip: () => null }));
@@ -99,10 +98,14 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(screen.queryByRole('group', { name: /plan views/i })).not.toBeInTheDocument();
   });
 
-  it('renders the methodology workspace tag and health cluster', () => {
+  it('renders the health cluster and no longer carries the relocated affordances (#1680)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByText(/hybrid workspace/i)).toBeInTheDocument();
     expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
+    // Customize-views (→ rail), current-sprint jump (→ health popover), and the
+    // methodology tag (→ subtitles) all left the bar's right cluster in #1680.
+    expect(screen.queryByRole('button', { name: 'Customize views' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /current sprint/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/workspace/i)).not.toBeInTheDocument();
   });
 
   it('renders hamburger + user menu', () => {

@@ -18,6 +18,8 @@ interface VirtualRowsProps {
   onStartRename: (id: string) => void;
   onRename: (task: Task, name: string) => void;
   onCancelRename: () => void;
+  /** Open a task's detail drawer on row click; omit to keep rows inert. */
+  onOpenDetail?: (task: Task) => void;
 }
 
 /**
@@ -26,8 +28,15 @@ interface VirtualRowsProps {
  * (the original #247 ResizeObserver fix).
  */
 export function VirtualRows({
-  items, rowCount, selectedIds, renamingId,
-  onToggleSelect, onStartRename, onRename, onCancelRename,
+  items,
+  rowCount,
+  selectedIds,
+  renamingId,
+  onToggleSelect,
+  onStartRename,
+  onRename,
+  onCancelRename,
+  onOpenDetail,
 }: VirtualRowsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +71,13 @@ export function VirtualRows({
             <div
               key={rowKey}
               aria-rowindex={vRow.index + 1}
-              style={{ position: 'absolute', top: vRow.start, left: 0, right: 0, height: vRow.size }}
+              style={{
+                position: 'absolute',
+                top: vRow.start,
+                left: 0,
+                right: 0,
+                height: vRow.size,
+              }}
             >
               {item.kind === 'header' ? (
                 <GroupHeader label={item.label} count={item.count} />
@@ -77,6 +92,7 @@ export function VirtualRows({
                   onStartRename={() => onStartRename(item.task.id)}
                   onRename={(name) => onRename(item.task, name)}
                   onCancelRename={onCancelRename}
+                  onOpenDetail={onOpenDetail ? () => onOpenDetail(item.task) : undefined}
                 />
               )}
             </div>

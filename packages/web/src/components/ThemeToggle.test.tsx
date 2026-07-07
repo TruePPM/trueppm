@@ -38,4 +38,23 @@ describe('ThemeToggle', () => {
       'true',
     );
   });
+
+  it('uses compact 28px targets on desktop (default)', () => {
+    render(<ThemeToggle />);
+    const btn = screen.getByRole('button', { name: 'Light mode' });
+    expect(btn.className).toContain('h-7');
+    expect(btn.className).toContain('w-7');
+    expect(btn.className).not.toContain('min-h-[44px]');
+  });
+
+  it('uses 44px touch targets when isMobile (rule 5, #1681)', () => {
+    render(<ThemeToggle isMobile />);
+    // Every option must clear the 44px touch-target floor on the mobile sheet.
+    for (const name of ['Light mode', 'Auto (system) mode', 'Dark mode']) {
+      const btn = screen.getByRole('button', { name });
+      expect(btn.className).toContain('min-h-[44px]');
+      expect(btn.className).toContain('min-w-[44px]');
+      expect(btn.className).not.toContain('h-7');
+    }
+  });
 });

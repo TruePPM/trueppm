@@ -17,7 +17,11 @@ vi.mock('react-router', async (importOriginal) => {
 
 const methodology = vi.hoisted<{ current: Methodology }>(() => ({ current: 'WATERFALL' }));
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: { id: 'p', methodology: methodology.current }, isLoading: false, error: null }),
+  useProject: () => ({
+    data: { id: 'p', methodology: methodology.current },
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 const stats = vi.hoisted<{ current: ShellStats | undefined }>(() => ({ current: undefined }));
@@ -26,7 +30,9 @@ vi.mock('@/hooks/useShellStats', () => ({
 }));
 
 const activeSprint = vi.hoisted<{ current: ApiSprint | null }>(() => ({ current: null }));
-const velocity = vi.hoisted<{ current: ProjectVelocity | undefined }>(() => ({ current: undefined }));
+const velocity = vi.hoisted<{ current: ProjectVelocity | undefined }>(() => ({
+  current: undefined,
+}));
 vi.mock('@/hooks/useSprints', () => ({
   useActiveSprint: () => ({ sprint: activeSprint.current, isLoading: false }),
   useProjectVelocity: () => ({ data: velocity.current, isLoading: false, error: null }),
@@ -40,6 +46,20 @@ vi.mock('@/hooks/useIterationLabel', () => ({
     lowerPlural: 'sprints',
     possessive: "Sprint's",
   }),
+}));
+
+// The current-sprint jump targets folded into the popover (#1680). Configurable
+// per test; default empty (the sprint row then falls back to the sprints list).
+type SprintTarget = {
+  projectId: string;
+  projectName: string;
+  sprintId: string;
+  sprintName: string;
+  path: string;
+};
+const sprintTargets = vi.hoisted<{ current: SprintTarget[] }>(() => ({ current: [] }));
+vi.mock('@/hooks/useCurrentSprintTargets', () => ({
+  useCurrentSprintTargets: () => sprintTargets.current,
 }));
 
 const mcResult = vi.hoisted<{ current: { p50: string; p80: string; p95: string } | undefined }>(
@@ -108,6 +128,7 @@ beforeEach(() => {
   activeSprint.current = makeSprint({});
   velocity.current = VELOCITY;
   mcResult.current = { p50: '2026-10-05', p80: '2026-11-03', p95: '2026-11-30' };
+  sprintTargets.current = [];
   mockNavigate.mockClear();
 });
 
@@ -208,7 +229,9 @@ describe('HealthCluster', () => {
     expect(within(dialog).getByText('Sprint 7')).toBeInTheDocument();
     expect(within(dialog).getByText(/Day \d+\/\d+/)).toBeInTheDocument();
     expect(within(dialog).getByText('32/40')).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /velocity 24 points per sprint/i })).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: /velocity 24 points per sprint/i }),
+    ).toBeInTheDocument();
   });
 
   it('HYBRID popover has sprint + forecast + critical rows, no at-risk', async () => {
@@ -290,13 +313,86 @@ describe('HealthCluster', () => {
     expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
   });
 
-  it('sprint row navigates to the sprints view', async () => {
+  // (f) sprint-row jump — the folded-in CurrentSprintButton (#1680) --------------
+
+  it('sprint row jumps to the in-context sprint board when a target exists (#1680)', async () => {
     const user = userEvent.setup();
     methodology.current = 'AGILE';
+    sprintTargets.current = [
+      {
+        projectId: 'test-project-id',
+        projectName: 'This project',
+        sprintId: 's1',
+        sprintName: 'Sprint 7',
+        path: '/projects/test-project-id/board?sprint=s1',
+      },
+    ];
+    render();
+    const dialog = await openPopover(user);
+    // The primary row's accessible name now reads "Go to sprint board".
+    await user.click(
+      within(dialog).getByRole('button', {
+        name: /sprint 7, day \d+ of \d+\. go to sprint board/i,
+      }),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/board?sprint=s1');
+  });
+
+  it('sprint row falls back to the sprints list until a board target resolves', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    sprintTargets.current = []; // not resolved yet
     render();
     const dialog = await openPopover(user);
     await user.click(within(dialog).getByRole('button', { name: /sprint 7, day \d+ of \d+/i }));
     expect(mockNavigate).toHaveBeenCalledWith('/projects/test-project-id/sprints');
+  });
+
+  it('multi-team: cross-team sprints render as per-team jump rows in a group (#1680)', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    sprintTargets.current = [
+      {
+        projectId: 'test-project-id',
+        projectName: 'This project',
+        sprintId: 's1',
+        sprintName: 'Sprint 7',
+        path: '/projects/test-project-id/board?sprint=s1',
+      },
+      {
+        projectId: 'other',
+        projectName: 'Payments platform',
+        sprintId: 's2',
+        sprintName: 'Sprint 12',
+        path: '/projects/other/board?sprint=s2',
+      },
+    ];
+    render();
+    const dialog = await openPopover(user);
+    const group = within(dialog).getByRole('group', { name: /other teams' active sprints/i });
+    await user.click(
+      within(group).getByRole('button', { name: /go to payments platform sprint: sprint 12/i }),
+    );
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/other/board?sprint=s2');
+  });
+
+  it('no cross-team group when there is only the in-context sprint', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'AGILE';
+    sprintTargets.current = [
+      {
+        projectId: 'test-project-id',
+        projectName: 'This project',
+        sprintId: 's1',
+        sprintName: 'Sprint 7',
+        path: '/projects/test-project-id/board?sprint=s1',
+      },
+    ];
+    render();
+    const dialog = await openPopover(user);
+    expect(
+      within(dialog).queryByRole('group', { name: /other teams' active sprints/i }),
+    ).not.toBeInTheDocument();
   });
 
   // (h) Esc closes + refocuses trigger ---------------------------------------

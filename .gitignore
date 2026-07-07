@@ -73,3 +73,12 @@ packages/api/branding/
 packages/api/workspace-exports/
 # Project export bundle test/runtime artifacts (ADR-0219; never committed)
 packages/api/project-exports/
+
+# Per-worktree harness files — auto-generated per worktree/machine by scripts/wt
+# (COMPOSE_PROJECT_NAME, isolated TRUEPPM_TEST_DB, owner marker, number reservation).
+# Regenerated on every `wt new`; never committed. Tracking them leaks machine-specific
+# data, collapses per-worktree test-DB isolation, and makes `wt prune` skip the
+# worktree as "has local work". See #1690.
+.envrc
+.wt-owner
+.wt-reservation

@@ -108,7 +108,7 @@ describe('FlatMode — sortable column headers', () => {
   it('renders the filtered-empty state when no tasks match', () => {
     render(
       <FlatMode
-        filters={{ search: 'no-such-task', ownerFilter: '', statusFilter: '' }}
+        filters={{ search: 'no-such-task', ownerFilter: '', statusFilter: '', dueFilter: 'all' as const }}
         onClearFilters={vi.fn()}
       />,
     );

@@ -20,6 +20,8 @@ import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
+import { methodologyLabel } from '@/lib/methodologyLabel';
+import { ViewsMenu } from './ViewsMenu';
 import type { ProjectHealth } from '@/api/types';
 
 interface Props {
@@ -490,201 +492,226 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           )}
         </div>
 
-        {/* Tier 1 — You: identity + the personal destinations. */}
-        {showFull && (
-          <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
-            <div className="flex items-center gap-2 px-1 pb-1.5">
-              <span
-                aria-hidden="true"
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-brand-primary"
-              >
-                {user?.initials ?? '··'}
-              </span>
-              <span className="min-w-0 truncate text-sm font-medium text-chrome-text-primary">
-                {user?.display_name ?? user?.username ?? 'Account'}
-              </span>
-            </div>
-            <NavLink
-              to="/me/work"
-              aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
-              onClick={closeDrawer}
-              className={({ isActive }) => youRowClass(isActive)}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
-                className="shrink-0"
-              >
-                <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
-              </svg>
-              <span className="min-w-0 truncate">My Work</span>
-              {dueTodayCount > 0 && (
-                <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
-                  {dueTodayCount}
-                </span>
-              )}
-            </NavLink>
-            <NavLink
-              to="/me/timesheet"
-              aria-label="Timesheet"
-              onClick={closeDrawer}
-              className={({ isActive }) => youRowClass(isActive)}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                aria-hidden="true"
-                className="shrink-0"
-              >
-                <rect x="1.5" y="2" width="11" height="10" rx="1" />
-                <path d="M1.5 5h11M5 5v7M9 5v7" />
-              </svg>
-              <span className="min-w-0 truncate">Timesheet</span>
-            </NavLink>
-            <NavLink
-              to="/me/notifications"
-              aria-label="Inbox"
-              onClick={closeDrawer}
-              className={({ isActive }) => youRowClass(isActive)}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 14 14"
-                fill="currentColor"
-                aria-hidden="true"
-                className="shrink-0"
-              >
-                <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
-              </svg>
-              <span className="min-w-0 truncate">Inbox</span>
-            </NavLink>
-          </div>
-        )}
-
-        {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
-            This is the rail's primary in-context landmark (`Workspace navigation`). */}
-        <nav
-          aria-label="Workspace navigation"
-          className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2"
+        {/* Scrollable body. The brand header (above) and settings footer (below)
+            stay pinned; this column holds Tier 1–3. On the mobile drawer it scrolls
+            as ONE region (`overflow-y-auto`) so the inlined Programs tree in Tier 3
+            — which is `shrink-0` and would otherwise overflow the `overflow-hidden`
+            aside with no way to reach the lower items (#1688) — is reachable. On
+            desktop it is a transparent flex passthrough: Tier 2 owns its own scroll
+            and Tier 3 is the fixed bottom bar with its Browse popover. */}
+        <div
+          className={[
+            'flex flex-1 flex-col min-h-0',
+            isDrawer ? 'overflow-y-auto overflow-x-hidden' : '',
+          ].join(' ')}
         >
-          {showFull &&
-            (projectId ? (
-              <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
-            ) : (
-              <>
-                <h2 className={GROUP_LABEL}>Pinned</h2>
-                {hasPins ? (
-                  <>
-                    {/* Pinned programs first, then pinned projects — a flat jump
-                        list, not a tree. Items also keep their normal tree
-                        position; pinning adds a shortcut, it does not relocate. */}
-                    {pinnedProgramList.map((prog) => (
-                      <div key={prog.id} className={rowClass(false)}>
-                        <ProgramIdentitySquare program={prog} size="xs-label" />
-                        <button
-                          type="button"
-                          onClick={() => go(`/programs/${prog.id}/overview`)}
-                          className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
-                        >
-                          {prog.name}
-                        </button>
-                        <PinToggle
-                          name={prog.name}
-                          pinned
-                          onToggle={() => togglePinProgram(prog.id)}
-                        />
-                      </div>
-                    ))}
-                    {pinnedProjects.map((p) => (
-                      <ProjectRow
-                        key={p.id}
-                        name={p.name}
-                        health={(p.healthState as HealthState) ?? 'unknown'}
-                        openTaskCount={p.openTaskCount}
-                        pinned
-                        onOpen={() => go(`/projects/${p.id}/overview`)}
-                        onTogglePin={() => togglePin(p.id)}
-                      />
-                    ))}
-                  </>
-                ) : (
-                  <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
-                    Pin a program or project for quick access.
-                  </p>
-                )}
-              </>
-            ))}
-        </nav>
-
-        {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it). */}
-        {showFull && (
-          <div className="shrink-0 border-t border-chrome-border/8 p-2">
-            <button
-              type="button"
-              onClick={() => openPalette(true)}
-              aria-label="Search or jump to (command palette)"
-              aria-keyshortcuts="Meta+K Control+K"
-              className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
-            >
-              <SearchIcon className="h-4 w-4 shrink-0" />
-              <span className="text-[13px]">Search or jump to…</span>
-              <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-xs">
-                {modifierKeyLabel()}K
-              </kbd>
-            </button>
-
-            {isDrawer ? (
-              browseContent
-            ) : (
-              <div className="relative mt-2">
-                <button
-                  ref={switchTriggerRef}
-                  type="button"
-                  onClick={() => setSwitchOpen((v) => !v)}
-                  aria-expanded={switchOpen}
-                  aria-controls="rail-browse-panel"
-                  className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+          {/* Tier 1 — You: identity + the personal destinations. */}
+          {showFull && (
+            <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
+              <div className="flex items-center gap-2 px-1 pb-1.5">
+                <span
+                  aria-hidden="true"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-brand-primary"
                 >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 14 14"
-                    fill="currentColor"
-                    aria-hidden="true"
-                    className="shrink-0"
-                  >
-                    <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
-                  </svg>
-                  <span className="min-w-0 flex-1 truncate text-left">
-                    Browse projects and programs
-                  </span>
-                  <ChevronRightIcon
-                    aria-hidden="true"
-                    className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
-                  />
-                </button>
-                {switchOpen && (
-                  <div
-                    ref={switchPanelRef}
-                    id="rail-browse-panel"
-                    tabIndex={-1}
-                    className="absolute bottom-full left-0 z-40 mb-1 max-h-[60vh] w-full overflow-y-auto rounded-card border border-chrome-border/15 bg-chrome-surface shadow-pop focus:outline-none"
-                  >
-                    {browseContent}
-                  </div>
-                )}
+                  {user?.initials ?? '··'}
+                </span>
+                <span className="min-w-0 truncate text-sm font-medium text-chrome-text-primary">
+                  {user?.display_name ?? user?.username ?? 'Account'}
+                </span>
               </div>
-            )}
-          </div>
-        )}
+              <NavLink
+                to="/me/work"
+                aria-label={dueTodayCount > 0 ? `My Work, ${dueTodayCount} due today` : 'My Work'}
+                onClick={closeDrawer}
+                className={({ isActive }) => youRowClass(isActive)}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 14 14"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
+                </svg>
+                <span className="min-w-0 truncate">My Work</span>
+                {dueTodayCount > 0 && (
+                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-semantic-critical-bg px-1.5 py-0.5 text-xs text-semantic-critical">
+                    {dueTodayCount}
+                  </span>
+                )}
+              </NavLink>
+              <NavLink
+                to="/me/timesheet"
+                aria-label="Timesheet"
+                onClick={closeDrawer}
+                className={({ isActive }) => youRowClass(isActive)}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <rect x="1.5" y="2" width="11" height="10" rx="1" />
+                  <path d="M1.5 5h11M5 5v7M9 5v7" />
+                </svg>
+                <span className="min-w-0 truncate">Timesheet</span>
+              </NavLink>
+              <NavLink
+                to="/me/notifications"
+                aria-label="Inbox"
+                onClick={closeDrawer}
+                className={({ isActive }) => youRowClass(isActive)}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 14 14"
+                  fill="currentColor"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
+                </svg>
+                <span className="min-w-0 truncate">Inbox</span>
+              </NavLink>
+            </div>
+          )}
+
+          {/* Tier 2 — This project (grouped views) or, off a project, the pinned list.
+            This is the rail's primary in-context landmark (`Workspace navigation`). */}
+          <nav
+            aria-label="Workspace navigation"
+            className={[
+              'px-2 pb-2',
+              // Desktop: this tier is the scroll region and grows to fill. In the
+              // drawer the wrapper scrolls as one, so Tier 2 is plain in-flow content.
+              isDrawer ? '' : 'flex-1 overflow-y-auto overflow-x-hidden',
+            ].join(' ')}
+          >
+            {showFull &&
+              (projectId ? (
+                <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
+              ) : (
+                <>
+                  <h2 className={GROUP_LABEL}>Pinned</h2>
+                  {hasPins ? (
+                    <>
+                      {/* Pinned programs first, then pinned projects — a flat jump
+                          list, not a tree. Items also keep their normal tree
+                          position; pinning adds a shortcut, it does not relocate. */}
+                      {pinnedProgramList.map((prog) => (
+                        <div key={prog.id} className={rowClass(false)}>
+                          <ProgramIdentitySquare program={prog} size="xs-label" />
+                          <button
+                            type="button"
+                            onClick={() => go(`/programs/${prog.id}/overview`)}
+                            className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                          >
+                            {prog.name}
+                          </button>
+                          <PinToggle
+                            name={prog.name}
+                            pinned
+                            onToggle={() => togglePinProgram(prog.id)}
+                          />
+                        </div>
+                      ))}
+                      {pinnedProjects.map((p) => (
+                        <ProjectRow
+                          key={p.id}
+                          name={p.name}
+                          health={(p.healthState as HealthState) ?? 'unknown'}
+                          openTaskCount={p.openTaskCount}
+                          pinned
+                          onOpen={() => go(`/projects/${p.id}/overview`)}
+                          onTogglePin={() => togglePin(p.id)}
+                        />
+                      ))}
+                    </>
+                  ) : (
+                    <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
+                      Pin a program or project for quick access.
+                    </p>
+                  )}
+                </>
+              ))}
+          </nav>
+
+          {/* Tier 3 — Jump: ⌘K search + the Browse switcher (drawer inlines it).
+            Desktop keeps `shrink-0` (fixed bottom bar); in the drawer it is in-flow
+            content inside the scroll wrapper so its inlined browse tree scrolls. */}
+          {showFull && (
+            <div
+              className={['border-t border-chrome-border/8 p-2', isDrawer ? '' : 'shrink-0'].join(
+                ' ',
+              )}
+            >
+              <button
+                type="button"
+                onClick={() => openPalette(true)}
+                aria-label="Search or jump to (command palette)"
+                aria-keyshortcuts="Meta+K Control+K"
+                className="flex w-full items-center gap-2 h-8 rounded-control border border-chrome-border/15 bg-chrome-surface-raised px-2.5 text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+              >
+                <SearchIcon className="h-4 w-4 shrink-0" />
+                <span className="text-[13px]">Search or jump to…</span>
+                <kbd className="tppm-mono ml-auto shrink-0 rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-xs">
+                  {modifierKeyLabel()}K
+                </kbd>
+              </button>
+
+              {isDrawer ? (
+                browseContent
+              ) : (
+                <div className="relative mt-2">
+                  <button
+                    ref={switchTriggerRef}
+                    type="button"
+                    onClick={() => setSwitchOpen((v) => !v)}
+                    aria-expanded={switchOpen}
+                    aria-controls="rail-browse-panel"
+                    className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 14 14"
+                      fill="currentColor"
+                      aria-hidden="true"
+                      className="shrink-0"
+                    >
+                      <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
+                    </svg>
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      Browse projects and programs
+                    </span>
+                    <ChevronRightIcon
+                      aria-hidden="true"
+                      className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
+                    />
+                  </button>
+                  {switchOpen && (
+                    <div
+                      ref={switchPanelRef}
+                      id="rail-browse-panel"
+                      tabIndex={-1}
+                      className="absolute bottom-full left-0 z-40 mb-1 max-h-[60vh] w-full overflow-y-auto rounded-card border border-chrome-border/15 bg-chrome-surface shadow-pop focus:outline-none"
+                    >
+                      {browseContent}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Footer — user + settings gear (stays at the very bottom) */}
         <div className="shrink-0 border-t border-chrome-border/8 p-2">
@@ -788,6 +815,9 @@ function ProjectViewsTier({
   const program = programs?.find((p) => p.id === programId) ?? null;
   const programName = project.data?.program_detail?.name ?? null;
   const health = PROJECT_HEALTH_STATE[project.data?.health ?? 'AUTO'] ?? 'unknown';
+  // Server-resolved preset (web-rule 196) — the same value the removed bar
+  // `MethodWorkspaceLabel` showed (#1680); rides the card subtitle here now.
+  const effectiveMethodology = project.data?.effective_methodology ?? 'HYBRID';
   const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -795,10 +825,19 @@ function ProjectViewsTier({
 
   return (
     <>
-      <h2 className={GROUP_LABEL}>This project</h2>
-      {/* Project header card — program identity SQUARE (rule 158), name + program
-          subtitle, and a right-aligned health CIRCLE whose word rides its
-          aria-label (rule 6). Never a shadow for the raise (rule 1). */}
+      {/* Header row — the "This project" label plus the relocated Customize-views
+          control (#1680): a `flex-wrap justify-between` row so ViewsMenu's gear sits
+          at the right and its in-flow `basis-full` panel wraps to a full-width line
+          beneath, pushing the card down (the rail's overflow would clip a floating
+          menu). */}
+      <div className="flex flex-wrap items-center justify-between gap-y-1 pr-1">
+        <h2 className={GROUP_LABEL}>This project</h2>
+        <ViewsMenu />
+      </div>
+      {/* Project header card — program identity SQUARE (rule 158), name + a
+          program·methodology subtitle (the methodology label relocated from the bar
+          in #1680, web-rule 196), and a right-aligned health CIRCLE whose word rides
+          its aria-label (rule 6). Never a shadow for the raise (rule 1). */}
       <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
         <ProgramIdentitySquare
           program={program ?? { color: null, code: '', name: programName ?? name }}
@@ -806,9 +845,17 @@ function ProjectViewsTier({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-chrome-text-primary">{name}</p>
-          {programName && (
-            <p className="truncate text-xs text-chrome-text-secondary">{programName}</p>
-          )}
+          {/* Program name truncates first; the methodology stays `shrink-0` so the
+              "you are here / how it runs" signal is never clipped. */}
+          <p className="flex items-center gap-1 text-xs text-chrome-text-secondary">
+            {programName && <span className="truncate">{programName}</span>}
+            {programName && (
+              <span aria-hidden="true" className="shrink-0">
+                ·
+              </span>
+            )}
+            <span className="shrink-0">{methodologyLabel(effectiveMethodology)} workspace</span>
+          </p>
         </div>
         <span role="img" aria-label={HEALTH_LABEL[health]} className="shrink-0">
           <HealthDot state={health} />
