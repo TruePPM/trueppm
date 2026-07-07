@@ -22,6 +22,8 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Methodology,
+    Program,
     Project,
     Sprint,
     SprintState,
@@ -598,3 +600,102 @@ def test_pretag_perf_indexes_are_registered() -> None:
 
     backlog_index_names = {idx.name for idx in BacklogItem._meta.indexes}
     assert "backlogitem_tags_gin" in backlog_index_names
+
+
+# ---------------------------------------------------------------------------
+# #1482 — GET /projects/ list query count is invariant to page size.
+#
+# The list serializes a stack of computed-on-read settings resolvers
+# (effective_*/inherited_* for sharing, attachments, mc_history, visibility,
+# methodology, duration policy — ADR-0135/0193). Each resolves project ->
+# program -> workspace. The invariance holds only because: program is
+# select_related on the viewset, the Workspace singleton is memoized once per
+# serializer (_iteration_workspace), and the row aggregates (my_role,
+# open_task_count) are correlated Subqueries rather than per-row reads. This
+# guard fails loudly if a newly added effective_* resolver reaches for an
+# unprefetched relation and reintroduces the ~2-queries-per-project N+1 that
+# #504's my_role work first surfaced.
+# ---------------------------------------------------------------------------
+
+
+def _project_list_query_count(client: APIClient, url: str) -> int:
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.get(url)
+    assert resp.status_code == 200, resp.data
+    return len(ctx.captured_queries)
+
+
+@pytest.mark.django_db
+def test_project_list_query_count_invariant_to_page_size() -> None:
+    """One project vs eight must issue the same number of queries (#1482)."""
+    from trueppm_api.apps.workspace.models import Workspace
+
+    # Materialize the singleton outside the measured window — the first load()
+    # INSERTs it, which would otherwise inflate the first request's count.
+    Workspace.load()
+    user = User.objects.create_user(username="list_perf", password="pw")
+    cal = Calendar.objects.create(name="Std-1482")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    program = Program.objects.create(name="Prog-1482", public_sharing=True)
+
+    def seed(n: int) -> None:
+        ProjectMembership.objects.filter(user=user).delete()
+        Project.objects.filter(name__startswith="LP").delete()
+        for i in range(n):
+            p = Project.objects.create(
+                name=f"LP{i}",
+                start_date=date(2026, 4, 1),
+                calendar=cal,
+                program=program,
+                # exercise the effective_*/inherited_* resolvers with a mix of
+                # explicit overrides and inherited (null) values
+                public_sharing=True if i % 2 == 0 else None,
+                methodology=Methodology.AGILE if i % 2 else Methodology.WATERFALL,
+                show_baselines=True if i % 3 == 0 else None,
+            )
+            ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+
+    seed(1)
+    baseline = _project_list_query_count(client, "/api/v1/projects/")
+    seed(8)
+    scaled = _project_list_query_count(client, "/api/v1/projects/")
+
+    assert scaled == baseline, (
+        f"GET /projects/ is not query-count invariant: 1 project -> {baseline} "
+        f"queries, 8 projects -> {scaled}. A per-row settings resolver likely "
+        f"reintroduced the #1482 N+1 — fold it into a select_related/annotation."
+    )
+
+
+@pytest.mark.django_db
+def test_ungrouped_project_list_query_count_invariant_to_page_size() -> None:
+    """The Programs-directory ?program__isnull=true branch is also invariant (#1482).
+
+    This branch adds member_count/percent_complete aggregates; they must be a
+    LEFT JOIN aggregate (distinct/Avg), not a per-row read.
+    """
+    from trueppm_api.apps.workspace.models import Workspace
+
+    Workspace.load()
+    user = User.objects.create_user(username="ungrouped_perf", password="pw")
+    cal = Calendar.objects.create(name="Std-1482b")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    def seed(n: int) -> None:
+        ProjectMembership.objects.filter(user=user).delete()
+        Project.objects.filter(name__startswith="UP").delete()
+        for i in range(n):
+            p = Project.objects.create(name=f"UP{i}", start_date=date(2026, 4, 1), calendar=cal)
+            ProjectMembership.objects.create(project=p, user=user, role=Role.OWNER)
+
+    url = "/api/v1/projects/?program__isnull=true"
+    seed(1)
+    baseline = _project_list_query_count(client, url)
+    seed(8)
+    scaled = _project_list_query_count(client, url)
+
+    assert scaled == baseline, (
+        f"Ungrouped project list not invariant: 1 -> {baseline}, 8 -> {scaled}."
+    )
