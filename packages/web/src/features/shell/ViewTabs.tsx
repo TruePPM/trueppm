@@ -1,9 +1,7 @@
 import { NavLink, useLocation, useMatch } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useProject } from '@/hooks/useProject';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META, type ViewIconType } from '@/features/shell/viewMeta';
-import type { Methodology } from '@/types';
 
 type IconType = ViewIconType;
 
@@ -127,69 +125,5 @@ export function ViewTabs() {
         currentView={currentView}
       />
     </nav>
-  );
-}
-
-const METHOD_LABEL: Record<Methodology, string> = {
-  AGILE: 'Agile',
-  WATERFALL: 'Waterfall',
-  HYBRID: 'Hybrid',
-};
-
-// Compact 2-letter methodology code shown below xl (issue 1469), where the full
-// "{METHOD} Workspace" text is hidden. The badge's accessible name is always the
-// full methodology (rule 6 / WCAG 1.4.1) — the two letters are visual shorthand,
-// never the sole signal, so it carries `role="img"` + `aria-label` rather than
-// relying on the letters alone.
-const METHOD_CODE: Record<Methodology, string> = {
-  AGILE: 'AG',
-  WATERFALL: 'WF',
-  HYBRID: 'HY',
-};
-
-// Outlined chip in the same mono/secondary token family as GROUP_LABEL (rule 36/101),
-// reusing the shell's existing chip look (rounded-chip + chrome-border, cf. Sidebar
-// ⌘K kbd). Display is set entirely in the responsive chain at the call site so it
-// never collides with the base class.
-const METHOD_BADGE =
-  'self-center items-center rounded-chip border border-chrome-border/20 px-1.5 py-0.5 text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary select-none';
-
-/**
- * Right-aligned methodology tag for the v2 view row (ADR-0128 §A). Lives at the
- * left edge of the TopBar's right cluster (just before the health cluster) so it is
- * reliably right-aligned without making the tab nav grow. Self-gates exactly like
- * `ViewTabs` (off-project / settings routes).
- *
- * Two responsive forms so the methodology is identifiable at a glance from md up
- * (issue 1469): a compact 2-letter badge from md to just below xl, and the full
- * "{METHOD} Workspace" text at xl and up. Previously the full text was the only
- * signal (`hidden xl:inline`), which vanished below 1280px — exactly where most
- * laptops sit.
- */
-export function MethodWorkspaceLabel() {
-  const projectId = useProjectId();
-  const { data: project } = useProject(projectId);
-  const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
-
-  if (!projectId || onSettingsRoute) return null;
-
-  // Show the server-resolved preset (ADR-0107, issue 955), matching the tab gate.
-  const methodology = project?.effective_methodology ?? 'HYBRID';
-  const label = METHOD_LABEL[methodology];
-  return (
-    <>
-      {/* Compact badge: md → just below xl. `role="img"` exposes the full
-          methodology as the accessible name; the "HY"/"WF"/"AG" glyphs are a
-          visual shorthand only. */}
-      <span
-        role="img"
-        aria-label={`${label} workspace`}
-        className={`${METHOD_BADGE} hidden md:inline-flex xl:hidden`}
-      >
-        {METHOD_CODE[methodology]}
-      </span>
-      {/* Full text: xl and up (unchanged behavior). */}
-      <span className={`${GROUP_LABEL} hidden xl:inline`}>{label} Workspace</span>
-    </>
   );
 }

@@ -5,6 +5,7 @@ import { useProject } from '@/hooks/useProject';
 import { useShellStats } from '@/hooks/useShellStats';
 import { useActiveSprint, useProjectVelocity } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useCurrentSprintTargets, type SprintJumpTarget } from '@/hooks/useCurrentSprintTargets';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
@@ -111,6 +112,47 @@ interface SegmentRowsProps {
   onOpenForecast: () => void;
   onGoToSprints: () => void;
   onTaskNavigate: (id: string) => void;
+  /** The in-context project's active-sprint board deep-link, or null when it has
+   *  no active sprint / the targets haven't resolved. The `sprint` row jumps here
+   *  (the folded-in CurrentSprintButton behaviour, #1680), falling back to the
+   *  sprints list so the row is never dead. */
+  inContextBoardPath: string | null;
+  /** Other teams' active sprints (multi-team) — rendered as per-team jump rows
+   *  under the primary sprint row (#1680). */
+  crossTeamTargets: SprintJumpTarget[];
+  onJumpToBoard: (path: string) => void;
+}
+
+/** Per-team jump rows for the multi-team case (#1680) — each opens that team's
+ *  active-sprint board. Grouped so a screen reader announces the set. */
+function CrossTeamSprintRows({
+  targets,
+  iterationLower,
+  onJumpToBoard,
+}: {
+  targets: SprintJumpTarget[];
+  iterationLower: string;
+  onJumpToBoard: (path: string) => void;
+}): ReactNode {
+  if (targets.length === 0) return null;
+  return (
+    <div role="group" aria-label={`Other teams' active ${iterationLower}s`}>
+      {targets.map((t) => (
+        <button
+          key={t.sprintId}
+          type="button"
+          onClick={() => onJumpToBoard(t.path)}
+          aria-label={`Go to ${t.projectName} ${iterationLower}: ${t.sprintName}.`}
+          className="w-full flex flex-col items-start gap-0 px-2 py-1.5 text-xs rounded-control hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
+        >
+          <span className="w-full truncate text-neutral-text-primary">{t.sprintName}</span>
+          <span className="tppm-mono w-full truncate text-neutral-text-secondary">
+            {t.projectName}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** Renders the one-or-two popover rows for a single health segment. Forecast
@@ -124,6 +166,9 @@ function SegmentRows({
   onOpenForecast,
   onGoToSprints,
   onTaskNavigate,
+  inContextBoardPath,
+  crossTeamTargets,
+  onJumpToBoard,
 }: SegmentRowsProps): ReactNode {
   switch (segment.kind) {
     case 'forecast': {
@@ -142,7 +187,9 @@ function SegmentRows({
           <div className={ROW}>
             <span className="text-neutral-text-secondary">Forecast P50</span>
             <span
-              className={p50Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'}
+              className={
+                p50Text ? 'tppm-mono text-neutral-text-primary' : 'text-neutral-text-disabled'
+              }
             >
               {p50Text ?? '—'}
             </span>
@@ -203,33 +250,61 @@ function SegmentRows({
       );
 
     case 'sprint':
+      // Primary row jumps to the in-context board (the folded-in CurrentSprintButton,
+      // #1680); falls back to the sprints list until the board path resolves so it is
+      // never dead. Other teams' sprints follow as per-team jump rows.
       return (
-        <button
-          type="button"
-          onClick={onGoToSprints}
-          aria-label={`${segment.name}, day ${segment.dayN} of ${segment.dayM}. View ${iterationLower}s.`}
-          className={ROW_BTN}
-        >
-          <span className="text-neutral-text-primary font-medium">{segment.name}</span>
-          <span className="tppm-mono text-neutral-text-secondary">
-            Day {segment.dayN}/{segment.dayM}
-          </span>
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() =>
+              inContextBoardPath ? onJumpToBoard(inContextBoardPath) : onGoToSprints()
+            }
+            // The announced destination must match where the click lands: only
+            // promise the board once its path has resolved, else the fallback
+            // (sprints list) would mismatch the name for a load tick.
+            aria-label={
+              inContextBoardPath
+                ? `${segment.name}, day ${segment.dayN} of ${segment.dayM}. Go to ${iterationLower} board.`
+                : `${segment.name}, day ${segment.dayN} of ${segment.dayM}. View ${iterationLower}s.`
+            }
+            className={ROW_BTN}
+          >
+            <span className="text-neutral-text-primary font-medium">{segment.name}</span>
+            <span className="tppm-mono text-neutral-text-secondary">
+              Day {segment.dayN}/{segment.dayM}
+            </span>
+          </button>
+          <CrossTeamSprintRows
+            targets={crossTeamTargets}
+            iterationLower={iterationLower}
+            onJumpToBoard={onJumpToBoard}
+          />
+        </>
       );
 
     case 'sprintEmpty':
+      // No in-context board to jump to; the primary row still routes to the sprints
+      // list. Other teams' active sprints remain reachable as jump rows.
       return (
-        <button
-          type="button"
-          onClick={onGoToSprints}
-          aria-label={`No active ${iterationLower}. View ${iterationLower}s.`}
-          className={ROW_BTN}
-        >
-          <span className="text-neutral-text-secondary">No active {iterationSingular}</span>
-          <span aria-hidden="true" className="text-neutral-text-disabled">
-            ›
-          </span>
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onGoToSprints}
+            aria-label={`No active ${iterationLower}. View ${iterationLower}s.`}
+            className={ROW_BTN}
+          >
+            <span className="text-neutral-text-secondary">No active {iterationSingular}</span>
+            <span aria-hidden="true" className="text-neutral-text-disabled">
+              ›
+            </span>
+          </button>
+          <CrossTeamSprintRows
+            targets={crossTeamTargets}
+            iterationLower={iterationLower}
+            onJumpToBoard={onJumpToBoard}
+          />
+        </>
       );
 
     case 'points':
@@ -316,7 +391,15 @@ interface DrillRowsProps {
 /** At-risk / critical row. Zero is a calm static "0 tasks" read (no drill);
  *  count > 0 renders a labelled header plus the offending tasks nested as drill
  *  buttons (MAX_VISIBLE + "+N more"). Selecting a task closes the popover. */
-function DrillRows({ label, variant, icon, count, items, ariaGroup, onTaskNavigate }: DrillRowsProps) {
+function DrillRows({
+  label,
+  variant,
+  icon,
+  count,
+  items,
+  ariaGroup,
+  onTaskNavigate,
+}: DrillRowsProps) {
   if (count === 0) {
     return (
       <div className={ROW}>
@@ -377,6 +460,9 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   const { sprint: activeSprint } = useActiveSprint(projectId);
   const { data: velocity } = useProjectVelocity(projectId);
   const iteration = useIterationLabel(projectId);
+  // Sprint-jump targets (issue 1594) folded into the popover's sprint row (#1680) —
+  // one source shared with the ⌘K "Current sprint" action (web-rule 214).
+  const sprintTargets = useCurrentSprintTargets(projectId);
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
   const navigate = useNavigate();
   const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
@@ -437,9 +523,20 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         : ', forecast not run';
   }
 
+  // The in-context project's active-sprint board (the primary jump) and the other
+  // teams' sprints (multi-team rows). `sprintTargets` is "here first", so the
+  // in-context one — if any — is the entry whose projectId matches.
+  const inContextBoardPath = sprintTargets.find((t) => t.projectId === projectId)?.path ?? null;
+  const crossTeamTargets = sprintTargets.filter((t) => t.projectId !== projectId);
+
   function goToSprints() {
     setOpen(false);
     void navigate(`/projects/${projectId}/${'sprints'}`);
+  }
+
+  function jumpToBoard(path: string) {
+    setOpen(false);
+    void navigate(path);
   }
 
   function drillTask(id: string) {
@@ -504,7 +601,10 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         >
           {/* Header — worst-state dot + word, same read as the chip. */}
           <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
-            <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`} />
+            <span
+              aria-hidden="true"
+              className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
+            />
             <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
           </div>
 
@@ -518,6 +618,9 @@ export function HealthCluster({ onTaskNavigate }: Props) {
               onOpenForecast={openForecast}
               onGoToSprints={goToSprints}
               onTaskNavigate={drillTask}
+              inContextBoardPath={inContextBoardPath}
+              crossTeamTargets={crossTeamTargets}
+              onJumpToBoard={jumpToBoard}
             />
           ))}
         </div>

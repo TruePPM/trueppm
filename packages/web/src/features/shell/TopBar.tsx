@@ -3,13 +3,10 @@ import { useShellStore } from '@/stores/shellStore';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { modifierKeyLabel } from '@/lib/platform';
 import { Logo } from './Logo';
-import { MethodWorkspaceLabel } from './ViewTabs';
 import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
 import { LocationSwitcher } from './LocationSwitcher';
-import { ViewsMenu } from './ViewsMenu';
 import { HealthCluster } from './HealthCluster';
-import { CurrentSprintButton } from './CurrentSprintButton';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { TimerChip } from '@/features/timer/TimerChip';
@@ -34,9 +31,13 @@ interface Props {
  * and the in-chrome `ProjectSwitcher`, and the view/program tab scroller is gone.
  *
  * Left → right: mobile hamburger / desktop rail re-open ≡ · mobile brand ·
- * `LocationSwitcher` · pinned right cluster (customize-views · current-sprint jump ·
- * method label · health chip · timer · quick-log · + New · run indicator · presence ·
- * sync · notifications · user menu, which is the single home for the theme toggle).
+ * `LocationSwitcher` · pinned right cluster (health chip · timer · quick-log ·
+ * + New · run indicator · presence · sync · notifications · user menu, which is
+ * the single home for the theme toggle).
+ *
+ * The right cluster was trimmed in #1680: Customize-views moved to the rail's
+ * "This project" band, the current-sprint jump folded into the health popover's
+ * sprint row, and the methodology label became a picker/rail subtitle.
  *
  * The location switcher's leaf is a plain `aria-current` label, not a dropdown —
  * the rail owns view switching, so the leaf is the one deliberate dedup.
@@ -126,20 +127,6 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       {/* Right cluster — pinned, never compresses. */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Customize views (ADR-0139) — per-user show/hide of the project views; self-
-            suppresses off-project/settings. Relocates to the rail in a follow-up (#1680). */}
-        <ViewsMenu />
-
-        {/* Jump to current sprint (issue 1594) — pinned one-click to today's active
-            sprint board; self-suppresses when there is no active sprint anywhere.
-            Folds into the health popover in a follow-up (#1680). */}
-        <CurrentSprintButton />
-
-        {/* Methodology tag — compact 2-letter badge from md, full "{METHOD}
-            Workspace" text at xl and up (issue 1469). Moves to the picker subtitle
-            in a follow-up (#1680). */}
-        <MethodWorkspaceLabel />
-
         {/* v2 health status chip + popover (ADR-0128, #1644) — project routes only;
             one all-width chip (dot + worst-state word + neutral P80) opening a
             role="dialog" health popover. Stays pinned, never behind a tab scroll. */}

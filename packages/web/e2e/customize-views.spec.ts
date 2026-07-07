@@ -2,11 +2,14 @@ import { test, expect } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll, type UserFixture } from './fixtures';
 
 /**
- * Customize views — per-user nav visibility (issue #220, ADR-0139).
+ * Customize views — per-user nav visibility (issue #220, ADR-0139). Since #1680 the
+ * Customize-views control lives in the left rail's "This project" band (its gear
+ * beside the header), not the top bar — but its accessible name ("Customize views")
+ * and menu are unchanged, so these name-based selectors are location-agnostic.
  *
- * The fixture project resolves to HYBRID, so every view tab is present and every
+ * The fixture project resolves to HYBRID, so every view is present and every
  * hideable view is toggleable. Golden path: a user with `schedule` hidden sees no
- * Schedule tab but can re-show it from the menu. Error/edge path: with nothing
+ * Schedule row but can re-show it from the menu. Error/edge path: with nothing
  * hidden, Reset is disabled. Persistence (the PATCH body) is asserted directly.
  */
 
@@ -47,7 +50,7 @@ async function setup(page: import('@playwright/test').Page, hidden: string[] = [
 }
 
 test.describe('Customize views (ADR-0139)', () => {
-  test('a personally-hidden view is absent from the bar but re-showable from the menu', async ({
+  test('a personally-hidden view is absent from the rail nav but re-showable from the menu', async ({
     page,
   }) => {
     await setup(page, ['schedule']);
