@@ -269,22 +269,29 @@ export function UserMenu() {
     return () => document.removeEventListener('keydown', onKey);
   }, [isOpen]);
 
-  // Close when clicking outside (desktop only — backdrop handles mobile)
+  // Close when clicking outside. This handler is registered at every width, so
+  // it must recognize BOTH menu surfaces as "inside": the desktop dropdown
+  // (menuRef) and the mobile bottom sheet (sheetRef). Without the sheetRef
+  // check, a pointerdown on a control inside the sheet (e.g. the theme toggle)
+  // is misclassified as an outside click, closes the sheet on pointerdown, and
+  // the control's click never fires — the mobile theme switcher did nothing
+  // while the identical desktop dropdown worked (#1679). The mobile backdrop
+  // still closes on its own onClick; this guard only prevents the false close.
   useEffect(() => {
     if (!isOpen) return;
     function onPointerDown(e: PointerEvent) {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      ) {
+      const target = e.target as Node;
+      const insideDropdown = menuRef.current?.contains(target) ?? false;
+      const insideSheet = sheetRef.current?.contains(target) ?? false;
+      const onTrigger = buttonRef.current?.contains(target) ?? false;
+      if (!insideDropdown && !insideSheet && !onTrigger) {
         close();
       }
     }
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [isOpen]);
+    // sheetRef is a stable ref from useFocusTrap; listed to satisfy exhaustive-deps.
+  }, [isOpen, sheetRef]);
 
   const sharedContentProps = {
     initials: user?.initials,
