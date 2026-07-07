@@ -26,6 +26,7 @@ function prow(overrides: Partial<SchedulePrintRow> = {}): SchedulePrintRow {
     finish: '2026-04-10',
     pctComplete: 0,
     isCritical: false,
+    isBehind: false,
     totalFloat: null,
     riskBand: 'on-track',
     isMilestone: false,

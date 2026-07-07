@@ -28,7 +28,7 @@
  * content-fingerprint stamp. The 3-page Layout B is issue 1439; week-boundary banding
  * + dense-arrow routing is issue 1440.
  */
-import { forwardRef, useMemo } from 'react';
+import { Fragment, forwardRef, useMemo } from 'react';
 import {
   buildScaleDataFromPxPerDay,
   clampPxPerDay,
@@ -39,8 +39,9 @@ import {
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { scheduleExportFooterWatermark } from './scheduleExportEdition';
 import {
-  barFillClass,
-  milestoneFillClass,
+  barBorderClass,
+  hatchBackgroundStyle,
+  milestoneDiamondClasses,
   arrowColorVar,
   roleBgClass,
 } from './schedulePrintTheme';
@@ -52,6 +53,7 @@ import {
   MILESTONE_HALF_PX,
 } from './scheduleArrowGeometry';
 import {
+  isRowOverdue,
   labelIndentPx,
   orderLinksForPaint,
   type SchedulePrintData,
@@ -214,6 +216,15 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
     // rasterizes, so a class-based connector renders as 0 ink while its arrowhead
     // (class `fill`) survives — the "arrowheads but no lines" bug (issue 1694).
     const arrowColor = arrowColorVar();
+    // Overdue markers are semantic-critical red (the past-due flag + overrun tail),
+    // and alignment leaders are faint neutral-border — both inline-`style` CSS-var
+    // strokes/fills for html-to-image (rule 232). No hex → gate-safe.
+    const overdueColor = 'rgb(var(--semantic-critical))';
+    // Leaders are faint but must read DISTINCT from the week gridlines (which are
+    // neutral-border) — a hair darker (neutral-text-disabled) so the dotted guide is
+    // perceptible without competing with the bars. aria-hidden decoration → exempt
+    // from text-contrast rules.
+    const leaderColor = 'rgb(var(--neutral-text-disabled))';
     const channelSeqByLink = new Map<string, number>();
     const perSourceCount = new Map<string, number>();
     for (const l of links) {
@@ -229,6 +240,15 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
             return x >= 0 && x <= layout.chartW ? x : null;
           })()
         : null;
+
+    // Right end for an overdue overrun tail: the data-date line clamped into the
+    // chart, or the chart edge when the data date sits past the visible span. An
+    // overdue bar finishes before the data date, so the tail runs rightward from
+    // its finish edge to this X.
+    const overdueLimitX =
+      layout && dataDate
+        ? Math.max(0, Math.min(dateToLeft(dataDate, layout.scales), layout.chartW))
+        : (layout?.chartW ?? 0);
 
     const kpiCells = [
       kpis.window,
@@ -364,6 +384,17 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                     {m.label}
                   </span>
                 ))}
+                {/* Data-date pill: identifies the sage "today" line without the legend.
+                    Sits at the header top so it never collides with the bottom-aligned
+                    month labels; white-on-sage-700 is AA (rule 143). */}
+                {dataDateX != null && (
+                  <span
+                    style={{ left: dataDateX }}
+                    className="absolute top-0.5 -translate-x-1/2 whitespace-nowrap rounded-sm bg-brand-primary px-1 text-xs font-medium leading-tight text-white"
+                  >
+                    {fmtUtcShort(dataDate)}
+                  </span>
+                )}
               </div>
 
               {/* Rows region: gridlines, bars, milestones, data-date line, arrow overlay.
@@ -371,6 +402,43 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   paginator divides its height by `data-print-gantt-row-count` for the
                   row pitch and only ever breaks a page on a row boundary (issue 1694). */}
               <div data-print-vmark="gantt-rows" style={{ height: rowsAreaH }} className="relative">
+                {/* Row alignment leaders (ADR-0277): faint round-dotted hairlines from
+                    the chart's left edge to each bar's left edge, so the eye tracks
+                    label → bar on a wide chart. Made unmistakably distinct from the
+                    dashed SOFT dependency arrows on three axes: dot pattern (round
+                    0.5/4 vs square 3/2), weight/color (faint neutral-border 0.75px vs
+                    darker secondary 1px), and zone (left gutter, horizontal, per row vs
+                    bar → bar orthogonal connectors). Inline-`style` stroke (rule 232);
+                    drawn lowest so bars/arrows sit on top. */}
+                <svg
+                  className="pointer-events-none absolute left-0 top-0"
+                  width={layout.chartW}
+                  height={rowsAreaH}
+                  aria-hidden="true"
+                >
+                  {rows.map((row, i) => {
+                    if (!row.start) return null;
+                    const x1 = 2;
+                    const x2 = barExtent(row, layout.scales).left - 2;
+                    // Omit a stub leader when the bar hugs the chart's left edge.
+                    if (x2 - x1 < 12) return null;
+                    const cy = i * ROW_H + ROW_H / 2;
+                    return (
+                      <line
+                        key={`ld${row.id}`}
+                        x1={x1}
+                        y1={cy}
+                        x2={x2}
+                        y2={cy}
+                        strokeWidth={1}
+                        strokeDasharray="0.5 4"
+                        strokeLinecap="round"
+                        style={{ stroke: leaderColor }}
+                      />
+                    );
+                  })}
+                </svg>
+
                 {/* Week gridlines */}
                 {weekGridlines(layout.scales).map((x, i) => (
                   <span
@@ -380,25 +448,44 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   />
                 ))}
 
-                {/* Bars + milestones */}
+                {/* Bars + milestones. Model A (ADR-0277): the risk band is the bar's
+                    BORDER (never masked by completion), the interior fill is progress
+                    (green), a "behind" bar is textured with a diagonal hatch on top, and
+                    an overdue bar gets a red flag + overrun tail from the overlay below. */}
                 {rows.map((row, i) => {
                   const top = i * ROW_H;
                   const ext = barExtent(row, layout.scales);
                   if (row.isMilestone) {
+                    const mOverdue = isRowOverdue(row, dataDate);
                     return (
-                      <span
-                        key={row.id}
-                        style={{
-                          left: ext.left + MILESTONE_HALF_PX - MILESTONE_HALF_PX,
-                          top: top + (ROW_H - MILESTONE_HALF_PX * 2) / 2,
-                          width: MILESTONE_HALF_PX * 2,
-                          height: MILESTONE_HALF_PX * 2,
-                        }}
-                        title={`${row.name} — ${fmtUtcShort(row.start)}`}
-                        className={`absolute rotate-45 ${milestoneFillClass(
-                          row.milestoneMet ?? false,
-                        )}`}
-                      />
+                      <Fragment key={row.id}>
+                        <span
+                          style={{
+                            left: ext.left,
+                            top: top + (ROW_H - MILESTONE_HALF_PX * 2) / 2,
+                            width: MILESTONE_HALF_PX * 2,
+                            height: MILESTONE_HALF_PX * 2,
+                          }}
+                          title={`${row.name} — ${fmtUtcShort(row.start)}${
+                            row.milestoneMet ? ' · met' : mOverdue ? ' · overdue' : ' · pending'
+                          }`}
+                          className={`absolute rotate-45 ${milestoneDiamondClasses(
+                            row.milestoneMet ?? false,
+                            mOverdue,
+                          )}`}
+                        />
+                        {/* Non-color "overdue" signal for a milestone (its shape is
+                            already hollow-red): a bold `!` right of the diamond. */}
+                        {mOverdue && (
+                          <span
+                            aria-hidden="true"
+                            style={{ left: ext.left + MILESTONE_HALF_PX * 2 + 2, top, height: ROW_H }}
+                            className="absolute flex items-center text-xs font-bold leading-none text-semantic-critical"
+                          >
+                            !
+                          </span>
+                        )}
+                      </Fragment>
                     );
                   }
                   const width = Math.max(2, ext.right - ext.left);
@@ -422,8 +509,10 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                         width,
                         height: BAR_H,
                       }}
-                      title={`${row.name} · ${row.pctComplete}%`}
-                      className={`absolute overflow-hidden rounded-sm border border-neutral-border ${barFillClass(
+                      title={`${row.name} · ${row.pctComplete}%${
+                        isRowOverdue(row, dataDate) ? ' · overdue' : ''
+                      }`}
+                      className={`absolute overflow-hidden rounded-sm bg-neutral-surface ${barBorderClass(
                         row.riskBand,
                       )}`}
                     >
@@ -431,6 +520,16 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                         <span
                           style={{ width: fillW, height: BAR_H }}
                           className={`absolute left-0 top-0 ${roleBgClass('progressFill')}`}
+                        />
+                      )}
+                      {/* "Behind schedule" hatch — composes over the green fill and any
+                          border color, so a critical-and-slipping bar reads red-frame +
+                          hatch (the grayscale/deutan carrier of "slipping", WCAG 1.4.1). */}
+                      {row.isBehind && (
+                        <span
+                          aria-hidden="true"
+                          style={hatchBackgroundStyle()}
+                          className="absolute inset-0"
                         />
                       )}
                     </span>
@@ -444,6 +543,47 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                     title="Data date"
                     className={`absolute top-0 bottom-0 w-0.5 ${roleBgClass('dataDateLine')}`}
                   />
+                )}
+
+                {/* Overdue markers (ADR-0277): a red past-due flag at the bar's finish
+                    edge + a dashed red overrun tail to the data date. Shape + line-style
+                    carry "late" so it survives grayscale and never competes with the
+                    critical-red bar frame. Task bars only — an overdue milestone is a
+                    hollow-red diamond + `!` (above). Independent of the arrow toggle. */}
+                {dataDate && (
+                  <svg
+                    className="pointer-events-none absolute left-0 top-0"
+                    width={layout.chartW}
+                    height={rowsAreaH}
+                    aria-hidden="true"
+                  >
+                    {rows.map((row, i) => {
+                      if (row.isMilestone || row.kind === 'phase') return null;
+                      if (!isRowOverdue(row, dataDate)) return null;
+                      const barRight = barExtent(row, layout.scales).right;
+                      const cy = i * ROW_H + ROW_H / 2;
+                      const tailEnd = Math.min(overdueLimitX, layout.chartW);
+                      return (
+                        <g key={`od${row.id}`}>
+                          {tailEnd > barRight + 1 && (
+                            <line
+                              x1={barRight}
+                              y1={cy}
+                              x2={tailEnd}
+                              y2={cy}
+                              strokeWidth={1}
+                              strokeDasharray="2 2"
+                              style={{ stroke: overdueColor }}
+                            />
+                          )}
+                          <polygon
+                            points={`${barRight},${cy - 3} ${barRight + 6},${cy} ${barRight},${cy + 3}`}
+                            style={{ fill: overdueColor }}
+                          />
+                        </g>
+                      );
+                    })}
+                  </svg>
                 )}
 
                 {/* Dependency-arrow overlay (issue 1438: hidden when the toggle is off) */}
@@ -504,25 +644,121 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
           </div>
         )}
 
-        {/* Footer: legend + CP summary + sign-off + watermark */}
+        {/* Footer: legend + CP summary + sign-off + watermark. The legend (ADR-0277)
+            explains every mark on the sheet, grouped Bars / Dependencies / Markers, and
+            every swatch renders its ACTUAL treatment (border/hatch/flag/shape/line-style)
+            so the legend itself is legible in grayscale and under deutan/protan. Page 1
+            only (it lives in the keep-together footer flow above the sign-off). */}
         <footer className="mt-4 border-t border-neutral-border pt-2 text-xs text-neutral-text-secondary">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1">
-              <span className={`inline-block h-2 w-3 rounded-sm ${roleBgClass('criticalBar')}`} />
-              Critical
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className={`inline-block h-2 w-3 rounded-sm ${roleBgClass('atRiskBar')}`} />
-              At risk
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className={`inline-block h-2 w-3 rounded-sm ${roleBgClass('onTrackBar')}`} />
-              On track
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className={`inline-block h-2 w-2 rotate-45 ${roleBgClass('milestoneMet')}`} />
-              Milestone
-            </span>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+            {/* BARS */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold uppercase tracking-wide">Bars</span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-4 rounded-sm border-2 border-semantic-critical bg-neutral-surface" />
+                Critical
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-2.5 w-4 rounded-sm border-2 border-semantic-at-risk bg-neutral-surface"
+                  style={hatchBackgroundStyle()}
+                />
+                At risk / behind
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <svg width="22" height="10" aria-hidden="true">
+                  <rect
+                    x="0.5"
+                    y="2.5"
+                    width="11"
+                    height="5"
+                    style={{ fill: 'rgb(var(--neutral-surface))', stroke: leaderColor }}
+                    strokeWidth="1"
+                  />
+                  <line
+                    x1="12"
+                    y1="5"
+                    x2="20"
+                    y2="5"
+                    strokeWidth="1"
+                    strokeDasharray="2 2"
+                    style={{ stroke: overdueColor }}
+                  />
+                  <polygon points="12,2 18,5 12,8" style={{ fill: overdueColor }} />
+                </svg>
+                Overdue
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-4 rounded-sm border border-neutral-text-secondary bg-neutral-surface" />
+                On track
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-4 overflow-hidden rounded-sm border border-neutral-text-secondary bg-neutral-surface">
+                  <span className="block h-full w-3/5 bg-semantic-on-track" />
+                </span>
+                Progress (green = complete)
+              </span>
+            </div>
+
+            {/* DEPENDENCIES */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold uppercase tracking-wide">Links</span>
+              <span className="inline-flex items-center gap-1">
+                <svg width="24" height="8" aria-hidden="true">
+                  <line x1="1" y1="4" x2="17" y2="4" strokeWidth="1" style={{ stroke: arrowColor }} />
+                  <polygon points="17,1 22,4 17,7" style={{ fill: arrowColor }} />
+                </svg>
+                Driving (finish-to-start)
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <svg width="24" height="8" aria-hidden="true">
+                  <line
+                    x1="1"
+                    y1="4"
+                    x2="17"
+                    y2="4"
+                    strokeWidth="1"
+                    strokeOpacity={0.6}
+                    strokeDasharray="3 2"
+                    style={{ stroke: arrowColor }}
+                  />
+                  <polygon points="17,1 22,4 17,7" fillOpacity={0.6} style={{ fill: arrowColor }} />
+                </svg>
+                Discretionary / lagged
+              </span>
+            </div>
+
+            {/* MARKERS */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold uppercase tracking-wide">Markers</span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rotate-45 border border-neutral-text-primary bg-brand-accent" />
+                Milestone met
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2 w-2 rotate-45 border border-neutral-text-primary bg-transparent" />
+                Milestone pending
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-3 w-0.5 bg-brand-primary" />
+                Today (data date)
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <svg width="24" height="6" aria-hidden="true">
+                  <line
+                    x1="1"
+                    y1="3"
+                    x2="23"
+                    y2="3"
+                    strokeWidth="1"
+                    strokeDasharray="0.5 4"
+                    strokeLinecap="round"
+                    style={{ stroke: leaderColor }}
+                  />
+                </svg>
+                Row guide
+              </span>
+            </div>
           </div>
 
           {/* Critical-path summary box (issue 1437): the ordered driving chain in a
@@ -534,11 +770,14 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               data-print-vmark="cp"
               className="mt-3 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2"
             >
+              {/* whitespace-nowrap on both: there is always ample width, and without it
+                  html-to-image can re-measure the uppercase/tracked title as one line but
+                  paint it as two, overlapping the first list row (issue 1686). */}
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
+                <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
                   Critical path chain
                 </span>
-                <span className="text-xs text-neutral-text-secondary">
+                <span className="whitespace-nowrap text-xs text-neutral-text-secondary">
                   {cpChain.length} {cpChain.length === 1 ? 'activity drives' : 'activities drive'}{' '}
                   the finish date
                 </span>

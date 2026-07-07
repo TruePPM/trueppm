@@ -149,9 +149,73 @@ export function barFillClass(band: SchedulePrintRiskBand): string {
   return roleBgClass(barRoleForRiskBand(band));
 }
 
-/** Tailwind `bg-` fill class for a milestone diamond by met/pending state. */
-export function milestoneFillClass(met: boolean): string {
-  return roleBgClass(met ? 'milestoneMet' : 'milestonePending');
+/**
+ * Bar-border frame class (color + width) for a risk band.
+ *
+ * On the print surface the risk band drives the bar's BORDER, not its fill —
+ * the interior fill is progress (green), so a completed critical task keeps its
+ * red frame instead of being overpainted solid green (ADR-0277). Critical and
+ * at-risk use a 2px border: it is the meaningful graphical object and clears
+ * WCAG 1.4.11 (≥3:1) against the white sheet (critical red 5.9:1). On-track uses
+ * a 1px neutral hairline so healthy bars recede and the red chain reads first.
+ * The red-vs-green *interior* boundary is only ~1.6:1, so critical does not rely
+ * on the frame alone — it is backed non-color by the row-label dot + the CP chain
+ * (WCAG 1.4.1), and at-risk is backed by the diagonal hatch ({@link hatchBackgroundStyle}).
+ * Literal class strings so Tailwind's content scanner emits the CSS.
+ */
+const ROLE_BORDER_CLASS: Record<SchedulePrintRiskBand, string> = {
+  critical: 'border-2 border-semantic-critical',
+  'at-risk': 'border-2 border-semantic-at-risk',
+  // A 1px neutral-text-secondary (#6B6965, ~5:1 on white) hairline, not the fainter
+  // neutral-border — an on-track bar is still data and must clear WCAG 1.4.11 (≥3:1)
+  // as a graphical object even at 0% progress. It stays recessive vs the 2px colored
+  // frames so the red critical chain reads first.
+  'on-track': 'border border-neutral-text-secondary',
+};
+
+/** Bar-border frame class (color + width) for a risk band (ADR-0277). */
+export function barBorderClass(band: SchedulePrintRiskBand): string {
+  return ROLE_BORDER_CLASS[band];
+}
+
+/**
+ * Inline-`style` value for the "behind schedule" diagonal-hatch bar overlay.
+ *
+ * A `repeating-linear-gradient` of 1px neutral-ink lines at a 45°, 4px pitch. It
+ * is a `background-image` on a `<div>` (NOT an SVG stroke), so html-to-image
+ * rasterizes it reliably — rule 232 (dropped class-stroke on `<path>`) does not
+ * apply to div backgrounds. CSS-var, no hex literal → design-system-v2 gate stays
+ * green. The hatch is the grayscale-/deutan-safe carrier of "slipping" (WCAG 1.4.1),
+ * composing on top of ANY border color, so a critical-and-behind bar reads as a
+ * red frame with a hatch (ADR-0277).
+ */
+export function hatchBackgroundStyle(): { backgroundImage: string } {
+  return {
+    backgroundImage:
+      'repeating-linear-gradient(45deg, rgb(var(--neutral-text-primary)) 0, rgb(var(--neutral-text-primary)) 1px, transparent 1px, transparent 4px)',
+  };
+}
+
+/**
+ * Diamond classes for a milestone by met/pending, with an overdue variant.
+ *
+ * Met = FILLED amber (brand-accent); pending = HOLLOW. The filled-vs-hollow SHAPE cue
+ * (not amber-vs-amber) is what makes met/pending distinguishable in grayscale and
+ * resolves the #1686 color-only gap. Both carry a **navy `neutral-text-primary`
+ * outline**, NOT an amber one: the static `brand-accent` (#E8A020) is only ~2.2:1 on
+ * the white sheet, below the WCAG 1.4.11 3:1 floor for a content-bearing mark, so it
+ * is the fill only, never the sole boundary of the diamond (navy is ~12.6:1). An
+ * overdue (pending + past) milestone is HOLLOW with a 2px `semantic-critical` outline;
+ * the layout adds a `!` glyph beside it as the non-color signal (ADR-0277).
+ */
+const MILESTONE_MET_CLASS = 'bg-brand-accent border border-neutral-text-primary';
+const MILESTONE_PENDING_CLASS = 'bg-transparent border border-neutral-text-primary';
+const MILESTONE_OVERDUE_CLASS = 'bg-transparent border-2 border-semantic-critical';
+
+/** Diamond classes for a milestone by met/pending/overdue state (ADR-0277). */
+export function milestoneDiamondClasses(met: boolean, overdue: boolean): string {
+  if (met) return MILESTONE_MET_CLASS;
+  return overdue ? MILESTONE_OVERDUE_CLASS : MILESTONE_PENDING_CLASS;
 }
 
 /**

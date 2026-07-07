@@ -3,9 +3,11 @@ import {
   buildSchedulePrintData,
   compareWbs,
   classifyLinkHardness,
+  isRowOverdue,
   orderLinksForPaint,
   labelIndentPx,
   scheduleContentSha,
+  type SchedulePrintRow,
   MAX_INDENT_LEVELS,
   LABEL_INDENT_BASE_PX,
   LABEL_INDENT_STEP_PX,
@@ -155,6 +157,78 @@ describe('buildSchedulePrintData — risk band', () => {
   it('defaults to on-track when no risk signal is present', () => {
     const data = build({ tasks: [task('a', { totalFloat: 4, spiBand: 'on_track' })] });
     expect(data.rows[0].riskBand).toBe('on-track');
+  });
+
+  it('sets isBehind independently of critical so a critical-and-slipping bar can hatch', () => {
+    const data = build({
+      tasks: [
+        // Critical AND behind: band is 'critical' (precedence), but isBehind stays true
+        // so the print surface draws a red frame + hatch (ADR-0277).
+        task('cb', { wbs: '1', isCritical: true, totalFloat: -2 }),
+        // Critical, on schedule: no hatch.
+        task('c', { wbs: '2', isCritical: true, totalFloat: 5, spiBand: 'on_track' }),
+        // On-track: no hatch.
+        task('ok', { wbs: '3', totalFloat: 3 }),
+      ],
+    });
+    expect(data.rows.map((r) => [r.riskBand, r.isBehind])).toEqual([
+      ['critical', true],
+      ['critical', false],
+      ['on-track', false],
+    ]);
+  });
+});
+
+describe('isRowOverdue', () => {
+  const row = (o: Partial<SchedulePrintRow> = {}): SchedulePrintRow => ({
+    id: 't',
+    wbsCode: '1',
+    depth: 1,
+    indentLevel: 1,
+    kind: 'task',
+    name: 't',
+    owner: null,
+    ownerInitials: null,
+    start: '2026-04-01',
+    finish: '2026-04-10',
+    pctComplete: 0,
+    isCritical: false,
+    isBehind: false,
+    totalFloat: null,
+    riskBand: 'on-track',
+    isMilestone: false,
+    milestoneMet: null,
+    ...o,
+  });
+
+  it('is false when there is no data date (no "now" to be past)', () => {
+    expect(isRowOverdue(row({ finish: '2026-04-10' }), null)).toBe(false);
+    expect(isRowOverdue(row({ finish: '2026-04-10' }), undefined)).toBe(false);
+  });
+
+  it('marks an incomplete task whose finish is before the data date', () => {
+    expect(isRowOverdue(row({ finish: '2026-04-10', pctComplete: 40 }), '2026-04-15')).toBe(true);
+  });
+
+  it('does not mark a completed task, even past its finish', () => {
+    expect(isRowOverdue(row({ finish: '2026-04-10', pctComplete: 100 }), '2026-04-15')).toBe(false);
+  });
+
+  it('does not mark a task whose finish is on or after the data date', () => {
+    expect(isRowOverdue(row({ finish: '2026-04-15', pctComplete: 0 }), '2026-04-15')).toBe(false);
+    expect(isRowOverdue(row({ finish: '2026-04-20', pctComplete: 0 }), '2026-04-15')).toBe(false);
+  });
+
+  it('marks a pending milestone whose date has passed, but never a met one', () => {
+    const ms = { isMilestone: true, finish: '2026-04-10', start: '2026-04-10' };
+    expect(isRowOverdue(row({ ...ms, milestoneMet: false }), '2026-04-15')).toBe(true);
+    expect(isRowOverdue(row({ ...ms, milestoneMet: true }), '2026-04-15')).toBe(false);
+  });
+
+  it('compares on the date component only (ignores a stored time)', () => {
+    expect(isRowOverdue(row({ finish: '2026-04-14T23:00:00Z', pctComplete: 0 }), '2026-04-15')).toBe(
+      true,
+    );
   });
 });
 

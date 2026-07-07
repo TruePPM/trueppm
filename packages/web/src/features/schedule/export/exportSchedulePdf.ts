@@ -27,6 +27,15 @@ export type SchedulePaper = 'letter' | 'a4';
 /** Rasterizer sampling ratio — CSS px × this = source image px (crisp labels). */
 const PIXEL_RATIO = 2;
 
+/**
+ * Bottom band (PDF points) reserved on every page of a multi-page vertical report
+ * so content never runs into the page furniture (issue 1686). The band holds a
+ * hairline "content ends here" rule, a centered "continued on next page" caption on
+ * every page but the last, and the bottom-right "Page n of N" counter — which used to
+ * collide with content running to the page edge.
+ */
+const RESERVED_FOOTER_PT = 36;
+
 export interface ExportProgress {
   /** Coarse phase label for the activity counter. */
   phase: 'rasterize' | 'paginate' | 'finalize';
@@ -125,6 +134,36 @@ function drawSheetCaption(pdf: unknown, caption: string, pageW: number, pageH: n
   p.setFontSize?.(8);
   p.setTextColor?.(120, 120, 120);
   p.text(caption, pageW - 6, pageH - 6, { align: 'right' });
+}
+
+/**
+ * Stamp the reserved-band "continued" footer on a non-final page of a vertical report
+ * (issue 1686): a hairline rule at the band's top that visually seals "content ends
+ * here", and a centered "continued on next page" caption. Kept plain ASCII so it
+ * renders in jsPDF's standard font without a missing-glyph box. Both are REAL PDF text
+ * / vector, drawn clear of the bottom-right "Page n of N" counter. `typeof`-guarded so
+ * the jsPDF test double is unaffected.
+ */
+function drawContinuedFooter(pdf: unknown, pageW: number, pageH: number): void {
+  const p = pdf as {
+    text?: (t: string, x: number, y: number, opts?: unknown) => void;
+    setFontSize?: (n: number) => void;
+    setTextColor?: (r: number, g: number, b: number) => void;
+    line?: (x1: number, y1: number, x2: number, y2: number) => void;
+    setDrawColor?: (r: number, g: number, b: number) => void;
+    setLineWidth?: (n: number) => void;
+  };
+  if (typeof p.text !== 'function') return;
+  if (typeof p.line === 'function') {
+    p.setDrawColor?.(200, 200, 200);
+    p.setLineWidth?.(0.5);
+    p.line(24, pageH - RESERVED_FOOTER_PT, pageW - 24, pageH - RESERVED_FOOTER_PT);
+  }
+  p.setFontSize?.(8);
+  p.setTextColor?.(120, 120, 120);
+  // Centered near the band's mid-line; the page counter sits far to the right at
+  // pageH-6, so the two never overlap (~270pt clear gap on Letter).
+  p.text('continued on next page', pageW / 2, pageH - 20, { align: 'center' });
 }
 
 /**
@@ -230,9 +269,11 @@ function paginateVerticalReport(
   },
 ): ExportResult | null {
   const { paper, pageW, pageH, fileName, signal, onProgress } = opts;
-  // Fit the full sheet width to the page; the body-height budget is one page in img px.
+  // Fit the full sheet width to the page; the body-height budget is one page MINUS the
+  // reserved footer band (issue 1686), in img px — so content never runs into the
+  // hairline/continued/counter furniture at the page bottom.
   const scale = pageW / img.width;
-  const pageBodyPx = pageH / scale;
+  const pageBodyPx = (pageH - RESERVED_FOOTER_PT) / scale;
   const pages = planVerticalPages(geom, pageBodyPx);
 
   // Whole report fits one page → place the bitmap directly (no canvas round-trip, no
@@ -272,6 +313,9 @@ function paginateVerticalReport(
     if (page.header?.kind === 'cp') drawCpContinuedHeader(pdf, headerH * scale);
     placed += 1;
     drawSheetCaption(pdf, pageLabel(placed, total), pageW, pageH);
+    // Seal every non-final page with the reserved-band hairline + centered
+    // "continued on next page" caption (issue 1686).
+    if (placed < total) drawContinuedFooter(pdf, pageW, pageH);
     onProgress?.({ phase: 'paginate', done: placed, total });
   }
 

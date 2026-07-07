@@ -84,6 +84,40 @@ export interface VerticalPage {
  */
 export const CP_CONTINUED_HEADER_PX = 52;
 
+/**
+ * Never strand fewer than this many Gantt rows alone on a continuation page (issue
+ * 1686). When filling a page maximally would leave a tiny remainder of Gantt rows,
+ * the planner backs the break off to an earlier row boundary so the next page keeps
+ * at least this many — a widow/orphan control, not a rescale (the fixed print scale
+ * is deliberate; bars stay the same size on every page).
+ */
+export const MIN_GANTT_ORPHAN_ROWS = 3;
+
+/**
+ * Back a chosen break off to avoid stranding `< minRows` Gantt rows on the next page.
+ *
+ * Only acts when `next` lands strictly inside the Gantt rows region (so more rows
+ * follow). If the remainder below `next` is a small orphan, it pulls the break to the
+ * largest earlier row boundary that still lies past the cursor, so the continuation
+ * page keeps `>= minRows`. Best-effort: if no earlier boundary exists, the original
+ * break stands (accept the orphan rather than loop).
+ */
+function avoidGanttOrphan(
+  next: number,
+  cursor: number,
+  breaks: number[],
+  geom: VerticalFlowGeometry,
+  minRows: number,
+): number {
+  const { ganttRows } = geom;
+  if (!(next > ganttRows.top && next < ganttRows.bottom)) return next;
+  const rowsLeft = Math.round((ganttRows.bottom - next) / ganttRows.rowH);
+  if (rowsLeft <= 0 || rowsLeft >= minRows) return next;
+  const target = next - (minRows - rowsLeft) * ganttRows.rowH;
+  const candidates = breaks.filter((b) => b > cursor && b <= target);
+  return candidates.length > 0 ? candidates[candidates.length - 1] : next;
+}
+
 /** Sorted-ascending unique numbers, dropping values outside `(0, imageHeight]`. */
 function safeBreaks(geom: VerticalFlowGeometry): number[] {
   const { imageHeightPx, ganttRows, cp, footerTop } = geom;
@@ -140,12 +174,22 @@ export function planVerticalPages(
   pageBodyPx: number,
 ): VerticalPage[] {
   const end = Math.round(geom.imageHeightPx);
-  const breaks = safeBreaks(geom);
+  let breaks = safeBreaks(geom);
   const pages: VerticalPage[] = [];
 
   let cursor = 0;
   // Guard against a pathological zero/negative page budget (degenerate geometry).
   const bodyBudget = Math.max(1, pageBodyPx);
+
+  // Keep the critical-path card whole when it fits one page: drop the interior CP-list
+  // break candidates so the greedy planner can only start the whole card on a fresh
+  // page or push it there entirely — never split it and leave 1-2 CP rows alone on the
+  // next page (the user's "page 2 had only 2 CP rows" report, issue 1686). Its outer
+  // boundaries (`headerTop`, `rowsBottom`) stay so the card can still start a page.
+  const cp = geom.cp;
+  if (cp && cp.rowsBottom - cp.headerTop <= bodyBudget) {
+    breaks = breaks.filter((b) => !(b > cp.headerTop && b < cp.rowsBottom));
+  }
 
   while (cursor < end) {
     const header = cursor === 0 ? null : headerForCursor(cursor, geom);
@@ -156,10 +200,12 @@ export function planVerticalPages(
     // the cursor (a single unit taller than a page — impossible at row heights, but
     // never loop forever); else the report end.
     const fitting = breaks.filter((b) => b > cursor && b <= limit);
-    const next =
+    const chosen =
       fitting.length > 0
         ? fitting[fitting.length - 1]
         : (breaks.find((b) => b > cursor) ?? end);
+    // Widow/orphan guard: don't strand a tiny remainder of Gantt rows on the next page.
+    const next = avoidGanttOrphan(chosen, cursor, breaks, geom, MIN_GANTT_ORPHAN_ROWS);
 
     pages.push({ sy: cursor, sh: next - cursor, header });
     cursor = next;

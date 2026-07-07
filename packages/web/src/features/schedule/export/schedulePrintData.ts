@@ -44,6 +44,15 @@ export interface SchedulePrintRow {
   /** 0–100. */
   pctComplete: number;
   isCritical: boolean;
+  /**
+   * True when the task is behind schedule (negative float, a 'behind'/'at_risk' SPI
+   * band, or a positive schedule variance) — the same signal that drives an at-risk
+   * band, but kept as its own flag because a CRITICAL task's `riskBand` is 'critical'
+   * (precedence), which would otherwise hide that it is also slipping. The print
+   * surface textures a behind bar with a diagonal hatch on top of ANY border color,
+   * so a critical-and-slipping bar reads as "red frame + hatch" (ADR-0277).
+   */
+  isBehind: boolean;
   /** Total float in working days from CPM; null until CPM runs. */
   totalFloat: number | null;
   riskBand: SchedulePrintRiskBand;
@@ -186,20 +195,53 @@ export function orderLinksForPaint(links: SchedulePrintLink[]): SchedulePrintLin
 }
 
 /**
- * Derive the bar coloring band from CPM/baseline signals already on the task.
- *
- * Precedence (highest wins): critical-path membership → at-risk (negative float,
- * a 'behind'/'at_risk' SPI band, or a positive schedule variance) → on-track. The
- * print artifact recolors bars by risk rather than the canvas's ambient blue so a
- * client reads schedule health at a glance.
+ * Whether the task is behind schedule, independent of critical-path membership:
+ * negative float, a 'behind'/'at_risk' SPI band, or a positive schedule variance.
+ * Drives both the at-risk band and the diagonal-hatch texture (ADR-0277) — the
+ * hatch is what conveys "slipping" on a bar whose border already carries a
+ * different band (a critical-and-behind bar is red-framed AND hatched).
  */
-function riskBandFor(task: Task): SchedulePrintRiskBand {
-  if (task.isCritical) return 'critical';
+function isTaskBehind(task: Task): boolean {
   const negativeFloat = task.totalFloat != null && task.totalFloat < 0;
   const behind = task.spiBand === 'behind' || task.spiBand === 'at_risk';
   const slipping = task.scheduleVarianceDays != null && task.scheduleVarianceDays > 0;
-  if (negativeFloat || behind || slipping) return 'at-risk';
+  return negativeFloat || behind || slipping;
+}
+
+/**
+ * Derive the bar coloring band from CPM/baseline signals already on the task.
+ *
+ * Precedence (highest wins): critical-path membership → at-risk (behind schedule) →
+ * on-track. On the print surface this band drives the bar BORDER color (never the
+ * fill, which is progress), so a completed critical task keeps its red frame instead
+ * of being masked by the green progress fill (ADR-0277).
+ */
+function riskBandFor(task: Task): SchedulePrintRiskBand {
+  if (task.isCritical) return 'critical';
+  if (isTaskBehind(task)) return 'at-risk';
   return 'on-track';
+}
+
+/**
+ * Whether a row is overdue: past its finish and not complete. Overdue is a shape
+ * signal (a past-due flag + a dashed overrun tail to the data date), not a fourth
+ * color, because red already means critical (ADR-0277). Dates compare as
+ * YYYY-MM-DD strings (a stored time component can't drift a same-day boundary).
+ *
+ * - Task: `finish < dataDate` AND `pctComplete < 100`.
+ * - Milestone: pending (not met) AND its date has passed.
+ *
+ * Returns false when there is no data date (no "now" to be past), so an export
+ * without a data-date line never marks anything overdue.
+ */
+export function isRowOverdue(row: SchedulePrintRow, dataDate: string | null | undefined): boolean {
+  if (!dataDate) return false;
+  const dd = dataDate.slice(0, 10);
+  if (row.isMilestone) {
+    const on = (row.finish ?? row.start)?.slice(0, 10);
+    return !row.milestoneMet && on != null && on < dd;
+  }
+  return row.finish != null && row.pctComplete < 100 && row.finish.slice(0, 10) < dd;
 }
 
 function toPrintRow(task: Task): SchedulePrintRow {
@@ -223,6 +265,7 @@ function toPrintRow(task: Task): SchedulePrintRow {
     finish: task.finish || null,
     pctComplete: task.progress,
     isCritical: task.isCritical,
+    isBehind: isTaskBehind(task),
     totalFloat: task.totalFloat ?? null,
     riskBand: riskBandFor(task),
     isMilestone: task.isMilestone,

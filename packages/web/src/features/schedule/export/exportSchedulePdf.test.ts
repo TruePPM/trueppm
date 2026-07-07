@@ -332,6 +332,33 @@ describe('exportSchedulePdf — row-aware vertical pagination (issue 1694)', () 
     expect(save).toHaveBeenCalledWith('tall.pdf');
   });
 
+  it('stamps a centered "continued on next page" caption on every page but the last', async () => {
+    // Same tall-Gantt geometry as above → multiple pages. The reserved footer band
+    // hosts the centered continuation caption on non-final pages (issue 1686).
+    stubImage(1000, 1800);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const node = vflowNode(
+      30,
+      4,
+      {
+        gantt: [45, 400],
+        'gantt-rows': [63, 820],
+        cp: [825, 900],
+        'cp-list': [840, 880],
+        footer: [885, 895],
+      },
+      900,
+    );
+
+    const result = await exportSchedulePdf(node, { fileName: 'tall.pdf' });
+
+    // Centered continuation caption fires (align center), and once per non-final page.
+    const continuedCalls = text.mock.calls.filter((c) => c[0] === 'continued on next page');
+    expect(continuedCalls.length).toBe(result.pageCount - 1);
+    expect(continuedCalls[0][3]).toMatchObject({ align: 'center' });
+  });
+
   it('stamps a "Critical Path Chain (Continued)" header when the CP list overflows', async () => {
     // Small Gantt, huge CP list (300..1700 img px) → the CP chain spans pages and the
     // continuation gets the running text header.
