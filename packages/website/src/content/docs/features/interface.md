@@ -68,11 +68,19 @@ the team" wall rather than a number when the team's privacy policy withholds it.
 
 The view tabs are grouped into **PLAN · TRACK · PEOPLE** so related surfaces sit
 together, and the set adapts to methodology — an agile project doesn't show the
-Gantt-centric tabs a waterfall project leads with, and vice-versa. **Overview**
-always leads and **Settings** always trails. You can further tailor the bar with
-**Customize views** (hide the tabs you don't use); hidden views stay reachable
-from the command palette. See [View focus](/features/view-focus/) for the
-role-based lens that re-orders and re-points these surfaces for you.
+Gantt-centric tabs a waterfall project leads with, and vice-versa. On agile and
+hybrid projects a **Deliver** group co-locates the sprint circuit (Backlog →
+Sprints → Board). **Overview** always leads and **Settings** always trails. You can
+further tailor the bar with **Customize views** (hide the tabs you don't use);
+hidden views stay reachable from the command palette.
+
+**Customize views** also carries an opt-in to *additionally* surface the
+**Schedule** under **Deliver**, for hybrid teams who want the plan sitting next to
+the sprint cadence. It is off by default — Schedule stays in **Plan** for everyone
+who doesn't opt in — and it is purely a placement of the nav tab: it never changes
+your rollups, reports, or exports, and it only ever tailors *your own* view, not a
+teammate's. See [View focus](/features/view-focus/) for the role-based lens that
+re-orders and re-points these surfaces for you.
 
 ## Role-based landing
 

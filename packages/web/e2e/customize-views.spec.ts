@@ -64,7 +64,7 @@ test.describe('Customize views (ADR-0139)', () => {
     await page.getByRole('button', { name: 'Customize views', exact: true }).click();
     const menu = page.getByRole('menu', { name: 'Customize views' });
     await expect(menu).toBeVisible();
-    const scheduleRow = menu.getByRole('menuitemcheckbox', { name: /Schedule/ });
+    const scheduleRow = menu.getByRole('menuitemcheckbox', { name: 'Schedule', exact: true });
     await expect(scheduleRow).toHaveAttribute('aria-checked', 'false');
     // Overview is shown but is not a toggle.
     await expect(menu.getByText('Overview')).toBeVisible();
@@ -84,7 +84,7 @@ test.describe('Customize views (ADR-0139)', () => {
     await page.getByRole('button', { name: 'Customize views', exact: true }).click();
     await page
       .getByRole('menu', { name: 'Customize views' })
-      .getByRole('menuitemcheckbox', { name: /Schedule/ })
+      .getByRole('menuitemcheckbox', { name: 'Schedule', exact: true })
       .click();
 
     const body = (await patch).postDataJSON() as { hidden_views: string[] };
@@ -100,5 +100,47 @@ test.describe('Customize views (ADR-0139)', () => {
       .getByRole('menuitem', { name: /Reset to .* default/ });
     await expect(reset).toBeVisible();
     await expect(reset).toBeDisabled();
+  });
+
+  // --- Schedule-in-Deliver placement opt-in (#1645) ------------------------
+
+  test('the Schedule-in-Deliver placement opt-in surfaces Schedule under Deliver and PATCHes the flag', async ({
+    page,
+  }) => {
+    // HYBRID fixture, nothing hidden → the placement opt-in is offered and off.
+    await setup(page, []);
+    await page.goto(`${BASE_URL}/board`);
+
+    // The nav renders (Schedule present in Plan) before we touch the menu — gate
+    // on it so the interaction isn't racing the page's data reads.
+    const nav = page.getByRole('navigation', { name: 'View' });
+    await expect(nav.getByRole('link', { name: 'Schedule' })).toBeVisible();
+
+    const patch = page.waitForRequest(
+      (req) => req.url().includes('/auth/me/profile/') && req.method() === 'PATCH',
+    );
+    await page.getByRole('button', { name: 'Customize views', exact: true }).click();
+    const menu = page.getByRole('menu', { name: 'Customize views' });
+    const placement = menu.getByRole('menuitemcheckbox', {
+      name: /Also show Schedule under Deliver/,
+    });
+    await expect(placement).toHaveAttribute('aria-checked', 'false');
+    await placement.click();
+
+    const body = (await patch).postDataJSON() as { schedule_in_deliver: boolean };
+    expect(body.schedule_in_deliver).toBe(true);
+  });
+
+  test('the placement opt-in is absent when Schedule is personally hidden (no dead toggle)', async ({
+    page,
+  }) => {
+    await setup(page, ['schedule']);
+    await page.goto(`${BASE_URL}/board`);
+    await page.getByRole('button', { name: 'Customize views', exact: true }).click();
+    const menu = page.getByRole('menu', { name: 'Customize views' });
+    await expect(menu).toBeVisible();
+    await expect(
+      menu.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/ }),
+    ).toHaveCount(0);
   });
 });

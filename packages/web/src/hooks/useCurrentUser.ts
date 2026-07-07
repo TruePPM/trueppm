@@ -69,6 +69,13 @@ export interface CurrentUser {
    * shell can reflect/respect the stored lens without a flash of the wrong view.
    */
   role_context: RoleContext;
+  /**
+   * Per-user Schedule-in-Deliver placement opt-in (ADR-0203, #1645) — `false` if
+   * unset. When true the shell *additionally* surfaces Schedule under Deliver
+   * (display-only, never affects rollups/reports/exports). Writable via
+   * PATCH /auth/me/profile/.
+   */
+  schedule_in_deliver: boolean;
 }
 
 /**

@@ -93,4 +93,36 @@ describe('useGroupedProjectViews', () => {
     expect(result.current.labelFor('activity')).toBe('Activity');
     expect(result.current.labelFor('assets')).toBe('Assets');
   });
+
+  it('echoes Schedule into DELIVER on HYBRID when the user opts in (#1645)', () => {
+    mockUseCurrentUser.mockReturnValueOnce({
+      user: { hidden_views: [], role_context: 'unified', schedule_in_deliver: true },
+      isLoading: false,
+    });
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    const plan = result.current.groups.find((g) => g.id === 'PLAN');
+    const deliver = result.current.groups.find((g) => g.id === 'DELIVER');
+    // Schedule stays in Plan AND additionally appears in Deliver — display-only,
+    // routing to the same segment. The sprint trio stays contiguous (append).
+    expect(plan?.visibleViews).toContain('schedule');
+    expect(deliver?.visibleViews).toContain('schedule');
+    expect(deliver?.visibleViews.slice(0, 3)).toEqual(['product-backlog', 'sprints', 'board']);
+  });
+
+  it('does NOT echo Schedule into DELIVER when the opt-in is off (calm default)', () => {
+    // Default mock has no schedule_in_deliver → false.
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    const deliver = result.current.groups.find((g) => g.id === 'DELIVER');
+    expect(deliver?.visibleViews).not.toContain('schedule');
+  });
+
+  it('never resurrects a personally-hidden Schedule via the Deliver opt-in (#1645)', () => {
+    mockUseCurrentUser.mockReturnValueOnce({
+      user: { hidden_views: ['schedule'], role_context: 'unified', schedule_in_deliver: true },
+      isLoading: false,
+    });
+    const { result } = renderHook(() => useGroupedProjectViews('p1'));
+    // Hidden wins: Schedule appears in neither Plan nor Deliver.
+    expect(allViews(result.current.groups)).not.toContain('schedule');
+  });
 });

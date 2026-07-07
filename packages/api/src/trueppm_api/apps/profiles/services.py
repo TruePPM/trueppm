@@ -217,24 +217,32 @@ def get_hidden_views(user: Any) -> list[str]:
     return list(profile.hidden_views) if profile is not None else []
 
 
-def get_profile_prefs(user: Any) -> tuple[str, list[str], str]:
-    """All app preferences in one row read — ``(default_landing, hidden_views, role_context)``.
+def get_profile_prefs(user: Any) -> tuple[str, list[str], str, bool]:
+    """All app preferences in one row read — ``(default_landing, hidden_views,
+    role_context, schedule_in_deliver)``.
 
-    ``/auth/me/`` surfaces all three fields, so reading them together (one
+    ``/auth/me/`` surfaces all four fields, so reading them together (one
     ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
-    the defaults (``AUTO``, ``[]``, ``UNIFIED``) when the user has no profile row
-    yet — ``role_context`` defaults to the neutral dual-hat lens (#412, ADR-0162),
-    matching the model default so an unconfigured user reads as "Unified Today".
+    the defaults (``AUTO``, ``[]``, ``UNIFIED``, ``False``) when the user has no
+    profile row yet — ``role_context`` defaults to the neutral dual-hat lens (#412,
+    ADR-0162) and ``schedule_in_deliver`` to off (ADR-0203, #1645), matching the
+    model defaults so an unconfigured user reads as "Unified Today" with the calm
+    Schedule-in-Plan-only default.
     """
 
     profile = (
         UserProfile.objects.filter(user=user)
-        .only("default_landing", "hidden_views", "role_context")
+        .only("default_landing", "hidden_views", "role_context", "schedule_in_deliver")
         .first()
     )
     if profile is None:
-        return DefaultLanding.AUTO, [], RoleContext.UNIFIED
-    return profile.default_landing, list(profile.hidden_views), profile.role_context
+        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, False
+    return (
+        profile.default_landing,
+        list(profile.hidden_views),
+        profile.role_context,
+        profile.schedule_in_deliver,
+    )
 
 
 _UNSET: Any = object()

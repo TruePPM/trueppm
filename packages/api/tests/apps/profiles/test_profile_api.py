@@ -200,3 +200,61 @@ def test_user_can_only_touch_own_role_context() -> None:
     # Bob's profile is untouched (defaults to unified), Alice's is pm.
     assert _client(bob).get(URL).data["role_context"] == RoleContext.UNIFIED
     assert UserProfile.objects.get(user=alice).role_context == "pm"
+
+
+# --- schedule_in_deliver (ADR-0203, #1645) ----------------------------------
+
+
+@pytest.mark.django_db
+def test_get_profile_lazily_returns_schedule_in_deliver_false() -> None:
+    """A fresh profile defaults to the calm Schedule-in-Plan-only placement."""
+    user = User.objects.create_user(username="sid_lazy", password="pw")
+    resp = _client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["schedule_in_deliver"] is False
+
+
+@pytest.mark.django_db
+def test_patch_sets_schedule_in_deliver() -> None:
+    user = User.objects.create_user(username="sid_set", password="pw")
+    resp = _client(user).patch(URL, {"schedule_in_deliver": True}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["schedule_in_deliver"] is True
+    assert UserProfile.objects.get(user=user).schedule_in_deliver is True
+
+
+@pytest.mark.django_db
+def test_patch_schedule_in_deliver_round_trips_back_off() -> None:
+    user = User.objects.create_user(username="sid_off", password="pw")
+    c = _client(user)
+    c.patch(URL, {"schedule_in_deliver": True}, format="json")
+    resp = c.patch(URL, {"schedule_in_deliver": False}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["schedule_in_deliver"] is False
+    assert UserProfile.objects.get(user=user).schedule_in_deliver is False
+
+
+@pytest.mark.django_db
+def test_patch_schedule_in_deliver_does_not_clobber_other_prefs() -> None:
+    """A partial PATCH of the placement opt-in leaves the other prefs alone."""
+    user = User.objects.create_user(username="sid_partial", password="pw")
+    c = _client(user)
+    c.patch(URL, {"default_landing": "my_work"}, format="json")
+    c.patch(URL, {"hidden_views": ["board"]}, format="json")
+    c.patch(URL, {"schedule_in_deliver": True}, format="json")
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == "my_work"
+    assert profile.hidden_views == ["board"]
+    assert profile.schedule_in_deliver is True
+
+
+@pytest.mark.django_db
+def test_user_can_only_touch_own_schedule_in_deliver() -> None:
+    """No :id in the path — a user's PATCH only ever writes their own row."""
+    alice = User.objects.create_user(username="sid_alice", password="pw")
+    bob = User.objects.create_user(username="sid_bob", password="pw")
+    _client(alice).patch(URL, {"schedule_in_deliver": True}, format="json")
+
+    # Bob's profile is untouched (defaults to False), Alice's is True.
+    assert _client(bob).get(URL).data["schedule_in_deliver"] is False
+    assert UserProfile.objects.get(user=alice).schedule_in_deliver is True
