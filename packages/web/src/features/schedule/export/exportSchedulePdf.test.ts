@@ -255,6 +255,122 @@ describe('exportSchedulePdf — cancellation', () => {
   });
 });
 
+describe('exportSchedulePdf — row-aware vertical pagination (issue 1694)', () => {
+  /** A DOMRect stub carrying only the fields readVFlowGeometry reads. */
+  function rectAt(top: number, bottom: number): DOMRect {
+    return {
+      top,
+      bottom,
+      height: bottom - top,
+      left: 0,
+      right: 0,
+      width: 0,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  /**
+   * Build a print-surface node with the `data-print-vmark` markers + row counts and
+   * stubbed rects (CSS px; the rasterizer ×2's them). No horizontal band geometry is
+   * stamped, so the export takes the single-column vertical path.
+   */
+  function vflowNode(
+    ganttRowCount: number,
+    cpRowCount: number | null,
+    rects: Record<string, [number, number]>,
+    rootBottom: number,
+  ): HTMLElement {
+    const root = document.createElement('div');
+    root.dataset.printGanttRowCount = String(ganttRowCount);
+    if (cpRowCount != null) root.dataset.printCpRowCount = String(cpRowCount);
+    root.getBoundingClientRect = () => rectAt(0, rootBottom);
+    for (const [mark, [top, bottom]] of Object.entries(rects)) {
+      const el = document.createElement('div');
+      el.dataset.printVmark = mark;
+      el.getBoundingClientRect = () => rectAt(top, bottom);
+      root.appendChild(el);
+    }
+    return root;
+  }
+
+  it('breaks a tall Gantt across pages, repeating the header, with "Page n of N"', async () => {
+    // Tall Gantt rows region (126..1640 img px) over a ~707px page body → 3 pages;
+    // continuation pages re-composite the Gantt header band (extra drawImage calls).
+    stubImage(1000, 1800);
+    const drawImage = vi.fn();
+    installFakeCanvas({ clearRect: vi.fn(), drawImage });
+
+    const node = vflowNode(
+      30,
+      4,
+      {
+        gantt: [45, 400],
+        'gantt-rows': [63, 820],
+        cp: [825, 900],
+        'cp-list': [840, 880],
+        footer: [885, 895],
+      },
+      900,
+    );
+
+    const result = await exportSchedulePdf(node, { fileName: 'tall.pdf' });
+
+    expect(result.pageCount).toBeGreaterThan(1);
+    expect(addPage).toHaveBeenCalled();
+    // A repeated Gantt header adds a second drawImage on each continuation page, so
+    // total draws exceed the page count.
+    expect(drawImage.mock.calls.length).toBeGreaterThan(result.pageCount);
+    // Real "Page n of N" caption on the first page.
+    expect(text).toHaveBeenCalledWith(
+      expect.stringMatching(/^Page 1 of \d+$/),
+      expect.any(Number),
+      expect.any(Number),
+      { align: 'right' },
+    );
+    expect(save).toHaveBeenCalledWith('tall.pdf');
+  });
+
+  it('stamps a "Critical Path Chain (Continued)" header when the CP list overflows', async () => {
+    // Small Gantt, huge CP list (300..1700 img px) → the CP chain spans pages and the
+    // continuation gets the running text header.
+    stubImage(1000, 1760);
+    installFakeCanvas({ clearRect: vi.fn(), drawImage: vi.fn() });
+
+    const node = vflowNode(
+      4,
+      40,
+      {
+        gantt: [45, 130],
+        'gantt-rows': [63, 130],
+        cp: [135, 850],
+        'cp-list': [150, 850],
+        footer: [855, 870],
+      },
+      880,
+    );
+
+    const result = await exportSchedulePdf(node, { fileName: 'cp.pdf' });
+
+    expect(result.pageCount).toBeGreaterThan(1);
+    expect(text).toHaveBeenCalledWith(
+      'Critical Path Chain (Continued)',
+      expect.any(Number),
+      expect.any(Number),
+    );
+  });
+
+  it('falls back to the plain path (no markers) so jsdom nodes still export one page', async () => {
+    // A bare node has no vmarks; getBoundingClientRect is 0 → vflow is null → the
+    // plain single-image path runs (the pre-existing behavior, no caption).
+    stubImage(800, 400);
+    const result = await exportSchedulePdf(document.createElement('div'), { fileName: 'bare.pdf' });
+    expect(result.pageCount).toBe(1);
+    expect(text).not.toHaveBeenCalled();
+  });
+});
+
 describe('scheduledPdfFileName', () => {
   it('slugifies the project name and appends the ISO day', () => {
     expect(scheduledPdfFileName('Apollo Program!', '2026-06-30T10:00:00Z')).toBe(

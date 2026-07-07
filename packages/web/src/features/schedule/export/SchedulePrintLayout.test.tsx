@@ -94,8 +94,35 @@ describe('SchedulePrintLayout', () => {
     expect(screen.getAllByText(/Design/).length).toBeGreaterThanOrEqual(1);
 
     // The FS link is re-projected as an SVG connector path + arrowhead polygon.
-    expect(container.querySelectorAll('svg path').length).toBeGreaterThanOrEqual(1);
-    expect(container.querySelectorAll('svg polygon').length).toBeGreaterThanOrEqual(1);
+    const paths = container.querySelectorAll('svg path');
+    const polys = container.querySelectorAll('svg polygon');
+    expect(paths.length).toBeGreaterThanOrEqual(1);
+    expect(polys.length).toBeGreaterThanOrEqual(1);
+
+    // Arrow ink is set via an inline-`style` CSS var, NOT a Tailwind stroke-/fill-
+    // class — html-to-image drops CSS-class strokes on SVG paths, so a class-based
+    // connector rasterizes as 0 ink while its arrowhead survives (issue 1694). It is
+    // charcoal (neutral ink), never the red critical token.
+    const path = paths[0] as SVGElement;
+    const poly = polys[0] as SVGElement;
+    expect(path.getAttribute('style')).toContain('var(--neutral-text-secondary)');
+    expect(poly.getAttribute('style')).toContain('var(--neutral-text-secondary)');
+    expect(path.getAttribute('class') ?? '').not.toContain('stroke-semantic-critical');
+    expect(poly.getAttribute('class') ?? '').not.toContain('fill-semantic-critical');
+  });
+
+  it('stamps the vertical-flow markers + row counts the paginator measures (issue 1694)', () => {
+    const { container } = render(<SchedulePrintLayout data={data()} />);
+    const root = container.firstChild as HTMLElement;
+    // Block markers the rasterizer measures for safe page breaks + repeated headers.
+    expect(container.querySelector('[data-print-vmark="gantt"]')).toBeTruthy();
+    expect(container.querySelector('[data-print-vmark="gantt-rows"]')).toBeTruthy();
+    expect(container.querySelector('[data-print-vmark="cp"]')).toBeTruthy();
+    expect(container.querySelector('[data-print-vmark="cp-list"]')).toBeTruthy();
+    expect(container.querySelector('[data-print-vmark="footer"]')).toBeTruthy();
+    // Row counts drive the per-row pitch (region height ÷ count).
+    expect(Number(root.dataset.printGanttRowCount)).toBe(3); // Design, Build, Launch
+    expect(Number(root.dataset.printCpRowCount)).toBe(2); // 2 critical activities
   });
 
   it('renders the critical-path summary box with the driving-chain framing', () => {

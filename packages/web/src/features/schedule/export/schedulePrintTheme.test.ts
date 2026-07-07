@@ -7,8 +7,7 @@ import {
   barRoleForRiskBand,
   barFillClass,
   milestoneFillClass,
-  arrowStrokeClass,
-  arrowFillClass,
+  arrowColorVar,
 } from './schedulePrintTheme';
 import type { SchedulePrintRiskBand } from './schedulePrintData';
 
@@ -69,7 +68,9 @@ describe('SCHEDULE_PRINT_ROLE_TOKENS map', () => {
     expect(printRoleToken('onTrackBar')).toBe('semantic-on-track');
     expect(printRoleToken('atRiskBar')).toBe('semantic-at-risk');
     expect(printRoleToken('sheetSurface')).toBe('white');
-    expect(printRoleToken('arrowHard')).toBe('semantic-critical');
+    // Arrows are charcoal regardless of hardness (ADR-0276): both map to the neutral
+    // ink token; hard vs soft is solid-vs-dashed at the call site, not a color.
+    expect(printRoleToken('arrowHard')).toBe('neutral-text-secondary');
     expect(printRoleToken('arrowSoft')).toBe('neutral-text-secondary');
   });
 });
@@ -91,16 +92,18 @@ describe('risk-band → bar role', () => {
   });
 });
 
-describe('milestone + arrow class composers', () => {
+describe('milestone + arrow composers', () => {
   it('selects met vs pending milestone fill', () => {
     expect(milestoneFillClass(true)).toBe('bg-brand-accent');
     expect(milestoneFillClass(false)).toBe('bg-semantic-at-risk');
   });
 
-  it('selects hard vs soft connector stroke and arrowhead fill', () => {
-    expect(arrowStrokeClass(true)).toBe('stroke-semantic-critical');
-    expect(arrowStrokeClass(false)).toBe('stroke-neutral-text-secondary');
-    expect(arrowFillClass(true)).toBe('fill-semantic-critical');
-    expect(arrowFillClass(false)).toBe('fill-neutral-text-secondary');
+  it('exposes the charcoal arrow color as an inline-style CSS-var value (not a class)', () => {
+    // Inline `style` value — html-to-image drops CSS-class strokes on SVG paths
+    // (issue 1694). CSS-var form keeps it single-sourced + hex-free (DS-v2 gate).
+    expect(arrowColorVar()).toBe('rgb(var(--neutral-text-secondary))');
+    expect(arrowColorVar()).not.toMatch(HEX);
+    // Not a Tailwind stroke-/fill- utility class.
+    expect(arrowColorVar()).not.toMatch(/^(stroke|fill)-/);
   });
 });
