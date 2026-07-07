@@ -80,7 +80,14 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
   { value: 'dark', label: 'Dark mode', icon: <MoonIcon /> },
 ];
 
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle({
+  className,
+  isMobile = false,
+}: {
+  className?: string;
+  /** Render 44px touch targets on the mobile bottom sheet (rule 5); compact on desktop. */
+  isMobile?: boolean;
+}) {
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
@@ -98,7 +105,9 @@ export function ThemeToggle({ className }: { className?: string }) {
           aria-pressed={theme === value}
           aria-label={label}
           className={[
-            'h-7 w-7 flex items-center justify-center text-xs',
+            // 44px touch target on the mobile bottom sheet (rule 5); compact on desktop.
+            isMobile ? 'min-h-[44px] min-w-[44px]' : 'h-7 w-7',
+            'flex items-center justify-center text-xs',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
             i === 0 ? 'rounded-l-control' : '',
             i === THEME_OPTIONS.length - 1 ? 'rounded-r-control' : 'border-r border-neutral-border',

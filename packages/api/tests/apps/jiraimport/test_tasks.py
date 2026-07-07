@@ -123,6 +123,90 @@ class TestImportJiraTaskHappyPath:
 
 
 @pytest.mark.django_db
+class TestImportJiraIdempotency:
+    """A re-dispatched / redelivered Jira import must not duplicate the network (#1673).
+
+    import_project is additive (wipe_existing=False), so a second delivery would
+    bulk-create the whole network again. The outbox row is claimed
+    (DISPATCHED -> DONE) inside the import transaction; a duplicate delivery finds
+    nothing to claim and skips the import.
+    """
+
+    def _kwargs(self, project: Project, req_id: str, b64: str) -> dict:
+        return {
+            "project_id": str(project.pk),
+            "file_content_b64": b64,
+            "filename": "chain.xml",
+            "import_request_id": req_id,
+        }
+
+    def test_redelivery_of_completed_request_skips_duplicate_import(self, project: Project) -> None:
+        from trueppm_api.apps.jiraimport.tasks import import_jira
+        from trueppm_api.apps.projects.models import Dependency, Task
+
+        b64 = base64.b64encode(CHAIN_EXPORT).decode("ascii")
+        req = JiraImportRequest.objects.create(
+            project=project,
+            filename="chain.xml",
+            file_content_b64=b64,
+            status=JiraImportStatus.DISPATCHED,
+        )
+
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+        ):
+            first = import_jira.apply(kwargs=self._kwargs(project, str(req.pk), b64))
+        assert first.successful(), first.result
+        assert first.result["tasks_created"] == 3
+        assert Task.objects.filter(project=project).count() == 3
+        deps_after_first = Dependency.objects.filter(successor__project=project).count()
+        req.refresh_from_db()
+        assert req.status == JiraImportStatus.DONE
+
+        # Redelivery of the same message (broker still carries the payload). The
+        # row is already DONE, so the claim wins nothing and the import is skipped.
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
+        ):
+            second = import_jira.apply(kwargs=self._kwargs(project, str(req.pk), b64))
+        assert second.successful(), second.result
+        assert second.result.get("skipped") is True
+        assert Task.objects.filter(project=project).count() == 3  # not 6
+        assert Dependency.objects.filter(successor__project=project).count() == deps_after_first
+
+    def test_import_failure_rolls_back_claim_and_leaves_row_dispatched(
+        self, project: Project
+    ) -> None:
+        from trueppm_api.apps.jiraimport.tasks import import_jira
+        from trueppm_api.apps.projects.models import Task
+
+        b64 = base64.b64encode(CHAIN_EXPORT).decode("ascii")
+        req = JiraImportRequest.objects.create(
+            project=project,
+            filename="chain.xml",
+            file_content_b64=b64,
+            status=JiraImportStatus.DISPATCHED,
+        )
+
+        # The import raises after the claim flipped the row to DONE. The claim and
+        # the bulk_create share one transaction, so the failure rolls the claim
+        # back: the row returns to DISPATCHED (payload intact) for a clean retry.
+        with patch(
+            "trueppm_api.apps.msproject.importer.import_project",
+            side_effect=RuntimeError("boom mid-import"),
+        ):
+            result = import_jira.apply(kwargs=self._kwargs(project, str(req.pk), b64), throw=False)
+
+        assert result.failed()
+        req.refresh_from_db()
+        assert req.status == JiraImportStatus.DISPATCHED
+        assert req.file_content_b64 == b64
+        assert Task.objects.filter(project=project).count() == 0
+
+
+@pytest.mark.django_db
 class TestDrainJiraImportQueue:
     def test_recovers_orphaned_dispatched_rows(self, project: Project) -> None:
         from trueppm_api.apps.jiraimport.tasks import _do_jira_import_drain

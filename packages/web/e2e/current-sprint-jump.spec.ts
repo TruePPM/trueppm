@@ -1,10 +1,12 @@
 /**
- * E2E for the "Jump to current sprint" first-class chrome action (#1594).
+ * E2E for the "Jump to current sprint" first-class chrome action (#1594, relocated
+ * in #1680).
  *
- * Golden path: from a non-board project route, both the pinned TopBar control and
- * the top-ranked ⌘K action drop the user straight onto today's active sprint
- * board (scoped via `?sprint=`). Edge: with no active sprint, neither affordance
- * appears — no dead chrome, no stray palette entry.
+ * Golden path: from a non-board project route, both the health-popover sprint row
+ * (which absorbed the former pinned TopBar control in #1680) and the top-ranked ⌘K
+ * action drop the user straight onto today's active sprint board (scoped via
+ * `?sprint=`). Edge: with no active sprint, the popover reads "No active sprint"
+ * with no board jump, and the palette has no stray entry.
  *
  * All API calls are route-mocked; no server required.
  */
@@ -70,13 +72,17 @@ async function setup(
   await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
 }
 
-test.describe('jump to current sprint (#1594)', () => {
-  test('the pinned control lands on the active sprint board', async ({ page }) => {
+test.describe('jump to current sprint (#1594, #1680)', () => {
+  test('the health popover sprint row lands on the active sprint board', async ({ page }) => {
     await setup(page, { sprints: [sprintFixture(SPRINT_ID, 'Atlas 4', 'ACTIVE')] });
 
-    const control = page.getByRole('button', { name: /go to current sprint: Atlas 4/i });
-    await expect(control).toBeVisible();
-    await control.click();
+    // The jump folded into the health popover's sprint row (#1680).
+    await page.getByTestId('health-cluster').click();
+    const dialog = page.getByRole('dialog', { name: 'Project health' });
+    await expect(dialog).toBeVisible();
+    const jump = dialog.getByRole('button', { name: /Atlas 4.*go to sprint board/i });
+    await expect(jump).toBeVisible();
+    await jump.click();
 
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/board\\?sprint=${SPRINT_ID}`));
   });
@@ -97,15 +103,22 @@ test.describe('jump to current sprint (#1594)', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/board\\?sprint=${SPRINT_ID}`));
   });
 
-  test('no active sprint → no pinned control and no ⌘K sprint entry', async ({ page }) => {
+  test('no active sprint → popover reads "No active sprint", no board jump, no ⌘K entry', async ({
+    page,
+  }) => {
     // Only a PLANNED sprint (no ACTIVE) and the cross-team lens defaults to empty.
     await setup(page, { sprints: [sprintFixture('sprint-atlas-5', 'Atlas 5', 'PLANNED')] });
 
-    await expect(page.getByRole('button', { name: /go to current sprint/i })).toHaveCount(0);
+    await page.getByTestId('health-cluster').click();
+    const dialog = page.getByRole('dialog', { name: 'Project health' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/no active sprint/i)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /go to sprint board/i })).toHaveCount(0);
+    await page.keyboard.press('Escape'); // close popover before opening the palette
 
     await page.keyboard.press('Control+k');
-    const dialog = page.getByRole('dialog', { name: 'Command palette' });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('option', { name: /Current sprint —/ })).toHaveCount(0);
+    const palette = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(palette).toBeVisible();
+    await expect(palette.getByRole('option', { name: /Current sprint —/ })).toHaveCount(0);
   });
 });

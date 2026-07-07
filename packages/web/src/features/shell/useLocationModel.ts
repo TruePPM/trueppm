@@ -7,6 +7,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
+import { methodologyLabel } from '@/lib/methodologyLabel';
 import type { Program } from '@/api/types';
 
 /**
@@ -59,6 +60,11 @@ export interface ProjectSegmentModel {
   options: LocationSegmentOption[];
   currentId: string;
   currentName: string | undefined;
+  /** The current project's methodology label (web-rule 196: the resolved
+   *  `effective_methodology`), shown as the picker's current-row subtitle (#1680).
+   *  Only the current project carries a trustworthy value — the `useProjects()`
+   *  list rows carry only the raw override — so it is absent for other options. */
+  currentMethodologyLabel: string | undefined;
 }
 
 /** The resolved location-switcher model for the current route. */
@@ -127,7 +133,9 @@ export function useLocationModel(): LocationModel {
 
   // The project route's active view — reused for the leaf label and to preserve the
   // view when switching projects. Off a project this is unused.
-  const projectView = projectId ? viewSegment(location.pathname, projectId, 'overview') : 'overview';
+  const projectView = projectId
+    ? viewSegment(location.pathname, projectId, 'overview')
+    : 'overview';
   const grouped = useGroupedProjectViews(projectId);
 
   const programSegment = useMemo<ProgramSegmentModel | null>(() => {
@@ -156,8 +164,11 @@ export function useLocationModel(): LocationModel {
       options,
       currentId: projectId,
       currentName: options.find((o) => o.id === projectId)?.name ?? project?.name,
+      currentMethodologyLabel: project?.effective_methodology
+        ? methodologyLabel(project.effective_methodology)
+        : undefined,
     };
-  }, [projectId, projects, projectView, project?.name]);
+  }, [projectId, projects, projectView, project?.name, project?.effective_methodology]);
 
   const leaf = useMemo(() => {
     if (projectId) return grouped.labelFor(projectView);

@@ -12,9 +12,18 @@ vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
 // The segment's listbox internals are covered by LocationSegment.test; stub it to a
 // button carrying the noun + current name so composition assertions stay structural.
 vi.mock('./LocationSegment', () => ({
-  LocationSegment: ({ noun, currentName }: { noun: string; currentName?: string }) => (
+  LocationSegment: ({
+    noun,
+    currentName,
+    currentSubtitle,
+  }: {
+    noun: string;
+    currentName?: string;
+    currentSubtitle?: string;
+  }) => (
     <button type="button" aria-label={`Current ${noun}: ${currentName}. Switch ${noun}.`}>
       {currentName}
+      {currentSubtitle && <span data-testid={`${noun}-subtitle`}>{currentSubtitle}</span>}
     </button>
   ),
 }));
@@ -27,9 +36,12 @@ const mockBreakpoint = useBreakpoint as ReturnType<typeof vi.fn>;
 
 // A minimal Program stand-in — the real ProgramIdentitySquare is mocked, so only
 // the shape matters to the type checker, not the full field set.
-const PROGRAM = { id: 'prog-1', name: 'Apollo', color: '#3E8C6D', code: 'APL' } as unknown as NonNullable<
-  LocationModel['program']
->['current'];
+const PROGRAM = {
+  id: 'prog-1',
+  name: 'Apollo',
+  color: '#3E8C6D',
+  code: 'APL',
+} as unknown as NonNullable<LocationModel['program']>['current'];
 
 function model(overrides: Partial<LocationModel> = {}): LocationModel {
   return {
@@ -48,6 +60,7 @@ function model(overrides: Partial<LocationModel> = {}): LocationModel {
       ],
       currentId: 'p1',
       currentName: 'Launch Site',
+      currentMethodologyLabel: 'Hybrid',
     },
     leaf: 'Board',
     ...overrides,
@@ -97,8 +110,18 @@ describe('LocationSwitcher (#1643)', () => {
   it('collapses to a leaf-only label off a project/program (global route)', () => {
     mockModel.mockReturnValue(model({ program: null, project: null, leaf: 'My Work' }));
     renderWithRouter(<LocationSwitcher />);
-    expect(screen.queryByRole('button', { name: /Current (program|project)/ })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /Current (program|project)/ }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('My Work')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('passes the methodology label as the project picker subtitle only, not the program (#1680)', () => {
+    mockModel.mockReturnValue(model());
+    renderWithRouter(<LocationSwitcher />);
+    expect(screen.getByTestId('project-subtitle')).toHaveTextContent('Hybrid');
+    // The program segment never receives a methodology subtitle.
+    expect(screen.queryByTestId('program-subtitle')).not.toBeInTheDocument();
   });
 
   it('mobile renders non-interactive wayfinding (Project › Leaf, no pickers)', () => {

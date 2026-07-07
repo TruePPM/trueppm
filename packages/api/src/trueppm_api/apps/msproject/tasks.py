@@ -121,11 +121,34 @@ def import_msproject(
         if creates_project:
             _apply_header_to_project(project_id, project_data)
 
+        from django.db import transaction
+
         from trueppm_api.apps.msproject.importer import import_project
 
-        summary = import_project(
-            project_id, project_data, tracker=tracker, wipe_existing=creates_project
-        )
+        # Make the additive import-into-existing path idempotent under
+        # re-dispatch (#1673). The outbox row is the idempotency token: claim it
+        # (DISPATCHED -> DONE) and run the bulk_create in ONE transaction. A
+        # duplicate delivery — a drain re-dispatch after a worker-death window,
+        # or an acks_late / reject_on_worker_lost redelivery of an already
+        # completed message — finds no DISPATCHED row to claim, so it skips the
+        # import instead of bulk-creating the whole network again (which
+        # duplicated tasks and FS dependencies). The claim's row lock also
+        # serializes any concurrent delivery onto one winner. Because the claim
+        # and the import share the transaction, a mid-import failure rolls the
+        # claim back too, returning the row to DISPATCHED for a clean retry.
+        # (TaskRunTracker.update writes and broadcasts are already atomic-safe —
+        # see its docstring.)
+        with transaction.atomic():
+            if import_request_id and not _claim_import(import_request_id):
+                logger.info(
+                    "import.msproject: request %s already completed — skipping duplicate delivery",
+                    import_request_id,
+                )
+                return {"skipped": True, "tasks_created": 0}
+            summary = import_project(
+                project_id, project_data, tracker=tracker, wipe_existing=creates_project
+            )
+
         tracker.set_result(summary)
 
         if summary["tasks_created"] > 0:
@@ -143,10 +166,9 @@ def import_msproject(
             # the web client already invalidates the tasks cache on) so the imported
             # tree appears immediately, ahead of the recalc's cpm_complete. Deferred
             # via on_commit for the same reason as the project_updated broadcast
-            # below — correct today (no ambient transaction → fires post-commit) and
-            # future-proof if import_project is ever wrapped in atomic().
-            from django.db import transaction
-
+            # below. It now runs just after the import's atomic() has committed
+            # (no ambient transaction remains → the callback fires immediately),
+            # so peers never see the restructure event for a rolled-back import.
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
             transaction.on_commit(
@@ -157,28 +179,30 @@ def import_msproject(
         # start back (committed inside import_project). Broadcast project_updated
         # so collaborators viewing an existing project re-fetch the new boundary
         # — the recalc's cpm_complete event does not invalidate the project query.
-        # Deferred with on_commit (#1323): correct today (the Celery task context
-        # has no ambient transaction, so on_commit fires immediately after the
-        # importer's project.save has already committed), and future-proof if
-        # import_project is ever called inside an atomic() — the broadcast then
-        # waits for the real commit instead of racing a possible rollback.
+        # Deferred with on_commit (#1323): the start-pull now commits inside the
+        # import's atomic() above, and this runs just after it commits (no ambient
+        # transaction remains → the callback fires immediately), so peers re-fetch
+        # the moved boundary only once the import is durable, never on a rollback.
         if summary.get("project_start_shifted"):
-            from django.db import transaction
-
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
             )
 
-    if import_request_id:
-        _mark_import_done(import_request_id)
-
     return summary
 
 
-def _mark_import_done(import_request_id: str) -> None:
-    """Flip the ImportRequest row to DONE after successful completion.
+def _claim_import(import_request_id: str) -> bool:
+    """Atomically claim a DISPATCHED ImportRequest, flipping it to DONE.
+
+    The single conditional ``UPDATE ... WHERE status=DISPATCHED`` is the
+    exactly-once idempotency token for the import (#1673): the caller runs the
+    claim inside the same transaction as the bulk_create, so the row transitions
+    to DONE atomically with the imported network. Returns ``True`` when this
+    delivery won the claim (the caller should import), ``False`` when the row was
+    already terminal — a duplicate delivery whose import must be skipped so the
+    additive path does not bulk-create the network twice.
 
     Clears ``file_content_b64`` in the same update: the ~67 MB base64 payload
     exists only so a PENDING/DISPATCHED row survives a broker outage and can be
@@ -188,9 +212,10 @@ def _mark_import_done(import_request_id: str) -> None:
     """
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
-    ImportRequest.objects.filter(
+    claimed = ImportRequest.objects.filter(
         id=import_request_id, status=ImportRequestStatus.DISPATCHED
     ).update(status=ImportRequestStatus.DONE, file_content_b64="")
+    return bool(claimed)
 
 
 def _mark_import_dead(import_request_id: str) -> None:

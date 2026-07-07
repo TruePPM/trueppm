@@ -20,6 +20,8 @@ import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
+import { methodologyLabel } from '@/lib/methodologyLabel';
+import { ViewsMenu } from './ViewsMenu';
 import type { ProjectHealth } from '@/api/types';
 
 interface Props {
@@ -773,6 +775,9 @@ function ProjectViewsTier({
   const program = programs?.find((p) => p.id === programId) ?? null;
   const programName = project.data?.program_detail?.name ?? null;
   const health = PROJECT_HEALTH_STATE[project.data?.health ?? 'AUTO'] ?? 'unknown';
+  // Server-resolved preset (web-rule 196) — the same value the removed bar
+  // `MethodWorkspaceLabel` showed (#1680); rides the card subtitle here now.
+  const effectiveMethodology = project.data?.effective_methodology ?? 'HYBRID';
   const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -780,10 +785,19 @@ function ProjectViewsTier({
 
   return (
     <>
-      <h2 className={GROUP_LABEL}>This project</h2>
-      {/* Project header card — program identity SQUARE (rule 158), name + program
-          subtitle, and a right-aligned health CIRCLE whose word rides its
-          aria-label (rule 6). Never a shadow for the raise (rule 1). */}
+      {/* Header row — the "This project" label plus the relocated Customize-views
+          control (#1680): a `flex-wrap justify-between` row so ViewsMenu's gear sits
+          at the right and its in-flow `basis-full` panel wraps to a full-width line
+          beneath, pushing the card down (the rail's overflow would clip a floating
+          menu). */}
+      <div className="flex flex-wrap items-center justify-between gap-y-1 pr-1">
+        <h2 className={GROUP_LABEL}>This project</h2>
+        <ViewsMenu />
+      </div>
+      {/* Project header card — program identity SQUARE (rule 158), name + a
+          program·methodology subtitle (the methodology label relocated from the bar
+          in #1680, web-rule 196), and a right-aligned health CIRCLE whose word rides
+          its aria-label (rule 6). Never a shadow for the raise (rule 1). */}
       <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
         <ProgramIdentitySquare
           program={program ?? { color: null, code: '', name: programName ?? name }}
@@ -791,9 +805,17 @@ function ProjectViewsTier({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-chrome-text-primary">{name}</p>
-          {programName && (
-            <p className="truncate text-xs text-chrome-text-secondary">{programName}</p>
-          )}
+          {/* Program name truncates first; the methodology stays `shrink-0` so the
+              "you are here / how it runs" signal is never clipped. */}
+          <p className="flex items-center gap-1 text-xs text-chrome-text-secondary">
+            {programName && <span className="truncate">{programName}</span>}
+            {programName && (
+              <span aria-hidden="true" className="shrink-0">
+                ·
+              </span>
+            )}
+            <span className="shrink-0">{methodologyLabel(effectiveMethodology)} workspace</span>
+          </p>
         </div>
         <span role="img" aria-label={HEALTH_LABEL[health]} className="shrink-0">
           <HealthDot state={health} />
