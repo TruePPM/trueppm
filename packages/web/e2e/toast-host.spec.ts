@@ -10,8 +10,9 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-toast-00000000-0000-0000-0000-000000001225';
 
-// A standalone project (no `program`) renders directly in the rail's "Projects"
-// group, so its ★ pin control is reachable without expanding a program tree.
+// A standalone project (no `program`) renders in the rail's Tier-3 Browse
+// switcher "Projects" list, so its ★ pin control is reachable once the switcher
+// is opened, without expanding a program tree.
 const FIXTURE_PROJECTS = [
   {
     id: PROJECT_ID,
@@ -33,8 +34,10 @@ test.describe('global toast host (#1225)', () => {
     const rail = page.getByRole('complementary', { name: 'Primary navigation' });
     await expect(rail).toBeVisible({ timeout: 10_000 });
 
-    // The standalone project's ★ pin control lives in the rail (hover-revealed;
-    // Playwright hovers as part of click). Pinning is an app-wide action.
+    // The standalone project's ★ pin control lives in the Tier-3 Browse switcher
+    // (#1642); open it, then pin (hover-revealed; Playwright hovers as part of
+    // click). Pinning is an app-wide action.
+    await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
     const pin = rail.getByRole('button', { name: 'Pin Toast Demo Project to Shortcuts' });
     await pin.click();
 
