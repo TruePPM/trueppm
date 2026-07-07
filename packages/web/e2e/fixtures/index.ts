@@ -1,3 +1,4 @@
+export { expectNoA11yViolations, type A11yScanOptions } from './a11y';
 export { setupAuth, type SetupAuthOptions } from './auth';
 export {
   setupApiMocks,
