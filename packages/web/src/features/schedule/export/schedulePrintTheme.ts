@@ -28,8 +28,17 @@
  * | `surface` (navy-800)              | sheet background    | `white`                   |
  * | `text` / `textSecondary`          | labels              | `neutral-text-*`          |
  * | `todayLine` (sage-400)            | data-date line      | `brand-primary`           |
- * | dependency arrow (hard)           | hard FS connector   | `semantic-critical`       |
- * | dependency arrow (soft)           | soft connector      | `neutral-text-secondary`  |
+ * | dependency arrow (hard + soft)    | FS connector        | `neutral-text-secondary`  |
+ *
+ * Dependency arrows are **charcoal, always** (ADR-0063 rule 75 / ADR-0276): critical
+ * state is carried by the red BAR, not the arrow — a red arrow crossing a red critical
+ * bar merges into it, and in a report most driving-chain bars are red. Hard (mandatory
+ * FS spine) vs soft (discretionary SS/FF/SF or +lag) is differentiated by SOLID vs
+ * DASHED line, never by hue. The color is applied through an inline `style` CSS-var
+ * ({@link arrowColorVar}), not a Tailwind `stroke-`/`fill-` class, because
+ * `html-to-image` silently drops CSS-class `stroke` on SVG `<path>` when rasterizing
+ * (it keeps class `fill` on `<polygon>`, which is why arrowheads used to survive but
+ * connector lines vanished — issue 1694). An inline `style` value rasterizes reliably.
  *
  * The `barNormal` non-critical bar is the one deliberate re-mapping: the live
  * canvas paints non-CP tasks blue, but a client-facing print recolors bars by
@@ -77,7 +86,8 @@ export const SCHEDULE_PRINT_ROLE_TOKENS: Record<SchedulePrintRole, string> = {
   gridline: 'neutral-border',
   dataDateLine: 'brand-primary',
   progressFill: 'semantic-on-track',
-  arrowHard: 'semantic-critical',
+  // Arrows are charcoal regardless of hardness (hard vs soft = solid vs dashed).
+  arrowHard: 'neutral-text-secondary',
   arrowSoft: 'neutral-text-secondary',
 };
 
@@ -111,7 +121,9 @@ const ROLE_BG_CLASS: Record<SchedulePrintRole, string> = {
   gridline: 'bg-neutral-border',
   dataDateLine: 'bg-brand-primary',
   progressFill: 'bg-semantic-on-track',
-  arrowHard: 'bg-semantic-critical',
+  // Arrows paint through an inline-style CSS var, not a bg- class; these exist only
+  // to keep the lockstep contract with the token map (both charcoal now).
+  arrowHard: 'bg-neutral-text-secondary',
   arrowSoft: 'bg-neutral-text-secondary',
 };
 
@@ -142,12 +154,18 @@ export function milestoneFillClass(met: boolean): string {
   return roleBgClass(met ? 'milestoneMet' : 'milestonePending');
 }
 
-/** SVG `stroke-` class for a dependency connector by hardness (literal, scannable). */
-export function arrowStrokeClass(hard: boolean): string {
-  return hard ? 'stroke-semantic-critical' : 'stroke-neutral-text-secondary';
-}
-
-/** SVG `fill-` class for a dependency arrowhead by hardness (literal, scannable). */
-export function arrowFillClass(hard: boolean): string {
-  return hard ? 'fill-semantic-critical' : 'fill-neutral-text-secondary';
+/**
+ * Charcoal dependency-arrow color as an inline-`style` CSS-var value (e.g.
+ * `'rgb(var(--neutral-text-secondary))'`), for BOTH the connector `stroke` and the
+ * arrowhead `fill`.
+ *
+ * Set via `style`, NOT a Tailwind `stroke-`/`fill-` class: `html-to-image` drops
+ * CSS-class `stroke` on SVG `<path>` when it rasterizes (issue 1694), so a
+ * class-based connector renders as 0 ink while its arrowhead (class `fill`) survives.
+ * An inline `style` value rasterizes reliably and stays gate-safe (no hex literal;
+ * single-sourced through the DS custom property). Hard vs soft is a line-STYLE
+ * difference (solid vs dashed) handled at the call site, not a color difference.
+ */
+export function arrowColorVar(): string {
+  return `rgb(var(--${printRoleToken('arrowSoft')}))`;
 }

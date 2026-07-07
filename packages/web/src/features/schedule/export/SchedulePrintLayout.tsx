@@ -41,8 +41,7 @@ import { scheduleExportFooterWatermark } from './scheduleExportEdition';
 import {
   barFillClass,
   milestoneFillClass,
-  arrowStrokeClass,
-  arrowFillClass,
+  arrowColorVar,
   roleBgClass,
 } from './schedulePrintTheme';
 import {
@@ -210,6 +209,11 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
     // into one line (issue 1440). `seq` is derived from the stable source order,
     // independent of the paint order, so a re-render keeps the same channels.
     const paintLinks = orderLinksForPaint(links);
+    // Charcoal arrow ink as an inline-`style` CSS-var value. Applied via `style`, not
+    // a Tailwind class: html-to-image drops CSS-class `stroke` on SVG `<path>` when it
+    // rasterizes, so a class-based connector renders as 0 ink while its arrowhead
+    // (class `fill`) survives — the "arrowheads but no lines" bug (issue 1694).
+    const arrowColor = arrowColorVar();
     const channelSeqByLink = new Map<string, number>();
     const perSourceCount = new Map<string, number>();
     for (const l of links) {
@@ -249,6 +253,10 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
         data-print-label-strip-px={layout ? labelStripPx : undefined}
         data-print-week-px={layout && weekPx != null ? weekPx : undefined}
         data-print-chart-content-px={layout ? layout.contentW : undefined}
+        data-print-gantt-row-count={layout ? rows.length : undefined}
+        data-print-cp-row-count={
+          includeCpSummary && cpChain.length > 0 ? cpChain.length : undefined
+        }
       >
         {/* Masthead */}
         <header className="mb-3 border-b border-neutral-border pb-3">
@@ -288,7 +296,11 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
 
         {/* Gantt: label column + chart area */}
         {layout ? (
-          <div className="flex border border-neutral-border">
+          // `data-print-vmark="gantt"` bounds the whole Gantt block; the rasterizer's
+          // vertical paginator (ADR-0276) reads its top and the rows-region top to
+          // derive the repeatable header band, and re-composites that band atop each
+          // Gantt continuation page so it reads standalone (issue 1694).
+          <div data-print-vmark="gantt" className="flex border border-neutral-border">
             {/* Label column */}
             <div
               style={{ width: labelColPx }}
@@ -354,8 +366,11 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 ))}
               </div>
 
-              {/* Rows region: gridlines, bars, milestones, data-date line, arrow overlay */}
-              <div style={{ height: rowsAreaH }} className="relative">
+              {/* Rows region: gridlines, bars, milestones, data-date line, arrow overlay.
+                  `data-print-vmark="gantt-rows"` marks the breakable rows band — the
+                  paginator divides its height by `data-print-gantt-row-count` for the
+                  row pitch and only ever breaks a page on a row boundary (issue 1694). */}
+              <div data-print-vmark="gantt-rows" style={{ height: rowsAreaH }} className="relative">
                 {/* Week gridlines */}
                 {weekGridlines(layout.scales).map((x, i) => (
                   <span
@@ -458,14 +473,14 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                             strokeWidth={1}
                             strokeOpacity={opacity}
                             strokeDasharray={link.hard ? undefined : '3 2'}
-                            className={arrowStrokeClass(link.hard)}
+                            style={{ stroke: arrowColor }}
                           />
                           <polygon
                             points={`${to.left - 5},${to.centerY - 3} ${to.left},${to.centerY} ${
                               to.left - 5
                             },${to.centerY + 3}`}
                             fillOpacity={opacity}
-                            className={arrowFillClass(link.hard)}
+                            style={{ fill: arrowColor }}
                           />
                         </g>
                       );
@@ -515,7 +530,10 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               Each entry shows its WBS + name and inclusive date range; the header
               states that this chain drives the project finish (float = 0). */}
           {includeCpSummary && cpChain.length > 0 && (
-            <div className="mt-3 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2">
+            <div
+              data-print-vmark="cp"
+              className="mt-3 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2"
+            >
               <div className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
                   Critical path chain
@@ -525,7 +543,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   the finish date
                 </span>
               </div>
-              <ol className="grid grid-cols-2 gap-x-6 gap-y-0.5">
+              <ol data-print-vmark="cp-list" className="grid grid-cols-2 gap-x-6 gap-y-0.5">
                 {cpChain.map((t) => (
                   <li
                     key={t.id}
@@ -546,7 +564,12 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
             </div>
           )}
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          {/* `data-print-vmark="footer"` marks the keep-together sign-off strip: a page
+              break may fall at its top but never inside it (ADR-0276, issue 1694). */}
+          <div
+            data-print-vmark="footer"
+            className="mt-2 flex flex-wrap items-center justify-between gap-2"
+          >
             <span>
               {masthead.projectName} · Generated {footer.generatedAtLabel}
               {footer.userName ? ` by ${footer.userName}` : ''}

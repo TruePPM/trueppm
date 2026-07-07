@@ -20,6 +20,7 @@
  */
 
 import { planSheetColumns, sheetLabel } from './scheduleSheetPlan';
+import { planVerticalPages, pageLabel, type VerticalFlowGeometry } from './scheduleVerticalPlan';
 
 export type SchedulePaper = 'letter' | 'a4';
 
@@ -124,6 +125,160 @@ function drawSheetCaption(pdf: unknown, caption: string, pageW: number, pageH: n
   p.setFontSize?.(8);
   p.setTextColor?.(120, 120, 120);
   p.text(caption, pageW - 6, pageH - 6, { align: 'right' });
+}
+
+/**
+ * Stamp the "Critical Path Chain (Continued)" running header as REAL PDF text in the
+ * blank band the compositor reserved above a CP-chain continuation page's rows
+ * (ADR-0276). Selectable, and — unlike the Gantt header — it needs no pixel-accurate
+ * band re-composite, so a clean text header (subtitle-free) reads as a continuation.
+ * Guarded via `typeof` so the jsPDF test double is unaffected.
+ */
+function drawCpContinuedHeader(pdf: unknown, bandHeightPt: number): void {
+  const p = pdf as {
+    text?: (t: string, x: number, y: number, opts?: unknown) => void;
+    setFontSize?: (n: number) => void;
+    setTextColor?: (r: number, g: number, b: number) => void;
+  };
+  if (typeof p.text !== 'function') return;
+  p.setFontSize?.(9);
+  p.setTextColor?.(27, 42, 74); // navy #1B2A4A report ink (rgb, not a scanned hex literal)
+  // Baseline sits in the upper part of the reserved band so there is clear space
+  // below the text before the continued rows begin (no crowding of row one).
+  p.text('Critical Path Chain (Continued)', 24, Math.max(10, bandHeightPt - 7));
+}
+
+/**
+ * Measure the print surface's vertical flow geometry (ADR-0276, issue 1694) from the
+ * `data-print-vmark` block markers and the stamped row counts, in **source image px**
+ * (measured CSS px × {@link PIXEL_RATIO}). Returns null when the surface isn't laid
+ * out (jsdom / tests → zero rects) or the Gantt markers are absent, so the plain
+ * bitmap-band path (and its existing tests) run unchanged.
+ */
+function readVFlowGeometry(node: HTMLElement, imageHeightPx: number): VerticalFlowGeometry | null {
+  const mark = (name: string) => node.querySelector<HTMLElement>(`[data-print-vmark="${name}"]`);
+  const gantt = mark('gantt');
+  const ganttRows = mark('gantt-rows');
+  const footer = mark('footer');
+  if (!gantt || !ganttRows || !footer) return null;
+
+  const rootTop = node.getBoundingClientRect().top;
+  const top = (el: HTMLElement) => el.getBoundingClientRect().top - rootTop;
+  const bottom = (el: HTMLElement) => el.getBoundingClientRect().bottom - rootTop;
+
+  const ganttTop = top(gantt);
+  const rowsTop = top(ganttRows);
+  const rowsBottom = bottom(ganttRows);
+  const rowCount = Number(node.dataset.printGanttRowCount);
+  // Degenerate layout (unmeasured rects) or a missing count → bail to the plain path.
+  if (!(rowsBottom > rowsTop) || !Number.isFinite(rowCount) || rowCount <= 0) return null;
+
+  const R = PIXEL_RATIO;
+
+  const cpCard = mark('cp');
+  const cpList = mark('cp-list');
+  const cpRowCount = Number(node.dataset.printCpRowCount);
+  let cp: VerticalFlowGeometry['cp'] = null;
+  if (cpCard && cpList && Number.isFinite(cpRowCount) && cpRowCount > 0) {
+    const listTop = top(cpList);
+    const listBottom = bottom(cpList);
+    const gridRows = Math.max(1, Math.ceil(cpRowCount / 2)); // 2-column grid
+    if (listBottom > listTop) {
+      cp = {
+        headerTop: top(cpCard) * R,
+        rowsTop: listTop * R,
+        rowsBottom: listBottom * R,
+        rowH: ((listBottom - listTop) / gridRows) * R,
+      };
+    }
+  }
+
+  return {
+    imageHeightPx,
+    ganttHeader: { top: ganttTop * R, height: (rowsTop - ganttTop) * R },
+    ganttRows: { top: rowsTop * R, bottom: rowsBottom * R, rowH: ((rowsBottom - rowsTop) / rowCount) * R },
+    cp,
+    footerTop: top(footer) * R,
+  };
+}
+
+/**
+ * Paginate the single-column report vertically with row-aware breaks and repeated
+ * headers (ADR-0276): a Gantt continuation re-composites the frozen Activity +
+ * date-scale header band from the source bitmap atop its body slice; a CP-chain
+ * continuation reserves a blank band and stamps a "(Continued)" text header. Returns
+ * the export result, or `null` when no 2D context is available so the caller falls
+ * back to the plain single-image path.
+ */
+function paginateVerticalReport(
+  pdf: {
+    addImage: (data: string, fmt: string, x: number, y: number, w: number, h: number) => void;
+    addPage: () => void;
+    output: (type: string) => unknown;
+    save: (name: string) => void;
+  },
+  img: HTMLImageElement,
+  dataUrl: string,
+  geom: VerticalFlowGeometry,
+  opts: {
+    paper: SchedulePaper;
+    pageW: number;
+    pageH: number;
+    fileName: string;
+    signal?: AbortSignal;
+    onProgress?: (p: ExportProgress) => void;
+  },
+): ExportResult | null {
+  const { paper, pageW, pageH, fileName, signal, onProgress } = opts;
+  // Fit the full sheet width to the page; the body-height budget is one page in img px.
+  const scale = pageW / img.width;
+  const pageBodyPx = pageH / scale;
+  const pages = planVerticalPages(geom, pageBodyPx);
+
+  // Whole report fits one page → place the bitmap directly (no canvas round-trip, no
+  // caption), matching the plain single-page fast path.
+  if (pages.length === 1 && !pages[0].header) {
+    onProgress?.({ phase: 'paginate', done: 0, total: 1 });
+    pdf.addImage(dataUrl, 'PNG', 0, 0, img.width * scale, img.height * scale);
+    onProgress?.({ phase: 'finalize', done: 1, total: 1 });
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
+  }
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null; // caller falls back to the plain path
+
+  const total = pages.length;
+  let placed = 0;
+  for (const page of pages) {
+    // Cancel between pages: stop without saving, so nothing reaches disk.
+    if (signal?.aborted) return canceledResult(fileName, paper);
+
+    const headerH = page.header?.height ?? 0;
+    canvas.width = img.width;
+    canvas.height = Math.round(headerH + page.sh);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Repeated Gantt header band, lifted from the source bitmap so bars still align.
+    if (page.header?.kind === 'gantt') {
+      ctx.drawImage(img, 0, page.header.bandSy, img.width, headerH, 0, 0, img.width, headerH);
+    }
+    // The CP "(Continued)" band stays blank here — it is drawn as real PDF text below.
+    ctx.drawImage(img, 0, page.sy, img.width, page.sh, 0, headerH, img.width, page.sh);
+    const url = canvas.toDataURL('image/png');
+
+    if (placed > 0) pdf.addPage();
+    pdf.addImage(url, 'PNG', 0, 0, img.width * scale, (headerH + page.sh) * scale);
+    if (page.header?.kind === 'cp') drawCpContinuedHeader(pdf, headerH * scale);
+    placed += 1;
+    drawSheetCaption(pdf, pageLabel(placed, total), pageW, pageH);
+    onProgress?.({ phase: 'paginate', done: placed, total });
+  }
+
+  if (signal?.aborted) return canceledResult(fileName, paper);
+  onProgress?.({ phase: 'finalize', done: total, total });
+  const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
+  return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
 }
 
 /** Load a data-URL into an HTMLImageElement, resolving once decoded. */
@@ -269,6 +424,28 @@ export async function exportSchedulePdf(
       const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
       return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
     }
+  }
+
+  // ── Row-aware vertical pagination with repeated headers (ADR-0276, issue 1694) ──
+  // The common single-column report (chart fits one page wide) is taller than one
+  // landscape page: break it only on safe row/block boundaries and repeat the
+  // Activity + date-scale header (and a "Critical Path Chain (Continued)" header) so
+  // continuation pages read standalone. Skipped when the surface isn't laid out
+  // (jsdom → zero rects → null geometry) or the markers are absent — the plain
+  // bitmap-band path below handles those and keeps its existing behavior.
+  const vflow = readVFlowGeometry(node, img.height);
+  if (vflow) {
+    const vResult = paginateVerticalReport(pdf, img, dataUrl, vflow, {
+      paper,
+      pageW,
+      pageH,
+      fileName,
+      signal,
+      onProgress,
+    });
+    // Null only when no 2D context is available (before anything was placed) — fall
+    // through to the plain single-image path below.
+    if (vResult) return vResult;
   }
 
   // One horizontal band is `columnWidth` source px wide, scaled to the page
