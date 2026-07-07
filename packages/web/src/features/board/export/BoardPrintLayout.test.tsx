@@ -40,6 +40,17 @@ const DATA: BoardPrintData = {
 };
 
 describe('BoardPrintLayout', () => {
+  it('pins the export surface to the light theme island (issue #1683)', () => {
+    const { container } = render(
+      <BoardPrintLayout ref={createRef<HTMLDivElement>()} data={DATA} />,
+    );
+    const root = container.firstChild as HTMLElement;
+    // Without `.theme-light`, a dark-mode app rasterizes light ink on this white
+    // sheet (WCAG 1.4.3). The island forces the light token palette.
+    expect(root.classList.contains('theme-light')).toBe(true);
+    expect(root.classList.contains('bg-white')).toBe(true);
+  });
+
   it('renders header, columns, lane, card content, and footer', () => {
     render(<BoardPrintLayout ref={createRef<HTMLDivElement>()} data={DATA} />);
 
