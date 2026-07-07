@@ -325,6 +325,45 @@ class TestDoDrain:
         assert req.status == ScheduleRequestStatus.DISPATCHED
         assert req.celery_task_id == "new-task-id"
 
+    def test_stale_dispatched_with_coexisting_pending_does_not_crash(self, project) -> None:
+        """Stale dispatched + coexisting pending row must not violate the constraint (#1693).
+
+        Scenario: a row was dispatched, its task died, and a fresh edit landed a
+        new pending row before orphan recovery ran. The old blanket flip of the
+        dispatched row back to pending created a second pending row and violated
+        schedule_request_one_pending_per_project, aborting the whole drain on
+        every tick. The stale dispatched row must instead be retired as DONE
+        (superseded by the pending row), and the pending row dispatched normally.
+        """
+        stale_time = timezone.now() - timedelta(minutes=11)
+        # Dead dispatched row (task never completed).
+        dispatched = ScheduleRequest.objects.create(
+            project=project,
+            status=ScheduleRequestStatus.DISPATCHED,
+            celery_task_id="dead-task-id",
+            dispatched_at=stale_time,
+        )
+        # Fresh pending row from a later edit (allowed: dispatched != pending).
+        pending = ScheduleRequest.objects.create(project=project)
+
+        mock_result = MagicMock()
+        mock_result.id = "drain-task-id"
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
+        ) as mock_delay:
+            self._drain()  # must not raise IntegrityError
+
+        # The dead dispatched row is retired as superseded, not resurrected.
+        dispatched.refresh_from_db()
+        assert dispatched.status == ScheduleRequestStatus.DONE
+        # The pre-existing pending row is dispatched normally.
+        pending.refresh_from_db()
+        assert pending.status == ScheduleRequestStatus.DISPATCHED
+        assert pending.celery_task_id == "drain-task-id"
+        # Exactly one delay() call — for the single surviving live request.
+        mock_delay.assert_called_once_with(str(project.pk))
+
     def test_recent_dispatched_row_not_recovered(self, project) -> None:
         """Dispatched rows younger than 10 min are left alone."""
         req = ScheduleRequest.objects.create(project=project)

@@ -159,12 +159,39 @@ def _do_drain() -> None:
     orphan_cutoff = now - timedelta(minutes=10)
 
     # Recover orphaned rows: dispatched but not completed within 10 minutes.
-    recovered = ScheduleRequest.objects.filter(
+    #
+    # A blanket flip of every stale dispatched row back to pending is unsafe: if
+    # the project already has a pending row (a fresh edit arrived after the row was
+    # dispatched but before its task finished/died), resurrecting the dead row
+    # creates a *second* pending row and violates the
+    # schedule_request_one_pending_per_project partial-unique constraint — which
+    # aborts the whole UPDATE, so no orphan is recovered and the drain wedges on
+    # every tick (#1693). Because CPM is a full recompute, that existing pending
+    # row already supersedes the dead dispatched one, so retire the dead row as
+    # done rather than resurrecting it. Only stale dispatched rows with no
+    # coexisting pending row are flipped back to pending for re-dispatch.
+    projects_with_pending = set(
+        ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING).values_list(
+            "project_id", flat=True
+        )
+    )
+    stale_dispatched = ScheduleRequest.objects.filter(
         status=ScheduleRequestStatus.DISPATCHED,
         dispatched_at__lt=orphan_cutoff,
-    ).update(status=ScheduleRequestStatus.PENDING, celery_task_id="")
+    )
+    superseded = stale_dispatched.filter(project_id__in=projects_with_pending).update(
+        status=ScheduleRequestStatus.DONE
+    )
+    recovered = stale_dispatched.exclude(project_id__in=projects_with_pending).update(
+        status=ScheduleRequestStatus.PENDING, celery_task_id=""
+    )
     if recovered:
         logger.warning("drain_schedule_queue: recovered %d orphaned dispatched row(s)", recovered)
+    if superseded:
+        logger.warning(
+            "drain_schedule_queue: retired %d stale dispatched row(s) superseded by a pending row",
+            superseded,
+        )
 
     # Dispatch all currently pending rows (one Celery task per project).
     pending = list(ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING))
