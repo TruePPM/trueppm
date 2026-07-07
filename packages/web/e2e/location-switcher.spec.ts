@@ -2,22 +2,24 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupApiMocks, setupCatchAll, type ProjectFixture } from './fixtures';
 
 /**
- * In-chrome project switcher E2E (#1478).
+ * Top-bar location switcher E2E (#1643, ADR-0203).
  *
- * The switcher sits at the left edge of the view-tab bar and lets a member jump
- * between their projects without leaving the project chrome (no round-trip out to
- * a listing/portfolio view). This spec covers:
- *   - golden path: open the switcher on project A → search → select project B →
- *     land on B's equivalent view with the chrome intact (never a listing route).
- *   - edge: a member of a single project sees no switcher (nothing to switch to).
+ * The switcher (`Program › Project › Leaf`) replaces the former breadcrumb + in-
+ * chrome ProjectSwitcher. Its project segment lets a member jump between projects
+ * without leaving the chrome; the leaf is a plain "you are here" label, never a
+ * dropdown (the left rail owns view switching). This spec covers:
+ *   - golden path: open the project picker on A → search → select B → land on B's
+ *     equivalent view with the chrome intact (never a listing route);
+ *   - the leaf is not an interactive control;
+ *   - edge: a member of a single project sees no project picker (nothing to switch).
  *
  * Every project-scoped endpoint the Overview page reads is mocked with its real
  * shape for BOTH project ids (via `*` wildcards), so switching to B doesn't crash
  * the page on an unmocked object endpoint (#1190 lesson).
  */
 
-const PROJECT_A = 'e2e-switch-00000000-0000-0000-0000-0000000000a1';
-const PROJECT_B = 'e2e-switch-00000000-0000-0000-0000-0000000000b2';
+const PROJECT_A = 'e2e-loc-000000000-0000-0000-0000-0000000000a1';
+const PROJECT_B = 'e2e-loc-000000000-0000-0000-0000-0000000000b2';
 
 function projectFixture(id: string, name: string): ProjectFixture {
   return {
@@ -61,8 +63,8 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
   await setupCatchAll(page);
   await setupApiMocks(page, { projects, projectId: projects[0].id });
 
-  // Project detail — resolve the requested id from the URL so the breadcrumb and
-  // switcher trigger show the correct project after a switch.
+  // Project detail — resolve the requested id from the URL so the switcher trigger
+  // shows the correct project after a switch.
   await page.route('**/api/v1/projects/*/', (route) => {
     const m = /\/projects\/([^/]+)\/$/.exec(new URL(route.request().url()).pathname);
     const id = m?.[1];
@@ -112,23 +114,27 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
   });
 }
 
-test.describe('In-chrome project switcher (#1478)', () => {
+test.describe('Top-bar location switcher (#1643)', () => {
   test('golden path — switch from one member project to another without leaving the chrome', async ({
     page,
   }) => {
     await setupBothProjects(page, TWO_PROJECTS);
     await page.goto(`/projects/${PROJECT_A}/overview`);
 
-    // Page-rendered signal: the view-tab bar (chrome) plus the switcher trigger
-    // for the current project.
-    const viewNav = page.getByRole('navigation', { name: 'View' });
-    await expect(viewNav).toBeVisible({ timeout: 10_000 });
+    // Page-rendered signal: the rail's view nav (chrome) plus the project picker
+    // trigger for the current project.
+    await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
     const trigger = page.getByRole('button', {
       name: 'Current project: Apollo Rebuild. Switch project.',
     });
     await expect(trigger).toBeVisible();
 
-    // Open the switcher and confirm it lists both member projects.
+    // The leaf is a plain aria-current label, never an interactive control.
+    const location = page.getByRole('navigation', { name: 'Location' });
+    await expect(location.getByText('Overview')).toHaveAttribute('aria-current', 'page');
+    await expect(location.getByRole('button', { name: 'Overview' })).toHaveCount(0);
+
+    // Open the picker and confirm it lists both member projects.
     await trigger.click();
     const listbox = page.getByRole('listbox', { name: 'Switch project' });
     await expect(listbox.getByRole('option')).toHaveCount(2);
@@ -142,19 +148,19 @@ test.describe('In-chrome project switcher (#1478)', () => {
     await listbox.getByRole('option', { name: /Borealis Pipeline/ }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_B}/overview$`));
 
-    // The chrome is intact (never bounced out to a listing/portfolio route) and the
-    // switcher now reflects the new current project.
+    // The chrome is intact and the switcher now reflects the new current project.
     await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Current project: Borealis Pipeline. Switch project.' }),
     ).toBeVisible();
   });
 
-  test('edge — a member of a single project sees no switcher', async ({ page }) => {
+  test('edge — a member of a single project sees no project picker', async ({ page }) => {
     await setupBothProjects(page, [projectFixture(PROJECT_A, 'Apollo Rebuild')]);
     await page.goto(`/projects/${PROJECT_A}/overview`);
 
-    // Chrome renders, but with nothing to switch to the switcher is absent.
+    // Chrome renders, but with nothing to switch to the picker is absent (the name
+    // still shows as static wayfinding).
     await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('button', { name: /Switch project/ })).toHaveCount(0);
   });

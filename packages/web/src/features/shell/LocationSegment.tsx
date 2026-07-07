@@ -6,26 +6,24 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react';
-import { useLocation, useMatch, useNavigate } from 'react-router';
-import { useProjectId } from '@/hooks/useProjectId';
-import { useProjects } from '@/hooks/useProjects';
+import { useNavigate } from 'react-router';
+import type { LocationSegmentOption } from './useLocationModel';
 
-/**
- * Route segment immediately after `:projectId` — the active view (defaults to
- * `overview`). Mirrors `ViewTabs`' currentView derivation so a switch preserves
- * the view the user is looking at rather than always dumping them on Overview.
- */
-function currentViewSegment(pathname: string, projectId: string): string {
-  const segments = pathname.split('/');
-  const idx = segments.indexOf(projectId);
-  return (idx >= 0 ? segments[idx + 1] : undefined) ?? 'overview';
-}
-
-interface SwitcherOption {
-  id: string;
-  name: string;
-  to: string;
+interface Props {
+  /** Grammatical noun for the aria labels + empty row ("program" | "project"). */
+  noun: string;
+  /** The switchable options; when fewer than two, the segment renders a static
+   *  identity row (there is nothing to switch to — rule 124: no dead chevron). */
+  options: LocationSegmentOption[];
+  /** The active option's id, used to mark it selected and seed the highlight. */
+  currentId: string | undefined;
+  /** The active option's display name (shown in the trigger / static row). */
+  currentName: string | undefined;
+  /** Optional leading mark (e.g. a `ProgramIdentitySquare`) — always `aria-hidden`;
+   *  the name is the signal (rules 6/7/158). */
+  leading?: ReactNode;
 }
 
 function CheckIcon() {
@@ -50,40 +48,25 @@ function CheckIcon() {
 }
 
 /**
- * In-chrome project switcher (issue 1478). A compact searchable dropdown at the left
- * edge of the view-tab bar that lets the current user jump between the projects
- * they are a MEMBER of without leaving the project chrome — no round-trip out to
- * a listing/portfolio view and back.
+ * One interactive segment of the top-bar location switcher (issue #1643) — the
+ * generalized, reusable form of the former in-chrome `ProjectSwitcher`. Given a
+ * list of switchable locations it renders either:
  *
- * Self-gates exactly like `ViewTabs` / `ViewsMenu`: renders only on project routes
- * (the `useProjectId()` null path covers My Work / Program / workspace routes) and
- * never on project settings routes (the SettingsShell owns its own context
- * switcher there — rule 123 / rule 124). Desktop only (`hidden md:*`), matching the
- * view-tab bar it anchors; on mobile the sidebar drawer is the switch affordance.
+ *   - a **searchable picker** (≥ 2 options) — the rule-124 contract: a `combobox`
+ *     search input + `role="listbox"` of `role="option"` rows, case-insensitive
+ *     substring filter, `aria-activedescendant` highlight, arrows/Home/End/Enter,
+ *     two-stage Escape, `role="status"` empty row, click-outside dismiss, and focus
+ *     that returns to the trigger on close; or
+ *   - a **static identity row** (≤ 1 option) — the name as plain, non-focusable
+ *     text with no chevron, because there is nothing to switch to (a chevron that
+ *     opens an empty list is a dead affordance). This is the wayfinding-still-shown
+ *     guarantee the old `ProjectSwitcher` lacked (it returned null below two).
  *
- * Renders nothing when the member-project list has fewer than two entries — with
- * one project there is nothing to switch to, and a chevron that opens an empty
- * list is a dead affordance (rule 124 precedent).
- *
- * Selecting a project preserves the active view segment (`…/schedule` → the same
- * `…/schedule` on the target project); the route is always reachable because
- * methodology hides tabs, never routes (ADR-0041, hide-only). Data comes from the
- * existing member-scoped `useProjects()` hook — no new endpoint. Per the issue's
- * non-goals this is deliberately identity-only: no health dots, no status scoring,
- * no program/portfolio grouping (those are the Enterprise governance overlay).
- *
- * Implements the rule-124 searchable-listbox contract: a `combobox` search input +
- * `role="listbox"` of `role="option"` rows, case-insensitive substring filter,
- * `aria-activedescendant` highlight, arrows/Home/End/Enter, two-stage Escape,
- * `role="status"` empty row, click-outside dismiss, and focus that returns to the
- * trigger on close.
+ * Selecting an option navigates to its `to` (which the caller composes to preserve
+ * the active view segment). Choosing the current option is a no-op close.
  */
-export function ProjectSwitcher() {
-  const projectId = useProjectId();
-  const onSettingsRoute = useMatch('/projects/:projectId/settings/*');
-  const location = useLocation();
+export function LocationSegment({ noun, options, currentId, currentName, leading }: Props) {
   const navigate = useNavigate();
-  const { data: projects } = useProjects();
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -97,20 +80,6 @@ export function ProjectSwitcher() {
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const optionId = (i: number) => `${baseId}-opt-${i}`;
-
-  // Preserve the active view on switch; recomputed per render so a later view
-  // change is reflected the next time the switcher opens.
-  const view = projectId ? currentViewSegment(location.pathname, projectId) : 'overview';
-
-  const options: SwitcherOption[] = useMemo(
-    () => (projects ?? []).map((p) => ({ id: p.id, name: p.name, to: `/projects/${p.id}/${view}` })),
-    [projects, view],
-  );
-
-  const activeName = useMemo(
-    () => options.find((o) => o.id === projectId)?.name ?? null,
-    [options, projectId],
-  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -137,13 +106,13 @@ export function ProjectSwitcher() {
     return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, [open]);
 
-  // On open: focus the search input and seed the highlight to the current project.
+  // On open: focus the search input and seed the highlight to the current option.
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
-    const idx = options.findIndex((o) => o.id === projectId);
+    const idx = options.findIndex((o) => o.id === currentId);
     setActiveIndex(idx >= 0 ? idx : 0);
-  }, [open, options, projectId]);
+  }, [open, options, currentId]);
 
   // Keep the highlight in range as the filtered set shrinks; scroll it into view.
   useEffect(() => {
@@ -151,18 +120,16 @@ export function ProjectSwitcher() {
     if (activeIndex > filtered.length - 1) {
       setActiveIndex(filtered.length > 0 ? filtered.length - 1 : 0);
     } else {
-      // Optional-call: scrollIntoView is unimplemented in jsdom (unit tests).
       optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
     }
   }, [open, activeIndex, filtered.length]);
 
   const handleSelect = useCallback(
-    (opt: SwitcherOption) => {
-      // Choosing the current project is a no-op beyond closing the menu.
-      if (opt.id !== projectId) void navigate(opt.to);
+    (opt: LocationSegmentOption) => {
+      if (opt.id !== currentId) void navigate(opt.to);
       close(true);
     },
-    [projectId, navigate, close],
+    [currentId, navigate, close],
   );
 
   function handleInputKeyDown(e: KeyboardEvent) {
@@ -195,41 +162,32 @@ export function ProjectSwitcher() {
     }
   }
 
-  // Self-gate (mirrors ViewTabs): project routes only, never on settings routes.
-  // Nothing to switch to with a single project → render no affordance.
-  if (!projectId || onSettingsRoute || options.length < 2) return null;
+  // Static identity row — nothing to switch to (rule 124: no chevron, not a button).
+  // Still shows the name so wayfinding is never lost.
+  if (options.length < 2) {
+    return (
+      <span className="inline-flex min-w-0 items-center gap-1.5 text-sm font-medium text-chrome-text-secondary">
+        {leading}
+        {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
+      </span>
+    );
+  }
 
   return (
-    <div className="relative hidden md:block shrink-0" ref={popoverRef}>
+    <div className="relative shrink-0" ref={popoverRef}>
       <button
         ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={
-          activeName ? `Current project: ${activeName}. Switch project.` : 'Switch project'
+          currentName ? `Current ${noun}: ${currentName}. Switch ${noun}.` : `Switch ${noun}`
         }
         onClick={() => setOpen((v) => !v)}
         className="inline-flex max-w-[11rem] items-center gap-1.5 h-8 px-2 rounded-control text-sm font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
       >
-        {/* Switch/stack glyph — the affordance that this label is switchable. */}
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className="shrink-0"
-          aria-hidden="true"
-        >
-          <path d="M2 5l6-3 6 3-6 3-6-3Z" />
-          <path d="M2 11l6 3 6-3" />
-          <path d="M2 8l6 3 6-3" />
-        </svg>
-        {activeName && <span className="hidden truncate lg:inline">{activeName}</span>}
+        {leading}
+        {currentName && <span className="hidden truncate lg:inline">{currentName}</span>}
         <svg
           width="10"
           height="10"
@@ -250,8 +208,8 @@ export function ProjectSwitcher() {
 
       {open && (
         <div className="absolute left-0 top-full mt-1 z-50 w-64 rounded-card border border-neutral-border bg-chrome-surface">
-          {/* Search box — always present (no scan-then-search gap). focus-within
-              (not focus-visible) so the programmatic open-focus shows a ring too. */}
+          {/* Search box — always present. focus-within (not focus-visible) so the
+              programmatic open-focus shows a ring too (rule 157). */}
           <div className="flex items-center gap-1.5 px-2 h-8 border-b border-neutral-border focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
             <svg
               width="12"
@@ -271,8 +229,8 @@ export function ProjectSwitcher() {
               aria-controls={listboxId}
               aria-autocomplete="list"
               aria-activedescendant={filtered[activeIndex] ? optionId(activeIndex) : undefined}
-              aria-label="Find a project"
-              placeholder="Find a project…"
+              aria-label={`Find a ${noun}`}
+              placeholder={`Find a ${noun}…`}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -286,7 +244,7 @@ export function ProjectSwitcher() {
           <div
             id={listboxId}
             role="listbox"
-            aria-label="Switch project"
+            aria-label={`Switch ${noun}`}
             className="max-h-64 overflow-y-auto py-1"
           >
             {filtered.length === 0 ? (
@@ -295,11 +253,11 @@ export function ProjectSwitcher() {
                 aria-live="polite"
                 className="flex items-center px-2 h-8 text-xs text-neutral-text-secondary"
               >
-                No projects match
+                No {noun}s match
               </div>
             ) : (
               filtered.map((opt, i) => {
-                const isCurrent = opt.id === projectId;
+                const isCurrent = opt.id === currentId;
                 const isHighlighted = i === activeIndex;
                 return (
                   <button

@@ -1,4 +1,4 @@
-import { within, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -48,6 +48,12 @@ vi.mock('@/features/timer/TimerChip', () => ({ TimerChip: () => null }));
 vi.mock('@/features/programs/ProgramIdentitySquare', () => ({
   ProgramIdentitySquare: () => <span data-testid="identity-square" aria-hidden="true" />,
 }));
+// The location switcher owns its own route/data hooks and is covered by its own
+// specs; stub it so the structural TopBar tests assert the bar's composition, not
+// the switcher's internals (#1643).
+vi.mock('./LocationSwitcher', () => ({
+  LocationSwitcher: () => <nav data-testid="location-switcher" aria-label="Location" />,
+}));
 
 // Stub useNavigate to avoid react-router navigation side-effects in JSDOM tests.
 const mockNavigate = vi.fn();
@@ -78,32 +84,19 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(screen.getByLabelText('TruePPM')).toBeInTheDocument();
   });
 
-  it('renders the grouped project view bar with the canonical view set', () => {
+  it('renders the location switcher (replaces the breadcrumb + in-chrome ProjectSwitcher)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Grid' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'WBS' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Table' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-switcher')).toBeInTheDocument();
   });
 
-  it('Overview leads as the standalone first tab (ADR-0030/0128)', () => {
+  it('no longer carries the view-tab strip in the bar — the rail owns view switching (#1642/#1643)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    const nav = screen.getByRole('navigation', { name: /view/i });
-    const links = within(nav).getAllByRole('link');
-    expect(links[0]).toHaveTextContent('Overview');
-  });
-
-  it('groups views into PLAN / DELIVER / TRACK / PEOPLE with Board co-located in DELIVER (ADR-0128 §A / ADR-0195 / ADR-0203)', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('group', { name: /plan views/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /deliver views/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /track views/i })).toBeInTheDocument();
-    expect(screen.getByRole('group', { name: /people views/i })).toBeInTheDocument();
-    const sprint = screen.getByRole('group', { name: /deliver views/i });
-    expect(within(sprint).getByRole('link', { name: 'Board' })).toBeInTheDocument();
+    // The bar's only nav is the location switcher; the old grouped view-tab nav and
+    // its Schedule/Board/Grid links are gone (they live in the left rail now).
+    expect(screen.queryByRole('navigation', { name: /^view$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Board' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /plan views/i })).not.toBeInTheDocument();
   });
 
   it('renders the methodology workspace tag and health cluster', () => {
@@ -124,50 +117,6 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     renderWithRouter(<TopBar onHamburgerClick={onHamburgerClick} />);
     await user.click(screen.getByRole('button', { name: /open sidebar/i }));
     expect(onHamburgerClick).toHaveBeenCalledOnce();
-  });
-
-  it('marks the Board tab active on the board route', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />, {
-      initialEntries: ['/projects/test-project-id/board'],
-    });
-    expect(screen.getByRole('link', { name: /Board/i })).toHaveAttribute('aria-current', 'page');
-    expect(screen.getByRole('link', { name: /Schedule/i })).not.toHaveAttribute('aria-current');
-  });
-
-  // --- ADR-0134: adaptive identity (the breadcrumb absorbed from the old ContextBar) ---
-
-  it('builds Workspace › Program › Project, project as the leaf', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    const crumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(within(crumb).getByRole('link', { name: 'Workspace' })).toBeInTheDocument();
-    expect(within(crumb).getByRole('link', { name: 'Apollo' })).toHaveAttribute(
-      'href',
-      '/programs/prog-1/overview',
-    );
-    expect(within(crumb).getByText('Launch Site')).toHaveAttribute('aria-current', 'page');
-  });
-
-  it('adaptive identity: hidden on desktop when the rail is open, shown when collapsed', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    // Rail open (default): the identity is display:none on md+ (removed from the a11y
-    // tree, not aria-hidden) so it never duplicates the rail.
-    expect(screen.getByRole('navigation', { name: 'Breadcrumb' }).className).toContain('md:hidden');
-
-    // Collapse the rail via the ≡ toggle: identity becomes visible at all widths (it
-    // is now the only wayfinding, and the hidden rail freed the width).
-    fireEvent.click(screen.getByRole('button', { name: 'Hide navigation' }));
-    const crumbCollapsed = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(crumbCollapsed.className).toContain('block');
-    expect(crumbCollapsed.className).not.toContain('md:hidden');
-  });
-
-  it('shows the program as the leaf on a program route', () => {
-    projectId = undefined;
-    projectData = undefined;
-    programId = 'prog-1';
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    const crumb = screen.getByRole('navigation', { name: 'Breadcrumb' });
-    expect(within(crumb).getByText('Apollo')).toHaveAttribute('aria-current', 'page');
   });
 
   // --- presence (absorbed from the old ContextBar, ADR-0127/0134) ---
