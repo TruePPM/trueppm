@@ -156,13 +156,16 @@ test.describe('Project surface visibility settings', () => {
     // phrase, so a bare getByText hits a strict-mode collision.
     await expect(page.getByRole('heading', { name: 'Surface visibility', exact: true })).toBeVisible();
 
-    // All four toggle labels are present. Exact match — each label word also
+    // All four toggle labels are present. Scope to the settings content — the
+    // project view rail also renders a "Reports" nav row, so an unscoped
+    // getByText collides in strict mode. Exact match — each label word also
     // appears inside its own hint copy (e.g. "…hides the Reports tab…"), so a
-    // substring getByText would collide with the hint in strict mode.
-    await expect(page.getByText('Reports', { exact: true })).toBeVisible();
-    await expect(page.getByText('Time tracking', { exact: true })).toBeVisible();
-    await expect(page.getByText('Baselines', { exact: true })).toBeVisible();
-    await expect(page.getByText('Monte-Carlo forecast', { exact: true })).toBeVisible();
+    // substring getByText would collide with the hint too.
+    const surfacesPanel = page.getByTestId('settings-content-scroll');
+    await expect(surfacesPanel.getByText('Reports', { exact: true })).toBeVisible();
+    await expect(surfacesPanel.getByText('Time tracking', { exact: true })).toBeVisible();
+    await expect(surfacesPanel.getByText('Baselines', { exact: true })).toBeVisible();
+    await expect(surfacesPanel.getByText('Monte-Carlo forecast', { exact: true })).toBeVisible();
 
     // Reports group starts on Inherit (methodology default = Shown).
     const reportsGroup = page.getByRole('radiogroup', { name: /Show the Reports surface/i });
