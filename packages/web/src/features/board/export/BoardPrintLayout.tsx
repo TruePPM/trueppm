@@ -41,7 +41,9 @@ function PrintCard({ card }: { card: BoardPrintCard }) {
         {card.shortId && <span className="tppm-mono">{card.shortId}</span>}
         {card.assigneeInitials && (
           <span className="inline-flex items-center gap-1">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-neutral-surface-sunken text-xs font-medium text-neutral-text-secondary">
+            {/* Primary ink, not secondary: #6B6965 on the sunken chip is 4.35:1
+                (< AA); navy primary clears it comfortably (issue #1683). */}
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-neutral-surface-sunken text-xs font-medium text-neutral-text-primary">
               {card.assigneeInitials}
             </span>
           </span>
@@ -81,7 +83,9 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
       <div
         ref={ref}
         style={{ width: PRINT_WIDTH_PX }}
-        className="bg-white p-6 font-sans text-neutral-text-primary"
+        // `theme-light` (issue #1683): pin the export to the light token palette
+        // so a dark-mode app doesn't rasterize light ink on this white sheet.
+        className="theme-light bg-white p-6 font-sans text-neutral-text-primary"
       >
         {/* Header band */}
         <header className="mb-4 border-b border-neutral-border pb-3">

@@ -7,6 +7,7 @@ import {
   useAddDependency,
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProgramTaskSearch } from '@/features/programs/hooks/useProgramTaskSearch';
 
 /**
@@ -122,6 +123,15 @@ export function ScheduleDependencyPicker({
     inputRef.current?.focus();
   }, []);
 
+  // Trap Tab focus inside the modal panel and restore focus to the trigger on
+  // close (web-rule 206 — any bare-mounted aria-modal="true" dialog must trap
+  // its own focus). Declared after the input-focus effect so the trap's own
+  // initial-focus is a no-op (the container already holds the focused input),
+  // leaving the search input as the landing target. Escape is routed through
+  // the trap (its document-level handler stopPropagation's Escape, which would
+  // otherwise never reach the window keydown listener below).
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
   const projectItems = useMemo<PickItem[]>(() => {
     if (scope !== 'project') return [];
     const q = search.trim().toLowerCase();
@@ -228,14 +238,11 @@ export function ScheduleDependencyPicker({
   // dialog container free of inline handlers (a11y lint
   // jsx-a11y/no-noninteractive-element-interactions). The search input owns the
   // visible focus; ←/→ switch scope (the list is vertical, so horizontal arrows
-  // are free), ↑/↓ move the active row, Enter adds, Esc cancels.
+  // are free), ↑/↓ move the active row, Enter adds. Escape is handled by the
+  // focus trap (useFocusTrap above), which stopPropagation's it before it can
+  // reach this window-level listener.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
       if (e.key === 'ArrowLeft' && canCrossProject) {
         e.preventDefault();
         switchScope('project');
@@ -264,7 +271,7 @@ export function ScheduleDependencyPicker({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onClose, canCrossProject, switchScope]);
+  }, [canCrossProject, switchScope]);
 
   const title =
     mode === 'predecessor'
@@ -283,10 +290,12 @@ export function ScheduleDependencyPicker({
         onClick={onClose}
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative mx-3 w-full max-w-[480px] max-h-[480px] bg-neutral-surface border border-neutral-border rounded-card flex flex-col"
+        tabIndex={-1}
+        className="relative mx-3 w-full max-w-[480px] max-h-[480px] bg-neutral-surface border border-neutral-border rounded-card flex flex-col focus:outline-none"
       >
         <div className="h-12 flex items-center justify-between px-4 border-b border-neutral-border">
           <h2 className="text-sm font-medium text-neutral-text-primary truncate">

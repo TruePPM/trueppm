@@ -20,6 +20,8 @@ import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { useGroupedProjectViews } from '@/features/shell/useGroupedProjectViews';
 import { VIEW_TAB_META } from '@/features/shell/viewMeta';
+import { methodologyLabel } from '@/lib/methodologyLabel';
+import { ViewsMenu } from './ViewsMenu';
 import type { ProjectHealth } from '@/api/types';
 
 interface Props {
@@ -250,7 +252,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         onClick={closeDrawer}
         className={({ isActive }) => rowClass(isActive)}
       >
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="currentColor"
+          aria-hidden="true"
+          className="shrink-0"
+        >
           <path d="M5 3.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM0 11c0-1.7 1.3-3 3-3s3 1.3 3 3v1H0v-1Zm8 0c0-1.7 1.3-3 3-3s3 1.3 3 3v1H8v-1Z" />
         </svg>
         <span className="min-w-0 truncate">Resources</span>
@@ -261,7 +270,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           onClick={closeDrawer}
           className={({ isActive }) => rowClass(isActive)}
         >
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 14 14"
+            fill="currentColor"
+            aria-hidden="true"
+            className="shrink-0"
+          >
             <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
           </svg>
           <span className="min-w-0 truncate">Portfolio rollup</span>
@@ -273,11 +289,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           no padlock — the former rule-178 row), populated by the enterprise
           module. This is the empty-slot pattern of `resources_heatmap.level_loads`
           (issue 1614). */}
-      {registry
-        .get('nav.portfolio_section')
-        .map(({ id, component: Component }) => (
-          <Component key={id} />
-        ))}
+      {registry.get('nav.portfolio_section').map(({ id, component: Component }) => (
+        <Component key={id} />
+      ))}
 
       {/* Programs — the group header is a NavLink to the /programs gateway (the
           only in-app route to the "Load demo data" on-ramp), not a dead label. */}
@@ -344,7 +358,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             {isExpanded && (
               <div className="ml-3 border-l border-chrome-border/15 pl-1">
                 {kids.length === 0 ? (
-                  <p className="px-3 py-1.5 text-xs italic text-chrome-text-secondary">No projects</p>
+                  <p className="px-3 py-1.5 text-xs italic text-chrome-text-secondary">
+                    No projects
+                  </p>
                 ) : (
                   kids.map((p) => (
                     <ProjectRow
@@ -399,7 +415,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -422,7 +444,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       >
         {/* Brand + collapse (≡ in the unified shell bar re-opens when hidden) */}
         <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
-          <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
+          <NavLink
+            to="/me/work"
+            aria-label="TruePPM — My Work"
+            className="flex items-center gap-2 min-w-0"
+          >
             <LogoMark size={22} className="shrink-0" />
             <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
               <span className="text-navy-700 dark:text-reversed">True</span>
@@ -438,7 +464,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               title={`Hide sidebar (${modifierKeyLabel()}B)`}
               className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
             >
-              <span aria-hidden="true" className="text-base leading-none">«</span>
+              <span aria-hidden="true" className="text-base leading-none">
+                «
+              </span>
             </button>
           )}
         </div>
@@ -463,7 +491,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
               </svg>
               <span className="min-w-0 truncate">My Work</span>
@@ -479,7 +514,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <rect x="1.5" y="2" width="11" height="10" rx="1" />
                 <path d="M1.5 5h11M5 5v7M9 5v7" />
               </svg>
@@ -491,7 +535,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
               </svg>
               <span className="min-w-0 truncate">Inbox</span>
@@ -561,10 +612,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   aria-controls="rail-browse-panel"
                   className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
                 >
-                  <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 14 14"
+                    fill="currentColor"
+                    aria-hidden="true"
+                    className="shrink-0"
+                  >
                     <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
                   </svg>
-                  <span className="min-w-0 flex-1 truncate text-left">Browse projects and programs</span>
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    Browse projects and programs
+                  </span>
                   <ChevronRightIcon
                     aria-hidden="true"
                     className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
@@ -687,6 +747,9 @@ function ProjectViewsTier({
   const program = programs?.find((p) => p.id === programId) ?? null;
   const programName = project.data?.program_detail?.name ?? null;
   const health = PROJECT_HEALTH_STATE[project.data?.health ?? 'AUTO'] ?? 'unknown';
+  // Server-resolved preset (web-rule 196) — the same value the removed bar
+  // `MethodWorkspaceLabel` showed (#1680); rides the card subtitle here now.
+  const effectiveMethodology = project.data?.effective_methodology ?? 'HYBRID';
   const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -694,10 +757,19 @@ function ProjectViewsTier({
 
   return (
     <>
-      <h2 className={GROUP_LABEL}>This project</h2>
-      {/* Project header card — program identity SQUARE (rule 158), name + program
-          subtitle, and a right-aligned health CIRCLE whose word rides its
-          aria-label (rule 6). Never a shadow for the raise (rule 1). */}
+      {/* Header row — the "This project" label plus the relocated Customize-views
+          control (#1680): a `flex-wrap justify-between` row so ViewsMenu's gear sits
+          at the right and its in-flow `basis-full` panel wraps to a full-width line
+          beneath, pushing the card down (the rail's overflow would clip a floating
+          menu). */}
+      <div className="flex flex-wrap items-center justify-between gap-y-1 pr-1">
+        <h2 className={GROUP_LABEL}>This project</h2>
+        <ViewsMenu />
+      </div>
+      {/* Project header card — program identity SQUARE (rule 158), name + a
+          program·methodology subtitle (the methodology label relocated from the bar
+          in #1680, web-rule 196), and a right-aligned health CIRCLE whose word rides
+          its aria-label (rule 6). Never a shadow for the raise (rule 1). */}
       <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
         <ProgramIdentitySquare
           program={program ?? { color: null, code: '', name: programName ?? name }}
@@ -705,9 +777,17 @@ function ProjectViewsTier({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-chrome-text-primary">{name}</p>
-          {programName && (
-            <p className="truncate text-xs text-chrome-text-secondary">{programName}</p>
-          )}
+          {/* Program name truncates first; the methodology stays `shrink-0` so the
+              "you are here / how it runs" signal is never clipped. */}
+          <p className="flex items-center gap-1 text-xs text-chrome-text-secondary">
+            {programName && <span className="truncate">{programName}</span>}
+            {programName && (
+              <span aria-hidden="true" className="shrink-0">
+                ·
+              </span>
+            )}
+            <span className="shrink-0">{methodologyLabel(effectiveMethodology)} workspace</span>
+          </p>
         </div>
         <span role="img" aria-label={HEALTH_LABEL[health]} className="shrink-0">
           <HealthDot state={health} />

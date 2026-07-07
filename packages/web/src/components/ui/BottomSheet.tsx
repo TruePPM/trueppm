@@ -1,5 +1,8 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export interface BottomSheetProps {
   /** When false, renders nothing (parent controls open/close). */
   isOpen: boolean;
@@ -67,15 +70,28 @@ export function BottomSheet({
     return () => document.removeEventListener('keydown', onKey);
   }, [isOpen, onClose]);
 
+  // Move focus into the sheet on open (WCAG 2.4.3 Focus Order). The Tab-cycle
+  // trap below only engages on the first Tab; without this the reading cursor
+  // stays on the outside trigger despite the modal semantics. Skip when a
+  // descendant already holds focus (a caller's autoFocus'd field), so per-sheet
+  // focus targets are preserved. Close-side restoration is owned by each caller
+  // (e.g. BottomNav restores focus to the More trigger).
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const sheet = sheetRef.current;
+    if (!sheet || sheet.contains(document.activeElement)) return undefined;
+    const first = sheet.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    (first ?? sheet).focus();
+    return undefined;
+  }, [isOpen]);
+
   // Focus trap. Tab cycles within the sheet; Shift+Tab from the first
   // focusable lands on the last; Tab from the last lands on the first.
   useEffect(() => {
     if (!isOpen) return undefined;
     function onTab(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !sheetRef.current) return;
-      const focusable = sheetRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
+      const focusable = sheetRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -117,9 +133,10 @@ export function BottomSheet({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-label={titleId ? undefined : ariaLabel}
+        tabIndex={-1}
         className={[
           visibilityClass,
-          'fixed z-50 overflow-y-auto bg-neutral-surface border-t border-neutral-border',
+          'fixed z-50 overflow-y-auto bg-neutral-surface border-t border-neutral-border focus:outline-none',
           'motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out',
           heightClass,
         ].join(' ')}

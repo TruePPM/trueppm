@@ -147,6 +147,18 @@ describe('SchedulePrintLayout', () => {
     expect(wbsSpans.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('pins the export surface to the light theme island regardless of app theme (issue #1683)', () => {
+    // The surface is mounted in the live app DOM, so under html.dark every
+    // CSS-var token would resolve dark on the fixed-white sheet and rasterize
+    // light ink on white (WCAG 1.4.3). `.theme-light` re-asserts light values.
+    const { container } = render(<SchedulePrintLayout data={data()} />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.classList.contains('theme-light')).toBe(true);
+    // Still the white sheet + light ink token contract.
+    expect(root.classList.contains('bg-white')).toBe(true);
+    expect(root.classList.contains('text-neutral-text-primary')).toBe(true);
+  });
+
   it('stamps the banding geometry on the root node for the rasterizer', () => {
     const { container } = render(<SchedulePrintLayout data={data()} />);
     const root = container.firstChild as HTMLElement;

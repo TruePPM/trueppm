@@ -8,7 +8,10 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: vi.fn(() => ({ role: 200, isLoading: false })),
 }));
 vi.mock('@/hooks/useProject', () => ({
-  useProject: vi.fn(() => ({ data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' }, isLoading: false })),
+  useProject: vi.fn(() => ({
+    data: { id: 'proj-1', methodology: 'HYBRID', effective_methodology: 'HYBRID' },
+    isLoading: false,
+  })),
 }));
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: vi.fn(() => ({ user: { hidden_views: [] }, isLoading: false })),
@@ -126,14 +129,18 @@ describe('ViewsMenu (ADR-0139)', () => {
   it('offers the Schedule-in-Deliver placement toggle on HYBRID, off by default', () => {
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    const placement = screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i });
+    const placement = screen.getByRole('menuitemcheckbox', {
+      name: /Also show Schedule under Deliver/i,
+    });
     expect(placement).toHaveAttribute('aria-checked', 'false');
   });
 
   it('toggling the placement opt-in PATCHes schedule_in_deliver = true', () => {
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }));
+    fireEvent.click(
+      screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+    );
     expect(mutateSchedule).toHaveBeenCalledTimes(1);
     expect(mutateSchedule.mock.calls[0][0]).toBe(true);
     // The hidden-views mutation is untouched — placement is not a visibility change.

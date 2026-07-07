@@ -24,6 +24,10 @@ interface Props {
   /** Optional leading mark (e.g. a `ProgramIdentitySquare`) — always `aria-hidden`;
    *  the name is the signal (rules 6/7/158). */
   leading?: ReactNode;
+  /** Optional subtitle shown as a second line on the CURRENT (selected) option row
+   *  only (#1680 — the project segment passes the methodology label here). Other
+   *  rows and other segments (e.g. program) stay single-line. */
+  currentSubtitle?: string;
 }
 
 function CheckIcon() {
@@ -65,7 +69,14 @@ function CheckIcon() {
  * Selecting an option navigates to its `to` (which the caller composes to preserve
  * the active view segment). Choosing the current option is a no-op close.
  */
-export function LocationSegment({ noun, options, currentId, currentName, leading }: Props) {
+export function LocationSegment({
+  noun,
+  options,
+  currentId,
+  currentName,
+  leading,
+  currentSubtitle,
+}: Props) {
   const navigate = useNavigate();
 
   const [open, setOpen] = useState(false);
@@ -259,6 +270,10 @@ export function LocationSegment({ noun, options, currentId, currentName, leading
               filtered.map((opt, i) => {
                 const isCurrent = opt.id === currentId;
                 const isHighlighted = i === activeIndex;
+                // The current row grows to two lines when a subtitle is supplied
+                // (#1680); its accessible name folds the subtitle in so the extra
+                // line isn't read as a stray text node.
+                const showSubtitle = isCurrent && Boolean(currentSubtitle);
                 return (
                   <button
                     key={opt.id}
@@ -269,12 +284,26 @@ export function LocationSegment({ noun, options, currentId, currentName, leading
                     type="button"
                     role="option"
                     aria-selected={isCurrent}
+                    aria-label={
+                      showSubtitle
+                        ? `${opt.name}, current, ${currentSubtitle} workspace`
+                        : undefined
+                    }
                     tabIndex={-1}
                     onMouseEnter={() => setActiveIndex(i)}
                     onClick={() => handleSelect(opt)}
-                    className={`w-full flex items-center gap-1.5 px-2 h-8 text-xs text-left text-neutral-text-primary ${isHighlighted ? 'bg-neutral-surface-sunken' : ''}`}
+                    className={`w-full flex items-center gap-1.5 px-2 ${showSubtitle ? 'py-1' : 'h-8'} text-xs text-left text-neutral-text-primary ${isHighlighted ? 'bg-neutral-surface-sunken' : ''}`}
                   >
-                    <span className="flex-1 truncate">{opt.name}</span>
+                    {showSubtitle ? (
+                      <span className="min-w-0 flex-1 flex flex-col">
+                        <span className="truncate">{opt.name}</span>
+                        <span className="truncate text-xs text-neutral-text-secondary">
+                          {currentSubtitle} workspace
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex-1 truncate">{opt.name}</span>
+                    )}
                     {isCurrent && <CheckIcon />}
                   </button>
                 );

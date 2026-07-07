@@ -7,8 +7,14 @@
  * print-width `pxPerDay`, `scrollLeft = 0`) built via the engine's shared
  * geometry layer. It never captures the live dark canvas — it redraws the full
  * timeline in the LIGHT theme at a fixed print width, so the artifact is correct
- * on extent, theme, and scale simultaneously, and the PDF keeps a selectable
- * text layer.
+ * on extent, theme, and scale simultaneously, and labels stay crisp under the 2×
+ * rasterization (the exported PDF embeds this surface as a high-resolution image;
+ * it is NOT a tagged/selectable-text PDF — a tagged pipeline is tracked in #1687).
+ *
+ * The LIGHT theme is enforced, not assumed: the root carries the `.theme-light`
+ * token island (issue #1683) so the export stays legible even when the app is in
+ * dark mode. Without it, the DS tokens below resolve to their dark values on the
+ * fixed-white sheet and the rasterizer captures light ink on a white page.
  *
  * Styling uses Design-System tokens only (no raw hex, no shadow utilities) via
  * the `schedulePrintTheme` role→token map, so html-to-image captures the theme's
@@ -232,7 +238,13 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
       <div
         ref={ref}
         style={{ width: sheetWidth }}
-        className={`${roleBgClass('sheetSurface')} p-6 font-sans text-neutral-text-primary`}
+        // `theme-light` (issue #1683) pins this off-screen surface to the LIGHT
+        // token palette even when the app is in dark mode — otherwise the sheet
+        // stays a fixed `bg-white` while every CSS-var token (ink, surfaces,
+        // borders) resolves to its dark value, and the rasterizer captures
+        // light-gray ink on a white page (WCAG 1.4.3). The document is designed
+        // light; the island keeps it light regardless of the exporter's theme.
+        className={`theme-light ${roleBgClass('sheetSurface')} p-6 font-sans text-neutral-text-primary`}
         data-print-page-width-px={printWidth}
         data-print-label-strip-px={layout ? labelStripPx : undefined}
         data-print-week-px={layout && weekPx != null ? weekPx : undefined}
@@ -319,7 +331,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                     {row.name}
                   </span>
                   {includeOwnerColumn && row.ownerInitials && (
-                    <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-secondary">
+                    <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-primary">
                       {row.ownerInitials}
                     </span>
                   )}
