@@ -26,6 +26,15 @@ export interface OverviewMetric {
   variant: OverviewMetricVariant;
   /** Hover/AT explanation — e.g. the raw SPI behind the schedule band. */
   title?: string;
+  /**
+   * Drill-down route (with any query params) the card navigates to. When set,
+   * the KpiCard renders as an interactive `<Link>`; when undefined the card is a
+   * static read. A real-zero or no-data metric leaves this unset (rule 172: no
+   * dead drill-down for a count of 0 / a `—` placeholder).
+   */
+  to?: string;
+  /** Noun completing the card's `aria-label` action, e.g. "overdue tasks". */
+  toLabel?: string;
 }
 
 export type OverviewMetricKey =

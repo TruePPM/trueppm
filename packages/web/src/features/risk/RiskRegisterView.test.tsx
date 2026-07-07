@@ -1,6 +1,8 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { renderWithProviders } from '@/test/utils';
+// RiskRegisterView reads `?severity=high` via useSearchParams (#1691), so it
+// needs a Router in the tree — use the router-wrapping render helper.
+import { renderWithProvidersAndRouter as renderWithProviders } from '@/test/utils';
 import type { Risk } from '@/api/types';
 
 const FIXTURE_RISK: Risk = {
@@ -273,6 +275,14 @@ describe('RiskRegisterView', () => {
     expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
   });
 
+  it('seeds the High segment from the ?severity=high deep-link (#1691)', () => {
+    useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
+    renderWithProviders(<RiskRegisterView />, { initialEntries: ['/?severity=high'] });
+    expect(screen.getByRole('radio', { name: 'High' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByText('Critical infrastructure failure')).toBeInTheDocument();
+    expect(screen.queryByText('Low resolved risk')).not.toBeInTheDocument();
+  });
+
   it('Unmitigated excludes resolved/accepted/closed risks', () => {
     useRisksState.risks = [FIXTURE_RISK, LOW_RESOLVED];
     renderWithProviders(<RiskRegisterView />);
@@ -383,8 +393,18 @@ describe('RiskRegisterView', () => {
   });
 
   it('sorts the table by newest when the Newest toggle is pressed (issue 1230)', () => {
-    const older = { ...FIXTURE_RISK, id: 'o', title: 'Older risk', created_at: '2026-01-01T00:00:00Z' };
-    const newer = { ...FIXTURE_RISK, id: 'n', title: 'Newer risk', created_at: '2026-03-01T00:00:00Z' };
+    const older = {
+      ...FIXTURE_RISK,
+      id: 'o',
+      title: 'Older risk',
+      created_at: '2026-01-01T00:00:00Z',
+    };
+    const newer = {
+      ...FIXTURE_RISK,
+      id: 'n',
+      title: 'Newer risk',
+      created_at: '2026-03-01T00:00:00Z',
+    };
     useRisksState.risks = [older, newer]; // server/input order: Older, Newer
     renderWithProviders(<RiskRegisterView />);
 

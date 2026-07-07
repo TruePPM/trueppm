@@ -459,4 +459,34 @@ test.describe('Project overview page', () => {
     );
     expect(overflowPx).toBeLessThanOrEqual(1);
   });
+
+  // #1691 — the KPI cards are drill-downs. Tapping a metric resolves to the
+  // underlying detail rather than dead-ending on a number. Each test first gates
+  // on a data-loaded signal (a card value only rendered once /overview/ resolves)
+  // so the metric cards are guaranteed to be their interactive <Link> form before
+  // the link is located — the KPI links only appear after the rollup loads.
+  test('Tasks late card drills into the grid filtered to overdue', async ({ page }) => {
+    await expect(page.getByText('1 late')).toBeVisible();
+    const link = page.getByRole('link', { name: /tasks late.*view overdue tasks/i });
+    await expect(link).toHaveAttribute('href', /\/grid\?due=overdue/);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/grid\\?due=overdue`));
+  });
+
+  test('Schedule health card drills into the schedule view', async ({ page }) => {
+    await expect(page.getByText('1 late')).toBeVisible();
+    const link = page.getByRole('link', { name: /schedule health.*view the schedule/i });
+    await expect(link).toHaveAttribute('href', /\/schedule$/);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule`));
+  });
+
+  test('Next milestone card drills into the milestone task detail', async ({ page }) => {
+    // "Phase gate" is the milestone name — visible only once /overview/ resolves.
+    await expect(page.getByText('Phase gate')).toBeVisible();
+    const link = page.getByRole('link', { name: /next milestone.*view the milestone/i });
+    await expect(link).toHaveAttribute('href', /\/tasks\/m1$/);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/tasks/m1`));
+  });
 });

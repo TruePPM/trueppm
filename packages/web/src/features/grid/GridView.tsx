@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useProject } from '@/hooks/useProject';
 import { useBulkDeleteTasks } from '@/hooks/useTaskMutations';
@@ -7,7 +9,7 @@ import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
-import type { TaskStatus } from '@/types';
+import type { Task, TaskStatus } from '@/types';
 import { ModeToggle } from './ModeToggle';
 import { GroupBySelector } from './GroupBySelector';
 import { ChipStrip } from './ChipStrip';
@@ -17,8 +19,12 @@ import { FlatMode } from './FlatMode';
 import { GroupedMode } from './GroupedMode';
 import { OutlineMode } from './OutlineMode';
 import {
-  loadMode, saveMode, loadGroupBy, saveGroupBy,
-  type GridMode, type GridGroupBy,
+  loadMode,
+  saveMode,
+  loadGroupBy,
+  saveGroupBy,
+  type GridMode,
+  type GridGroupBy,
 } from './persistence';
 import { methodologyDefaultMode } from './methodologyDefaults';
 import { matchesFilters, type GridFilterState } from './filters';
@@ -40,7 +46,8 @@ export function GridView() {
   const project = useProject(projectId);
   const { tasks, isLoading, error } = useScheduleTasks();
   const { selectedIds, selectAll, clearSelection } = useTaskSelectionStore();
-  const { setSelectedTaskId: setOutlineSelectedTaskId, selectedTaskId: outlineSelectedTaskId } = useWbsStore();
+  const { setSelectedTaskId: setOutlineSelectedTaskId, selectedTaskId: outlineSelectedTaskId } =
+    useWbsStore();
   const bulkDelete = useBulkDeleteTasks(projectId);
 
   const methodology = project.data?.methodology ?? 'HYBRID';
@@ -70,17 +77,23 @@ export function GridView() {
     setGroupByState(persisted ?? 'phase');
   }, [projectId]);
 
-  const setMode = useCallback((next: GridMode) => {
-    setModeState(next);
-    if (projectId) saveMode(projectId, next);
-  }, [projectId]);
+  const setMode = useCallback(
+    (next: GridMode) => {
+      setModeState(next);
+      if (projectId) saveMode(projectId, next);
+    },
+    [projectId],
+  );
 
-  const setGroupBy = useCallback((next: GridGroupBy) => {
-    setGroupByState(next);
-    if (projectId) saveGroupBy(projectId, next);
-  }, [projectId]);
+  const setGroupBy = useCallback(
+    (next: GridGroupBy) => {
+      setGroupByState(next);
+      if (projectId) saveGroupBy(projectId, next);
+    },
+    [projectId],
+  );
 
-  // Filter state — search, owner, status. Owner+status set programmatically;
+  // Filter state — search, owner, status, due. Owner+status set programmatically;
   // chip strip exposes the active set with × to clear individual filters.
   const [search, setSearch] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
@@ -88,9 +101,54 @@ export function GridView() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // `?due=overdue` deep-link — the Overview "Tasks late" card drills in here so
+  // the count it shows and the rows the grid shows use the same late definition
+  // (filters.ts `isTaskOverdue` mirrors the server's `tasks_late_count`). The URL
+  // param is the source of truth so the filter is shareable and survives reload.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const overdue = searchParams.get('due') === 'overdue';
+
+  const setOverdue = useCallback(
+    (next: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (next) p.set('due', 'overdue');
+          else p.delete('due');
+          return p;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Arriving via the overdue drill-down shows the late tasks as a single clean,
+  // clickable flat list rather than scattered through the outline/grouped
+  // hierarchy. This is a DERIVED display override, not a persisted mode change:
+  // it never touches localStorage (so it can't clobber the user's saved
+  // preference — the #1691 regression note), reverts the instant the filter is
+  // cleared, and yields to a deliberate in-session mode change via the toolbar.
+  const [manualModeSinceDrill, setManualModeSinceDrill] = useState(false);
+  useEffect(() => {
+    // Reset the manual-override flag whenever the drill-down param toggles.
+    setManualModeSinceDrill(false);
+  }, [overdue]);
+  const effectiveMode: GridMode = overdue && !manualModeSinceDrill ? 'flat' : mode;
+
   const filters: GridFilterState = useMemo(
-    () => ({ search, ownerFilter, statusFilter }),
-    [search, ownerFilter, statusFilter],
+    () => ({ search, ownerFilter, statusFilter, dueFilter: overdue ? 'overdue' : 'all' }),
+    [search, ownerFilter, statusFilter, overdue],
+  );
+
+  // Open a task's detail in the app-wide drawer (mounted in AppShell) when a
+  // grid row is clicked — the grid otherwise had no click-through to detail.
+  const openTaskDrawer = useTaskDrawerStore((s) => s.openTask);
+  const handleOpenDetail = useCallback(
+    (task: Task) => {
+      if (projectId) openTaskDrawer(task, projectId);
+    },
+    [openTaskDrawer, projectId],
   );
 
   const handleSearchChange = (v: string) => {
@@ -104,6 +162,7 @@ export function GridView() {
     setSearchDraft('');
     setOwnerFilter('');
     setStatusFilter('');
+    setOverdue(false);
   };
 
   // Imperative expand-all / collapse-all signal for OutlineMode.
@@ -144,8 +203,8 @@ export function GridView() {
   // TaskFormModal state — opened from "+ Task" or "+ Child" toolbar buttons.
   const [showAddForm, setShowAddForm] = useState(false);
   const [addFormParentId, setAddFormParentId] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -166,13 +225,15 @@ export function GridView() {
     exportTasksToCsv(filteredSorted, `tasks-${projectId ?? 'export'}.csv`);
   }, [tasks, filters, projectId]);
 
-  const allSelected = (tasks ?? []).length > 0
-    && (tasks ?? []).every((t) => selectedIds.has(t.id));
+  const allSelected = (tasks ?? []).length > 0 && (tasks ?? []).every((t) => selectedIds.has(t.id));
 
   // Single shell-level live region for mode-switch announcements.
   const [modeAnnouncement, setModeAnnouncement] = useState('');
   const handleModeChange = (next: GridMode) => {
     setMode(next);
+    // A deliberate toolbar mode change wins over the overdue drill-down's
+    // derived flat view (and persists, since the user chose it).
+    setManualModeSinceDrill(true);
     setDeletePhase('idle');
     if (next !== 'outline') clearSelection();
     const taskCount = tasks?.length ?? 0;
@@ -180,8 +241,8 @@ export function GridView() {
       next === 'flat'
         ? `Switched to flat mode. ${taskCount} task${taskCount === 1 ? '' : 's'} shown.`
         : next === 'outline'
-        ? `Switched to outline mode.`
-        : `Switched to grouped mode. Grouped by ${groupBy}.`,
+          ? `Switched to outline mode.`
+          : `Switched to grouped mode. Grouped by ${groupBy}.`,
     );
   };
 
@@ -218,7 +279,7 @@ export function GridView() {
           <div
             key={i}
             className="h-11 rounded motion-safe:animate-pulse bg-neutral-surface-sunken"
-            style={{ marginLeft: mode === 'outline' ? `${(i % 3) * 16}px` : 0 }}
+            style={{ marginLeft: effectiveMode === 'outline' ? `${(i % 3) * 16}px` : 0 }}
           />
         ))}
       </div>
@@ -229,11 +290,15 @@ export function GridView() {
     return (
       <div className="flex flex-col h-full bg-neutral-surface overflow-hidden">
         <Toolbar
-          mode={mode} onModeChange={handleModeChange}
-          groupBy={groupBy} onGroupByChange={handleGroupByChange}
+          mode={effectiveMode}
+          onModeChange={handleModeChange}
+          groupBy={groupBy}
+          onGroupByChange={handleGroupByChange}
           agileFeatures={agileFeatures}
-          searchDraft={searchDraft} onSearchChange={handleSearchChange}
-          filteredCount={0} totalCount={0}
+          searchDraft={searchDraft}
+          onSearchChange={handleSearchChange}
+          filteredCount={0}
+          totalCount={0}
           deletePhase="idle"
           selectedSize={0}
           allSelected={false}
@@ -243,7 +308,10 @@ export function GridView() {
           onConfirmDelete={() => {}}
           onCancelDelete={() => {}}
           isDeleting={false}
-          onAddTask={() => { setAddFormParentId(null); setShowAddForm(true); }}
+          onAddTask={() => {
+            setAddFormParentId(null);
+            setShowAddForm(true);
+          }}
           onAddChild={() => {}}
           showAddChild={false}
           onExpandAll={() => {}}
@@ -252,7 +320,14 @@ export function GridView() {
           canExport={false}
         />
         <GridEmptyState
-          onAddTask={projectId ? () => { setAddFormParentId(null); setShowAddForm(true); } : undefined}
+          onAddTask={
+            projectId
+              ? () => {
+                  setAddFormParentId(null);
+                  setShowAddForm(true);
+                }
+              : undefined
+          }
         />
         {showAddForm && projectId && (
           <TaskFormModal
@@ -260,7 +335,10 @@ export function GridView() {
             task={null}
             parentId={addFormParentId ?? undefined}
             isMobile={isMobile}
-            onClose={() => { setShowAddForm(false); setAddFormParentId(null); }}
+            onClose={() => {
+              setShowAddForm(false);
+              setAddFormParentId(null);
+            }}
           />
         )}
       </div>
@@ -268,16 +346,21 @@ export function GridView() {
   }
 
   const allTaskIds = tasks.map((t) => t.id);
-  const selectionAllSelected = allTaskIds.length > 0 && allTaskIds.every((id) => selectedIds.has(id));
+  const selectionAllSelected =
+    allTaskIds.length > 0 && allTaskIds.every((id) => selectedIds.has(id));
 
   return (
     <div className="flex flex-col h-full bg-neutral-surface overflow-hidden relative">
       <Toolbar
-        mode={mode} onModeChange={handleModeChange}
-        groupBy={groupBy} onGroupByChange={handleGroupByChange}
+        mode={mode}
+        onModeChange={handleModeChange}
+        groupBy={groupBy}
+        onGroupByChange={handleGroupByChange}
         agileFeatures={agileFeatures}
-        searchDraft={searchDraft} onSearchChange={handleSearchChange}
-        filteredCount={filteredCount} totalCount={tasks.length}
+        searchDraft={searchDraft}
+        onSearchChange={handleSearchChange}
+        filteredCount={filteredCount}
+        totalCount={tasks.length}
         deletePhase={deletePhase}
         selectedSize={selectedIds.size}
         allSelected={selectionAllSelected || allSelected}
@@ -287,12 +370,15 @@ export function GridView() {
         onConfirmDelete={handleConfirmDelete}
         onCancelDelete={() => setDeletePhase('idle')}
         isDeleting={deletePhase === 'deleting'}
-        onAddTask={() => { setAddFormParentId(null); setShowAddForm(true); }}
+        onAddTask={() => {
+          setAddFormParentId(null);
+          setShowAddForm(true);
+        }}
         onAddChild={() => {
           setAddFormParentId(outlineSelectedTaskId ?? null);
           setShowAddForm(true);
         }}
-        showAddChild={mode === 'outline' && !!outlineSelectedTaskId}
+        showAddChild={effectiveMode === 'outline' && !!outlineSelectedTaskId}
         onExpandAll={() => setExpandAllCounter((c) => c + 1)}
         onCollapseAll={() => setCollapseAllCounter((c) => c + 1)}
         onCsvExport={exportFilteredTasks}
@@ -303,17 +389,26 @@ export function GridView() {
         search={search}
         ownerFilter={ownerFilter}
         statusFilter={statusFilter}
+        overdue={overdue}
         onRemove={(key) => {
-          if (key === 'search') { setSearch(''); setSearchDraft(''); }
+          if (key === 'search') {
+            setSearch('');
+            setSearchDraft('');
+          }
           if (key === 'owner') setOwnerFilter('');
           if (key === 'status') setStatusFilter('');
+          if (key === 'overdue') setOverdue(false);
         }}
       />
 
-      {mode === 'flat' && (
-        <FlatMode filters={filters} onClearFilters={handleClearFilters} />
+      {effectiveMode === 'flat' && (
+        <FlatMode
+          filters={filters}
+          onClearFilters={handleClearFilters}
+          onOpenDetail={handleOpenDetail}
+        />
       )}
-      {mode === 'outline' && (
+      {effectiveMode === 'outline' && (
         <OutlineMode
           filters={filters}
           onClearFilters={handleClearFilters}
@@ -321,11 +416,12 @@ export function GridView() {
           collapseAllCounter={collapseAllCounter}
         />
       )}
-      {mode === 'grouped' && (
+      {effectiveMode === 'grouped' && (
         <GroupedMode
           groupBy={groupBy}
           filters={filters}
           onClearFilters={handleClearFilters}
+          onOpenDetail={handleOpenDetail}
         />
       )}
 
@@ -339,17 +435,13 @@ export function GridView() {
             setShowAddForm(false);
             setAddFormParentId(null);
             // Outline-mode "+ Child" leaves selection in place; nothing else to reset.
-            if (mode !== 'outline') setOutlineSelectedTaskId(null);
+            if (effectiveMode !== 'outline') setOutlineSelectedTaskId(null);
           }}
         />
       )}
 
       {/* Shell-level live region — mode + group-by announcements. */}
-      <div
-        aria-live="polite"
-        aria-atomic="true"
-        className="sr-only"
-      >
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
         {modeAnnouncement}
       </div>
 
@@ -361,7 +453,11 @@ export function GridView() {
             bg-neutral-surface-raised border border-neutral-border
             text-xs text-neutral-text-primary whitespace-nowrap"
         >
-          {!toast.isError && <span aria-hidden="true" className="text-semantic-on-track">✓</span>}
+          {!toast.isError && (
+            <span aria-hidden="true" className="text-semantic-on-track">
+              ✓
+            </span>
+          )}
           {toast.text}
         </div>
       )}
@@ -398,15 +494,30 @@ interface ToolbarProps {
 }
 
 function Toolbar({
-  mode, onModeChange,
-  groupBy, onGroupByChange, agileFeatures,
-  searchDraft, onSearchChange,
-  filteredCount, totalCount,
-  deletePhase, selectedSize, allSelected,
-  onSelectAll, onDeleteClick, onConfirmDelete, onCancelDelete, isDeleting,
-  onAddTask, onAddChild, showAddChild,
-  onExpandAll, onCollapseAll,
-  onCsvExport, canExport,
+  mode,
+  onModeChange,
+  groupBy,
+  onGroupByChange,
+  agileFeatures,
+  searchDraft,
+  onSearchChange,
+  filteredCount,
+  totalCount,
+  deletePhase,
+  selectedSize,
+  allSelected,
+  onSelectAll,
+  onDeleteClick,
+  onConfirmDelete,
+  onCancelDelete,
+  isDeleting,
+  onAddTask,
+  onAddChild,
+  showAddChild,
+  onExpandAll,
+  onCollapseAll,
+  onCsvExport,
+  canExport,
 }: ToolbarProps) {
   if (deletePhase !== 'idle') {
     return (
@@ -454,10 +565,16 @@ function Toolbar({
         <svg
           aria-hidden="true"
           className="absolute left-2 w-3 h-3 text-neutral-text-secondary"
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"
+          />
         </svg>
         <input
           type="search"

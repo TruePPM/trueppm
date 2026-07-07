@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -105,8 +106,12 @@ export function RiskRegisterView() {
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
   // Segment facet (All/High/Unmitigated/Mine) and severity sort — both
   // client-side over the loaded list. Composed with the matrix-cell
-  // facet below via AND.
-  const [filter, setFilter] = useState<RiskFilter>('all');
+  // facet below via AND. Seeded once from `?severity=high` so the Overview
+  // "Open risks" card drills straight into the High segment (#1691).
+  const [searchParams] = useSearchParams();
+  const [filter, setFilter] = useState<RiskFilter>(
+    searchParams.get('severity') === 'high' ? 'high' : 'all',
+  );
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
   // "Newest" sort (issue 1230) — created_at descending. Mutually exclusive with
   // the severity column sort: turning one on resets the other, so the table is
