@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, within } from '@testing-library/react';
 import { renderWithRouter } from '@/test/utils';
 import { UserMenu } from './UserMenu';
 
@@ -176,6 +176,27 @@ describe('UserMenu', () => {
     // JSDOM renders both desktop and mobile variants — use the first Dark mode button.
     const darkBtns = screen.getAllByRole('button', { name: /dark mode/i });
     fireEvent.click(darkBtns[0]);
+    expect(mockSetTheme).toHaveBeenCalledWith('dark');
+  });
+
+  it('pointerdown on a control inside the mobile sheet does not close the menu (#1679)', () => {
+    // Regression: the document "click outside to close" handler only recognized
+    // the desktop dropdown (menuRef) as inside — a pointerdown inside the mobile
+    // bottom sheet was misclassified as an outside click, closed the sheet on
+    // pointerdown, and the control's click never fired. Result: the mobile theme
+    // switcher did nothing while the identical desktop dropdown worked. A plain
+    // fireEvent.click (the existing test above) never dispatches the pointerdown,
+    // so it did not catch this — the real pointer sequence must be simulated.
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    const sheet = screen.getByRole('dialog', { name: /user menu/i });
+    const darkBtn = within(sheet).getByRole('button', { name: /dark mode/i });
+
+    fireEvent.pointerDown(darkBtn);
+    // The sheet must still be open after pointerdown lands on one of its controls.
+    expect(screen.queryByRole('dialog', { name: /user menu/i })).not.toBeNull();
+
+    fireEvent.click(darkBtn);
     expect(mockSetTheme).toHaveBeenCalledWith('dark');
   });
 
