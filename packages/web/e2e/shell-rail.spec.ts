@@ -115,7 +115,7 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/assets$`));
   });
 
-  test('off a project the rail shows pinned projects, not view groups', async ({ page }) => {
+  test('off a project the rail shows the pinned band, not view groups', async ({ page }) => {
     // Pin the project so the off-project tier has a row to show (the rail
     // persists pins under `trueppm.rail.pinned` as a bare id array).
     await page.addInitScript((id: string) => {
@@ -127,9 +127,54 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     // The rail (complementary landmark) renders the pinned band off a project.
     const rail = railOf(page);
     await expect(rail).toBeVisible({ timeout: 10_000 });
-    await expect(rail.getByText('Pinned projects')).toBeVisible();
+    await expect(rail.getByText('Pinned', { exact: true })).toBeVisible();
     // No "This project" view band / group landmarks off a project.
     await expect(rail.getByText('This project')).toHaveCount(0);
     await expect(rail.getByRole('group', { name: 'Track views' })).toHaveCount(0);
+  });
+
+  test('pins a PROGRAM from the Browse switcher into the Pinned band (#1682)', async ({ page }) => {
+    await setup(page);
+    // usePrograms reads GET /programs/ — the base fixture leaves it empty, so
+    // mock one program the switcher can render a pin toggle for.
+    await page.route('**/api/v1/programs/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            {
+              id: 'e2e-prog-00000000-0000-0000-0000-000000001682',
+              name: 'Atlas Program',
+              code: 'ATL',
+              color: null,
+              health: 'ON_TRACK',
+              methodology: 'HYBRID',
+              project_count: 0,
+              member_count: 1,
+            },
+          ],
+        }),
+      }),
+    );
+    await page.goto('/me/work');
+
+    const rail = railOf(page);
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+
+    // Programs live in the Tier-3 Browse switcher; open it, then pin the program
+    // header's ★ toggle (hover-revealed; Playwright hovers as part of click).
+    await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
+    await rail.getByRole('button', { name: 'Pin Atlas Program' }).click();
+
+    // App-wide toast confirms, and the program now shows in the Pinned band
+    // (the "Workspace navigation" landmark), scoped so the switcher header copy
+    // doesn't collide in strict mode.
+    await expect(page.getByText('Pinned Atlas Program')).toBeVisible();
+    const pinnedBand = rail.getByRole('navigation', { name: 'Workspace navigation' });
+    await expect(pinnedBand.getByRole('button', { name: 'Unpin Atlas Program' })).toBeVisible();
   });
 });

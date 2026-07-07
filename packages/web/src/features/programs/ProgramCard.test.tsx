@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ProgramCard } from './ProgramCard';
+import { useShellStore } from '@/stores/shellStore';
 import type { Program } from '@/api/types';
 
 function makeProgram(overrides: Partial<Program> = {}): Program {
@@ -131,5 +132,38 @@ describe('ProgramCard health + target date (#560)', () => {
   it('omits the target date when unset', () => {
     renderCard(makeProgram({ target_date: null }));
     expect(screen.queryByText(/Target/)).not.toBeInTheDocument();
+  });
+});
+
+describe('ProgramCard pin toggle (#1682)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useShellStore.setState({ pinnedProgramIds: [] });
+  });
+
+  it('renders a pin toggle that is a Link SIBLING (not nested in the anchor)', () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
+    const toggle = screen.getByRole('button', { name: 'Pin Phase 2 Modernization' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    // A button nested inside an <a> is invalid — the toggle must be a sibling.
+    expect(toggle.closest('a')).toBeNull();
+  });
+
+  it('pins the program and reflects the pressed state (amber, "Unpin …")', () => {
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pin Phase 2 Modernization' }));
+    expect(useShellStore.getState().pinnedProgramIds).toEqual(['p-1']);
+    const toggle = screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle.querySelector('svg')).toHaveClass('text-semantic-at-risk');
+  });
+
+  it('shows the pressed state when the program is already pinned', () => {
+    useShellStore.setState({ pinnedProgramIds: ['p-1'] });
+    renderCard(makeProgram({ id: 'p-1', name: 'Phase 2 Modernization' }));
+    expect(screen.getByRole('button', { name: 'Unpin Phase 2 Modernization' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 });

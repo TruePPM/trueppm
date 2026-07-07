@@ -121,6 +121,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const sidebarWidth = useShellStore(selectSidebarWidth);
   const pinned = useShellStore((s) => s.pinnedProjectIds);
   const togglePin = useShellStore((s) => s.togglePin);
+  const pinnedPrograms = useShellStore((s) => s.pinnedProgramIds);
+  const togglePinProgram = useShellStore((s) => s.togglePinProgram);
   const expanded = useShellStore((s) => s.expandedProgramIds);
   const toggleProgram = useShellStore((s) => s.toggleProgram);
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
@@ -163,6 +165,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     () => pinned.map((id) => projectById.get(id)).filter((p): p is NonNullable<typeof p> => !!p),
     [pinned, projectById],
   );
+  const programById = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof programs>[number]>();
+    for (const prog of programs ?? []) m.set(prog.id, prog);
+    return m;
+  }, [programs]);
+  const pinnedProgramList = useMemo(
+    () =>
+      pinnedPrograms
+        .map((id) => programById.get(id))
+        .filter((p): p is NonNullable<typeof p> => !!p),
+    [pinnedPrograms, programById],
+  );
+  const hasPins = pinnedProgramList.length > 0 || pinnedProjects.length > 0;
   const orphanProjects = useMemo(() => (projects ?? []).filter((p) => !p.programId), [projects]);
   const countFor = useCallback(
     (programId: string) => (projects ?? []).filter((p) => p.programId === programId).length,
@@ -250,7 +265,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         onClick={closeDrawer}
         className={({ isActive }) => rowClass(isActive)}
       >
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 14 14"
+          fill="currentColor"
+          aria-hidden="true"
+          className="shrink-0"
+        >
           <path d="M5 3.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0Zm8 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM0 11c0-1.7 1.3-3 3-3s3 1.3 3 3v1H0v-1Zm8 0c0-1.7 1.3-3 3-3s3 1.3 3 3v1H8v-1Z" />
         </svg>
         <span className="min-w-0 truncate">Resources</span>
@@ -261,7 +283,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           onClick={closeDrawer}
           className={({ isActive }) => rowClass(isActive)}
         >
-          <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 14 14"
+            fill="currentColor"
+            aria-hidden="true"
+            className="shrink-0"
+          >
             <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
           </svg>
           <span className="min-w-0 truncate">Portfolio rollup</span>
@@ -273,11 +302,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           no padlock — the former rule-178 row), populated by the enterprise
           module. This is the empty-slot pattern of `resources_heatmap.level_loads`
           (issue 1614). */}
-      {registry
-        .get('nav.portfolio_section')
-        .map(({ id, component: Component }) => (
-          <Component key={id} />
-        ))}
+      {registry.get('nav.portfolio_section').map(({ id, component: Component }) => (
+        <Component key={id} />
+      ))}
 
       {/* Programs — the group header is a NavLink to the /programs gateway (the
           only in-app route to the "Load demo data" on-ramp), not a dead label. */}
@@ -337,14 +364,22 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               >
                 {prog.name}
               </button>
-              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary">
+              {/* Count hides on hover so the pin toggle can overlay this slot. */}
+              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary group-hover:hidden">
                 {countFor(prog.id)}
               </span>
+              <PinToggle
+                name={prog.name}
+                pinned={pinnedPrograms.includes(prog.id)}
+                onToggle={() => togglePinProgram(prog.id)}
+              />
             </div>
             {isExpanded && (
               <div className="ml-3 border-l border-chrome-border/15 pl-1">
                 {kids.length === 0 ? (
-                  <p className="px-3 py-1.5 text-xs italic text-chrome-text-secondary">No projects</p>
+                  <p className="px-3 py-1.5 text-xs italic text-chrome-text-secondary">
+                    No projects
+                  </p>
                 ) : (
                   kids.map((p) => (
                     <ProjectRow
@@ -399,7 +434,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           className="w-8 h-8 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>
@@ -422,7 +463,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       >
         {/* Brand + collapse (≡ in the unified shell bar re-opens when hidden) */}
         <div className="flex items-center gap-2 px-3 h-12 shrink-0 border-b border-chrome-border/8">
-          <NavLink to="/me/work" aria-label="TruePPM — My Work" className="flex items-center gap-2 min-w-0">
+          <NavLink
+            to="/me/work"
+            aria-label="TruePPM — My Work"
+            className="flex items-center gap-2 min-w-0"
+          >
             <LogoMark size={22} className="shrink-0" />
             <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
               <span className="text-navy-700 dark:text-reversed">True</span>
@@ -438,7 +483,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               title={`Hide sidebar (${modifierKeyLabel()}B)`}
               className="w-9 h-9 flex items-center justify-center rounded-control text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
             >
-              <span aria-hidden="true" className="text-base leading-none">«</span>
+              <span aria-hidden="true" className="text-base leading-none">
+                «
+              </span>
             </button>
           )}
         </div>
@@ -463,7 +510,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
               </svg>
               <span className="min-w-0 truncate">My Work</span>
@@ -479,7 +533,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <rect x="1.5" y="2" width="11" height="10" rx="1" />
                 <path d="M1.5 5h11M5 5v7M9 5v7" />
               </svg>
@@ -491,7 +554,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={closeDrawer}
               className={({ isActive }) => youRowClass(isActive)}
             >
-              <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 14 14"
+                fill="currentColor"
+                aria-hidden="true"
+                className="shrink-0"
+              >
                 <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
               </svg>
               <span className="min-w-0 truncate">Inbox</span>
@@ -510,22 +580,44 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
             ) : (
               <>
-                <h2 className={GROUP_LABEL}>Pinned projects</h2>
-                {pinnedProjects.length > 0 ? (
-                  pinnedProjects.map((p) => (
-                    <ProjectRow
-                      key={p.id}
-                      name={p.name}
-                      health={(p.healthState as HealthState) ?? 'unknown'}
-                      openTaskCount={p.openTaskCount}
-                      pinned
-                      onOpen={() => go(`/projects/${p.id}/overview`)}
-                      onTogglePin={() => togglePin(p.id)}
-                    />
-                  ))
+                <h2 className={GROUP_LABEL}>Pinned</h2>
+                {hasPins ? (
+                  <>
+                    {/* Pinned programs first, then pinned projects — a flat jump
+                        list, not a tree. Items also keep their normal tree
+                        position; pinning adds a shortcut, it does not relocate. */}
+                    {pinnedProgramList.map((prog) => (
+                      <div key={prog.id} className={rowClass(false)}>
+                        <ProgramIdentitySquare program={prog} size="xs-label" />
+                        <button
+                          type="button"
+                          onClick={() => go(`/programs/${prog.id}/overview`)}
+                          className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                        >
+                          {prog.name}
+                        </button>
+                        <PinToggle
+                          name={prog.name}
+                          pinned
+                          onToggle={() => togglePinProgram(prog.id)}
+                        />
+                      </div>
+                    ))}
+                    {pinnedProjects.map((p) => (
+                      <ProjectRow
+                        key={p.id}
+                        name={p.name}
+                        health={(p.healthState as HealthState) ?? 'unknown'}
+                        openTaskCount={p.openTaskCount}
+                        pinned
+                        onOpen={() => go(`/projects/${p.id}/overview`)}
+                        onTogglePin={() => togglePin(p.id)}
+                      />
+                    ))}
+                  </>
                 ) : (
                   <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
-                    Pin a project for quick access.
+                    Pin a program or project for quick access.
                   </p>
                 )}
               </>
@@ -561,10 +653,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   aria-controls="rail-browse-panel"
                   className="flex w-full items-center gap-2 h-9 rounded-control border border-chrome-border/15 px-2.5 text-sm text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
                 >
-                  <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 14 14"
+                    fill="currentColor"
+                    aria-hidden="true"
+                    className="shrink-0"
+                  >
                     <path d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z" />
                   </svg>
-                  <span className="min-w-0 flex-1 truncate text-left">Browse projects and programs</span>
+                  <span className="min-w-0 flex-1 truncate text-left">
+                    Browse projects and programs
+                  </span>
                   <ChevronRightIcon
                     aria-hidden="true"
                     className={`h-3 w-3 shrink-0 transition-transform ${switchOpen ? 'rotate-90' : '-rotate-90'}`}
@@ -758,6 +859,53 @@ function ProjectViewsTier({
   );
 }
 
+/**
+ * Star pin toggle shared by program and project rows (issue #1682). The visible
+ * 13px glyph stays dense, but the button carries a 44px touch target (negative
+ * margins keep the row height unchanged) so it meets the mobile minimum. Reveals
+ * on hover/focus; a pinned star stays visible (amber). `stopPropagation` +
+ * `preventDefault` so toggling never navigates a surrounding link/row.
+ */
+function PinToggle({
+  name,
+  pinned,
+  onToggle,
+}: {
+  name: string;
+  pinned: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle();
+        // `pinned` is the pre-toggle state, so the message reflects the result.
+        toast.info(pinned ? `Unpinned ${name}` : `Pinned ${name}`);
+      }}
+      aria-label={pinned ? `Unpin ${name}` : `Pin ${name}`}
+      aria-pressed={pinned}
+      title={pinned ? 'Unpin' : 'Pin'}
+      className="-my-2 -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-control opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill={pinned ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        aria-hidden="true"
+        className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
+      >
+        <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
+      </svg>
+    </button>
+  );
+}
+
 /** One project row — health dot + name (opens overview) + open-task count + a ★ pin toggle. */
 function ProjectRow({
   name,
@@ -800,31 +948,7 @@ function ProjectRow({
           {openTaskCount}
         </span>
       )}
-      <button
-        type="button"
-        onClick={() => {
-          onTogglePin();
-          // `pinned` is the pre-toggle state, so the message reflects the result.
-          toast.info(pinned ? `Removed ${name} from Shortcuts` : `Pinned ${name} to Shortcuts`);
-        }}
-        aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
-        aria-pressed={pinned}
-        title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
-        className="shrink-0 rounded-control p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 16 16"
-          fill={pinned ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="1.4"
-          aria-hidden="true"
-          className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
-        >
-          <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
-        </svg>
-      </button>
+      <PinToggle name={name} pinned={pinned} onToggle={onTogglePin} />
     </div>
   );
 }

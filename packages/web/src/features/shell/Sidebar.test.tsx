@@ -11,9 +11,30 @@ vi.mock('@/hooks/useProjects', () => ({
     data: [
       // Real, server-mapped health + open-task count (#960) — the dot colors and
       // the count badge render from data, not a hardcoded 'unknown'.
-      { id: 'p1', name: 'Alpha Platform', programId: 'prog1', healthState: 'at-risk', openTaskCount: 7, colorDot: '#3E8C6D' },
-      { id: 'p2', name: 'Beta Migration', programId: 'prog1', healthState: 'on-track', openTaskCount: 0, colorDot: '#E8A020' },
-      { id: 'p3', name: 'Standalone Site', programId: null, healthState: 'unknown', openTaskCount: 4, colorDot: '#B91C1C' },
+      {
+        id: 'p1',
+        name: 'Alpha Platform',
+        programId: 'prog1',
+        healthState: 'at-risk',
+        openTaskCount: 7,
+        colorDot: '#3E8C6D',
+      },
+      {
+        id: 'p2',
+        name: 'Beta Migration',
+        programId: 'prog1',
+        healthState: 'on-track',
+        openTaskCount: 0,
+        colorDot: '#E8A020',
+      },
+      {
+        id: 'p3',
+        name: 'Standalone Site',
+        programId: null,
+        healthState: 'unknown',
+        openTaskCount: 4,
+        colorDot: '#B91C1C',
+      },
     ],
   }),
 }));
@@ -104,6 +125,7 @@ beforeEach(() => {
     sidebarCollapsed: false,
     sidebarUserControlled: false,
     pinnedProjectIds: [],
+    pinnedProgramIds: [],
     expandedProgramIds: [],
   });
   useCommandPaletteStore.setState({ open: false });
@@ -168,8 +190,24 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     expect(screen.queryByRole('button', { name: /Alpha Platform/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
+  });
+
+  it('offers a pin toggle on the program header that updates the store (#1682)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    const pin = screen.getByRole('button', { name: 'Pin Artemis' });
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(pin);
+    expect(useShellStore.getState().pinnedProgramIds).toEqual(['prog1']);
+    // Once pinned, the program shows both in the switcher header and in the
+    // Pinned band — every instance reads as pressed ("Unpin Artemis").
+    const unpins = screen.getAllByRole('button', { name: 'Unpin Artemis' });
+    expect(unpins.length).toBeGreaterThan(0);
+    for (const btn of unpins) expect(btn).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows standalone (no-program) projects inside the switcher', () => {
@@ -183,10 +221,10 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
 });
 
 describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
-  it('shows a pinned-projects band, not a "This project" view band', () => {
+  it('shows a pinned band, not a "This project" view band', () => {
     useShellStore.setState({ pinnedProjectIds: ['p1'] });
     renderRail();
-    expect(screen.getByText('Pinned projects')).toBeInTheDocument();
+    expect(screen.getByText('Pinned')).toBeInTheDocument();
     expect(screen.queryByText('This project')).not.toBeInTheDocument();
     // No view groups off a project.
     expect(screen.queryByRole('group', { name: 'Track views' })).not.toBeInTheDocument();
@@ -195,9 +233,24 @@ describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
     ).toBeInTheDocument();
   });
 
+  it('lists pinned programs above pinned projects in the Pinned band (#1682)', () => {
+    useShellStore.setState({ pinnedProgramIds: ['prog1'], pinnedProjectIds: ['p1'] });
+    renderRail();
+    // The pinned program is a jump-link with an "Unpin Artemis" toggle...
+    expect(screen.getByRole('button', { name: 'Unpin Artemis' })).toBeInTheDocument();
+    // ...and the pinned project keeps its own toggle.
+    expect(screen.getByRole('button', { name: 'Unpin Alpha Platform' })).toBeInTheDocument();
+    // Program renders before project in the DOM (programs-first ordering).
+    const band = screen.getByText('Pinned').closest('nav')!;
+    const html = band.innerHTML;
+    expect(html.indexOf('Unpin Artemis')).toBeLessThan(html.indexOf('Unpin Alpha Platform'));
+  });
+
   it('shows a calm empty state when nothing is pinned (never a blank band)', () => {
     renderRail();
-    expect(screen.getByRole('status')).toHaveTextContent('Pin a project for quick access.');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Pin a program or project for quick access.',
+    );
   });
 });
 
@@ -216,7 +269,17 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     expect(screen.getByRole('link', { name: 'Activity' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Assets' })).toBeInTheDocument();
     // The rest of the HYBRID set.
-    for (const label of ['Schedule', 'Grid', 'Calendar', 'Backlog', 'Sprints', 'Board', 'Risks', 'Reports', 'Team']) {
+    for (const label of [
+      'Schedule',
+      'Grid',
+      'Calendar',
+      'Backlog',
+      'Sprints',
+      'Board',
+      'Risks',
+      'Reports',
+      'Team',
+    ]) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
   });
@@ -270,7 +333,13 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
 
   it('removes a personally-hidden view from the rail (ADR-0139)', () => {
     mockUseCurrentUser.mockReturnValue({
-      user: { initials: 'AK', display_name: 'Anika K.', can_access_admin_settings: true, hidden_views: ['schedule'], role_context: 'unified' },
+      user: {
+        initials: 'AK',
+        display_name: 'Anika K.',
+        can_access_admin_settings: true,
+        hidden_views: ['schedule'],
+        role_context: 'unified',
+      },
     });
     renderRail();
     expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
@@ -307,7 +376,9 @@ describe('Sidebar rail — preserved behaviors', () => {
   it('in the drawer the switcher content is inline-expanded (no Browse button)', () => {
     renderRail({ isDrawer: true, onClose: vi.fn() });
     // Drawer expands every tier — Organization/Programs are visible without a toggle.
-    expect(screen.queryByRole('button', { name: 'Browse projects and programs' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Browse projects and programs' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
   });

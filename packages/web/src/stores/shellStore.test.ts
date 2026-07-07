@@ -47,6 +47,24 @@ describe('useShellStore', () => {
     useShellStore.getState().setSidebarCollapsed(true, false);
     expect(localStorage.getItem('trueppm.rail.collapsed')).toBeNull();
   });
+
+  it('togglePinProgram adds, removes, and persists to localStorage (#1682)', () => {
+    localStorage.removeItem('trueppm.rail.pinnedPrograms');
+    useShellStore.setState({ pinnedProgramIds: [] });
+
+    useShellStore.getState().togglePinProgram('prog1');
+    expect(useShellStore.getState().pinnedProgramIds).toEqual(['prog1']);
+    expect(JSON.parse(localStorage.getItem('trueppm.rail.pinnedPrograms') ?? '[]')).toEqual([
+      'prog1',
+    ]);
+
+    // Toggling again removes it (and program pins are independent of project pins).
+    useShellStore.setState({ pinnedProjectIds: ['p1'] });
+    useShellStore.getState().togglePinProgram('prog1');
+    expect(useShellStore.getState().pinnedProgramIds).toEqual([]);
+    expect(useShellStore.getState().pinnedProjectIds).toEqual(['p1']);
+    expect(JSON.parse(localStorage.getItem('trueppm.rail.pinnedPrograms') ?? '[]')).toEqual([]);
+  });
 });
 
 describe('selectSidebarWidth', () => {
