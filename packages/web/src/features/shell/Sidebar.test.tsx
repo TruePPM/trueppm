@@ -11,9 +11,30 @@ vi.mock('@/hooks/useProjects', () => ({
     data: [
       // Real, server-mapped health + open-task count (#960) — the dot colors and
       // the count badge render from data, not a hardcoded 'unknown'.
-      { id: 'p1', name: 'Alpha Platform', programId: 'prog1', healthState: 'at-risk', openTaskCount: 7, colorDot: '#3E8C6D' },
-      { id: 'p2', name: 'Beta Migration', programId: 'prog1', healthState: 'on-track', openTaskCount: 0, colorDot: '#E8A020' },
-      { id: 'p3', name: 'Standalone Site', programId: null, healthState: 'unknown', openTaskCount: 4, colorDot: '#B91C1C' },
+      {
+        id: 'p1',
+        name: 'Alpha Platform',
+        programId: 'prog1',
+        healthState: 'at-risk',
+        openTaskCount: 7,
+        colorDot: '#3E8C6D',
+      },
+      {
+        id: 'p2',
+        name: 'Beta Migration',
+        programId: 'prog1',
+        healthState: 'on-track',
+        openTaskCount: 0,
+        colorDot: '#E8A020',
+      },
+      {
+        id: 'p3',
+        name: 'Standalone Site',
+        programId: null,
+        healthState: 'unknown',
+        openTaskCount: 4,
+        colorDot: '#B91C1C',
+      },
     ],
   }),
 }));
@@ -168,7 +189,9 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
     expect(screen.queryByRole('button', { name: /Alpha Platform/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
-    expect(screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
   });
 
@@ -216,7 +239,17 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     expect(screen.getByRole('link', { name: 'Activity' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Assets' })).toBeInTheDocument();
     // The rest of the HYBRID set.
-    for (const label of ['Schedule', 'Grid', 'Calendar', 'Backlog', 'Sprints', 'Board', 'Risks', 'Reports', 'Team']) {
+    for (const label of [
+      'Schedule',
+      'Grid',
+      'Calendar',
+      'Backlog',
+      'Sprints',
+      'Board',
+      'Risks',
+      'Reports',
+      'Team',
+    ]) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
   });
@@ -270,7 +303,13 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
 
   it('removes a personally-hidden view from the rail (ADR-0139)', () => {
     mockUseCurrentUser.mockReturnValue({
-      user: { initials: 'AK', display_name: 'Anika K.', can_access_admin_settings: true, hidden_views: ['schedule'], role_context: 'unified' },
+      user: {
+        initials: 'AK',
+        display_name: 'Anika K.',
+        can_access_admin_settings: true,
+        hidden_views: ['schedule'],
+        role_context: 'unified',
+      },
     });
     renderRail();
     expect(screen.queryByRole('link', { name: 'Schedule' })).not.toBeInTheDocument();
@@ -307,9 +346,36 @@ describe('Sidebar rail — preserved behaviors', () => {
   it('in the drawer the switcher content is inline-expanded (no Browse button)', () => {
     renderRail({ isDrawer: true, onClose: vi.fn() });
     // Drawer expands every tier — Organization/Programs are visible without a toggle.
-    expect(screen.queryByRole('button', { name: 'Browse projects and programs' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Browse projects and programs' }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Programs' })).toBeInTheDocument();
+  });
+
+  it('scrolls the drawer body as one region so the inlined Programs tree is reachable (#1688)', () => {
+    renderRail({ isDrawer: true, onClose: vi.fn() });
+    const rail = document.getElementById('primary-nav-rail');
+    // The whole tier column (You + views + the inlined browse tree) scrolls as one.
+    // Before the fix the browse tree sat in a `shrink-0` band below the only scroll
+    // region and overflowed the `overflow-hidden` aside — unreachable on a phone.
+    const scroller = screen.getByRole('link', { name: 'Programs' }).closest('.overflow-y-auto');
+    expect(scroller).not.toBeNull();
+    expect(rail).toContainElement(scroller as HTMLElement);
+    // The inner Workspace nav must not own a second, competing scroll region.
+    const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
+    expect(nav.className).not.toMatch(/overflow-y-auto/);
+  });
+
+  it('keeps the desktop Tier-2 nav as the scroll region and browse behind its popover', () => {
+    renderRail(); // desktop, off a project
+    const nav = screen.getByRole('navigation', { name: 'Workspace navigation' });
+    expect(nav.className).toMatch(/flex-1/);
+    expect(nav.className).toMatch(/overflow-y-auto/);
+    // Desktop does not inline the browse tree — it opens from the Browse button.
+    expect(
+      screen.getByRole('button', { name: 'Browse projects and programs' }),
+    ).toBeInTheDocument();
   });
 
   it('fully hides the desktop rail when collapsed — inert + out of the a11y tree (ADR-0127)', () => {
