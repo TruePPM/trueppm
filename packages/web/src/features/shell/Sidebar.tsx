@@ -123,6 +123,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const sidebarWidth = useShellStore(selectSidebarWidth);
   const pinned = useShellStore((s) => s.pinnedProjectIds);
   const togglePin = useShellStore((s) => s.togglePin);
+  const pinnedPrograms = useShellStore((s) => s.pinnedProgramIds);
+  const togglePinProgram = useShellStore((s) => s.togglePinProgram);
   const expanded = useShellStore((s) => s.expandedProgramIds);
   const toggleProgram = useShellStore((s) => s.toggleProgram);
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
@@ -165,6 +167,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     () => pinned.map((id) => projectById.get(id)).filter((p): p is NonNullable<typeof p> => !!p),
     [pinned, projectById],
   );
+  const programById = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof programs>[number]>();
+    for (const prog of programs ?? []) m.set(prog.id, prog);
+    return m;
+  }, [programs]);
+  const pinnedProgramList = useMemo(
+    () =>
+      pinnedPrograms
+        .map((id) => programById.get(id))
+        .filter((p): p is NonNullable<typeof p> => !!p),
+    [pinnedPrograms, programById],
+  );
+  const hasPins = pinnedProgramList.length > 0 || pinnedProjects.length > 0;
   const orphanProjects = useMemo(() => (projects ?? []).filter((p) => !p.programId), [projects]);
   const countFor = useCallback(
     (programId: string) => (projects ?? []).filter((p) => p.programId === programId).length,
@@ -351,9 +366,15 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               >
                 {prog.name}
               </button>
-              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary">
+              {/* Count hides on hover so the pin toggle can overlay this slot. */}
+              <span className="tppm-mono shrink-0 text-xs text-chrome-text-secondary group-hover:hidden">
                 {countFor(prog.id)}
               </span>
+              <PinToggle
+                name={prog.name}
+                pinned={pinnedPrograms.includes(prog.id)}
+                onToggle={() => togglePinProgram(prog.id)}
+              />
             </div>
             {isExpanded && (
               <div className="ml-3 border-l border-chrome-border/15 pl-1">
@@ -579,25 +600,44 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
               ) : (
                 <>
-                  <h2 className={GROUP_LABEL}>Pinned projects</h2>
-                  {pinnedProjects.length > 0 ? (
-                    pinnedProjects.map((p) => (
-                      <ProjectRow
-                        key={p.id}
-                        name={p.name}
-                        health={(p.healthState as HealthState) ?? 'unknown'}
-                        openTaskCount={p.openTaskCount}
-                        pinned
-                        onOpen={() => go(`/projects/${p.id}/overview`)}
-                        onTogglePin={() => togglePin(p.id)}
-                      />
-                    ))
+                  <h2 className={GROUP_LABEL}>Pinned</h2>
+                  {hasPins ? (
+                    <>
+                      {/* Pinned programs first, then pinned projects — a flat jump
+                          list, not a tree. Items also keep their normal tree
+                          position; pinning adds a shortcut, it does not relocate. */}
+                      {pinnedProgramList.map((prog) => (
+                        <div key={prog.id} className={rowClass(false)}>
+                          <ProgramIdentitySquare program={prog} size="xs-label" />
+                          <button
+                            type="button"
+                            onClick={() => go(`/programs/${prog.id}/overview`)}
+                            className="min-w-0 flex-1 truncate rounded-control text-left focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                          >
+                            {prog.name}
+                          </button>
+                          <PinToggle
+                            name={prog.name}
+                            pinned
+                            onToggle={() => togglePinProgram(prog.id)}
+                          />
+                        </div>
+                      ))}
+                      {pinnedProjects.map((p) => (
+                        <ProjectRow
+                          key={p.id}
+                          name={p.name}
+                          health={(p.healthState as HealthState) ?? 'unknown'}
+                          openTaskCount={p.openTaskCount}
+                          pinned
+                          onOpen={() => go(`/projects/${p.id}/overview`)}
+                          onTogglePin={() => togglePin(p.id)}
+                        />
+                      ))}
+                    </>
                   ) : (
-                    <p
-                      role="status"
-                      className="px-3 py-2 text-xs italic text-chrome-text-secondary"
-                    >
-                      Pin a project for quick access.
+                    <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
+                      Pin a program or project for quick access.
                     </p>
                   )}
                 </>
@@ -866,6 +906,53 @@ function ProjectViewsTier({
   );
 }
 
+/**
+ * Star pin toggle shared by program and project rows (issue #1682). The visible
+ * 13px glyph stays dense, but the button carries a 44px touch target (negative
+ * margins keep the row height unchanged) so it meets the mobile minimum. Reveals
+ * on hover/focus; a pinned star stays visible (amber). `stopPropagation` +
+ * `preventDefault` so toggling never navigates a surrounding link/row.
+ */
+function PinToggle({
+  name,
+  pinned,
+  onToggle,
+}: {
+  name: string;
+  pinned: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle();
+        // `pinned` is the pre-toggle state, so the message reflects the result.
+        toast.info(pinned ? `Unpinned ${name}` : `Pinned ${name}`);
+      }}
+      aria-label={pinned ? `Unpin ${name}` : `Pin ${name}`}
+      aria-pressed={pinned}
+      title={pinned ? 'Unpin' : 'Pin'}
+      className="-my-2 -mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-control opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill={pinned ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        aria-hidden="true"
+        className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
+      >
+        <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
+      </svg>
+    </button>
+  );
+}
+
 /** One project row — health dot + name (opens overview) + open-task count + a ★ pin toggle. */
 function ProjectRow({
   name,
@@ -908,31 +995,7 @@ function ProjectRow({
           {openTaskCount}
         </span>
       )}
-      <button
-        type="button"
-        onClick={() => {
-          onTogglePin();
-          // `pinned` is the pre-toggle state, so the message reflects the result.
-          toast.info(pinned ? `Removed ${name} from Shortcuts` : `Pinned ${name} to Shortcuts`);
-        }}
-        aria-label={pinned ? `Unpin ${name}` : `Pin ${name} to Shortcuts`}
-        aria-pressed={pinned}
-        title={pinned ? 'Unpin' : 'Pin to Shortcuts'}
-        className="shrink-0 rounded-control p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-primary"
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 16 16"
-          fill={pinned ? 'currentColor' : 'none'}
-          stroke="currentColor"
-          strokeWidth="1.4"
-          aria-hidden="true"
-          className={pinned ? 'text-semantic-at-risk' : 'text-chrome-text-secondary'}
-        >
-          <path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.8 4.2 13.3l.7-4.3-3.1-3 4.3-.6L8 1.5z" />
-        </svg>
-      </button>
+      <PinToggle name={name} pinned={pinned} onToggle={onTogglePin} />
     </div>
   );
 }

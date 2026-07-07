@@ -131,6 +131,7 @@ beforeEach(() => {
     sidebarCollapsed: false,
     sidebarUserControlled: false,
     pinnedProjectIds: [],
+    pinnedProgramIds: [],
     expandedProgramIds: [],
   });
   useCommandPaletteStore.setState({ open: false });
@@ -201,6 +202,20 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
   });
 
+  it('offers a pin toggle on the program header that updates the store (#1682)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    const pin = screen.getByRole('button', { name: 'Pin Artemis' });
+    expect(pin).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(pin);
+    expect(useShellStore.getState().pinnedProgramIds).toEqual(['prog1']);
+    // Once pinned, the program shows both in the switcher header and in the
+    // Pinned band — every instance reads as pressed ("Unpin Artemis").
+    const unpins = screen.getAllByRole('button', { name: 'Unpin Artemis' });
+    expect(unpins.length).toBeGreaterThan(0);
+    for (const btn of unpins) expect(btn).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows standalone (no-program) projects inside the switcher', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
@@ -212,10 +227,10 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
 });
 
 describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
-  it('shows a pinned-projects band, not a "This project" view band', () => {
+  it('shows a pinned band, not a "This project" view band', () => {
     useShellStore.setState({ pinnedProjectIds: ['p1'] });
     renderRail();
-    expect(screen.getByText('Pinned projects')).toBeInTheDocument();
+    expect(screen.getByText('Pinned')).toBeInTheDocument();
     expect(screen.queryByText('This project')).not.toBeInTheDocument();
     // No view groups off a project.
     expect(screen.queryByRole('group', { name: 'Track views' })).not.toBeInTheDocument();
@@ -224,9 +239,24 @@ describe('Sidebar rail — Tier 2 off-project (pinned list)', () => {
     ).toBeInTheDocument();
   });
 
+  it('lists pinned programs above pinned projects in the Pinned band (#1682)', () => {
+    useShellStore.setState({ pinnedProgramIds: ['prog1'], pinnedProjectIds: ['p1'] });
+    renderRail();
+    // The pinned program is a jump-link with an "Unpin Artemis" toggle...
+    expect(screen.getByRole('button', { name: 'Unpin Artemis' })).toBeInTheDocument();
+    // ...and the pinned project keeps its own toggle.
+    expect(screen.getByRole('button', { name: 'Unpin Alpha Platform' })).toBeInTheDocument();
+    // Program renders before project in the DOM (programs-first ordering).
+    const band = screen.getByText('Pinned').closest('nav')!;
+    const html = band.innerHTML;
+    expect(html.indexOf('Unpin Artemis')).toBeLessThan(html.indexOf('Unpin Alpha Platform'));
+  });
+
   it('shows a calm empty state when nothing is pinned (never a blank band)', () => {
     renderRail();
-    expect(screen.getByRole('status')).toHaveTextContent('Pin a project for quick access.');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Pin a program or project for quick access.',
+    );
   });
 });
 

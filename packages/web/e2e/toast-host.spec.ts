@@ -1,6 +1,6 @@
 /**
  * E2E for the global toast host (#1225, ADR-0126). Proves the app-wide toast
- * fires from a real action (pinning a project to Shortcuts) and renders in the
+ * fires from a real action (pinning a project) and renders in the
  * bottom-center polite status region. Auto-dismiss / variants / a11y are covered
  * deterministically by the ToastHost + toastStore unit tests; this spec asserts
  * the end-to-end wiring in the real shell.
@@ -24,7 +24,7 @@ const FIXTURE_PROJECTS = [
 ];
 
 test.describe('global toast host (#1225)', () => {
-  test('pinning a project to Shortcuts fires an app-wide toast', async ({ page }) => {
+  test('pinning a project fires an app-wide toast', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -38,10 +38,10 @@ test.describe('global toast host (#1225)', () => {
     // (#1642); open it, then pin (hover-revealed; Playwright hovers as part of
     // click). Pinning is an app-wide action.
     await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
-    const pin = rail.getByRole('button', { name: 'Pin Toast Demo Project to Shortcuts' });
+    const pin = rail.getByRole('button', { name: 'Pin Toast Demo Project' });
     await pin.click();
 
     // The global toast announces the result bottom-center, politely.
-    await expect(page.getByText('Pinned Toast Demo Project to Shortcuts')).toBeVisible();
+    await expect(page.getByText('Pinned Toast Demo Project')).toBeVisible();
   });
 });
