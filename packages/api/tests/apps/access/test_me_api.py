@@ -67,6 +67,19 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert data["hidden_views"] == []
     # Role-context lens (issue 412, ADR-0162): neutral 'unified' by default (no row).
     assert data["role_context"] == "unified"
+    # Schedule-in-Deliver placement opt-in (ADR-0203, #1645): off by default (no row).
+    assert data["schedule_in_deliver"] is False
+
+
+def test_me_surfaces_stored_schedule_in_deliver(db: object) -> None:
+    """/auth/me/ reflects the user's stored Schedule-in-Deliver opt-in (#1645)."""
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = User.objects.create_user(username="sid_me", password="pw")
+    UserProfile.objects.create(user=user, schedule_in_deliver=True)
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["schedule_in_deliver"] is True
 
 
 def test_me_surfaces_stored_hidden_views(db: object) -> None:

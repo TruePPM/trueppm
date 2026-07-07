@@ -6,6 +6,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateHiddenViews } from '@/hooks/useUpdateHiddenViews';
+import { useUpdateScheduleInDeliver } from '@/hooks/useUpdateScheduleInDeliver';
 import {
   groupedVisibleViews,
   surfaceHiddenViews,
@@ -138,6 +139,12 @@ const GROUP_HEADER =
  * no toggle — the structural guarantee the nav can never be emptied. The hidden
  * set is the per-user global `UserProfile.hidden_views`; toggling PATCHes it with
  * optimistic local state and the bar recomposes on `['current-user']` invalidation.
+ *
+ * The menu also carries the Schedule-in-Deliver *placement* opt-in (ADR-0203,
+ * #1645): a display-only toggle that *additionally* surfaces Schedule under the
+ * Deliver group. It is a placement, not a visibility change (it never hides a
+ * view), so it lives in its own "Placement" section and only appears when it can
+ * take effect (a Deliver group exists and Schedule is currently shown — HYBRID).
  */
 export function ViewsMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -151,6 +158,7 @@ export function ViewsMenu() {
   const { user } = useCurrentUser();
   const iteration = useIterationLabel(projectId);
   const update = useUpdateHiddenViews();
+  const updateScheduleInDeliver = useUpdateScheduleInDeliver();
 
   // Optimistic override: while a PATCH is in flight `pending` holds the desired
   // set so the rows flip instantly; it is reconciled to the server value once the
@@ -165,6 +173,19 @@ export function ViewsMenu() {
       setPending(null);
     }
   }, [pending, serverHidden]);
+
+  // Optimistic override for the Schedule-in-Deliver placement opt-in (#1645),
+  // mirroring the `pending` hidden-views pattern: flip instantly, reconcile to the
+  // server value once `['current-user']` catches up, clear on error.
+  const [pendingSchedule, setPendingSchedule] = useState<boolean | null>(null);
+  const serverScheduleInDeliver = user?.schedule_in_deliver ?? false;
+  const scheduleInDeliver = pendingSchedule ?? serverScheduleInDeliver;
+
+  useEffect(() => {
+    if (pendingSchedule !== null && pendingSchedule === serverScheduleInDeliver) {
+      setPendingSchedule(null);
+    }
+  }, [pendingSchedule, serverScheduleInDeliver]);
 
   // Close on Escape; return focus to the trigger.
   useEffect(() => {
@@ -224,6 +245,23 @@ export function ViewsMenu() {
 
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (VIEW_TAB_META[view]?.label ?? view);
+
+  // Schedule-in-Deliver placement opt-in (#1645) is only offered when it can
+  // actually take effect: a DELIVER group exists AND Schedule is currently visible
+  // (methodology-visible and not personally hidden) — i.e. HYBRID in practice.
+  // Never offer a dead toggle: on WATERFALL (no Deliver group) and AGILE (Schedule
+  // hidden by methodology) the row is absent, matching the composition seam's guard.
+  const hasDeliverGroup = groups.some((g) => g.id === 'DELIVER');
+  const scheduleShown = groups.some((g) => g.visibleViews.includes('schedule'));
+  const canPlaceScheduleInDeliver = hasDeliverGroup && scheduleShown && !hiddenSet.has('schedule');
+
+  function toggleScheduleInDeliver() {
+    const next = !scheduleInDeliver;
+    setPendingSchedule(next);
+    updateScheduleInDeliver.mutate(next, {
+      onError: () => setPendingSchedule(null),
+    });
+  }
 
   function commit(next: string[]) {
     setPending(next);
@@ -326,6 +364,34 @@ export function ViewsMenu() {
               })}
             </div>
           ))}
+
+          {/* Placement opt-in (#1645) — additively surface Schedule under Deliver.
+              Distinct from the hide/show list above: this re-groups a view rather
+              than hiding it. Only rendered when it can take effect (HYBRID). */}
+          {canPlaceScheduleInDeliver && (
+            <>
+              <div className={GROUP_HEADER}>Placement</div>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={scheduleInDeliver}
+                onClick={toggleScheduleInDeliver}
+                className="w-full flex items-center gap-2.5 px-4 min-h-[36px] text-sm text-left hover:bg-chrome-surface-raised focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
+              >
+                <span className="flex-1 text-neutral-text-primary leading-tight">
+                  Also show {labelFor('schedule')} under Deliver
+                  <span className="block text-xs text-neutral-text-secondary">
+                    Keep the plan next to the cadence
+                  </span>
+                </span>
+                {scheduleInDeliver ? (
+                  <EyeIcon className="text-brand-primary" aria-hidden="true" />
+                ) : (
+                  <EyeOffIcon className="text-neutral-text-secondary" aria-hidden="true" />
+                )}
+              </button>
+            </>
+          )}
 
           <div className="mx-4 mt-1 border-t border-neutral-border" aria-hidden="true" />
           <button

@@ -498,6 +498,11 @@ class MeSerializer(serializers.Serializer[Any]):
     # It NEVER gates access — RBAC remains the sole authority; this is read here
     # only so the lens can be reflected without a flash of the wrong view.
     role_context = serializers.SerializerMethodField()
+    # Per-user view *placement* opt-in (ADR-0203, #1645). Presentation-only: the
+    # web shell reads this to *additionally* surface Schedule under Deliver. Like
+    # the other prefs it is a server fact (identical for web, mobile, MCP) and
+    # never gates access — it only re-groups a nav tab.
+    schedule_in_deliver = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -530,15 +535,16 @@ class MeSerializer(serializers.Serializer[Any]):
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
 
-    def _prefs(self, obj: Any) -> tuple[str, list[str], str]:
-        # Memoized single read of (default_landing, hidden_views, role_context):
-        # get_landing, get_default_landing, get_hidden_views, and get_role_context
-        # all need a UserProfile column, so reading them in one .only() query keeps
-        # /auth/me at one profile read regardless of how many fields consume it.
+    def _prefs(self, obj: Any) -> tuple[str, list[str], str, bool]:
+        # Memoized single read of (default_landing, hidden_views, role_context,
+        # schedule_in_deliver): get_landing, get_default_landing, get_hidden_views,
+        # get_role_context, and get_schedule_in_deliver all need a UserProfile column,
+        # so reading them in one .only() query keeps /auth/me at one profile read
+        # regardless of how many fields consume it.
         if not hasattr(self, "_prefs_cache"):
             from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._prefs_cache: tuple[str, list[str], str] = get_profile_prefs(obj)
+            self._prefs_cache: tuple[str, list[str], str, bool] = get_profile_prefs(obj)
         return self._prefs_cache
 
     def get_default_landing(self, obj: Any) -> str:
@@ -583,6 +589,9 @@ class MeSerializer(serializers.Serializer[Any]):
     @extend_schema_field(serializers.ChoiceField(choices=RoleContext.choices))
     def get_role_context(self, obj: Any) -> str:
         return self._prefs(obj)[2]
+
+    def get_schedule_in_deliver(self, obj: Any) -> bool:
+        return self._prefs(obj)[3]
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

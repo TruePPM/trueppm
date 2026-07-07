@@ -84,8 +84,11 @@ export function useGroupedProjectViews(
 
   // Role-context lens (ADR-0162): re-orders only already-permitted views within
   // their group; `unified` (default while `user` loads) is the identity → no flash.
+  // Per-user Schedule-in-Deliver placement opt-in (ADR-0203, #1645): additively
+  // echoes Schedule into the Deliver group. Off until `user` loads, so the calm
+  // default never flashes the extra placement.
   const groups = applyRoleContextLensOrder(
-    groupedVisibleViewsForUser(methodology, hiddenViews)
+    groupedVisibleViewsForUser(methodology, hiddenViews, user?.schedule_in_deliver ?? false)
       .map((g) => ({ ...g, visibleViews: g.visibleViews.filter(roleAllows) }))
       .filter((g) => g.visibleViews.length > 0),
     user?.role_context ?? 'unified',

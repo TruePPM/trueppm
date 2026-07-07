@@ -149,6 +149,9 @@ const DEFAULT_USER: UserFixture = {
   // index redirects to Overview and the view bar keeps canonical order; the
   // role-context spec overrides `user` to exercise the PM / Scrum Master lenses.
   role_context: 'unified',
+  // Schedule-in-Deliver placement opt-in (ADR-0203, #1645) — off by default so
+  // the calm Schedule-in-Plan-only nav is what specs see unless they override it.
+  schedule_in_deliver: false,
 };
 
 const DEFAULT_BOARD_CONFIG = {

@@ -85,6 +85,22 @@ class UserProfile(models.Model):
     # layered on top of the per-project methodology preset (ADR-0041). Empty =
     # methodology default only; 'overview' is never hideable.
     hidden_views = models.JSONField(default=list, blank=True, help_text="Hidden nav view keys.")
+    # Per-user view *placement* opt-in (ADR-0203, #1645). When true, the Schedule
+    # view is *additionally* surfaced under the DELIVER group alongside the sprint
+    # cadence — for users who want the plan visible next to the iteration. Off by
+    # default, so the calm default (Schedule in Plan only) is unchanged for everyone
+    # who does not opt in. This is a *placement* addition, not a visibility toggle
+    # (unlike ``hidden_views``): it never hides a view and never resurrects a hidden
+    # one. Strictly display-only — it re-groups a nav tab and never affects rollups,
+    # reports, or exports. Composed client-side through the single
+    # ``groupedVisibleViewsForUser`` path so it layers with methodology + hidden_views
+    # (§12 invariant #4). A single targeted boolean rather than a generic placement
+    # map: there is exactly one placement opt-in today; generalize only if a second
+    # lands.
+    schedule_in_deliver = models.BooleanField(
+        default=False,
+        help_text="Also surface Schedule under Deliver (opt-in, display-only).",
+    )
 
     class Meta:
         verbose_name = "user profile"

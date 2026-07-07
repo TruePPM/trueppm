@@ -17,6 +17,8 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
     model fields' ``choices`` (DRF rejects an out-of-range value with 400).
     ``hidden_views`` is a bounded list of canonical view keys (ADR-0139);
     ``validate_hidden_views`` rejects unknown keys and de-duplicates.
+    ``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):
+    a display-only boolean that additionally surfaces Schedule under Deliver.
     """
 
     # max_length on both the list and the child bound the payload so a worker can
@@ -30,7 +32,7 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
 
     class Meta:
         model = UserProfile
-        fields = ["default_landing", "role_context", "hidden_views"]
+        fields = ["default_landing", "role_context", "hidden_views", "schedule_in_deliver"]
 
     def validate_hidden_views(self, value: list[str]) -> list[str]:
         unknown = [v for v in value if v not in HIDEABLE_VIEW_KEYS]
@@ -62,6 +64,9 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         if "hidden_views" in validated_data:
             instance.hidden_views = validated_data["hidden_views"]
             update_fields.append("hidden_views")
+        if "schedule_in_deliver" in validated_data:
+            instance.schedule_in_deliver = validated_data["schedule_in_deliver"]
+            update_fields.append("schedule_in_deliver")
         if update_fields:
             instance.save(update_fields=update_fields)
         return instance

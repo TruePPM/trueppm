@@ -157,20 +157,47 @@ export const HIDEABLE_VIEW_KEYS: ReadonlySet<string> = new Set(VIEW_GROUPS.flatM
 
 /**
  * Compose the per-user hidden-views preference (ADR-0139) on top of the
- * methodology filter. Layering order: methodology preset (here, via
- * `groupedVisibleViews`) → personal hidden-set → role gate (in `ViewTabs`).
- * A view the methodology already hides never reaches this filter, so a user can
- * only hide views that are visible for the current methodology. Groups left
+ * methodology filter, then apply the per-user Schedule-in-Deliver placement
+ * opt-in (ADR-0203, #1645). Layering order: methodology preset (here, via
+ * `groupedVisibleViews`) → personal hidden-set → Schedule-in-Deliver placement →
+ * role gate (in `useGroupedProjectViews`).
+ *
+ * A view the methodology already hides never reaches the hidden filter, so a user
+ * can only hide views that are visible for the current methodology. Groups left
  * empty by the personal filter are dropped (same as the methodology pass) so the
- * bar never renders an empty group label. Pure → unit-testable.
+ * bar never renders an empty group label.
+ *
+ * `scheduleInDeliver` (opt-in, off by default) *additionally* echoes the Schedule
+ * view into the DELIVER group so the plan sits next to the cadence. It is a
+ * **placement addition, never a visibility change** (§12 invariant #5): it only
+ * fires when Schedule is genuinely visible elsewhere (i.e. survives the
+ * methodology + hidden filter — HYBRID in practice, since WATERFALL has no DELIVER
+ * group and AGILE hides Schedule) and a DELIVER group exists. It therefore never
+ * resurrects a methodology- or user-hidden view, and never invents a group. The
+ * Schedule key is *appended* after the sprint circuit so Backlog → Sprints → Board
+ * stays contiguous (Alex/Jordan's sprint-circuit guardrail). Schedule remains in
+ * PLAN too — it now appears in both groups, routing to the same segment. Pure →
+ * unit-testable.
  */
 export function groupedVisibleViewsForUser(
   methodology: Methodology,
   hiddenViews: ReadonlySet<string>,
+  scheduleInDeliver = false,
 ): VisibleViewGroup[] {
-  return groupedVisibleViews(methodology)
+  const groups = groupedVisibleViews(methodology)
     .map((g) => ({ ...g, visibleViews: g.visibleViews.filter((v) => !hiddenViews.has(v)) }))
     .filter((g) => g.visibleViews.length > 0);
+
+  if (!scheduleInDeliver) return groups;
+  // Only echo Schedule into Deliver when it is genuinely visible elsewhere (Plan)
+  // — never resurrect a hidden view, never invent a Deliver group.
+  const scheduleVisible = groups.some((g) => g.visibleViews.includes('schedule'));
+  if (!scheduleVisible) return groups;
+  return groups.map((g) =>
+    g.id === 'DELIVER' && !g.visibleViews.includes('schedule')
+      ? { ...g, visibleViews: [...g.visibleViews, 'schedule'] }
+      : g,
+  );
 }
 
 /**

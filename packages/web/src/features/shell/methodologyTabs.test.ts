@@ -221,6 +221,55 @@ describe('groupedVisibleViewsForUser (ADR-0139)', () => {
   });
 });
 
+describe('groupedVisibleViewsForUser — Schedule-in-Deliver placement (ADR-0203, #1645)', () => {
+  it('opt-in off is the calm default — identical to the two-arg call', () => {
+    for (const m of ['WATERFALL', 'AGILE', 'HYBRID'] as const) {
+      expect(groupedVisibleViewsForUser(m, new Set(), false)).toEqual(
+        groupedVisibleViewsForUser(m, new Set()),
+      );
+    }
+  });
+
+  it('HYBRID opt-in additionally surfaces Schedule under DELIVER, keeping it in PLAN', () => {
+    const groups = groupedVisibleViewsForUser('HYBRID', new Set(), true);
+    const plan = groups.find((g) => g.id === 'PLAN');
+    const deliver = groups.find((g) => g.id === 'DELIVER');
+    expect(plan?.visibleViews).toContain('schedule');
+    expect(deliver?.visibleViews).toContain('schedule');
+  });
+
+  it('appends Schedule after the sprint circuit so Backlog→Sprints→Board stays contiguous', () => {
+    const deliver = groupedVisibleViewsForUser('HYBRID', new Set(), true).find(
+      (g) => g.id === 'DELIVER',
+    );
+    expect(deliver?.visibleViews).toEqual(['product-backlog', 'sprints', 'board', 'schedule']);
+  });
+
+  it('is a no-op on WATERFALL — no DELIVER group exists to place Schedule in', () => {
+    expect(groupedVisibleViewsForUser('WATERFALL', new Set(), true)).toEqual(
+      groupedVisibleViewsForUser('WATERFALL', new Set()),
+    );
+  });
+
+  it('is a no-op on AGILE — Schedule is methodology-hidden, never resurrected', () => {
+    const groups = groupedVisibleViewsForUser('AGILE', new Set(), true);
+    expect(groups.flatMap((g) => g.visibleViews)).not.toContain('schedule');
+    expect(groups).toEqual(groupedVisibleViewsForUser('AGILE', new Set()));
+  });
+
+  it('never resurrects a personally-hidden Schedule (hidden wins over placement)', () => {
+    const groups = groupedVisibleViewsForUser('HYBRID', new Set(['schedule']), true);
+    expect(groups.flatMap((g) => g.visibleViews)).not.toContain('schedule');
+  });
+
+  it('does not duplicate Schedule if a future layout already lists it in DELIVER', () => {
+    // Guard the idempotence branch: two opt-in passes yield one schedule in Deliver.
+    const once = groupedVisibleViewsForUser('HYBRID', new Set(), true);
+    const deliver = once.find((g) => g.id === 'DELIVER');
+    expect(deliver?.visibleViews.filter((v) => v === 'schedule')).toHaveLength(1);
+  });
+});
+
 describe('surfaceHiddenViews (ADR-0193, #956)', () => {
   it('returns ["reports"] when reporting is false', () => {
     expect(surfaceHiddenViews({ reporting: false })).toEqual(['reports']);

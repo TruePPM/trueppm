@@ -39703,6 +39703,10 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "schedule_in_deliver": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -39716,6 +39720,7 @@
                     "landing",
                     "max_project_role",
                     "role_context",
+                    "schedule_in_deliver",
                     "username",
                     "workspace_role"
                 ]
@@ -43558,7 +43563,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -43584,6 +43589,10 @@
                             "maxLength": 32
                         },
                         "maxItems": 32
+                    },
+                    "schedule_in_deliver": {
+                        "type": "boolean",
+                        "description": "Also surface Schedule under Deliver (opt-in, display-only)."
                     }
                 }
             },
@@ -51006,7 +51015,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -51031,6 +51040,10 @@
                             "maxLength": 32
                         },
                         "maxItems": 32
+                    },
+                    "schedule_in_deliver": {
+                        "type": "boolean",
+                        "description": "Also surface Schedule under Deliver (opt-in, display-only)."
                     }
                 }
             },

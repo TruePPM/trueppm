@@ -22,6 +22,11 @@ vi.mock('@/hooks/useUpdateHiddenViews', () => ({
   useUpdateHiddenViews: vi.fn(() => ({ mutate })),
 }));
 
+const mutateSchedule = vi.fn();
+vi.mock('@/hooks/useUpdateScheduleInDeliver', () => ({
+  useUpdateScheduleInDeliver: vi.fn(() => ({ mutate: mutateSchedule })),
+}));
+
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProject } from '@/hooks/useProject';
@@ -36,6 +41,7 @@ function open() {
 describe('ViewsMenu (ADR-0139)', () => {
   beforeEach(() => {
     mutate.mockClear();
+    mutateSchedule.mockClear();
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseCurrentUser.mockReturnValue({ user: { hidden_views: [] }, isLoading: false });
     mockUseProject.mockReturnValue({
@@ -60,14 +66,14 @@ describe('ViewsMenu (ADR-0139)', () => {
       within(menu).queryByRole('menuitemcheckbox', { name: /Overview/i }),
     ).not.toBeInTheDocument();
     // Hideable views are menuitemcheckbox rows, checked (visible) by default.
-    const schedule = within(menu).getByRole('menuitemcheckbox', { name: /Schedule/i });
+    const schedule = within(menu).getByRole('menuitemcheckbox', { name: 'Schedule' });
     expect(schedule).toHaveAttribute('aria-checked', 'true');
   });
 
   it('toggling a visible view PATCHes it into the hidden set', () => {
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Schedule/i }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Schedule' }));
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate.mock.calls[0][0]).toEqual(['schedule']);
   });
@@ -79,7 +85,7 @@ describe('ViewsMenu (ADR-0139)', () => {
     });
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    const schedule = screen.getByRole('menuitemcheckbox', { name: /Schedule/i });
+    const schedule = screen.getByRole('menuitemcheckbox', { name: 'Schedule' });
     expect(schedule).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(schedule);
     expect(mutate.mock.calls[0][0]).toEqual(['calendar']);
@@ -111,7 +117,74 @@ describe('ViewsMenu (ADR-0139)', () => {
     });
     renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
     open();
-    expect(screen.queryByRole('menuitemcheckbox', { name: /Schedule/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Schedule' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitemcheckbox', { name: /Sprints/i })).toBeInTheDocument();
+  });
+
+  // --- Schedule-in-Deliver placement opt-in (#1645) ------------------------
+
+  it('offers the Schedule-in-Deliver placement toggle on HYBRID, off by default', () => {
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    const placement = screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i });
+    expect(placement).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('toggling the placement opt-in PATCHes schedule_in_deliver = true', () => {
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }));
+    expect(mutateSchedule).toHaveBeenCalledTimes(1);
+    expect(mutateSchedule.mock.calls[0][0]).toBe(true);
+    // The hidden-views mutation is untouched — placement is not a visibility change.
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('reflects an already-on placement opt-in as checked', () => {
+    mockUseCurrentUser.mockReturnValue({
+      user: { hidden_views: [], schedule_in_deliver: true },
+      isLoading: false,
+    });
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('does NOT offer the placement toggle on WATERFALL (no Deliver group)', () => {
+    mockUseProject.mockReturnValue({
+      data: { id: 'proj-1', methodology: 'WATERFALL', effective_methodology: 'WATERFALL' },
+      isLoading: false,
+    });
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    expect(
+      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('does NOT offer the placement toggle on AGILE (Schedule methodology-hidden)', () => {
+    mockUseProject.mockReturnValue({
+      data: { id: 'proj-1', methodology: 'AGILE', effective_methodology: 'AGILE' },
+      isLoading: false,
+    });
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    expect(
+      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides the placement toggle when Schedule is personally hidden (no dead toggle)', () => {
+    mockUseCurrentUser.mockReturnValue({
+      user: { hidden_views: ['schedule'], schedule_in_deliver: false },
+      isLoading: false,
+    });
+    renderWithRouter(<ViewsMenu />, { initialEntries: ['/projects/proj-1/board'] });
+    open();
+    expect(
+      screen.queryByRole('menuitemcheckbox', { name: /Also show Schedule under Deliver/i }),
+    ).not.toBeInTheDocument();
   });
 });
