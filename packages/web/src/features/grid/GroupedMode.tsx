@@ -195,7 +195,7 @@ function ColumnHeaders({ sortCol, sortDir, onSort }: ColumnHeadersProps) {
   return (
     <div
       role="row"
-      className="flex items-center h-9 border-b border-neutral-border px-3 flex-shrink-0
+      className="hidden md:flex items-center h-9 border-b border-neutral-border px-3 flex-shrink-0
         bg-neutral-surface-sunken tppm-mono text-xs font-semibold tracking-widest uppercase
         text-neutral-text-secondary"
     >

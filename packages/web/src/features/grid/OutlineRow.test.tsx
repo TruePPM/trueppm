@@ -168,9 +168,30 @@ describe('OutlineRow', () => {
     expect(screen.getByText('AS')).toBeInTheDocument();
   });
 
-  it('renders project rows (root summary) at the larger height', () => {
+  it('renders project rows (root summary) at the larger desktop height', () => {
     const node = makeNode({ id: 'p', wbs: '1', isSummary: true });
     const { container } = renderRow(node);
-    expect(container.querySelector('.h-11')).not.toBeNull();
+    // Height is applied at the `md` breakpoint (mobile uses the two-line card's
+    // content height); the taller `md:h-11` distinguishes project rows.
+    expect(container.querySelector('[class*="md:h-11"]')).not.toBeNull();
+  });
+
+  it('lays out as a responsive two-line card (md:contents groups, mobile card height)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    const { container } = renderRow(node);
+    // Two `md:contents` wrappers collapse on desktop so the cells lay out as the
+    // original single-line table; below `md` they stack into two lines.
+    expect(container.querySelectorAll('[class*="md:contents"]').length).toBe(2);
+    // Mobile card sizes to content via a min-height; the fixed height is md-only.
+    expect(container.querySelector('[class*="min-h-"]')).not.toBeNull();
+  });
+
+  it('hides predecessors on mobile (md-only column)', () => {
+    const node = makeNode({ id: 't1', wbs: '1.1', name: 'Discovery' });
+    renderRow(node, { predecessorText: '1.0 FS+2' });
+    const pred = screen.getByText('1.0 FS+2');
+    // Still in the DOM (drawer/desktop) but gated behind `md:` visibility.
+    expect(pred.className).toContain('hidden');
+    expect(pred.className).toContain('md:block');
   });
 });

@@ -286,4 +286,33 @@ describe('TaskRow', () => {
     expect(onRename).not.toHaveBeenCalled();
     expect(onCancelRename).not.toHaveBeenCalled();
   });
+
+  describe('responsive layout (#1701)', () => {
+    it('wraps cells in two md:contents groups so the row reflows to a card on mobile', () => {
+      const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+      const { container } = render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
+      // The primary (WBS/name/owner) and secondary (dates/dur/progress/status)
+      // groups collapse to `display: contents` at `md`+ so desktop is unchanged;
+      // below `md` they stack into two lines.
+      expect(container.querySelectorAll('[class*="md:contents"]').length).toBe(2);
+    });
+
+    it('uses a fixed mobile card height that matches the virtualiser estimate (h-14 → 56px)', () => {
+      const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+      render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
+      const row = screen.getByRole('row');
+      // h-14 (mobile card, 56px) matches VirtualRows estimateSize on mobile so the
+      // second line is never clipped; md:h-11 restores the desktop single-line row.
+      expect(row.className).toContain('h-14');
+      expect(row.className).toContain('md:h-11');
+    });
+
+    it('hides the phase subtitle on mobile to keep the name line uncluttered', () => {
+      const task = makeTask({ id: 't1', wbs: '1.1', name: 'Build' });
+      render(<TaskRow {...baseProps} task={task} phase="Discovery" />);
+      const phase = screen.getByText('· Discovery');
+      expect(phase.className).toContain('hidden');
+      expect(phase.className).toContain('md:inline');
+    });
+  });
 });

@@ -330,7 +330,7 @@ export function OutlineMode({
   return (
     <>
       <div
-        className="flex items-center h-9 border-b border-neutral-border px-2 flex-shrink-0
+        className="hidden md:flex items-center h-9 border-b border-neutral-border px-2 flex-shrink-0
           bg-neutral-surface-sunken tppm-mono text-xs font-semibold tracking-widest uppercase
           text-neutral-text-secondary"
         aria-hidden="true"

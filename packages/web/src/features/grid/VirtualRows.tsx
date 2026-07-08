@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { TaskRow } from './TaskRow';
 import { GroupHeader } from './GroupHeader';
 
@@ -40,15 +41,27 @@ export function VirtualRows({
 }: VirtualRowsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Task rows render as a taller two-line card below `md` (see TaskRow); the
+  // virtualiser positions rows at a fixed height, so it must estimate the taller
+  // size on mobile or the second line would be clipped by the row wrapper.
+  const isMobile = useBreakpoint() === 'sm';
+  const taskRowHeight = isMobile ? 56 : 44;
+
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (i) => {
       const item = items[i];
-      return item?.kind === 'header' ? 32 : 44;
+      return item?.kind === 'header' ? 32 : taskRowHeight;
     },
     overscan: 5,
   });
+
+  // Re-measure when the viewport crosses the `md` breakpoint so already-mounted
+  // rows pick up the new fixed height (estimateSize is read lazily per measure).
+  useEffect(() => {
+    rowVirtualizer.measure?.();
+  }, [taskRowHeight, rowVirtualizer]);
 
   return (
     <div

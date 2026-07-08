@@ -161,6 +161,56 @@ test.describe('Grid view mode switching (#334)', () => {
 
 });
 
+test.describe('Grid view responsive layout (#1701)', () => {
+  const PHONE = { width: 390, height: 844 };
+
+  test('Outline grid reflows to a legible two-line card on a phone (no clipped columns)', async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    await setup(page);
+    await page.goto(`${BASE_URL}/grid`);
+
+    const tree = page.getByRole('treegrid', { name: 'Outline task tree' });
+    await expect(tree).toBeVisible({ timeout: 10_000 });
+
+    // Both card lines render: name (line 1) and dates + duration (line 2).
+    await expect(page.getByText('Stakeholder interviews')).toBeVisible();
+    await expect(page.getByText('7d')).toBeVisible();
+    // The date-range separator is mobile-only — its presence proves line 2 rendered.
+    await expect(page.getByText('→').first()).toBeVisible();
+
+    // The desktop column-header row (with the "Predecessors" label) is hidden < md.
+    await expect(page.getByText('Predecessors')).not.toBeVisible();
+
+    // The row content fits the viewport — no horizontal overflow of the scroll
+    // container (the pre-fix bug was ~744px of fixed columns overflowing a phone).
+    const overflow = await tree.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    const bodyOverflow = await page.evaluate(
+      () => document.body.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(bodyOverflow).toBeLessThanOrEqual(1);
+  });
+
+  test('Flat grid also fits a phone without horizontal overflow', async ({ page }) => {
+    await page.setViewportSize(PHONE);
+    // Preseed Flat mode so the page renders Flat directly — avoids a second
+    // navigation/click, which deterministically trips the documented auth flake
+    // (session-expired modal) at this depth.
+    await page.addInitScript((projectId) => {
+      localStorage.setItem(`trueppm.grid.mode.${projectId}.v1`, 'flat');
+    }, FIXTURE_PROJECT_ID);
+    await setup(page);
+    await page.goto(`${BASE_URL}/grid`);
+
+    const grid = page.getByRole('grid', { name: 'Task list' });
+    await expect(grid).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Stakeholder interviews')).toBeVisible();
+
+    const overflow = await grid.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
 // Data continuity across modes (acceptance criterion in #334) is covered by
 // GridView.test.tsx — its mock-data path verifies the same task names render
 // in Flat / Outline / Grouped without resorting to a deep multi-step e2e
