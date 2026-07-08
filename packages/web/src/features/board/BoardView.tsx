@@ -389,34 +389,63 @@ function WipTrendArrow({ trend }: { trend: WipTrend }) {
 /**
  * Collapsed-column stub for the board header (issue 1459, ADR-0192 Part 2).
  *
- * A 34px-wide rail standing in for a folded column: status dot, a label
- * rotated to read bottom-to-top, and a count badge whose tone reflects the
- * WIP band (neutral / at-limit amber / over-limit red). The whole stub is a
- * button — clicking it expands the column back to full width. The WIP band is
- * computed via the shared `wipState()` helper so the stub badge never drifts
- * from the expanded header (issue 546). The glyphs are `aria-hidden`; the button's
- * accessible name carries the column, count, and any breach.
+ * A narrow rail standing in for a folded column: status dot, a label rotated
+ * to read bottom-to-top, and a count badge. The whole stub is a button —
+ * clicking it expands the column back to full width. A stub is a *lens* on the
+ * column, not a place to hide a signal the expanded header would show, so three
+ * signals survive the fold:
+ *
+ *  - **WIP breach** (#1695) — the breach tone (amber `at` / red `over`) and the
+ *    `N/limit` ratio render **always**, independent of the "Show WIP limits"
+ *    toggle, matching the expanded header's `WipBreachChip` invariant (rule 176
+ *    extended to stubs). Only the *limit* portion of a non-breaching count obeys
+ *    `showWip`. The band is computed via the shared `wipState()` helper so the
+ *    stub never drifts from the header (issue 546).
+ *  - **Folded ≠ empty** (#1697) — a populated stub shows a filled count pill; an
+ *    empty column (0 cards) shows a dashed hollow "0" so an observer never has to
+ *    guess whether a folded column holds work.
+ *  - **Your cards inside** (#1696) — a quiet 2px brand left-edge accent when the
+ *    stub holds ≥1 card assigned to the current user, so collapsing a column can
+ *    never silently swallow your own work.
+ *
+ * The glyphs are `aria-hidden`; the button's accessible name carries the column,
+ * count (or "empty"), any breach, and whether it hides the current user's cards.
  */
 function ColumnStub({
   label,
   status,
   count,
   wipBand,
+  wipLimit,
+  showWip,
+  myCardCount,
   onExpand,
 }: {
   label: string;
   status: TaskStatus;
   count: number;
   wipBand: WipState;
+  wipLimit: number | null;
+  showWip: boolean;
+  myCardCount: number;
   onExpand: () => void;
 }) {
   const dotClass = COLUMN_DOT_CLASS[status] ?? 'bg-neutral-text-disabled';
+  const breached = wipBand === 'at' || wipBand === 'over';
+  const isEmpty = count === 0;
+  const hasMyCards = myCardCount > 0;
+  // The limit portion (`N/limit`) shows whenever the column breaches — a breach
+  // is always visible on a stub (#1695) — or when "Show WIP limits" is on and a
+  // limit exists. A non-breaching count with the toggle off renders the plain N.
+  const showLimit = wipLimit != null && (breached || showWip);
   // Pair the `-bg` pill fill with the matching full semantic token for text +
   // border (rule 8b) — `bg-semantic-critical text-white` failed WCAG 1.4.3 in
   // dark mode (white on the critical red-400 fill is approx 2.8:1). The `-bg` tints are pre-computed
-  // per-mode in globals.css so the badge stays AA in both themes.
-  const badgeClass =
-    wipBand === 'over'
+  // per-mode in globals.css so the badge stays AA in both themes. An empty stub
+  // drops the fill entirely for a dashed hollow ring (folded ≠ empty, #1697).
+  const badgeClass = isEmpty
+    ? 'border-dashed border-neutral-border text-neutral-text-secondary'
+    : wipBand === 'over'
       ? 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40'
       : wipBand === 'at'
         ? 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40'
@@ -428,12 +457,21 @@ function ColumnStub({
       title={`Expand ${label}`}
       data-testid={`column-stub-${status}`}
       data-wip-state={wipBand}
-      aria-label={`Expand ${label} column, ${count} task${count !== 1 ? 's' : ''}${
-        wipBand === 'over' ? ', over WIP limit' : wipBand === 'at' ? ', at WIP limit' : ''
-      }`}
-      className="h-full w-full py-2.5 flex flex-col items-center gap-2 bg-neutral-surface-sunken
+      data-has-my-cards={hasMyCards ? 'true' : undefined}
+      aria-label={`Expand ${label} column, ${
+        isEmpty ? 'empty' : `${count} task${count !== 1 ? 's' : ''}`
+      }${
+        wipBand === 'over'
+          ? `, over WIP limit of ${wipLimit}`
+          : wipBand === 'at'
+            ? `, at WIP limit of ${wipLimit}`
+            : ''
+      }${hasMyCards ? `, contains ${myCardCount} of your card${myCardCount !== 1 ? 's' : ''}` : ''}`}
+      className={`h-full w-full py-2.5 flex flex-col items-center gap-2 bg-neutral-surface-sunken
         hover:bg-neutral-surface transition-colors
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset${
+          hasMyCards ? ' border-l-2 border-l-brand-primary' : ''
+        }`}
     >
       <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} />
       <span
@@ -445,10 +483,9 @@ function ColumnStub({
       </span>
       <span
         aria-hidden="true"
-        className={`tppm-mono text-xs font-bold min-w-[18px] px-1 py-px rounded-full border text-center ${badgeClass}`}
+        className={`tppm-mono tabular-nums text-xs font-bold min-w-[18px] px-1 py-px rounded-full border text-center ${badgeClass}`}
       >
-        {count}
-        {wipBand === 'over' ? '!' : ''}
+        {isEmpty ? '0' : showLimit ? `${count}/${wipLimit}` : count}
       </span>
     </button>
   );
@@ -2246,6 +2283,29 @@ export function BoardView() {
     return counts;
   }, [phases]);
 
+  // Per-column count of cards assigned to the current user — powers the quiet
+  // "your cards are folded inside this stub" signal (#1696). Uses the same
+  // assignee predicate as the "My tasks" filter. Zero for every column when the
+  // user has no resource identity on this project (myResourceId === null), so the
+  // signal is simply absent rather than wrong.
+  const myCountByStatus = useMemo(() => {
+    const counts: Record<TaskStatus, number> = {
+      BACKLOG: 0,
+      NOT_STARTED: 0,
+      IN_PROGRESS: 0,
+      REVIEW: 0,
+      ON_HOLD: 0,
+      COMPLETE: 0,
+    };
+    if (myResourceId === null) return counts;
+    for (const phase of phases) {
+      for (const task of phase.tasks) {
+        if (task.assignees.some((a) => a.resourceId === myResourceId)) counts[task.status]++;
+      }
+    }
+    return counts;
+  }, [phases, myResourceId]);
+
   const handleAddPhase = useCallback(() => {
     const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
     createTask.mutate({ name, duration: 0, parent_id: null });
@@ -3077,6 +3137,10 @@ export function BoardView() {
           {collapsedColumns.size > 0 &&
             (() => {
               const collapsedList = COLUMNS.filter((c) => collapsedColumns.has(c.status));
+              // Columns that have folded away ≥1 card assigned to the current
+              // user — findable via a quiet banner clause (#1696).
+              const myHiddenCols = collapsedList.filter((c) => myCountByStatus[c.status] > 0);
+              const myHiddenCount = myHiddenCols.reduce((n, c) => n + myCountByStatus[c.status], 0);
               const breaching = collapsedList
                 .map((c) => ({ col: c, band: wipState(totalByStatus[c.status], c.wipLimit) }))
                 .filter(({ band }) => band === 'at' || band === 'over');
@@ -3105,6 +3169,22 @@ export function BoardView() {
                   <span>
                     {collapsedColumns.size} column{collapsedColumns.size !== 1 ? 's' : ''} collapsed
                   </span>
+                  {myHiddenCount > 0 && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        onClick={() => myHiddenCols.forEach((c) => expandColumn(c.status))}
+                        data-testid="expand-my-hidden-columns"
+                        aria-label="Expand columns containing your cards"
+                        className="min-h-[44px] sm:min-h-0 underline hover:no-underline
+                          text-neutral-text-secondary hover:text-brand-primary
+                          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+                      >
+                        {myHiddenCount} of your card{myHiddenCount !== 1 ? 's' : ''} hidden
+                      </button>
+                    </>
+                  )}
                   {breaching.length > 0 && (
                     <button
                       ref={wipTriggerRef}
@@ -3364,7 +3444,14 @@ export function BoardView() {
                           label={col.label}
                           status={col.status}
                           count={count}
-                          wipBand={showWip ? wipState(count, col.wipLimit) : 'none'}
+                          // Breach band computed unconditionally — a WIP breach
+                          // stays visible on the stub regardless of the "Show WIP
+                          // limits" toggle, matching the expanded header's
+                          // always-on WipBreachChip (#1695, rule 176 → stubs).
+                          wipBand={wipState(count, col.wipLimit)}
+                          wipLimit={col.wipLimit}
+                          showWip={showWip}
+                          myCardCount={myCountByStatus[col.status]}
                           onExpand={() => toggleColumn(col.status)}
                         />
                       );

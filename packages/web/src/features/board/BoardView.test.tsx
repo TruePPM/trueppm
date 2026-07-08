@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -1438,5 +1438,144 @@ describe('WIP-creep trend arrow (issue #1213)', () => {
     expect(arrows).toHaveLength(2);
     const trends = arrows.map((a) => a.getAttribute('data-trend')).sort();
     expect(trends).toEqual(['falling', 'rising']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Collapsed-column stub signals (#1695 WIP breach, #1697 folded≠empty, #1696
+// your-cards-inside). A stub is a lens on the column, not a place to hide a
+// signal the expanded header would show.
+// ---------------------------------------------------------------------------
+describe('collapsed column stub signals (#1695/#1696/#1697)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  // A single IN_PROGRESS leaf (summary tasks become phases and are excluded
+  // from the per-status totals, so leaves keep the count deterministic).
+  const ipLeaf = (id: string, name: string, extra: Partial<Task> = {}): Task => ({
+    ...FIXTURE_TASKS[1],
+    id,
+    name,
+    isSummary: false,
+    isMilestone: false,
+    parentId: null,
+    status: 'IN_PROGRESS',
+    progress: 30,
+    assignees: [],
+    ...extra,
+  });
+
+  const collapse = (user: UE, label: string) =>
+    user.click(screen.getByRole('button', { name: `Collapse ${label} column` }));
+
+  it('keeps a WIP breach visible on the stub with "Show WIP limits" off (#1695)', async () => {
+    const user = userEvent.setup();
+    // 2 IN_PROGRESS cards against a limit of 1 → over.
+    mockTasks = [ipLeaf('ip1', 'Wire consumer'), ipLeaf('ip2', 'Backfill cache')];
+    mockColumns = [
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 1 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
+    ];
+    renderBoard();
+    // Turn "Show WIP limits" off — the numeric limit on a *non-breaching* count
+    // hides, but a breach must not.
+    await openMore(user);
+    await user.click(screen.getByLabelText('Show WIP limits'));
+    await collapse(user, 'IN PROGRESS');
+
+    const stub = screen.getByTestId('column-stub-IN_PROGRESS');
+    expect(stub).toHaveAttribute('data-wip-state', 'over');
+    // Breach renders the N/limit ratio in the breach color, toggle notwithstanding.
+    expect(stub).toHaveTextContent('2/1');
+    expect(stub).toHaveAccessibleName(/over WIP limit of 1/);
+  });
+
+  it('renders a plain count (no limit) on a non-breaching stub with the toggle off', async () => {
+    const user = userEvent.setup();
+    // 2 IN_PROGRESS cards, limit 5 → under. Toggle off → plain count, no "/5".
+    mockTasks = [ipLeaf('ip1', 'A'), ipLeaf('ip2', 'B')];
+    mockColumns = [
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 5 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
+    ];
+    renderBoard();
+    await openMore(user);
+    await user.click(screen.getByLabelText('Show WIP limits'));
+    await collapse(user, 'IN PROGRESS');
+
+    const stub = screen.getByTestId('column-stub-IN_PROGRESS');
+    expect(stub).toHaveAttribute('data-wip-state', 'under');
+    expect(stub).toHaveTextContent('2');
+    expect(stub).not.toHaveTextContent('2/5');
+  });
+
+  it('renders a dashed hollow-0 stub for an empty column (folded ≠ empty, #1697)', async () => {
+    const user = userEvent.setup();
+    renderBoard(); // default fixture: REVIEW column holds 0 cards
+    await collapse(user, 'REVIEW');
+
+    const stub = screen.getByTestId('column-stub-REVIEW');
+    expect(stub).toHaveAccessibleName(/Expand REVIEW column, empty/);
+    // The count badge drops its fill for a dashed hollow ring.
+    const badge = within(stub).getByText('0');
+    expect(badge.className).toContain('border-dashed');
+  });
+
+  it('renders a filled count (not the hollow-0) for a populated stub', async () => {
+    const user = userEvent.setup();
+    mockTasks = [ipLeaf('ip1', 'A'), ipLeaf('ip2', 'B')];
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+
+    const stub = screen.getByTestId('column-stub-IN_PROGRESS');
+    expect(stub).toHaveAccessibleName(/2 tasks/);
+    expect(stub.querySelector('.border-dashed')).toBeNull();
+  });
+
+  it('marks a stub holding the current user\'s cards and offers a banner expand (#1696)', async () => {
+    const user = userEvent.setup();
+    mockProjectResourcePool = [
+      { id: 'pr-me', resourceId: 'r-me', resource: { id: 'r-me', name: 'Me', isMe: true } },
+    ];
+    // One of my cards + one someone else's, both IN_PROGRESS.
+    mockTasks = [
+      ipLeaf('ip1', 'Mine', { assignees: [{ resourceId: 'r-me', name: 'Me', units: 1 }] }),
+      ipLeaf('ip2', 'Theirs', { assignees: [{ resourceId: 'r-other', name: 'Other', units: 1 }] }),
+    ];
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+
+    const stub = screen.getByTestId('column-stub-IN_PROGRESS');
+    expect(stub).toHaveAttribute('data-has-my-cards', 'true');
+    expect(stub).toHaveAccessibleName(/contains 1 of your card/);
+
+    // Banner clause names the count and expands the affected column on click.
+    const expandMine = screen.getByTestId('expand-my-hidden-columns');
+    expect(expandMine).toHaveTextContent('1 of your card hidden');
+    expect(expandMine).toHaveAccessibleName('Expand columns containing your cards');
+    await user.click(expandMine);
+    expect(screen.queryByTestId('column-stub-IN_PROGRESS')).toBeNull();
+  });
+
+  it('shows no your-cards signal when the user has no resource identity', async () => {
+    const user = userEvent.setup();
+    // Default pool → no isMe resource → myResourceId is null.
+    mockTasks = [
+      ipLeaf('ip1', 'A', { assignees: [{ resourceId: 'r-other', name: 'Other', units: 1 }] }),
+    ];
+    renderBoard();
+    await collapse(user, 'IN PROGRESS');
+
+    const stub = screen.getByTestId('column-stub-IN_PROGRESS');
+    expect(stub).not.toHaveAttribute('data-has-my-cards');
+    expect(screen.queryByTestId('expand-my-hidden-columns')).toBeNull();
   });
 });
