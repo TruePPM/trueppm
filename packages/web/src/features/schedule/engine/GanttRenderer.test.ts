@@ -430,15 +430,21 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
     expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('uses translucent white chip fill on critical bars', () => {
+  it('uses the surface (dark) chip fill on critical bars — criticality no longer flips the chip', () => {
+    // #1699/ADR-0277: critical bars keep a STATE fill (blue/green) with a red
+    // border, so the chip pairs with the surface treatment like every other bar;
+    // the old white-on-red chip pill for a red critical fill is gone.
     const { ctx, calls } = makeCtxSpy();
     const criticalTask = makeBarTask({ isCritical: true, isComplete: false, progress: 50 });
     drawTaskBar(ctx, criticalTask, 0, scales, 0, false, VIEWPORT_W);
-    // The chip fill for critical bars is 'rgba(255,255,255,0.22)'
-    const chipFill = calls.find(
+    const surfacePill = calls.find(
+      (c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)',
+    );
+    const whitePill = calls.find(
       (c) => c.name === 'fillStyle' && c.args[0] === 'rgba(255,255,255,0.22)',
     );
-    expect(chipFill).toBeDefined();
+    expect(surfacePill).toBeDefined();
+    expect(whitePill).toBeUndefined();
   });
 
   it('uses translucent dark chip fill on non-critical bars', () => {
@@ -460,6 +466,60 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
         (c.args[0] === 'rgba(255,255,255,0.22)' || c.args[0] === 'rgba(0,0,0,0.18)'),
     );
     expect(chipFill).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTaskBar — critical path as a red border frame (#1699, ADR-0277)
+// ---------------------------------------------------------------------------
+
+describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  const styles = (calls: Array<{ name: string; args: unknown[] }>, kind: string): unknown[] =>
+    calls.filter((c) => c.name === kind).map((c) => c.args[0]);
+
+  it('paints an in-progress critical task with the state (blue) fill, never a red fill', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ isCritical: true, isComplete: false, progress: 40 });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.barNormal);
+    expect(styles(calls, 'fillStyle')).not.toContain(COLOR.barCritical);
+  });
+
+  it('draws a red critical frame (border stroke) for a critical task', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ isCritical: true, isComplete: false, progress: 40 });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'strokeStyle')).toContain(COLOR.barCritical);
+  });
+
+  it('keeps a COMPLETED critical task visible: green fill + red frame (the #1699 fix)', () => {
+    // The original bug: barFillColor checked isComplete before isCritical, so a done
+    // critical bar rendered solid green and the critical path vanished. Now the green
+    // is the fill and the red is the border — both present, criticality survives.
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ isCritical: true, isComplete: true, progress: 100 });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'fillStyle')).toContain(COLOR.barComplete);
+    expect(styles(calls, 'strokeStyle')).toContain(COLOR.barCritical);
+  });
+
+  it('draws no red frame for a non-critical task', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ isCritical: false, progress: 40 });
+    drawTaskBar(ctx, t, 0, scales, 0, false, VIEWPORT_W);
+    expect(styles(calls, 'strokeStyle')).not.toContain(COLOR.barCritical);
+  });
+
+  it('nests the selection ring inside the critical frame so both channels stay visible', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const t = makeBarTask({ isCritical: true, progress: 40 });
+    drawTaskBar(ctx, t, 0, scales, 0, true /* selected */, VIEWPORT_W);
+    const strokes = styles(calls, 'strokeStyle');
+    expect(strokes).toContain(COLOR.barCritical); // red frame
+    expect(strokes).toContain(COLOR.selectionRing); // navy ring nested inside
   });
 });
 

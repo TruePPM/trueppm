@@ -182,7 +182,13 @@ function CompleteSwatch() {
 }
 
 function CriticalSwatch() {
-  return <span className="block w-full h-2 bg-semantic-critical rounded-[2px]" />;
+  // Critical path now reads as a red BORDER frame around a state-colored bar, not a
+  // red fill (#1699, ADR-0277): a completed critical task stays visible as a green
+  // bar in a red frame instead of losing its criticality to completion. The swatch
+  // mirrors that — a 2px red frame over a neutral bar body.
+  return (
+    <span className="block w-full h-2 border-2 border-semantic-critical bg-neutral-surface rounded-[2px]" />
+  );
 }
 
 function TodaySwatch() {
