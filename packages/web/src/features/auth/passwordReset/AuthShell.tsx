@@ -37,7 +37,7 @@ export function AuthShell({
           <LogoMark size={32} className="flex-shrink-0" />
           <span className="font-display text-xl font-bold tracking-[-0.02em] leading-none">
             <span className="text-navy-700 dark:text-reversed">True</span>
-            <span className="text-sage-500">PPM</span>
+            <span className="text-brand-primary">PPM</span>
           </span>
         </div>
 

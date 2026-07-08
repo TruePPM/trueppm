@@ -17,13 +17,17 @@ import { test, expect } from '@playwright/test';
  * (tailwind.config.ts / globals.css). `colorScheme: 'light'` is pinned so the
  * `theme: 'auto'` default can't flip these to the dark reversals.
  *   - navy-700 / --neutral-text-primary  #1B2A4A  rgb(27, 42, 74)   (rule 147)
- *   - sage-500 (wordmark "PPM", fills)    #4FA884  rgb(79, 168, 132) (rule 143)
- *   - --brand-primary (CTA = sage-700)    #316F57  rgb(49, 111, 87)  (rule 143, AA foreground 5.93:1)
+ *   - sage-500 (LogoMark arrowhead fill)  #4FA884  rgb(79, 168, 132) (rule 143, fills only)
+ *   - --brand-primary (wordmark + CTA)    #316F57  rgb(49, 111, 87)  (rule 143, AA foreground 5.93:1)
+ *
+ * The wordmark "PPM" is AA foreground text, so it uses --brand-primary (sage-700
+ * on light), not the fills-only sage-500 which is 2.88:1 as text on white (#1689).
+ * sage-500 remains correct for the LogoMark arrowhead (a fill, not text).
  */
 
 const NAVY_INK = 'rgb(27, 42, 74)'; // #1B2A4A — navy-700 / --neutral-text-primary
-const SAGE_500 = 'rgb(79, 168, 132)'; // #4FA884 — sage-500 (wordmark accent / fills)
-const SAGE_700 = 'rgb(49, 111, 87)'; // #316F57 — --brand-primary (light), AA foreground
+const SAGE_500 = 'rgb(79, 168, 132)'; // #4FA884 — sage-500 (fills only: LogoMark arrowhead)
+const SAGE_700 = 'rgb(49, 111, 87)'; // #316F57 — --brand-primary (light): wordmark + CTA, AA foreground
 
 test.use({ colorScheme: 'light' });
 
@@ -36,9 +40,11 @@ test.describe('brand v2 navy/sage palette (login)', () => {
   test('wordmark is two-color: "True" navy ink + "PPM" sage', async ({ page }) => {
     // The lockup carries the accessible name; the visible text is split across
     // spans, so assert color on each span rather than the full string (rule 142).
+    // "PPM" is AA foreground text → sage-700 (--brand-primary), not fills-only
+    // sage-500 (rule 143; #1689).
     const lockup = page.getByLabel('TruePPM');
     await expect(lockup.getByText('True', { exact: true })).toHaveCSS('color', NAVY_INK);
-    await expect(lockup.getByText('PPM', { exact: true })).toHaveCSS('color', SAGE_500);
+    await expect(lockup.getByText('PPM', { exact: true })).toHaveCSS('color', SAGE_700);
   });
 
   test('LogoMark renders navy nodes + sage critical-path arrow', async ({ page }) => {
