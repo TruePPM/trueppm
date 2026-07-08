@@ -1,8 +1,37 @@
 # ADR-0077: MCP Server Scope, Edition Boundary, and Token-Scope Model
 
-## Status: Proposed (v3 — post-architect)
+## Status: Proposed (v3 — post-architect); **release split superseded by [ADR-0186](0186-read-only-mcp-server-oss-scaffold-and-read-tools.md)**
 
-> **Erratum (2026-06-06) — release re-slot to 0.6.** This ADR's §B/§D/§M describe a
+> **Erratum (2026-07-08) — release slot reconciled: read-only ships in 0.4, writes in 0.6.**
+> This supersedes the 2026-06-06 erratum below (kept for history). Issue #1449 flagged a
+> contradiction between this ADR's "everything at 0.6" erratum and the roadmap, which lists
+> a **read-only MCP server as a 0.4 headliner**. The roadmap
+> (`packages/website/src/content/docs/overview/roadmap.md`, the single source of truth) is
+> correct and authoritative:
+>
+> - **Read-only MCP → 0.4** (headliner). Designed in
+>   [ADR-0186](0186-read-only-mcp-server-oss-scaffold-and-read-tools.md) (Accepted), which
+>   **supersedes this ADR's §B/§D/§E/§L** (the release split, OpenAPI-generated tool model,
+>   the 4-layer `team_internals` scope system, and the embedded `packages/api/mcp/`
+>   packaging) **for the 0.4 read-only deliverable**. It lands across three MRs under the
+>   #603 umbrella: #503 scaffold (`packages/mcp/`), #601 minimal `mcp:read` token-scope
+>   slice, and #504 the read tools. This ADR's §A (OSS edition) and §F (health bands
+>   computed at the API layer) are **retained** by ADR-0186.
+> - **Write surface (create/update task, move card, log time), session auth, and the full
+>   4-layer scope system → 0.6** ("open & portable"), tracked under #505/#604 with
+>   prerequisites #599 (per-team opt-in UX) and #602 (Notification `source_type`). #601's
+>   full scope system beyond the `mcp:read` slice also defers here.
+>
+> The *technical* reasoning in §B still holds: the adapter targets the committed OpenAPI
+> schema (§D), so tools should follow API freeze. The read surfaces the 0.4 tools wrap
+> (schedule, critical path, Monte Carlo what-if, sprint status, risk register, My Work) are
+> stable enough to freeze at 0.4; the write surface is deliberately held to 0.6 so
+> automation never lands against a moving mutation API. When reading the section bodies
+> below, treat their release numbers as historical — [ADR-0186](0186-read-only-mcp-server-oss-scaffold-and-read-tools.md)
+> is the release-slot authority for the read-only work and the roadmap is the source of truth.
+
+> **Erratum (2026-06-06) — release re-slot to 0.6 [SUPERSEDED 2026-07-08, see above].**
+> This ADR's §B/§D/§M describe a
 > read-only-in-0.3 / writes-in-0.4 split. That split is superseded. Following the
 > 2026-05-25 persona-per-release roadmap rebalance, the MCP server is slotted to
 > **0.6 — "open & portable"**, shipping read **and** write together, framed as an
