@@ -380,6 +380,7 @@ export default defineConfig({
           label: "Architecture",
           items: [
             { slug: "architecture/overview" },
+            { slug: "architecture/ai-native" },
             { slug: "architecture/decisions" },
             { slug: "architecture/websocket-events" },
             { slug: "architecture/seed-data-schema" },
