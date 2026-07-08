@@ -58,7 +58,8 @@ export function TaskRow({
     if (!onOpenDetail || isRenaming) return;
     // Ignore clicks that originate on an interactive control (the select
     // checkbox handles its own toggle and stops propagation, but guard anyway).
-    if ((e.target as HTMLElement).closest('input, button, a')) return;
+    // `label` covers the enlarged touch hit-area wrapping the select checkbox.
+    if ((e.target as HTMLElement).closest('input, button, a, label')) return;
     if (openTimer.current) clearTimeout(openTimer.current);
     openTimer.current = setTimeout(() => onOpenDetail(), 220);
   };
@@ -88,7 +89,7 @@ export function TaskRow({
       onStartRename();
     } else if ((e.key === 'Enter' || e.key === ' ') && onOpenDetail && !isRenaming) {
       // Keyboard equivalent of the row click — the row is tabbable (tabIndex=0).
-      if ((e.target as HTMLElement).closest('input, button, a')) return;
+      if ((e.target as HTMLElement).closest('input, button, a, label')) return;
       e.preventDefault();
       onOpenDetail();
     }
@@ -139,6 +140,23 @@ export function TaskRow({
       `}
     >
       <div role="presentation" className="flex items-center gap-2 min-w-0 md:contents">
+        {/*
+          The 16px visual box is below the WCAG 2.5.8 (Minimum) 24px target floor and
+          awkward on touch next to the row's click-to-open target. The label carries a
+          transparent, centered 44px overlay (`before:`) that enlarges the *hit* area
+          without resizing the visual box; it is gated to below `md` so the dense mouse
+          table keeps its 16px target. A tap in the enlarged area stays a *select*,
+          never a row-open, because the row's click/keydown handlers early-return on
+          `.closest('input, button, a, label')` — no click handler on the label itself.
+        */}
+        <label
+          className="
+            relative flex items-center justify-center flex-shrink-0 cursor-pointer
+            before:absolute before:left-1/2 before:top-1/2
+            before:-translate-x-1/2 before:-translate-y-1/2
+            before:h-11 before:w-11 before:content-[''] md:before:hidden
+          "
+        >
         <input
           type="checkbox"
           checked={isSelected}
@@ -151,6 +169,7 @@ export function TaskRow({
             cursor-pointer
           "
         />
+        </label>
 
         <span
           role="gridcell"

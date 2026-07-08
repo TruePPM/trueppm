@@ -452,6 +452,21 @@ describe('GridView — bulk delete', () => {
     await user.click(screen.getByRole('button', { name: 'Flat list' }));
     expect(await screen.findByLabelText(/select all tasks/i)).toBeInTheDocument();
   });
+
+  it('select-all checkbox carries the enlarged (WCAG 2.5.8) touch hit-area (#1703)', async () => {
+    const user = userEvent.setup();
+    projectMethodology = 'HYBRID';
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: 'Flat list' }));
+    const selectAll = await screen.findByLabelText(/select all tasks/i);
+    const label = selectAll.closest('label');
+    expect(label).not.toBeNull();
+    // Capped at 36px (before:h-9) so it fits the h-9 wrapping toolbar line; still
+    // above the WCAG 2.5.8 24px floor.
+    expect(label?.className).toMatch(/before:h-9/);
+    expect(label?.className).toMatch(/before:w-9/);
+    expect(label?.className).toMatch(/md:before:hidden/);
+  });
 });
 
 describe('GridView — toolbar actions', () => {

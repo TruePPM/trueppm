@@ -127,6 +127,19 @@ describe('TaskRow', () => {
     expect(onToggleSelect).toHaveBeenCalled();
   });
 
+  it('select checkbox carries an enlarged (WCAG 2.5.8) touch hit-area (#1703)', () => {
+    // The 16px visual box is wrapped in a label with a transparent centered 44px
+    // `before:` overlay, gated to below `md`, so touch users get a ≥24px target
+    // without the dense desktop table changing.
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(<TaskRow {...baseProps} task={task} phase="—" />);
+    const label = screen.getByLabelText(`Select ${task.name}`).closest('label');
+    expect(label).not.toBeNull();
+    expect(label?.className).toMatch(/before:h-11/);
+    expect(label?.className).toMatch(/before:w-11/);
+    expect(label?.className).toMatch(/md:before:hidden/);
+  });
+
   it('renders a selected row with brand-primary styling and aria-selected', () => {
     const task = makeTask({ id: 't1', wbs: '1.1' });
     render(<TaskRow {...baseProps} task={task} phase="—" isSelected />);
@@ -218,6 +231,24 @@ describe('TaskRow', () => {
         const task = makeTask({ id: 't1', wbs: '1.1' });
         render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
         fireEvent.click(screen.getByLabelText(`Select ${task.name}`));
+        vi.advanceTimersByTime(400);
+        expect(onOpenDetail).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('tapping the enlarged hit-area (label) does not open detail (#1703)', () => {
+      // A tap that lands in the enlarged 44px overlay (target = the label, not the
+      // 16px box) must select, never open the row — the label stops propagation and
+      // the row guard treats `label` as an interactive control.
+      vi.useFakeTimers();
+      try {
+        const onOpenDetail = vi.fn();
+        const task = makeTask({ id: 't1', wbs: '1.1' });
+        render(<TaskRow {...baseProps} task={task} phase="—" onOpenDetail={onOpenDetail} />);
+        const label = screen.getByLabelText(`Select ${task.name}`).closest('label');
+        fireEvent.click(label as HTMLElement);
         vi.advanceTimersByTime(400);
         expect(onOpenDetail).not.toHaveBeenCalled();
       } finally {
