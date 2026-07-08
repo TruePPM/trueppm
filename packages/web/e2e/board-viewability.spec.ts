@@ -163,6 +163,111 @@ test.describe('Board viewability — column collapse (#1459)', () => {
   });
 });
 
+test.describe('Board viewability — collapsed stub signals (#1695/#1696/#1697)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alpha Phase')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('a WIP breach stays visible on the stub with "Show WIP limits" off (#1695)', async ({
+    page,
+  }) => {
+    // Turn "Show WIP limits" off, then fold the over-limit column (6 > 5).
+    await page.getByRole('button', { name: 'More board controls' }).click();
+    await page.getByLabel('Show WIP limits').click();
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Collapse In Progress column' }).click();
+
+    const stub = page.getByTestId('column-stub-IN_PROGRESS');
+    await expect(stub).toBeVisible();
+    // The breach tone + N/limit survive the toggle being off.
+    await expect(stub).toHaveAttribute('data-wip-state', 'over');
+    await expect(stub).toContainText('6/5');
+    await expect(stub).toHaveAccessibleName(/over WIP limit of 5/);
+  });
+
+  test('an empty folded column shows a hollow-0 "empty" stub (#1697)', async ({ page }) => {
+    // Review holds no cards in the fixture.
+    await page.getByRole('button', { name: 'Collapse Review column' }).click();
+
+    const stub = page.getByTestId('column-stub-REVIEW');
+    await expect(stub).toBeVisible();
+    await expect(stub).toHaveAccessibleName(/Expand Review column, empty/);
+  });
+});
+
+test.describe('Board viewability — your cards inside a stub (#1696)', () => {
+  // One IN_PROGRESS leaf assigned to the current user, plus an is_me resource so
+  // myResourceId resolves. Both are registered after setup() so they take route
+  // precedence over the empty defaults (Playwright honors last-registered).
+  const MY_TASKS = FIXTURE_TASKS.map((t) =>
+    t.id === 'a1'
+      ? { ...t, assignments: [{ resource_id: 'rme', resource_name: 'Me', units: '1.00' }] }
+      : t,
+  );
+  const RESOURCES_WITH_ME = [
+    {
+      id: 'pr-me',
+      project: FIXTURE_PROJECT_ID,
+      resource: 'rme',
+      resource_detail: {
+        id: 'rme',
+        name: 'Me',
+        email: 'e2e@example.com',
+        job_role: '',
+        max_units: '1.00',
+        calendar: null,
+        skills: [],
+        is_me: true,
+      },
+      role_title: '',
+      units_override: null,
+      effective_max_units: '1.00',
+      notes: '',
+    },
+  ];
+
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/project-resources/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: RESOURCES_WITH_ME }),
+      }),
+    );
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: MY_TASKS.length, next: null, previous: null, results: MY_TASKS }),
+      }),
+    );
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('folding a column with your card marks the stub and offers a banner expand', async ({
+    page,
+  }) => {
+    await page.getByRole('button', { name: 'Collapse In Progress column' }).click();
+
+    const stub = page.getByTestId('column-stub-IN_PROGRESS');
+    await expect(stub).toHaveAttribute('data-has-my-cards', 'true');
+    await expect(stub).toHaveAccessibleName(/contains 1 of your card/);
+
+    const banner = page.getByTestId('collapsed-columns-banner');
+    const expandMine = banner.getByTestId('expand-my-hidden-columns');
+    await expect(expandMine).toContainText('1 of your card hidden');
+
+    await expandMine.click();
+    await expect(stub).toHaveCount(0);
+  });
+});
+
 test.describe('Board viewability — phase-lane focus (#1460)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
