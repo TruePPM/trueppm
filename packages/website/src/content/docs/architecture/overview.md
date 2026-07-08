@@ -55,7 +55,9 @@ Every feature is a REST or WebSocket endpoint before it is a UI element. Web and
 
 ### Computed, not guessed
 
-_The AI-native foundation._ Every incumbent is bolting an LLM onto a project database and letting the model
+_The AI-native foundation — see [AI-native by design](/architecture/ai-native/) for
+the consolidated view aimed at agent builders._ Every incumbent is bolting an LLM
+onto a project database and letting the model
 guess dates. TruePPM takes the opposite stance, and it has a name: **computed,
 not guessed.** An AI-surfaced answer is never the language model's opinion — it is
 a CPM or Monte Carlo computation the engine performed, carrying a server-side
