@@ -591,18 +591,34 @@ function Toolbar({
       </div>
 
       {supportsBulkSelect && (
-        <input
-          type="checkbox"
-          checked={allSelected}
-          onChange={onSelectAll}
-          aria-label={allSelected ? 'Deselect all tasks' : 'Select all tasks'}
+        // Same WCAG 2.5.8 treatment as the per-row select box (TaskRow): a
+        // transparent centered `before:` overlay enlarges the touch hit-area
+        // without resizing the 16px visual box, gated to below `md`. Capped to
+        // 36px (h-9) here — not 44px — because this toolbar row is `h-9` and
+        // `flex-wrap` below `md`: a 44px overlay would bleed past the line and
+        // steal taps from adjacent wrapped controls. 36px still clears the 24px
+        // SC 2.5.8 floor while fitting exactly within the toolbar line.
+        <label
           className="
-            w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
-            checked:bg-brand-primary checked:border-brand-primary
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-            cursor-pointer
+            relative flex items-center justify-center flex-shrink-0 cursor-pointer
+            before:absolute before:left-1/2 before:top-1/2
+            before:-translate-x-1/2 before:-translate-y-1/2
+            before:h-9 before:w-9 before:content-[''] md:before:hidden
           "
-        />
+        >
+          <input
+            type="checkbox"
+            checked={allSelected}
+            onChange={onSelectAll}
+            aria-label={allSelected ? 'Deselect all tasks' : 'Select all tasks'}
+            className="
+              w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
+              checked:bg-brand-primary checked:border-brand-primary
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              cursor-pointer
+            "
+          />
+        </label>
       )}
 
       {supportsBulkSelect && selectedSize > 0 && (
