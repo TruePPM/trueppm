@@ -1689,13 +1689,20 @@ web:test:
   # web:test into the api:test band so it is no longer the critical-path leader;
   # more shards also means fewer files per shard, which *eases* OOM pressure rather
   # than adding to it. api:test already runs parallel: 4 on the same pool. Each
+  # shard is a single core (singleFork), so each added shard costs only +1 worker
+  # on the fleet — unlike api:test's 4-xdist shards, bumping web:test's shard count
+  # does not risk the 28-thread ceiling api:test is tuned against. Raised 4 → 6
+  # (#1702) after the 0.4 test-suite growth (+172 web spec files in one week) crept
+  # each shard back to ~219s and re-made web:test the critical-path pole; at 6 it
+  # handles ~77 files/shard (~100s), ceding the pole to api:test again with runway
+  # for continued growth. Each
   # shard writes partial istanbul coverage (coverage-final.json) to
   # coverage-<index>/; web:coverage stitches them (merge-coverage.mjs discovers the
   # coverage-<n>/ dirs dynamically — shard-count-agnostic) for the diff-coverage
   # gate. The `--` forwards the shard + output-dir flags to vitest while preserving
   # the dir filter and coverage config from test:coverage.
   needs: [web:lint, web:type-check, web:build]
-  parallel: 4
+  parallel: 6
   <<: *rules-web
   script:
     - npm run test:coverage --
