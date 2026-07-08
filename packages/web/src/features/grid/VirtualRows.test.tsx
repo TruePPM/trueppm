@@ -1,7 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { VirtualRows, type ListItem } from './VirtualRows';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { Task } from '@/types';
+
+// Breakpoint drives the fixed virtual-row height (44px desktop / 56px mobile).
+// Default to desktop; the mobile-height test overrides per-case.
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: vi.fn(() => 'lg') }));
 
 beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
@@ -121,5 +126,29 @@ describe('VirtualRows', () => {
       />,
     );
     expect(container.querySelectorAll('[role="row"]').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('positions task rows at the taller card height on mobile (#1701)', () => {
+    vi.mocked(useBreakpoint).mockReturnValue('sm');
+    const items: ListItem[] = [
+      { kind: 'task', task: makeTask({ id: 't1', wbs: '1.1', name: 'Task 1' }), phase: 'Phase A', rowIndex: 0 },
+    ];
+    const { container } = render(
+      <VirtualRows
+        items={items}
+        rowCount={1}
+        selectedIds={new Set()}
+        renamingId={null}
+        onToggleSelect={vi.fn()}
+        onStartRename={vi.fn()}
+        onRename={vi.fn()}
+        onCancelRename={vi.fn()}
+      />,
+    );
+    // The virtual-item wrapper is positioned at the mobile estimate (56px), so
+    // the two-line card is never clipped by a 44px desktop-height slot.
+    const wrapper = container.querySelector('[aria-rowindex="1"]') as HTMLElement;
+    expect(wrapper.style.height).toBe('56px');
+    vi.mocked(useBreakpoint).mockReturnValue('lg');
   });
 });

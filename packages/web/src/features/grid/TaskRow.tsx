@@ -121,8 +121,16 @@ export function TaskRow({
       onDoubleClick={
         onOpenDetail ? handleRowDoubleClick : task.isSummary ? undefined : onStartRename
       }
+      // Mobile (< md): the row is a two-line card — line 1 is WBS/name/owner,
+      // line 2 is dates/duration/progress/status. Each line is a `md:contents`
+      // wrapper so that at `md` and up the wrappers collapse (display: contents)
+      // and their cells lay out as the original single-line desktop table,
+      // byte-for-byte. `role="presentation"` keeps the row→gridcell ARIA
+      // ownership intact through the wrapper. Fixed `h-14` on mobile matches the
+      // VirtualRows estimateSize so the virtualiser never clips the second line.
       className={`
-        flex items-center h-11 px-3 gap-2
+        flex flex-col justify-center gap-0.5 h-14 px-3
+        md:flex-row md:items-center md:h-11 md:gap-2
         border-b border-neutral-border
         hover:bg-neutral-text-primary/5 group
         focus-within:bg-neutral-text-primary/5
@@ -130,108 +138,129 @@ export function TaskRow({
         ${rowBg}
       `}
     >
-      <input
-        type="checkbox"
-        checked={isSelected}
-        onChange={onToggleSelect}
-        aria-label={`Select ${task.name}`}
-        className="
-          w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
-          checked:bg-brand-primary checked:border-brand-primary
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-          cursor-pointer
-        "
-      />
+      <div role="presentation" className="flex items-center gap-2 min-w-0 md:contents">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelect}
+          aria-label={`Select ${task.name}`}
+          className="
+            w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
+            checked:bg-brand-primary checked:border-brand-primary
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+            cursor-pointer
+          "
+        />
 
-      <span
-        role="gridcell"
-        className="w-14 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
-      >
-        {task.wbs}
-      </span>
+        <span
+          role="gridcell"
+          className="flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary md:w-14 md:text-right md:pr-2"
+        >
+          {task.wbs}
+        </span>
 
-      <span role="gridcell" className="flex-1 min-w-0 pr-2">
-        {isRenaming ? (
-          <input
-            ref={inputRef}
-            type="text"
-            defaultValue={task.name}
-            onBlur={handleBlur}
-            onKeyDown={handleKeyDown}
-            aria-label="Rename task"
-            className="
-              w-full bg-transparent border-b border-brand-primary
-              text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            "
-          />
-        ) : (
-          <span className="flex items-baseline gap-1.5 min-w-0">
-            {task.isCritical && (
+        <span role="gridcell" className="flex-1 min-w-0 md:pr-2">
+          {isRenaming ? (
+            <input
+              ref={inputRef}
+              type="text"
+              defaultValue={task.name}
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              aria-label="Rename task"
+              className="
+                w-full bg-transparent border-b border-brand-primary
+                text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              "
+            />
+          ) : (
+            <span className="flex items-baseline gap-1.5 min-w-0">
+              {task.isCritical && (
+                <span
+                  aria-label="Critical path"
+                  title="This task is on the critical path — a delay here delays the project end date"
+                  className="flex-shrink-0 tppm-mono text-xs font-bold
+                    text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
+                >
+                  CP
+                </span>
+              )}
               <span
-                aria-label="Critical path"
-                title="This task is on the critical path — a delay here delays the project end date"
-                className="flex-shrink-0 tppm-mono text-xs font-bold
-                  text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
+                className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
+                aria-label={`${task.name}${phase !== '—' ? `, ${phase}` : ''}`}
               >
-                CP
+                {task.name}
               </span>
-            )}
-            <span
-              className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
-              aria-label={`${task.name}${phase !== '—' ? `, ${phase}` : ''}`}
-            >
-              {task.name}
+              {phase !== '—' && (
+                <span
+                  className="text-xs text-neutral-text-disabled flex-shrink-0 hidden md:inline"
+                  aria-hidden="true"
+                >
+                  · {phase}
+                </span>
+              )}
             </span>
-            {phase !== '—' && (
-              <span className="text-xs text-neutral-text-disabled flex-shrink-0" aria-hidden="true">
-                · {phase}
-              </span>
-            )}
-          </span>
-        )}
-      </span>
+          )}
+        </span>
 
-      <span role="gridcell" className="w-10 flex-shrink-0 flex items-center justify-center">
-        {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
-      </span>
+        <span role="gridcell" className="flex-shrink-0 flex items-center justify-center md:w-10">
+          {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
+        </span>
+      </div>
 
-      <span
-        role="gridcell"
-        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
-      >
-        {fmtDate(task.start)}
-      </span>
+      <div role="presentation" className="flex items-center gap-2 min-w-0 md:contents">
+        <span
+          role="gridcell"
+          className="flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary md:w-20 md:text-right md:pr-2"
+        >
+          {fmtDate(task.start)}
+        </span>
 
-      <span
-        role="gridcell"
-        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
-      >
-        {fmtDate(task.finish)}
-      </span>
+        <span aria-hidden="true" className="text-neutral-text-disabled md:hidden">
+          →
+        </span>
 
-      <span
-        role="gridcell"
-        className="w-12 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
-      >
-        {task.duration}d
-      </span>
+        <span
+          role="gridcell"
+          className="flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary md:w-20 md:text-right md:pr-2"
+        >
+          {fmtDate(task.finish)}
+        </span>
 
-      <span role="gridcell" className="w-28 flex-shrink-0 flex items-center gap-1.5">
-        <span className="flex-1 h-1.5 rounded-full bg-neutral-border" aria-hidden="true">
+        <span
+          role="gridcell"
+          className="flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary md:w-12 md:text-right md:pr-2"
+        >
+          {task.duration}d
+        </span>
+
+        <span
+          role="gridcell"
+          className="flex items-center gap-1.5 flex-1 min-w-0 md:flex-none md:w-28"
+        >
           <span
-            className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
-            style={{ width: `${task.progress}%` }}
-          />
+            className="flex-1 min-w-[1.5rem] h-1.5 rounded-full bg-neutral-border"
+            aria-hidden="true"
+          >
+            <span
+              className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
+              style={{ width: `${task.progress}%` }}
+            />
+          </span>
+          {/* On a phone the status pill + dates leave no room for the numeric
+              percentage (it tips a ~320px row into overflow), and the bar already
+              conveys progress visually — so hide it with `sr-only` (kept for
+              screen readers, since the bar is aria-hidden) and restore it at md+. */}
+          <span className="tppm-mono text-xs text-neutral-text-secondary sr-only md:not-sr-only md:w-7 md:text-right flex-shrink-0">
+            {Math.round(task.progress)}%
+          </span>
         </span>
-        <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">
-          {Math.round(task.progress)}%
-        </span>
-      </span>
 
-      <span role="gridcell" className="w-28 flex-shrink-0 flex items-center">
-        <StatusPill status={task.status} />
-      </span>
+        <span role="gridcell" className="flex items-center flex-shrink-0 md:w-28">
+          <StatusPill status={task.status} />
+        </span>
+      </div>
     </div>
   );
 }
