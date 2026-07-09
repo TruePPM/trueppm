@@ -1,5 +1,6 @@
 ---
 name: pre-release
+model: sonnet
 description: Run a pre-release audit of the full TruePPM codebase before cutting a release tag.
 argument-hint: "<full|security|performance|frontend|accessibility|docs|contracts|deps|enterprise|tests|scheduler>"
 ---
