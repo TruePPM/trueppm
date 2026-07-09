@@ -116,11 +116,17 @@ def build_aurora() -> dict:
 
     sprints = []
     states = ["COMPLETED", "COMPLETED", "ACTIVE", "PLANNED"]
-    # A realistic ramp: the team under-delivered its first sprint (20 of 26
-    # committed → goal partially met) then found its stride (27). The closed
-    # sprints carry an honest goal_outcome, set on the authored sprint.close beats.
+    # A realistic ramp with reconciled aggregates (#1784): Sprint 1 closed
+    # PARTIAL — 20 of 25 committed points landed and Profile editor (5 pts)
+    # carried into Sprint 2, where it finished (sprint membership is final, so
+    # its `sprint` field reads au-sprint-2; the carry is narrated in events).
+    # Sprint 2 delivered its full 27, carry included. Sprint 3's commitment (21)
+    # is the activation-time membership — the injected Widget gallery (5 pts)
+    # sits outside it. The closed sprints carry an honest goal_outcome, set on
+    # the authored sprint.close beats.
+    committed = [25, 27, 21, None]
     completed = [20, 27, None, None]
-    for i, (state, vel) in enumerate(zip(states, completed)):
+    for i, (state, com, vel) in enumerate(zip(states, committed, completed)):
         sp = {
             "slug": f"au-sprint-{i + 1}",
             "name": f"Sprint {i + 1}",
@@ -130,8 +136,8 @@ def build_aurora() -> dict:
             "finish_date": D(i * 14 + 13),
             "capacity_points": 28,
         }
-        if state in ("COMPLETED", "ACTIVE"):
-            sp["committed_points"] = 26
+        if com is not None:
+            sp["committed_points"] = com
         if vel is not None:
             sp["completed_points"] = vel
         sprints.append(sp)
@@ -198,6 +204,38 @@ def build_aurora() -> dict:
             ],
         ),
     ]
+    # Final-state overrides by story name (#1784), applied on top of the formula
+    # placement so the sprint aggregates reconcile with their member stories:
+    # - Sprint 2 trims to 27 pts (== committed == completed, carry included).
+    # - Sprint 3 (ACTIVE) reads as a mid-flight board: a completed story, one in
+    #   review, in-progress work at ragged percentages with partially-burned
+    #   remaining points, and untouched starts.
+    # - Sprint 4 (PLANNED) varies its points and fits the 28-pt capacity.
+    overrides: dict[str, dict[str, object]] = {
+        # Sprint 2 rebalance.
+        "Payment sheet": {"story_points": 3},
+        "Empty states": {"story_points": 2},
+        # Sprint 3 mixed statuses.
+        "Offline cache": {"status": "COMPLETE", "percent_complete": 100.0},
+        "Search": {"percent_complete": 40.0, "remaining_points": 1},
+        "Photo upload": {
+            "status": "REVIEW",
+            "percent_complete": 80.0,
+            "remaining_points": 1,
+        },
+        "Crash reporting": {"status": "NOT_STARTED", "percent_complete": 0.0},
+        "Widget gallery": {"percent_complete": 30.0, "remaining_points": 4},
+        "Receipt export": {"status": "NOT_STARTED", "percent_complete": 0.0},
+        "Haptics": {"percent_complete": 60.0, "remaining_points": 2},
+        # Sprint 4 varied points (sum 26 <= capacity 28).
+        "Dark mode": {"story_points": 5},
+        "Share sheet": {"story_points": 3},
+        "Map view": {"story_points": 5},
+        "Localization": {"story_points": 3},
+        "App rating prompt": {"story_points": 2},
+        "Activity feed": {"story_points": 5},
+        "Pull-to-refresh": {"story_points": 3},
+    }
     tasks: list[dict] = []
     # Story name -> wbs_path, so the event/risk authoring below references a story
     # by name and stays correct regardless of how the epic grouping is sliced.
@@ -225,31 +263,58 @@ def build_aurora() -> dict:
             }[state]
             story_wbs = f"{e_idx}.{s_idx}"
             wbs[name] = story_wbs
-            tasks.append(
-                {
-                    "wbs_path": story_wbs,
-                    "name": name,
-                    "type": "story",
-                    "status": status,
-                    "percent_complete": {
-                        "COMPLETE": 100.0,
-                        "IN_PROGRESS": 50.0,
-                        "BACKLOG": 0.0,
-                    }[status],
-                    "story_points": points[story_idx % len(points)],
-                    "parent_epic": epic_wbs,
-                    # Spread each sprint's stories across the whole team rather than
-                    # one dev per sprint (story_idx // 4 advances once per sprint-row,
-                    # so the four devs round-robin *within* every sprint). The event
-                    # timeline then reassigns a few of these as the program plays out.
-                    "assignee": devs[(story_idx // len(devs)) % len(devs)],
-                    "sprint": f"au-sprint-{sprint_idx + 1}",
-                    "delivery_mode": "scrum",
-                    "governance_class": "flow",
-                    "dor": "ready" if state != "PLANNED" else "idea",
-                }
-            )
+            story = {
+                "wbs_path": story_wbs,
+                "name": name,
+                "type": "story",
+                "status": status,
+                "percent_complete": {
+                    "COMPLETE": 100.0,
+                    "IN_PROGRESS": 50.0,
+                    "BACKLOG": 0.0,
+                }[status],
+                "story_points": points[story_idx % len(points)],
+                "parent_epic": epic_wbs,
+                # Spread each sprint's stories across the whole team rather than
+                # one dev per sprint (story_idx // 4 advances once per sprint-row,
+                # so the four devs round-robin *within* every sprint). The event
+                # timeline then reassigns a few of these as the program plays out.
+                "assignee": devs[(story_idx // len(devs)) % len(devs)],
+                "sprint": f"au-sprint-{sprint_idx + 1}",
+                "delivery_mode": "scrum",
+                "governance_class": "flow",
+                "dor": "ready" if state != "PLANNED" else "idea",
+            }
+            story.update(overrides.get(name, {}))
+            tasks.append(story)
             story_idx += 1
+
+    # A real unassigned backlog (#1784): stories refined under their epics but
+    # committed to no sprint and owned by nobody yet, so the Backlog view has
+    # actual intake to groom instead of rendering empty.
+    for epic_wbs, slot, name, pts, dor in [
+        ("1", 6, "App shortcuts", 3, "refine"),
+        ("2", 6, "Contact import", 5, "refine"),
+        ("3", 6, "Video capture", 8, "idea"),
+        ("5", 6, "Promo codes", 3, "idea"),
+        ("6", 6, "Sound design", 2, "idea"),
+    ]:
+        story_wbs = f"{epic_wbs}.{slot}"
+        wbs[name] = story_wbs
+        tasks.append(
+            {
+                "wbs_path": story_wbs,
+                "name": name,
+                "type": "story",
+                "status": "BACKLOG",
+                "percent_complete": 0.0,
+                "story_points": pts,
+                "parent_epic": epic_wbs,
+                "delivery_mode": "scrum",
+                "governance_class": "flow",
+                "dor": dor,
+            }
+        )
 
     # --- event timeline ----------------------------------------------------
     # Authored beats layer the human story on top of the synthesizer's status
@@ -262,6 +327,13 @@ def build_aurora() -> dict:
 
     def sprint(slug: str) -> str:
         return f"sprint:aurora:{slug}"
+
+    # retro.promote matches a retro action item by exact body text, so the
+    # promoted item's wording lives in one place.
+    promoted_action = (
+        "Spike unfamiliar integrations before committing them — the biometric "
+        "work stalled two days on the secure-enclave path."
+    )
 
     events: list[dict] = [
         # Sprint 1 — activate, run, and close with an honest "partially met".
@@ -372,12 +444,46 @@ def build_aurora() -> dict:
             "mei",
             body="Took over biometrics — Face ID and fingerprint enrolled behind a flag.",
         ),
+        # Sprint 1 closes PARTIAL: Profile editor (5 pts, Diego, finishing in
+        # Sprint 2) misses the boundary — the shortfall behind 20-of-25.
+        _ev(
+            T(13, 16, 0),
+            "task.comment",
+            task(wbs["Profile editor"]),
+            "diego",
+            body="The avatar cropper is still fighting me — this won't clear "
+            "review before the boundary. Carrying it into Sprint 2.",
+        ),
         _ev(
             T(13, 17, 0),
             "sprint.close",
             sprint("au-sprint-1"),
             "sam",
             goal_outcome="PARTIAL",
+        ),
+        # Retro after the PARTIAL close: one action about the carryover, one the
+        # team later promotes into a real backlog story (the retro -> task loop).
+        _ev(
+            T(13, 17, 30),
+            "retro.action",
+            sprint("au-sprint-1"),
+            "sam",
+            body="Right-size sprint commitments to recent velocity — Profile "
+            "editor carried after we committed 25 against a 20-point run rate.",
+        ),
+        _ev(
+            T(13, 17, 40),
+            "retro.action",
+            sprint("au-sprint-1"),
+            "sam",
+            body=promoted_action,
+        ),
+        _ev(
+            T(14, 10, 0),
+            "retro.promote",
+            sprint("au-sprint-1"),
+            "priya",
+            body=promoted_action,
         ),
         # Sprint 2 — vendor outage and a coverage reassignment while Mei is out.
         _ev(T(14, 9, 0), "sprint.activate", sprint("au-sprint-2"), "sam"),
@@ -430,8 +536,32 @@ def build_aurora() -> dict:
             "sam",
             goal_outcome="MET",
         ),
-        # Sprint 3 (active) — a mid-sprint scope injection the PO pulls in and the
-        # team accepts after protecting the goal. Wires the SprintScopeChange audit.
+        # Sprint 3 (active) — activated on its start day; a mid-sprint scope
+        # injection the PO pulls in and the team accepts after protecting the
+        # goal (wires the SprintScopeChange audit); and authored arcs that leave
+        # the board mid-flight on import day.
+        _ev(T(28, 9, 0), "sprint.activate", sprint("au-sprint-3"), "sam"),
+        _ev(
+            T(29, 9, 0),
+            "task.comment",
+            task(wbs["Offline cache"]),
+            "mei",
+            body="Cache invalidation strategy settled — wiring the sync journal now.",
+        ),
+        _ev(
+            T(29, 9, 30),
+            "task.status",
+            task(wbs["Offline cache"]),
+            "mei",
+            to="IN_PROGRESS",
+        ),
+        _ev(
+            T(30, 10, 0),
+            "task.status",
+            task(wbs["Photo upload"]),
+            "nadia",
+            to="IN_PROGRESS",
+        ),
         _ev(
             T(30, 9, 30),
             "task.comment",
@@ -463,6 +593,44 @@ def build_aurora() -> dict:
             to="ACCEPTED",
         ),
         _ev(T(31, 12, 0), "risk.status", "risk:scope-creep", "priya", to="MITIGATING"),
+        # Recent beats — the timeline reaches import day mid-sprint (#1784):
+        # a story completes, another lands in review, and a standup note posts
+        # the day before "today".
+        _ev(
+            T(32, 15, 0),
+            "task.comment",
+            task(wbs["Offline cache"]),
+            "mei",
+            body="Offline cache is green on the device farm. Merging.",
+        ),
+        _ev(
+            T(32, 15, 30),
+            "task.status",
+            task(wbs["Offline cache"]),
+            "mei",
+            to="COMPLETE",
+        ),
+        _ev(
+            T(33, 14, 0),
+            "task.comment",
+            task(wbs["Photo upload"]),
+            "nadia",
+            body="Upload pipeline with EXIF scrubbing is ready — PR up for review.",
+        ),
+        _ev(
+            T(33, 14, 30),
+            "task.status",
+            task(wbs["Photo upload"]),
+            "nadia",
+            to="REVIEW",
+        ),
+        _ev(
+            T(34, 9, 30),
+            "task.comment",
+            task(wbs["Haptics"]),
+            "nadia",
+            body="Haptics feel right on iOS; tuning Android amplitude curves next.",
+        ),
     ]
 
     return {
@@ -548,7 +716,9 @@ def build_aurora() -> dict:
                         "category": "EXTERNAL",
                         "response": "MITIGATE",
                         "owner": "sam",
-                        "tasks": [wbs["Push notifications"], wbs["Map view"]],
+                        # Linked to the vendor's blast radius: push delivery and
+                        # the in-app chat that rides the same messaging API.
+                        "tasks": [wbs["Push notifications"], wbs["In-app chat"]],
                     },
                     {
                         "slug": "key-person",
@@ -590,7 +760,7 @@ def build_aurora() -> dict:
 
 def build_bayside() -> dict:
     ns = "bayside"
-    # phase -> [(task, most_likely, [(dep_wbs, dep_type)])]
+    # phase -> [(task, most_likely, [(dep_wbs, dep_type[, lag])])]
     phases = [
         (
             "Site Prep",
@@ -609,10 +779,13 @@ def build_bayside() -> dict:
                 ("Pour east footing", 3, [("2.2", "FS")]),
                 ("Pour west footing", 3, [("2.2", "SS")]),  # parallel pours
                 (
+                    # The east pour cures for a week before its forms can come
+                    # off (+7 curing lag on the FS edge); the west pour's forms
+                    # strip together with it (FF).
                     "Cure & strip forms",
                     4,
-                    [("2.3", "FF"), ("2.4", "FF")],
-                ),  # finish together
+                    [("2.3", "FS", 7), ("2.4", "FF")],
+                ),
             ],
         ),
         (
@@ -627,7 +800,10 @@ def build_bayside() -> dict:
         (
             "MEP",
             [
-                ("Rough-in electrical", 7, [("3.4", "FS")]),
+                # Lead (negative lag): electrical rough-in mobilizes three days
+                # before the framing inspection wraps — the trades overlap the
+                # inspection window.
+                ("Rough-in electrical", 7, [("3.4", "FS", -3)]),
                 ("Rough-in plumbing", 6, [("3.4", "FS")]),
                 ("HVAC ductwork", 8, [("3.4", "FS")]),
                 ("MEP equipment delivery", 5, []),
@@ -651,6 +827,12 @@ def build_bayside() -> dict:
     ]
     crew = ["diego", "tom", "nadia", "omar"]
     tasks, deps, baseline_rows = [], [], []
+    # Realized slip (#1784): the owner's mezzanine change order pushed everything
+    # from Floor decking (3.2) onward 7 days right of the contract baseline, so
+    # baseline-vs-current variance actually reads on the Gantt. Baseline rows keep
+    # the ORIGINAL dates/durations; the current plan carries the shift. 3.2 itself
+    # was re-estimated 6 -> 8 days (the task.estimate beat below narrates it).
+    slip_days = 7
     cursor = 0
     for p_idx, (phase, items) in enumerate(phases, start=1):
         tasks.append(
@@ -663,28 +845,39 @@ def build_bayside() -> dict:
         )
         for t_idx, (name, ml, dep_list) in enumerate(items, start=1):
             wbs = f"{p_idx}.{t_idx}"
+            shift = slip_days if p_idx > 3 or (p_idx == 3 and t_idx >= 2) else 0
             done = p_idx <= 2
-            in_prog = p_idx == 3
+            # The execution front is a single in-flight task: steel erection
+            # (3.1) is mid-flight; its FS successors have NOT started — an FS
+            # successor can never be underway while its predecessor is unfinished.
+            in_prog = wbs == "3.1"
             status = (
                 "COMPLETE" if done else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
             )
             is_ms = ml == 0
+            duration = 8 if wbs == "3.2" else ml
             task = {
                 "wbs_path": wbs,
                 "name": name,
                 "status": status,
-                "percent_complete": 100.0 if done else (35.0 if in_prog else 0.0),
                 "governance_class": "gated",
                 "delivery_mode": "waterfall",
                 "assignee": crew[(p_idx + t_idx) % len(crew)],
             }
+            # NOT_STARTED work carries no percent_complete at all — a ragged but
+            # honest execution front, not a wall of zeros.
+            if done:
+                task["percent_complete"] = 100.0
+            elif in_prog:
+                task["percent_complete"] = 55.0
             if is_ms:
                 task["is_milestone"] = True
                 task["delivery_mode"] = "milestone"
+                task["planned_start"] = d(cursor * 2 + shift)
             else:
-                task["duration"] = ml
-                task["planned_start"] = d(cursor * 2)
-                task["estimate"] = three_point(ml)
+                task["duration"] = duration
+                task["planned_start"] = d(cursor * 2 + shift)
+                task["estimate"] = three_point(duration)
                 baseline_rows.append(
                     {
                         "task": wbs,
@@ -693,15 +886,14 @@ def build_bayside() -> dict:
                         "duration": ml,
                     }
                 )
-            task = {k: v for k, v in task.items() if v is not None}
             tasks.append(task)
-            for dep_wbs, dep_type in dep_list:
+            for dep in dep_list:
                 deps.append(
                     {
-                        "predecessor": dep_wbs,
+                        "predecessor": dep[0],
                         "successor": wbs,
-                        "dep_type": dep_type,
-                        "lag": 0,
+                        "dep_type": dep[1],
+                        "lag": dep[2] if len(dep) > 2 else 0,
                     }
                 )
             cursor += max(ml, 1)
@@ -812,7 +1004,17 @@ def build_bayside() -> dict:
         _ev(
             ts(78, 9, 0), "risk.status", "risk:crane-availability", "tom", to="RESOLVED"
         ),
-        # In-flight framing phase: steel up, owner change-order in play.
+        # In-flight framing phase: steel erection kicks off with an authored
+        # status move — the execution front on import day.
+        _ev(
+            ts(72, 8, 0),
+            "task.comment",
+            task("3.1"),
+            "diego",
+            body="Crane is rigged and the first column line is bolted — steel "
+            "erection is underway.",
+        ),
+        _ev(ts(72, 8, 30), "task.status", task("3.1"), "diego", to="IN_PROGRESS"),
         _ev(
             ts(74, 9, 0),
             "task.comment",
@@ -824,6 +1026,41 @@ def build_bayside() -> dict:
         _ev(
             ts(76, 11, 0), "risk.status", "risk:design-change", "diego", to="MITIGATING"
         ),
+        # The change order lands on floor decking: re-estimated 6 -> 8 days —
+        # where the current plan diverges from the contract baseline.
+        _ev(
+            ts(77, 9, 0),
+            "task.comment",
+            task("3.2"),
+            "diego",
+            body="Mezzanine change adds deck framing at grid C — re-estimating "
+            "floor decking before we sequence the crews.",
+        ),
+        _ev(
+            ts(77, 9, 30),
+            "task.estimate",
+            task("3.2"),
+            "diego",
+            estimate=three_point(8),
+        ),
+        # Recent beats — the field log reaches import day.
+        _ev(
+            ts(87, 7, 30),
+            "task.comment",
+            task("3.1"),
+            "tom",
+            body="Final steel delivery hit the laydown yard this morning — crane "
+            "picks resume at first light.",
+        ),
+        _ev(
+            ts(88, 14, 0),
+            "task.comment",
+            task("3.4"),
+            "omar",
+            body="Framing inspection is on the municipal calendar; electrical "
+            "rough-in mobilizes three days ahead of the certificate.",
+        ),
+        _ev(ts(89, 11, 0), "risk.status", "risk:weather", "sam", to="MITIGATING"),
     ]
 
     return {
@@ -938,6 +1175,9 @@ def build_bayside() -> dict:
                     {
                         "name": "Contract baseline",
                         "is_active": True,
+                        # Captured at contract award, before the mezzanine change
+                        # order pushed phase 3+ seven days right of it.
+                        "captured_at": d(2),
                         "tasks": baseline_rows,
                     }
                 ],
@@ -1127,10 +1367,16 @@ def build_helios() -> dict:
             "delivery_mode": "waterfall",
         }
     )
+    # Realized slip (#1784): vendor selection ran long, pushing 1.4-1.6 three
+    # days right of the plan captured at kickoff. Baseline rows keep the
+    # ORIGINAL dates; the current plan carries the slip, so the program rollup's
+    # variance KPIs have real drift to show over the completed phase.
+    baseline_rows = []
     cursor = 0
     prev = None
     for i, (name, ml) in enumerate(planning, start=1):
         wbs = f"1.{i}"
+        slip = 3 if i >= 4 else 0
         tasks.append(
             {
                 "wbs_path": wbs,
@@ -1138,12 +1384,15 @@ def build_helios() -> dict:
                 "status": "COMPLETE",
                 "percent_complete": 100.0,
                 "duration": ml,
-                "planned_start": D(cursor),
+                "planned_start": D(cursor + slip),
                 "estimate": three_point(ml),
                 "governance_class": "gated",
                 "delivery_mode": "waterfall",
                 "assignee": "ivan",
             }
+        )
+        baseline_rows.append(
+            {"task": wbs, "start": D(cursor), "finish": D(cursor + ml), "duration": ml}
         )
         if prev:
             deps.append(
@@ -1151,6 +1400,22 @@ def build_helios() -> dict:
             )
         prev = wbs
         cursor += ml
+
+    # Planning-gate milestone: closes the waterfall phase (FS off 1.6) so the
+    # program rollup's milestone health has a completed marker to report.
+    tasks.append(
+        {
+            "wbs_path": "3",
+            "name": "Planning gate approved",
+            "status": "COMPLETE",
+            "percent_complete": 100.0,
+            "is_milestone": True,
+            "planned_start": D(37),
+            "governance_class": "gated",
+            "delivery_mode": "milestone",
+        }
+    )
+    deps.append({"predecessor": "1.6", "successor": "3", "dep_type": "FS", "lag": 0})
 
     # Build phase (agile) — 3 sprints, 1 closed / 1 active / 1 planned.
     tasks.append(
@@ -1188,8 +1453,10 @@ def build_helios() -> dict:
             "state": "COMPLETED",
             "start_date": D(60),
             "finish_date": D(73),
-            "committed_points": 30,
-            "completed_points": 28,
+            # 21 completed (== the member COMPLETE sum) plus Email sync (2.4,
+            # 3 pts) committed but carried into Sprint 2 -> PARTIAL close.
+            "committed_points": 24,
+            "completed_points": 21,
             "capacity_points": 32,
         },
         {
@@ -1198,7 +1465,10 @@ def build_helios() -> dict:
             "state": "ACTIVE",
             "start_date": D(74),
             "finish_date": D(87),
-            "committed_points": 32,
+            # Activation-time members (2.1/2.4/2.7/2.10 = 18 pts); the audit-log
+            # story (2.13) was injected mid-sprint and accepted, so it sits
+            # outside the commitment.
+            "committed_points": 18,
             "capacity_points": 32,
         },
         {
@@ -1208,9 +1478,46 @@ def build_helios() -> dict:
             "start_date": D(88),
             "finish_date": D(101),
             "capacity_points": 32,
+            # The sprint -> milestone bridge the program rollup reads: Sprint 3
+            # drives toward the go-live milestone.
+            "target_milestone": "4",
         },
     ]
     states = ["COMPLETED", "ACTIVE", "PLANNED"]
+    # Final-state overrides by wbs (#1784), on top of the formula placement, so
+    # sprint aggregates reconcile with member stories: Sprint 1 varies its points
+    # (COMPLETE sum 21); Sprint 2 reads as a mid-flight board (a completed
+    # carryover, one story in review, ragged in-progress percentages, an
+    # untouched injection); Sprint 3 varies its points and fits capacity (32).
+    # 2.16 is declared at its post-replay state: the injection was REJECTED out
+    # of the sprint, so it ends BACKLOG with no sprint at all.
+    overrides: dict[str, dict[str, object]] = {
+        # Build Sprint 1 (COMPLETED, sum 21).
+        "2.3": {"story_points": 5},
+        "2.6": {"story_points": 3},
+        "2.9": {"story_points": 5},
+        "2.12": {"story_points": 2},
+        "2.15": {"story_points": 3},
+        "2.18": {"story_points": 3},
+        # Build Sprint 2 (ACTIVE).
+        "2.1": {"percent_complete": 60.0, "remaining_points": 2},
+        "2.4": {
+            "story_points": 3,
+            "status": "COMPLETE",
+            "percent_complete": 100.0,
+        },
+        "2.7": {"status": "REVIEW", "percent_complete": 85.0, "remaining_points": 1},
+        "2.10": {"percent_complete": 30.0, "remaining_points": 4},
+        "2.13": {"story_points": 3, "status": "NOT_STARTED", "percent_complete": 0.0},
+        "2.16": {"status": "BACKLOG", "percent_complete": 0.0, "sprint": None},
+        # Build Sprint 3 (PLANNED, sum 32 == capacity).
+        "2.2": {"story_points": 5},
+        "2.5": {"story_points": 8},
+        "2.8": {"story_points": 8},
+        "2.11": {"story_points": 3},
+        "2.14": {"story_points": 5},
+        "2.17": {"story_points": 3},
+    }
     for i, name in enumerate(stories, start=1):
         sidx = i % 3
         state = states[sidx]
@@ -1219,7 +1526,8 @@ def build_helios() -> dict:
             "ACTIVE": "IN_PROGRESS",
             "PLANNED": "BACKLOG",
         }[state]
-        points = [3, 5, 8][i % 3]
+        override = overrides.get(f"2.{i}", {})
+        points = override.get("story_points", [3, 5, 8][i % 3])
         story = {
             "wbs_path": f"2.{i}",
             "name": name,
@@ -1235,7 +1543,7 @@ def build_helios() -> dict:
             # once the sprint-window floor (ADR-0168) positions it — without one a
             # story defaults to a 1-day sliver. Scaled ~points/2 and kept inside the
             # ~10-working-day sprint so the parallel stories all fit their window.
-            "duration": {3: 2, 5: 3, 8: 5}[points],
+            "duration": {2: 2, 3: 2, 5: 3, 8: 5}[points],
             # Two engineers share the build; the timeline then load-balances a
             # couple of stories between them as sprints fill up.
             "assignee": ["mei", "nadia"][i % 2],
@@ -1243,9 +1551,26 @@ def build_helios() -> dict:
             "delivery_mode": "scrum",
             "governance_class": "flow",
         }
+        story.update(override)
+        if story.get("sprint") is None:
+            del story["sprint"]
         tasks.append(story)
     # cross-phase dependency: the data-migration story depends on the planning data-model task
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})
+
+    # Go-live milestone: gated by the last build story (cutover rehearsal) and
+    # targeted by Build Sprint 3 — the forecast_history commitment date below.
+    tasks.append(
+        {
+            "wbs_path": "4",
+            "name": "CRM go-live",
+            "is_milestone": True,
+            "planned_start": D(116),
+            "governance_class": "gated",
+            "delivery_mode": "milestone",
+        }
+    )
+    deps.append({"predecessor": "2.18", "successor": "4", "dep_type": "FS", "lag": 0})
 
     # --- event timeline ----------------------------------------------------
     # Hybrid history: the finished waterfall plan hands off to the agile build, a
@@ -1327,15 +1652,51 @@ def build_helios() -> dict:
             "mei",
             to="RESOLVED",
         ),
+        # Sprint 1 closes PARTIAL: Email sync (2.4, 3 pts, finishing in Sprint 2)
+        # misses the boundary — the shortfall behind 21-of-24.
+        _ev(
+            T(72, 11, 0),
+            "task.comment",
+            task("2.4"),
+            "mei",
+            body="Email sync won't clear review before the boundary — the IMAP "
+            "provider quirks keep multiplying. Carrying it into Sprint 2.",
+        ),
         _ev(
             T(73, 17, 0),
             "sprint.close",
             sprint("he-sprint-1"),
             "jordan",
-            goal_outcome="MET",
+            goal_outcome="PARTIAL",
         ),
-        # Build Sprint 2 (active) — a load-balancing reassignment and a *rejected*
-        # mid-sprint injection that the team defers to protect the goal.
+        # Retro after the PARTIAL close: the carryover lesson plus a cadence fix.
+        _ev(
+            T(73, 17, 30),
+            "retro.action",
+            sprint("he-sprint-1"),
+            "jordan",
+            body="Pad estimates for third-party integrations — Email sync carried "
+            "over on IMAP provider quirks.",
+        ),
+        _ev(
+            T(73, 17, 45),
+            "retro.action",
+            sprint("he-sprint-1"),
+            "ivan",
+            body="Start the review pass by mid-sprint so stories don't stack up on "
+            "the final two days.",
+        ),
+        # Build Sprint 2 (active) — the carryover lands, a load-balancing
+        # reassignment, a *rejected* mid-sprint injection the team defers to
+        # protect the goal, and an *accepted* one it can absorb.
+        _ev(
+            T(74, 9, 0),
+            "task.comment",
+            task("2.4"),
+            "mei",
+            body="Picking Email sync back up first thing this sprint.",
+        ),
+        _ev(T(74, 9, 30), "task.status", task("2.4"), "mei", to="IN_PROGRESS"),
         _ev(
             T(78, 9, 0),
             "task.comment",
@@ -1373,6 +1734,42 @@ def build_helios() -> dict:
             "jordan",
             to="MITIGATING",
         ),
+        # Recent beats — the demo reaches import day: the carryover completes,
+        # and a second injection (the audit log) is accepted because the freed
+        # capacity can absorb it.
+        _ev(
+            T(80, 9, 0),
+            "task.comment",
+            task("2.13"),
+            "jordan",
+            body="Compliance flagged the audit log for the pilot go/no-go — "
+            "pulling it into this sprint.",
+        ),
+        _ev(
+            T(80, 9, 5),
+            "sprint.scope_inject",
+            task("2.13"),
+            "jordan",
+            goal_impact=False,
+        ),
+        _ev(
+            T(80, 11, 0),
+            "task.comment",
+            task("2.13"),
+            "ivan",
+            body="We can absorb it — Email sync is closing out early. Accepting "
+            "the injection.",
+        ),
+        _ev(T(80, 11, 5), "sprint.scope_resolve", task("2.13"), "ivan", to="ACCEPTED"),
+        _ev(
+            T(80, 15, 0),
+            "task.comment",
+            task("2.4"),
+            "mei",
+            body="OAuth refresh and folder mapping are solid — merged. The "
+            "carryover is done.",
+        ),
+        _ev(T(80, 15, 30), "task.status", task("2.4"), "mei", to="COMPLETE"),
     ]
 
     return {
@@ -1469,9 +1866,40 @@ def build_helios() -> dict:
                 "calendar": "helios-core",
                 "default_view": "OVERVIEW",
                 "agile_features": True,
+                # Forecast-trend history (#376): ~2 months of snapshots. The
+                # go-live commitment (milestone 4, A+35) holds while the CPM
+                # finish drifts a few days past it and the MC band widens right,
+                # so total-float pressure turns negative near import day.
+                "forecast_history": {
+                    "days": 60,
+                    "commitment_finish": D(116),
+                    "cpm_start": D(111),
+                    "cpm_end": D(119),
+                    "p50_start": D(113),
+                    "p50_end": D(121),
+                    "p80_start": D(116),
+                    "p80_end": D(126),
+                    "p95_start": D(121),
+                    "p95_end": D(133),
+                    "mc_iterations": 2000,
+                    # ~half the plan is done on import day: 6 planning tasks, the
+                    # planning gate, Build Sprint 1's six stories, and the
+                    # carried Email sync.
+                    "completion_ratio": 0.5,
+                },
                 "tasks": tasks,
                 "dependencies": deps,
                 "sprints": sprints,
+                "baselines": [
+                    {
+                        "name": "Kickoff baseline",
+                        "is_active": True,
+                        # Captured as planning began, before vendor selection
+                        # slipped 1.4-1.6 three days right of it.
+                        "captured_at": D(1),
+                        "tasks": baseline_rows,
+                    }
+                ],
                 "risks": [
                     {
                         "slug": "vendor-lockin",
