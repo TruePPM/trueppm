@@ -48,6 +48,19 @@ function useShortcutGroups(): ShortcutGroup[] {
         { keys: ['H', 'L'], label: 'Move focus between columns' },
       ],
     },
+    {
+      // Schedule (Gantt) keyboard reschedule — the pointer-free equivalent of
+      // dragging a bar (useKeyboardReschedule, #1742). All keys are wired; the
+      // in-canvas instruction strip (rule 51) shows the same bindings live.
+      heading: 'Schedule (Gantt)',
+      shortcuts: [
+        { keys: ['↵'], label: 'Reschedule the selected task' },
+        { keys: ['←', '→'], label: 'Nudge by one working day' },
+        { keys: ['⇧', '←', '→'], label: 'Nudge by five working days' },
+        { keys: ['D'], label: 'Enter an exact date' },
+        { keys: ['Esc'], label: 'Cancel the reschedule' },
+      ],
+    },
   ];
 }
 
