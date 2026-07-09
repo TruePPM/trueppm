@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { ProjectResource } from '@/types';
+import { AvatarInitials } from '@/components/AvatarInitials';
 
 /**
  * Working-copy row tracked by the form before any task-resources/ writes.
@@ -87,12 +88,7 @@ export function AssigneesEditor({
           key={row.resourceId}
           className="flex items-center gap-2 px-1.5 py-1 rounded-control bg-neutral-surface hover:bg-neutral-surface-sunken/60"
         >
-          <span
-            aria-hidden="true"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-primary/10 text-brand-primary text-xs font-bold shrink-0"
-          >
-            {initials(row.resourceName)}
-          </span>
+          <AvatarInitials initials={initials(row.resourceName)} size="sm" />
           <span className="text-[13px] font-medium text-neutral-text-primary flex-1 min-w-0 truncate">
             {row.resourceName}
           </span>

@@ -3,6 +3,7 @@
  * Each row: avatar initial, name, job role, capacity bar, top-3 skill chips.
  */
 import type { ProjectResource } from '@/types';
+import { AvatarInitials } from '@/components/AvatarInitials';
 import { SkillChip } from './SkillChip';
 
 interface RosterListProps {
@@ -71,13 +72,7 @@ export function RosterList({ items, selectedId, onSelect, filterQuery }: RosterL
             ].join(' ')}
           >
             {/* Avatar */}
-            <div
-              aria-hidden="true"
-              className="w-8 h-8 rounded-full bg-brand-primary/10 text-brand-primary text-xs font-semibold
-                flex items-center justify-center shrink-0 mt-0.5"
-            >
-              {initials}
-            </div>
+            <AvatarInitials initials={initials} size="lg" className="mt-0.5" />
 
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2 justify-between">

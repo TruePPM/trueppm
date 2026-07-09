@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router';
+import { AvatarInitials } from '@/components/AvatarInitials';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProgram } from '@/hooks/useProgram';
@@ -64,12 +65,7 @@ function MemberRow({
       style={{ gridTemplateColumns: GRID }}
     >
       <span className="flex items-center gap-2.5 min-w-0">
-        <span
-          aria-hidden="true"
-          className="w-7 h-7 rounded-full inline-flex items-center justify-center text-xs font-bold text-brand-primary shrink-0 bg-brand-primary/10"
-        >
-          {initialsFor(user_detail.username)}
-        </span>
+        <AvatarInitials initials={initialsFor(user_detail.username)} size="md" />
         <span className="font-medium text-neutral-text-primary truncate">
           {user_detail.username}
           {isSelf && (

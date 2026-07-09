@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { AvatarInitials } from '@/components/AvatarInitials';
 import { Button } from '@/components/Button';
 import { useUserSearch } from '../hooks/useUserSearch';
 import { useAddMember } from '../hooks/useAddMember';
@@ -159,13 +160,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised',
                   ].join(' ')}
                 >
-                  <span
-                    aria-hidden="true"
-                    className="w-7 h-7 shrink-0 rounded-full bg-brand-primary/10 text-brand-primary
-                      text-xs font-semibold flex items-center justify-center"
-                  >
-                    {u.initials}
-                  </span>
+                  <AvatarInitials initials={u.initials} size="md" />
                   <span className="flex-1 min-w-0">
                     <span className="block text-sm font-medium text-neutral-text-primary truncate">
                       {u.display_name}
