@@ -115,10 +115,13 @@ def export_project_xml(project_id: str) -> bytes:
         else:
             _sub_text(task_el, "OutlineLevel", "1")
         _sub_text(task_el, "Milestone", "1" if task.is_milestone else "0")
+        # Task.percent_complete is already a 0-100 percent (#1759) and MSPDI
+        # PercentComplete is the same 0-100 scale, so emit it as-is. The earlier
+        # `* 100` turned a native 50% task into an invalid PercentComplete=5000.
         _sub_text(
             task_el,
             "PercentComplete",
-            str(int(task.percent_complete * 100)),
+            str(round(task.percent_complete or 0)),
         )
         if task.notes:
             _sub_text(task_el, "Notes", task.notes)

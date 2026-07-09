@@ -364,9 +364,11 @@ class TestXmlParser:
         assert data.tasks[2].outline_number == "1.2"
 
     def test_parse_percent_complete(self) -> None:
+        # MSPDI PercentComplete is a 0-100 integer and Task.percent_complete is the
+        # same 0-100 scale, so a 75% task parses to 75.0, not the fraction 0.75 (#1759).
         xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A", "PercentComplete": "75"}])
         data = parse_xml(xml)
-        assert data.tasks[0].percent_complete == 0.75
+        assert data.tasks[0].percent_complete == 75.0
 
     def test_warning_on_missing_name(self) -> None:
         xml = _build_sample_xml(tasks=[{"UID": "1"}])
@@ -918,6 +920,70 @@ class TestRoundTrip:
         assignments = root.findall(f".//{ns}Assignments/{ns}Assignment")
         assert len(assignments) == 1
         assert assignments[0].findtext(f"{ns}Units") == "0.50"
+
+
+# ---------------------------------------------------------------------------
+# Percent-complete scale (#1759)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestPercentCompleteScale:
+    """`percent_complete` stays on the canonical 0-100 scale end to end (#1759).
+
+    MSPDI PercentComplete and Task.percent_complete are both 0-100 integers/percents.
+    An earlier `/100` on import and `* 100` on export put the DB value on a 0-1
+    fraction scale — a 75% import landed as 0.75% and a native 50% export emitted an
+    invalid PercentComplete=5000. These assert the DB value directly, which the
+    prior import-then-export round-trip test could not catch (the two bugs cancelled).
+    """
+
+    def test_import_lands_on_0_100_scale(self, project: Project) -> None:
+        xml = _build_sample_xml(
+            tasks=[
+                {
+                    "UID": "1",
+                    "Name": "In flight",
+                    "Start": "2026-01-05T08:00:00",
+                    "PercentComplete": "75",
+                }
+            ]
+        )
+        import_project(str(project.pk), parse_xml(xml))
+        task = Task.objects.get(project=project, name="In flight")
+        assert task.percent_complete == 75.0
+
+    def test_export_emits_0_100_scale(self, project: Project) -> None:
+        Task.objects.create(project=project, name="Halfway", duration=2, percent_complete=50)
+        root = ET.fromstring(export_project_xml(str(project.pk)))
+        ns = f"{{{_NS}}}"
+        task = next(
+            t
+            for t in root.findall(f".//{ns}Tasks/{ns}Task")
+            if t.findtext(f"{ns}Name") == "Halfway"
+        )
+        assert task.findtext(f"{ns}PercentComplete") == "50"
+
+    def test_round_trip_preserves_percent(self, project: Project) -> None:
+        xml_in = _build_sample_xml(
+            tasks=[
+                {
+                    "UID": "1",
+                    "Name": "Ongoing",
+                    "Start": "2026-01-05T08:00:00",
+                    "PercentComplete": "40",
+                }
+            ]
+        )
+        import_project(str(project.pk), parse_xml(xml_in))
+        root = ET.fromstring(export_project_xml(str(project.pk)))
+        ns = f"{{{_NS}}}"
+        task = next(
+            t
+            for t in root.findall(f".//{ns}Tasks/{ns}Task")
+            if t.findtext(f"{ns}Name") == "Ongoing"
+        )
+        assert task.findtext(f"{ns}PercentComplete") == "40"
 
 
 # ---------------------------------------------------------------------------

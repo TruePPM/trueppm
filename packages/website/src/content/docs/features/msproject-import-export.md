@@ -196,7 +196,7 @@ curl -H "Authorization: Bearer $JWT" \
 | `<OutlineNumber>` | `Task.wbs_path` | ✅ Mapped | Dot-separated WBS code (e.g. `1.2.3`) |
 | `<OutlineLevel>` | hierarchy depth | ✅ Mapped | Used for parent/child detection |
 | `<Milestone>` | `Task.is_milestone` | ✅ Mapped | `1` → `is_milestone=True`; milestone duration is always imported as 0 |
-| `<PercentComplete>` | `Task.percent_complete` | ✅ Mapped | Integer 0–100 → decimal 0.0–1.0 |
+| `<PercentComplete>` | `Task.percent_complete` | ✅ Mapped | Integer 0–100 (same scale both sides) |
 | `<Notes>` | `Task.notes` | ✅ Mapped | Free-text notes |
 | `<Start>` | `Task.planned_start` | ✅ Mapped | Date portion only; time component ignored |
 | `<PredecessorLink>/<PredecessorUID>` | `Dependency.predecessor` | ✅ Mapped | |

@@ -340,12 +340,16 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 outline_number=outline_number,
                 outline_level=int(outline_level_str) if outline_level_str else 0,
                 is_milestone=is_milestone,
-                # Finite-guard + clamp to [0, 1] (#1720): MS Project PercentComplete
-                # is 0-100, so /100 yields a fraction. nan/inf/1e999 (and any
-                # out-of-range figure) is rejected/clamped before it reaches the
-                # bulk_create'd FloatField and flows into progress + EVM math.
+                # Finite-guard + clamp to [0, 100] (#1720, #1759): MSPDI
+                # PercentComplete is a 0-100 integer and Task.percent_complete is
+                # the same 0-100 scale (validators [0,100]; EVM/rollup treat it as
+                # a percent), so we keep the value on that scale here. An earlier
+                # /100 divided it into a 0-1 fraction, which the importer then wrote
+                # straight into the 0-100 field — a 75% task landed as 0.75%.
+                # nan/inf/1e999 (and any out-of-range figure) is rejected/clamped
+                # before it reaches the bulk_create'd FloatField.
                 percent_complete=(
-                    _finite_float(pct_str, 0.0, low=0.0, high=100.0) / 100.0 if pct_str else 0.0
+                    _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
                 ),
                 notes=notes,
                 start=start_str[:10] if start_str else None,
