@@ -3,8 +3,8 @@ title: Installation
 description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, single-server, or the scheduler library standalone.
 ---
 
-:::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM 0.2 has shipped — the engine, API, real-time backend, web UI, and the 0.2 settings/administration platform are functional. It ships as the `0.2.0-alpha.1` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
+:::caution[0.3 shipped (alpha) · pre-GA]
+TruePPM 0.3 has shipped — the engine, API, real-time backend, web UI, and the 0.3 agile-team feature set are functional. It ships as the `0.3.0-alpha.1` pre-release; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. The product is pre-GA: expect API contract changes across 0.x point releases; a stable contract arrives at 1.0. Install for evaluation and early-adopter deployments.
 :::
 
 TruePPM ships as pre-built Docker images on the GitLab Container Registry (`registry.gitlab.com/trueppm/trueppm/{api,web}`) and a Python package on PyPI. GHCR mirrors are planned as part of the 0.4 supply-chain work. Pick the path that fits your environment:

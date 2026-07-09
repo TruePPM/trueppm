@@ -114,7 +114,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 ## What it can answer
 
-The server registers **15 read-only tools**, each mapping to one existing REST
+The server registers **18 read-only tools**, each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry

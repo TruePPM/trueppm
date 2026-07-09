@@ -185,4 +185,3 @@ Like the MS Project importer, Jira XML is parsed through `defusedxml`, which
 refuses entity declarations and external-entity resolution — a "billion laughs"
 or XXE payload is rejected at parse time. The parser treats every uploaded byte
 as untrusted input; this protection is unconditional.
-</content>

@@ -56,7 +56,7 @@ To see everything assigned to you across all your projects and sprints, use the 
 
 Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
 
-The sync protocol supports offline clients — it is built for the 0.4 mobile app, which will queue updates locally and replay them when the connection returns. The web app today requires a connection for writes.
+The sync protocol supports offline clients — it is built for the 0.5 mobile app, which will queue updates locally and replay them when the connection returns. The web app today requires a connection for writes.
 
 → See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
 
@@ -92,7 +92,7 @@ Seed the demo (`seed_demo_project --with-personas`) and sign in as **`tom`** —
 2. **Move a card on the board.** That one action updates the burndown, the work package, the schedule, and every other open browser. You did one thing; everything else followed.
 3. **Notice what you don't have to do.** No status report, no Friday-afternoon timesheet, no project-management vocabulary to learn.
 
-The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter, and 15-second mobile time entry — both land in **0.4**.
+The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and 15-second mobile time entry (lands in **0.5** with the native mobile app).
 
 ## Getting started
 

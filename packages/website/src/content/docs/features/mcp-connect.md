@@ -140,16 +140,18 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **15 read-only tools**, each mapping to one existing REST
+The server exposes **18 read-only tools**, each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
-  `get_program_health` (single-program only; cross-program rollups are Enterprise).
+  `get_program_health` (single-program only; cross-program rollups are Enterprise),
+  `list_program_backlog`.
 - **Tasks & work** — `list_tasks` (filterable by status, assignee, sprint,
   criticality, type, and `updated_after`), `get_task`, `get_board_state`,
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
-  (latest persisted run; read-only, never triggers a new simulation), `whatif`
+  (latest persisted run; read-only, never triggers a new simulation),
+  `get_release_forecast`, `whatif`
   (perturb one task's duration and recompute CPM + Monte Carlo in memory —
   persists nothing — for "what breaks if this task slips?"),
   `get_schedule_derivation` (the server-computed *why* behind a CPM value or Monte
