@@ -542,10 +542,11 @@ describe('BoardCard', () => {
     // …the glyph is the SVG LinkIcon, not the 🔗 emoji…
     expect(btn.querySelector('svg')).toBeInTheDocument();
     expect(btn.textContent).not.toContain('🔗');
-    // …and the chip is in the flex flow (shrink-0), no longer an absolute cluster
-    // overwriting the title.
+    // …and the chip sits in the flex flow (shrink-0), no longer an absolute
+    // top-right cluster overwriting the title. (`before:absolute` is only the
+    // invisible touch-target pad on the in-flow, `relative` button.)
     expect(btn.className).toContain('shrink-0');
-    expect(btn.className).not.toContain('absolute');
+    expect(btn.className).not.toContain('top-2');
   });
 
   it('renders the chain icon as red and labels it Blocked when is_blocked', () => {

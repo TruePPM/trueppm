@@ -447,7 +447,12 @@ function BoardCardImpl({
             onFocus={handleChainHoverEnter}
             onBlur={handleChainHoverLeave}
             className={[
-              'shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              // `before:inset-[-12px]` restores the ≥44px touch target (rule 5)
+              // the emoji buttons had — the chip itself is ~20px, so the invisible
+              // pseudo pad carries the hit area (mirrors the ··· menu / accept ✓ /
+              // worst-offender badge on this card).
+              'relative shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              "before:absolute before:inset-[-12px] before:content-['']",
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               isBlocked
                 ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
@@ -471,7 +476,12 @@ function BoardCardImpl({
               onShowRisks?.(task);
             }}
             className={[
-              'shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              // `before:inset-[-12px]` restores the ≥44px touch target (rule 5)
+              // the emoji buttons had — the chip itself is ~20px, so the invisible
+              // pseudo pad carries the hit area (mirrors the ··· menu / accept ✓ /
+              // worst-offender badge on this card).
+              'relative shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              "before:absolute before:inset-[-12px] before:content-['']",
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
               riskChipToneClass(linkedRisksMaxSeverity),
             ].join(' ')}
