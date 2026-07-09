@@ -30,8 +30,10 @@ from trueppm_api.apps.projects.models import (
     SprintState,
     Task,
     TaskStatus,
+    TaskType,
 )
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
+from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 User = get_user_model()
 
@@ -75,6 +77,27 @@ def project(calendar: Calendar) -> Project:
 
 def _make_membership(project: Project, user: Any, role: int) -> ProjectMembership:
     return ProjectMembership.objects.create(project=project, user=user, role=role)
+
+
+def _grant_po_facet(project: Project, user: Any) -> None:
+    """Give ``user`` the Product Owner facet on ``project``'s default team.
+
+    Mirrors ``test_product_backlog._grant_facet``: the facet lives on the
+    TeamMembership row, and the on_commit mirror signal does not run under the test
+    transaction, so materialize the default team + facet row directly.
+    """
+    team, _ = Team.objects.get_or_create(
+        project=project,
+        is_default=True,
+        is_deleted=False,
+        defaults={"name": "Default Team", "short_id": "T01", "server_version": 1},
+    )
+    TeamMembership.objects.update_or_create(
+        team=team,
+        user=user,
+        is_deleted=False,
+        defaults={"role": TeamRole.MEMBER, "is_product_owner": True},
+    )
 
 
 @pytest.fixture
@@ -366,6 +389,72 @@ def test_scheduler_cannot_delete_task(project: Project) -> None:
     assert resp.status_code == 403
     task.refresh_from_db()
     assert task.is_deleted is False
+
+
+@pytest.mark.django_db
+def test_product_owner_can_edit_unowned_story_via_sync(project: Project) -> None:
+    """A PO-facet Member may edit an unowned STORY via sync — REST parity (#1771).
+
+    The upload path previously re-implemented the role matrix without the Product
+    Owner facet, so a PO grooming stories offline was 403'd (and the whole batch
+    rolled back). It now calls ``can_user_edit_task`` directly, so PATCH-parity holds.
+    """
+    po = User.objects.create_user(username="po_sync", password="pw")
+    _make_membership(project, po, Role.MEMBER)
+    _grant_po_facet(project, po)
+    story = Task.objects.create(
+        project=project, name="Groom me", type=TaskType.STORY, status=TaskStatus.BACKLOG
+    )
+    c = APIClient()
+    c.force_authenticate(user=po)
+    resp = c.post(
+        _url(project),
+        _payload(updated=[{"id": str(story.pk), "notes": "groomed offline"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    story.refresh_from_db()
+    assert story.notes == "groomed offline"
+
+
+@pytest.mark.django_db
+def test_product_owner_facet_does_not_widen_schedule_task_edit_via_sync(
+    project: Project,
+) -> None:
+    """The PO facet is EPIC/STORY-scoped: a PO-facet Member still cannot edit an
+    unowned schedule TASK via sync, matching the REST serializer gate."""
+    po = User.objects.create_user(username="po_sync2", password="pw")
+    _make_membership(project, po, Role.MEMBER)
+    _grant_po_facet(project, po)
+    task = Task.objects.create(project=project, name="Sched", type=TaskType.TASK)
+    c = APIClient()
+    c.force_authenticate(user=po)
+    resp = c.post(
+        _url(project),
+        _payload(updated=[{"id": str(task.pk), "notes": "nope"}]),
+        format="json",
+    )
+    assert resp.status_code == 403
+    task.refresh_from_db()
+    assert task.notes == ""
+
+
+@pytest.mark.django_db
+def test_product_owner_facet_cannot_delete_unowned_story_via_sync(project: Project) -> None:
+    """The PO widening is edit-only — deleting an unowned STORY via sync stays an
+    Admin/assignee act, so the delete bucket passes method='DELETE' and 403s the PO."""
+    po = User.objects.create_user(username="po_sync3", password="pw")
+    _make_membership(project, po, Role.MEMBER)
+    _grant_po_facet(project, po)
+    story = Task.objects.create(
+        project=project, name="Del me", type=TaskType.STORY, status=TaskStatus.BACKLOG
+    )
+    c = APIClient()
+    c.force_authenticate(user=po)
+    resp = c.post(_url(project), _payload(deleted=[str(story.pk)]), format="json")
+    assert resp.status_code == 403
+    story.refresh_from_db()
+    assert story.is_deleted is False
 
 
 # ---------------------------------------------------------------------------
