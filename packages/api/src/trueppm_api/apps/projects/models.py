@@ -1603,6 +1603,55 @@ def committed_sprint_tasks(sprint_id: Any) -> models.QuerySet[Task]:
     return Task.objects.filter(sprint_id=sprint_id, is_deleted=False, sprint_pending=False)
 
 
+def task_is_phase(task: Task) -> bool:
+    """Is ``task`` a *phase* (ADR-0293) — a rollup, not a leaf?
+
+    A phase is a non-subtask task that has at least one **structural** (non-subtask)
+    child in the WBS. A phase's status, 3-point estimate, assignee, percent, and
+    logged time are all computed from its children and must never be set directly.
+
+    This is the runtime single-source-of-truth probe behind every phase rollup lock
+    (``phase_status_rollup_locked``, ``phase_estimate_rollup_locked``,
+    ``assignee_on_phase``, ``time_log_on_phase``). It mirrors the ``is_phase``
+    read-only annotation in ``annotate_tasks_queryset`` but runs directly against
+    the DB, because a serializer ``validate`` may see an instance loaded without
+    that annotation (a bare PATCH, or a task reached through a nested route).
+
+    Returns False for a task with no ``wbs_path`` (recurring tasks), for a subtask
+    (a drawer leaf never has structural children), and on a not-yet-saved task.
+    The child probe excludes subtasks (``is_subtask=False``), so a leaf-with-subtasks
+    is ``is_summary=True`` but ``task_is_phase=False`` — the critical distinction.
+    """
+    from django.db.models import BooleanField
+    from django.db.models.expressions import RawSQL
+
+    if task is None or task.pk is None or task.wbs_path is None:
+        return False
+    if getattr(task, "is_subtask", False):
+        return False
+
+    return (
+        Task.objects.filter(
+            project_id=task.project_id,
+            is_deleted=False,
+            is_subtask=False,
+        )
+        .annotate(
+            # Parameterized ltree query (%s placeholder) — no user-input
+            # interpolation; the ltree operator can't be expressed in the ORM.
+            # nosemgrep: avoid-raw-sql
+            _is_direct_child=RawSQL(
+                "wbs_path ~ (%s || '.*{1}')::lquery",
+                [str(task.wbs_path)],
+                output_field=BooleanField(),
+            )
+        )
+        .filter(_is_direct_child=True)
+        .exclude(pk=task.pk)
+        .exists()
+    )
+
+
 class Task(VersionedModel):
     """A schedulable unit of work within a project.
 

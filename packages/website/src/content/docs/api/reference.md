@@ -248,6 +248,37 @@ CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_f
 
 Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
 
+#### Phase rollup locks
+
+A **phase** is a non-subtask task with at least one *structural* (non-subtask)
+child. A phase is a pure rollup: its status, estimate, assignee, percent-complete,
+and logged time are all computed from its children and cannot be set directly. The
+task serializer exposes a read-only computed boolean, `is_phase`, alongside the
+existing `is_summary`:
+
+- `is_summary` — the task has **any** direct WBS child (including drawer subtasks).
+- `is_phase` — the task has at least one direct child that is **not** a subtask.
+
+The distinction matters: a leaf broken into drawer subtasks is `is_summary: true`
+but `is_phase: false`, and stays fully writable. Only a task with real structural
+children is a phase.
+
+Writing a rolled-up attribute directly onto a phase returns `400` with a stable
+error code. Each lock fires **only when the request actually changes the locked
+attribute** — a `PATCH` that omits the field, or re-sends its current value, still
+succeeds.
+
+| Write to a phase | Error code |
+|---|---|
+| `percent_complete` | `summary_rollup_locked` |
+| `status` | `phase_status_rollup_locked` |
+| `optimistic_duration` / `most_likely_duration` / `pessimistic_duration` | `phase_estimate_rollup_locked` |
+| `assignee` | `assignee_on_phase` |
+| logging time against a phase (see [Time tracking](#time-tracking)) | `time_log_on_phase` |
+
+Phase → phase dependencies, baselines, and Monte Carlo are **not** restricted —
+those are derived/aggregate, not direct writes of leaf-owned values.
+
 ### Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.
@@ -303,6 +334,11 @@ A manual `entry_date` cannot be in the future, nor older than the backdate windo
 (`TIMETRACKING_BACKDATE_DAYS`, default 60 days). A timer left running past the stale
 ceiling (`TIMETRACKING_TIMER_MAX_MINUTES`, default 600) is flagged `stale: true`, and
 on stop its logged minutes are capped at the ceiling rather than the raw elapsed time.
+
+Time cannot be logged against a **phase** (a task with structural children — see
+[Phase rollup locks](#phase-rollup-locks)): a phase rolls up the logged time of its
+child tasks, so a direct entry would double-count. Logging time or starting a timer
+on a phase returns `400` with code `time_log_on_phase`.
 
 ### Sprint–milestone binding
 

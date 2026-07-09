@@ -2914,6 +2914,28 @@ def annotate_tasks_queryset(
             [],
             output_field=BooleanField(),
         ),
+        # is_phase = has at least one direct child that is NOT a subtask, i.e.
+        # a structural (WBS) child. A phase is a rollup: its status, estimate,
+        # assignee, percent, and time are computed from its children, never set
+        # directly (ADR-0293). This refines is_summary — a leaf-with-subtasks is
+        # is_summary=True but is_phase=False, because its only children are drawer
+        # subtasks, not structural work. Same ltree shape as is_summary with an
+        # added ``c.is_subtask = false`` on the child.
+        # nosemgrep: avoid-raw-sql
+        is_phase=RawSQL(
+            "EXISTS("
+            "  SELECT 1 FROM projects_task c"
+            "  WHERE c.project_id = projects_task.project_id"
+            "    AND c.is_deleted = false"
+            "    AND c.is_subtask = false"
+            "    AND c.id != projects_task.id"
+            "    AND c.wbs_path IS NOT NULL"
+            "    AND projects_task.wbs_path IS NOT NULL"
+            "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+            ")",
+            [],
+            output_field=BooleanField(),
+        ),
         # nosemgrep: avoid-raw-sql
         parent_id=RawSQL(
             "("

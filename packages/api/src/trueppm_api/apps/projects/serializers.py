@@ -1942,6 +1942,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
     # Summary task annotations — computed from wbs_path hierarchy, not stored.
     is_summary = serializers.BooleanField(read_only=True, default=False)
+    # is_phase — computed: a non-subtask task with >=1 structural (non-subtask)
+    # child. A phase is a pure rollup (ADR-0293): status, estimate, assignee,
+    # percent, and logged time are computed from its children and cannot be set
+    # directly. Distinct from is_summary: a leaf-with-subtasks is is_summary=True
+    # but is_phase=False (its only children are drawer subtasks, not structure).
+    is_phase = serializers.BooleanField(read_only=True, default=False)
     parent_id = serializers.UUIDField(read_only=True, allow_null=True, default=None)
 
     # Sprint scope-change audit rows (ADR-0060).  Populated via prefetch_related
@@ -2102,6 +2108,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "dwell_days",
             "is_stalled",
             "is_summary",
+            "is_phase",
             "parent_id",
             "assignments",
             "readiness",
@@ -2185,6 +2192,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "dwell_days",
             "is_stalled",
             "is_summary",
+            "is_phase",
             "parent_id",
             "assignments",
             "readiness",
@@ -2236,6 +2244,22 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             .values_list("role", flat=True)
             .first()
         )
+
+    def _instance_is_phase(self) -> bool:
+        """Is the instance under update a *phase* (ADR-0293)?
+
+        A phase is a non-subtask task that has at least one structural (non-subtask)
+        child. Uses a direct ltree child-existence query rather than the ``is_phase``
+        annotation, because ``validate`` may run on an instance loaded without that
+        annotation (a bare PATCH). Delegates to the shared ``task_is_phase`` probe so
+        every phase lock (here and in time-tracking) shares one definition. Returns
+        False on create (no instance).
+        """
+        if self.instance is None:
+            return False
+        from trueppm_api.apps.projects.models import task_is_phase
+
+        return task_is_phase(self.instance)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Enforce the milestone invariant and progress-anchor gate.
@@ -2496,6 +2520,64 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                             "Summary task percent_complete is computed from its children "
                             "and cannot be set directly.",
                             code="summary_rollup_locked",
+                        )
+                    }
+                )
+
+        # Phase rollup locks (ADR-0293): a *phase* — a non-subtask task with at
+        # least one structural (non-subtask) child — is a pure rollup. Its status,
+        # 3-point estimate, and assignee are all computed from its children and can
+        # never be set directly; a manual write would be silently discarded on the
+        # next rollup, so reject it here with a stable error code. Enforcement lives
+        # entirely in this serializer (ADR-0112 API-first single source of truth) so
+        # an MCP/agent caller is blocked identically to the UI. Each lock fires only
+        # when the request actually *changes* the locked attribute (a PATCH that
+        # omits it, or re-sends the same value, still succeeds). is_phase is probed
+        # once, lazily, only when a locked field is in the payload — mirrors the
+        # summary_rollup_locked has-children probe with an added is_subtask=false.
+        _STATUS_LOCK = "status" in attrs
+        _ESTIMATE_FIELDS = {
+            "optimistic_duration",
+            "most_likely_duration",
+            "pessimistic_duration",
+        }
+        _ESTIMATE_LOCK = bool(_ESTIMATE_FIELDS & set(attrs))
+        _ASSIGNEE_LOCK = "assignee" in attrs
+        if (_STATUS_LOCK or _ESTIMATE_LOCK or _ASSIGNEE_LOCK) and self._instance_is_phase():
+            if _STATUS_LOCK and attrs["status"] != getattr(self.instance, "status", None):
+                raise serializers.ValidationError(
+                    {
+                        "status": serializers.ErrorDetail(
+                            "Phase status is rolled up from its children and cannot be "
+                            "set directly.",
+                            code="phase_status_rollup_locked",
+                        )
+                    }
+                )
+            if _ESTIMATE_LOCK and any(
+                field in attrs and attrs[field] != getattr(self.instance, field, None)
+                for field in _ESTIMATE_FIELDS
+            ):
+                raise serializers.ValidationError(
+                    {
+                        field: serializers.ErrorDetail(
+                            "Phase estimates are rolled up from its children and cannot "
+                            "be set directly.",
+                            code="phase_estimate_rollup_locked",
+                        )
+                        for field in _ESTIMATE_FIELDS
+                        if field in attrs
+                    }
+                )
+            if _ASSIGNEE_LOCK and getattr(attrs.get("assignee"), "pk", None) != getattr(
+                self.instance, "assignee_id", None
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "assignee": serializers.ErrorDetail(
+                            "A phase cannot be assigned — it is a rollup of its children, "
+                            "which carry their own assignees.",
+                            code="assignee_on_phase",
                         )
                     }
                 )
