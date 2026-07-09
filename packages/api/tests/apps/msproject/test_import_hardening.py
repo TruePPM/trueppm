@@ -117,13 +117,15 @@ class TestPercentCompleteFiniteGuard:
         assert math.isfinite(pc)
         assert pc == 0.0
 
-    def test_over_100_percent_clamped_to_one(self) -> None:
+    def test_over_100_percent_clamped_to_100(self) -> None:
+        # 0-100 scale (#1759): an out-of-range 150 clamps to the 100 ceiling.
         data = parse_xml(_build_xml(tasks=[{"UID": "1", "Name": "T", "PercentComplete": "150"}]))
-        assert data.tasks[0].percent_complete == 1.0
+        assert data.tasks[0].percent_complete == 100.0
 
     def test_normal_percent_unchanged(self) -> None:
+        # 75% stays on the 0-100 scale as 75.0, not the fraction 0.75 (#1759).
         data = parse_xml(_build_xml(tasks=[{"UID": "1", "Name": "T", "PercentComplete": "75"}]))
-        assert data.tasks[0].percent_complete == 0.75
+        assert data.tasks[0].percent_complete == 75.0
 
 
 class TestUnitsFiniteGuard:
