@@ -1962,6 +1962,12 @@ web:integration:
     API_URL: "http://127.0.0.1:8000"
     INTEGRATION_USER_EMAIL: "ci@trueppm.test"
     INTEGRATION_USER_PASSWORD: "ci-integration-pw"
+    # Every integration spec signs in as the single seeded INTEGRATION_USER, so
+    # the whole suite's logins land in one per-account throttle bucket (#1717,
+    # default 5/min). Relax that bucket here — this job exercises the real auth
+    # *flow* across a live reload, not throttle behavior (covered by the pytest
+    # unit tests in tests/apps/access/test_login_throttle.py).
+    TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE: "1000/min"
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
