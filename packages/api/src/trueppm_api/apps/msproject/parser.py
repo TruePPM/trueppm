@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import os
 import subprocess
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 
 from defusedxml.ElementTree import fromstring as _safe_fromstring
@@ -44,6 +46,44 @@ _LINK_TYPE_MAP = {
 # Subprocess timeout for MPXJ (seconds).
 _MPXJ_TIMEOUT = 120
 
+# Sane upper bound for resource MaxUnits / assignment Units (#1720). MS Project
+# expresses these as fractions of a resource's capacity (1.0 = 100%); a value of
+# 10 already means ten full-time equivalents. Anything past this is either a
+# corrupt/hostile file or a non-finite value we clamp — the value flows into
+# resource-leveling and allocation math, so we bound it rather than let inf/NaN
+# or an astronomical figure poison those computations.
+_MAX_UNITS = 1_000.0
+
+
+class MsProjectImportError(ValueError):
+    """The uploaded MS Project file is too large to import (row-count cap, #1721).
+
+    A ``ValueError`` subclass so the import task's ``except Exception`` marks the
+    outbox row DEAD (deterministic failure — the same bytes always exceed the
+    cap) and surfaces ``str(exc)`` to the UI.
+    """
+
+
+def _finite_float(raw: str, default: float, *, low: float, high: float) -> float:
+    """Parse ``raw`` to a finite float clamped to ``[low, high]`` (#1720).
+
+    ``bulk_create`` bypasses the model field validators, so a crafted MSPDI file
+    could otherwise smuggle ``nan``, ``inf``/``-inf``, or ``1e999`` (which
+    Python parses to ``inf``) straight into a ``FloatField``. Non-finite floats
+    then poison CPM / Monte Carlo math and — because ``json.dumps`` emits bare
+    ``NaN``/``Infinity`` tokens — produce invalid JSON in API, sync, and webhook
+    bodies. We reject non-finite values by falling back to ``default`` and clamp
+    the finite range so the same choke point also caps absurd magnitudes.
+    """
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(value):
+        return default
+    return max(low, min(value, high))
+
+
 # Upper bound matches Task.duration's MaxValueValidator(36_525) (~100 years).
 # bulk_create() bypasses the model validators, so a crafted MSPDI file could
 # otherwise smuggle astronomical integer values into the database (e.g.
@@ -51,6 +91,15 @@ _MPXJ_TIMEOUT = 120
 # choke point that covers every parser caller — primary Duration, PERT
 # Duration1/2/3, and any future Duration-typed ExtendedAttribute.
 _MAX_DURATION_DAYS = 36_525
+
+
+def _enforce_row_cap(kind: str, count: int, limit: int) -> None:
+    """Reject an import whose ``kind`` element count exceeds ``limit`` (#1721)."""
+    if count > limit:
+        raise MsProjectImportError(
+            f"MS Project file has too many {kind} ({count}); the import limit is "
+            f"{limit}. Split the file and import in batches."
+        )
 
 
 def _parse_duration_to_days(duration_str: str) -> int:
@@ -123,6 +172,17 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     if root.tag.startswith("{"):
         ns = root.tag.split("}")[0] + "}"
 
+    # Row-count cap (#1721): the upload SIZE is bounded but the row count is not.
+    # A 50 MB MSPDI encodes ~1M tasks; without this cap the importer builds ~1M
+    # Task objects, computes WBS over all of them, and bulk-creates the lot —
+    # exhausting worker memory and holding a giant transaction open. Reject
+    # outright (like the risk-CSV importer's MAX_ROWS) before building anything.
+    # Counted directly off the element tree so we never materialize the objects.
+    max_rows = getattr(settings, "MSPROJECT_MAX_ROWS", 20_000)
+    _enforce_row_cap("tasks", len(root.findall(f".//{ns}Task")), max_rows)
+    _enforce_row_cap("resources", len(root.findall(f".//{ns}Resource")), max_rows)
+    _enforce_row_cap("dependencies", len(root.findall(f".//{ns}PredecessorLink")), max_rows)
+
     def _ft(el: ET.Element, tag: str) -> str:
         child = el.find(f"{ns}{tag}")
         return child.text if child is not None and child.text else ""
@@ -162,7 +222,13 @@ def parse_xml(xml_content: bytes) -> ProjectData:
             if uid == 0:
                 continue
             max_units_str = _ft(res_el, "MaxUnits")
-            max_units = float(max_units_str) if max_units_str else 1.0
+            # Finite-guard + clamp (#1720): reject nan/inf/1e999 and cap absurd
+            # capacities before the value reaches a bulk_create'd FloatField.
+            max_units = (
+                _finite_float(max_units_str, 1.0, low=0.0, high=_MAX_UNITS)
+                if max_units_str
+                else 1.0
+            )
             rd = ResourceData(uid=uid, name=name, max_units=max_units)
             resource_map[uid] = rd
             project_data.resources.append(rd)
@@ -181,7 +247,8 @@ def parse_xml(xml_content: bytes) -> ProjectData:
             if res_uid == 0 or res_uid not in resource_map:
                 continue
             units_str = _ft(asgn_el, "Units")
-            units = float(units_str) if units_str else 1.0
+            # Finite-guard + clamp (#1720), same rationale as MaxUnits above.
+            units = _finite_float(units_str, 1.0, low=0.0, high=_MAX_UNITS) if units_str else 1.0
             ad = AssignmentData(task_uid=task_uid, resource_uid=res_uid, units=units)
             task_assignments.setdefault(task_uid, []).append(ad)
 
@@ -273,7 +340,13 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 outline_number=outline_number,
                 outline_level=int(outline_level_str) if outline_level_str else 0,
                 is_milestone=is_milestone,
-                percent_complete=float(pct_str) / 100.0 if pct_str else 0.0,
+                # Finite-guard + clamp to [0, 1] (#1720): MS Project PercentComplete
+                # is 0-100, so /100 yields a fraction. nan/inf/1e999 (and any
+                # out-of-range figure) is rejected/clamped before it reaches the
+                # bulk_create'd FloatField and flows into progress + EVM math.
+                percent_complete=(
+                    _finite_float(pct_str, 0.0, low=0.0, high=100.0) / 100.0 if pct_str else 0.0
+                ),
                 notes=notes,
                 start=start_str[:10] if start_str else None,
                 optimistic_duration_days=opt_days,
@@ -389,27 +462,73 @@ def parse_mpp(mpp_content: bytes) -> ProjectData:
             f"Expected at: {jar_path}. Set MPXJ_JAR_PATH in settings to override."
         )
 
+    max_output = getattr(settings, "MPXJ_MAX_OUTPUT_MB", 512) * 1024 * 1024
+    max_heap = getattr(settings, "MPXJ_MAX_HEAP_MB", 512)
+
     with tempfile.NamedTemporaryFile(suffix=".mpp", delete=False) as tmp:
         tmp.write(mpp_content)
         tmp_path = tmp.name
 
     try:
-        result = subprocess.run(
-            ["java", "-jar", jar_path, tmp_path, "-o", "xml"],
-            capture_output=True,
-            timeout=_MPXJ_TIMEOUT,
+        # Bounded stdout streaming (#1722). The old capture_output=True buffered
+        # MPXJ's entire stdout with no limit, so a decompression-bomb .mpp — small
+        # enough to pass the 50 MB upload cap — could expand to multi-GB XML and
+        # OOM the worker. We stream stdout in chunks and abort the moment the total
+        # crosses MPXJ_MAX_OUTPUT_MB, killing the JVM. `-Xmx` is a second bound:
+        # even a bomb that balloons MPXJ's in-memory model dies with a JVM OOM
+        # (non-zero exit) rather than driving the host into swap. stderr is small
+        # (error text only) and read after EOF, so it cannot deadlock the pipe.
+        proc = subprocess.Popen(
+            ["java", f"-Xmx{max_heap}m", "-jar", jar_path, tmp_path, "-o", "xml"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace")
-            raise RuntimeError(f"MPXJ conversion failed (exit {result.returncode}): {stderr[:500]}")
+        # Watchdog: preserve the original hard timeout even though we no longer use
+        # subprocess.run's timeout= (a blocking read on a hung, silent JVM would
+        # otherwise never return).
+        timed_out = threading.Event()
 
-        xml_output = result.stdout
+        def _kill_on_timeout() -> None:
+            timed_out.set()
+            proc.kill()
+
+        timer = threading.Timer(_MPXJ_TIMEOUT, _kill_on_timeout)
+        timer.start()
+
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            assert proc.stdout is not None
+            while True:
+                chunk = proc.stdout.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_output:
+                    proc.kill()
+                    raise RuntimeError(
+                        "MPXJ produced more than "
+                        f"{max_output // (1024 * 1024)} MB of XML — aborting as a "
+                        "likely decompression bomb."
+                    )
+                chunks.append(chunk)
+            proc.wait()
+        finally:
+            timer.cancel()
+
+        if timed_out.is_set():
+            raise RuntimeError(f"MPXJ conversion timed out after {_MPXJ_TIMEOUT}s")
+
+        if proc.returncode != 0:
+            stderr_bytes = proc.stderr.read() if proc.stderr is not None else b""
+            stderr = stderr_bytes.decode("utf-8", errors="replace")
+            raise RuntimeError(f"MPXJ conversion failed (exit {proc.returncode}): {stderr[:500]}")
+
+        xml_output = b"".join(chunks)
         if not xml_output:
             raise RuntimeError("MPXJ produced no output")
 
         return parse_xml(xml_output)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"MPXJ conversion timed out after {_MPXJ_TIMEOUT}s") from None
     finally:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)

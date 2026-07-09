@@ -737,10 +737,46 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 # remain the hard edge cap — do not configure this above them.
 MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
 
+# Max number of tasks (also applied to resources and dependency links) a single
+# MS Project import may contain (#1721). The upload SIZE cap alone is not enough:
+# a 50 MB MSPDI XML can encode ~1M tasks, and the importer builds one Task object
+# per task, computes WBS over all of them, then bulk-creates the lot — a
+# worker-memory / transaction-time DoS well within the byte ceiling. Rejecting
+# outright (like the risk-CSV importer's MAX_ROWS) is safer than partially
+# processing. 20k tasks is far above any realistic hand-authored schedule while
+# bounding the object graph a single request can materialize.
+MSPROJECT_MAX_ROWS: int = env.int("MSPROJECT_MAX_ROWS", default=20_000)
+
+# batch_size for the import bulk_create() calls (#1721). Without it, Django emits
+# one giant multi-row INSERT that pins the whole task/dependency set in a single
+# statement (and can exceed PostgreSQL parameter limits); chunking bounds the
+# per-statement memory and parameter count. Shared by the MS Project and Jira
+# import paths (both persist through msproject.importer.import_project).
+IMPORT_BULK_BATCH_SIZE: int = env.int("IMPORT_BULK_BATCH_SIZE", default=500)
+
+# Hard cap on the XML MPXJ streams to stdout when converting a .mpp (#1722). A
+# decompression-bomb .mpp within the 50 MB upload cap can expand to multi-GB XML;
+# buffering it unbounded (the old capture_output=True) OOMs the worker. We stream
+# stdout and abort past this many bytes. 512 MB is generous headroom for a
+# legitimate 50 MB .mpp (MSPDI XML is ~5-10x the binary) while still bounded.
+MPXJ_MAX_OUTPUT_MB: int = env.int("MPXJ_MAX_OUTPUT_MB", default=512)
+
+# JVM max-heap (-Xmx) for the MPXJ subprocess (#1722). Bounding the JVM heap is a
+# second line of defense: even if MPXJ tries to build a giant in-memory model
+# from a bomb file, the JVM dies with an OutOfMemoryError (caught as a non-zero
+# exit) instead of driving the host into swap.
+MPXJ_MAX_HEAP_MB: int = env.int("MPXJ_MAX_HEAP_MB", default=512)
+
 # Max size of an uploaded Jira XML export (#1664). Jira issue-navigator exports
 # are small relative to .mpp files; the 25 MB default is generous for the minimal
 # import slice and stays well under the DATA_UPLOAD_MAX_MEMORY_SIZE hard cap.
 JIRA_IMPORT_MAX_UPLOAD_MB: int = env.int("JIRA_IMPORT_MAX_UPLOAD_MB", default=25)
+
+# Max number of issues a single Jira XML import may contain (#1721). Same
+# rationale as MSPROJECT_MAX_ROWS: the byte cap does not bound the derived task
+# count, and every issue becomes a Task object built and bulk-created through the
+# shared importer. Rejected outright over the limit.
+JIRA_IMPORT_MAX_ROWS: int = env.int("JIRA_IMPORT_MAX_ROWS", default=20_000)
 
 # Max size of an uploaded JSON program seed (ADR-0109, #615). Seeds are bounded
 # (the largest bundled sample is a few hundred KB); 5 MB is generous headroom

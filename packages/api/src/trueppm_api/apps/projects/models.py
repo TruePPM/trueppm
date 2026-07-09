@@ -1646,7 +1646,16 @@ class Task(VersionedModel):
         default=TaskStatus.NOT_STARTED,
         db_index=True,
     )
-    percent_complete = models.FloatField(default=0.0)
+    # Bounded to [0, 100] (#1720). bulk_create (used by the MS Project / Jira
+    # importers) bypasses these validators, but they backstop every full_clean
+    # write path and document the invariant the rest of the code relies on
+    # (progress + EVM math treats this as a 0-100 percent). The parser-side
+    # finite guard is what stops nan/inf reaching an import; this stops an
+    # out-of-range value on the interactive API path.
+    percent_complete = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
     notes = models.TextField(blank=True, default="")
 
     # Contributor "blocked" signal (#476). A team member raises this from the

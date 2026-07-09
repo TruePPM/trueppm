@@ -43386,7 +43386,9 @@
                     },
                     "percent_complete": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": 0
                     },
                     "notes": {
                         "type": "string"
@@ -48921,7 +48923,9 @@
                     },
                     "percent_complete": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": 0
                     },
                     "notes": {
                         "type": "string"
@@ -50199,7 +50203,9 @@
                     },
                     "percent_complete": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "maximum": 100,
+                        "minimum": 0
                     },
                     "notes": {
                         "type": "string"

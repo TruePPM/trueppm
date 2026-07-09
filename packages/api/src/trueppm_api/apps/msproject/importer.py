@@ -34,10 +34,16 @@ def import_project(
         Summary dict for result_summary. ``task_count`` and ``project_start_date``
         feed the post-import summary the UI shows on the project landing.
     """
+    from django.conf import settings
     from django.db.models import F
 
     from trueppm_api.apps.projects.models import Dependency, Project, Task
     from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
+
+    # Chunk every bulk_create (#1721) so a large import is not emitted as one
+    # unbounded multi-row INSERT (which pins the whole set in a single statement
+    # and can blow PostgreSQL's parameter limit). Paired with the parser row cap.
+    batch_size = getattr(settings, "IMPORT_BULK_BATCH_SIZE", 500)
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -102,7 +108,7 @@ def import_project(
                 new_resources.append(r)
 
         if new_resources:
-            Resource.objects.bulk_create(new_resources)
+            Resource.objects.bulk_create(new_resources, batch_size=batch_size)
             summary["resources_created"] = len(new_resources)
             all_resources = {r.name.lower(): r for r in Resource.objects.all()}
             for rd in data.resources:
@@ -194,7 +200,7 @@ def import_project(
             summary["project_start_date"] = project.start_date.isoformat()
             summary["project_start_shifted"] = True
 
-    Task.objects.bulk_create(task_objects)
+    Task.objects.bulk_create(task_objects, batch_size=batch_size)
     summary["tasks_created"] = len(task_objects)
     summary["task_count"] = len(task_objects)
 
@@ -227,7 +233,7 @@ def import_project(
             )
 
     if dep_objects:
-        Dependency.objects.bulk_create(dep_objects, ignore_conflicts=True)
+        Dependency.objects.bulk_create(dep_objects, ignore_conflicts=True, batch_size=batch_size)
         summary["dependencies_created"] = len(dep_objects)
 
     # --- Step 4: Create resource assignments ---
@@ -251,7 +257,9 @@ def import_project(
             )
 
     if assignment_objects:
-        TaskResource.objects.bulk_create(assignment_objects, ignore_conflicts=True)
+        TaskResource.objects.bulk_create(
+            assignment_objects, ignore_conflicts=True, batch_size=batch_size
+        )
         summary["assignments_created"] = len(assignment_objects)
 
         # Auto-roster every assigned resource so they appear in Team → Roster /
@@ -271,7 +279,9 @@ def import_project(
             if pk not in existing_pairs
         ]
         if new_roster:
-            ProjectResource.objects.bulk_create(new_roster, ignore_conflicts=True)
+            ProjectResource.objects.bulk_create(
+                new_roster, ignore_conflicts=True, batch_size=batch_size
+            )
 
     _update(90, "Import complete, triggering schedule recalculation...")
     return summary

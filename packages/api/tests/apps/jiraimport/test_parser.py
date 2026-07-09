@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from django.test import override_settings
 
 from trueppm_api.apps.jiraimport.parser import JiraImportError, parse_jira_xml
 
@@ -70,6 +71,20 @@ def test_cyclic_edges_left_intact_for_the_guard() -> None:
 def test_rejects_unparseable_or_empty(content: bytes) -> None:
     with pytest.raises(JiraImportError):
         parse_jira_xml(content)
+
+
+@override_settings(JIRA_IMPORT_MAX_ROWS=2)
+def test_rejects_export_over_row_cap() -> None:
+    # CHAIN_EXPORT has 3 issues; a cap of 2 rejects it outright (#1721) before
+    # any Task object is built.
+    with pytest.raises(JiraImportError, match="too many issues"):
+        parse_jira_xml(CHAIN_EXPORT)
+
+
+@override_settings(JIRA_IMPORT_MAX_ROWS=100)
+def test_under_row_cap_parses() -> None:
+    data = parse_jira_xml(CHAIN_EXPORT)
+    assert len(data.tasks) == 3
 
 
 def test_skips_issue_with_no_key_and_warns() -> None:
