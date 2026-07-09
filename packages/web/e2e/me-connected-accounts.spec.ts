@@ -71,7 +71,35 @@ function defaultCredentials(): CredentialRow[] {
   ];
 }
 
-async function setup(page: Page, initial: CredentialRow[] = defaultCredentials()) {
+interface ConnectionRow {
+  name: string;
+  exists: boolean;
+  base_url: string;
+  account_email: string;
+  status: string;
+  last_synced_at: string | null;
+  jql: string;
+  project_keys: string[];
+}
+
+function notConnected(name: string): ConnectionRow {
+  return {
+    name,
+    exists: false,
+    base_url: '',
+    account_email: '',
+    status: 'not_connected',
+    last_synced_at: null,
+    jql: '',
+    project_keys: [],
+  };
+}
+
+async function setup(
+  page: Page,
+  initial: CredentialRow[] = defaultCredentials(),
+  connections: Record<string, ConnectionRow> = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -104,6 +132,15 @@ async function setup(page: Page, initial: CredentialRow[] = defaultCredentials()
   await page.route('**/api/v1/me/credentials/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(state) }),
   );
+
+  // External task-source connection state (#1420, GET /me/connections/<source>/).
+  // Registered after the catch-all so it wins (Playwright matches in reverse).
+  await page.route('**/api/v1/me/connections/*/', (route: Route) => {
+    const match = new URL(route.request().url()).pathname.match(/connections\/([^/]+)\//);
+    const source = match ? match[1] : '';
+    const body = connections[source] ?? notConnected(source);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: pj(body) });
+  });
 
   await page.route('**/api/v1/me/credentials/*/', (route: Route) => {
     const url = new URL(route.request().url());
@@ -149,9 +186,12 @@ test.describe('Connected Accounts page', () => {
     await page.goto('/me/settings/connected-accounts');
 
     await expect(page.getByRole('heading', { name: 'Connected accounts' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'GitLab' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'GitHub' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Generic' })).toBeVisible();
+    // Scope provider headings to the credentials list — the "Available sources"
+    // section below has its own GitHub card that would otherwise collide (#1420).
+    const credentials = page.getByRole('list', { name: 'Integration providers' });
+    await expect(credentials.getByRole('heading', { name: 'GitLab' })).toBeVisible();
+    await expect(credentials.getByRole('heading', { name: 'GitHub' })).toBeVisible();
+    await expect(credentials.getByRole('heading', { name: 'Generic' })).toBeVisible();
 
     // GitLab + GitHub require credentials → Connect button.
     const gitlabCard = page.locator('#provider-gitlab');
@@ -214,5 +254,55 @@ test.describe('Connected Accounts page', () => {
     // The fragment-scroll target stays mounted; we just assert the
     // identifier resolves so a future copy-link affordance round-trips.
     await expect(githubCard).toHaveAttribute('id', 'provider-github');
+  });
+});
+
+test.describe('Available sources section (#1420)', () => {
+  test('lists external sources with a gated "Coming soon" affordance, no dead button', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto('/me/settings/connected-accounts');
+
+    const section = page.getByRole('region', { name: 'Available sources' });
+    await expect(section).toBeVisible();
+    // Trust framing is present.
+    await expect(
+      page.getByRole('group', { name: /Trust guarantees/i }),
+    ).toBeVisible();
+
+    const sources = page.getByRole('list', { name: 'External task sources' });
+    await expect(sources.getByRole('heading', { name: 'Jira' })).toBeVisible();
+    await expect(sources.getByRole('heading', { name: 'GitHub' })).toBeVisible();
+
+    // Jira is available-but-not-connected → "Coming soon" pill (gated until #1421).
+    await expect(page.locator('#source-jira').getByText('Coming soon')).toBeVisible();
+    await expect(page.locator('#source-github').getByText('Coming soon')).toBeVisible();
+
+    // The gated affordance must not be a clickable control (dead-click guard).
+    await expect(sources.getByRole('button')).toHaveCount(0);
+    await expect(sources.getByRole('link')).toHaveCount(0);
+  });
+
+  test('shows an Active state with the linked account when a source is connected', async ({
+    page,
+  }) => {
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByText('Active', { exact: true })).toBeVisible();
+    await expect(jiraCard.getByText(/Linked as alice@example\.com/i)).toBeVisible();
   });
 });

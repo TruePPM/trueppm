@@ -78,6 +78,45 @@ on tasks.
 The connected credential is consumed by **git-aware task links** to fetch live
 status.
 
+## Available sources
+
+Below the credentials list, the same page carries an **Available sources**
+section — the personal registry of external task **sources** you can pull *your
+own assigned work* from into [My Work](/features/my-work/). This is a **different
+registry** from the git-link providers above: a source connection is a one-way,
+read-only feed of the items assigned to you, not a token for previewing links.
+
+:::note[Edition]
+External task sources register against the `EXTERNAL_TASK_SOURCES` registry
+(ADR-0097), which is **separate** from the `TASK_LINK_PROVIDERS` registry above.
+**Jira is Community (OSS) here** — a contributor connecting their *own* Jira Cloud
+account for a read-only personal pull is OSS. (In the git-link list above, Jira is
+an Enterprise provider — same name, different registry, different job.) The
+Enterprise edition adds richer sources (ServiceNow, Azure DevOps, …) that register
+into this same surface without any OSS code change.
+:::
+
+The connection is governed by three guarantees, shown as badges on the section:
+**read-only**, **one-way into My Work**, and **never writes back**. TruePPM mirrors
+the work assigned to you; it never pushes a change back to the source. Jira Cloud
+stays your source of truth.
+
+### What the section does
+
+- Lists each available source (Jira today) with a short description of what it
+  brings into My Work.
+- For a source you've connected, shows an **Active** state with the linked account
+  and the last sync time; otherwise the source shows as not yet connected.
+- Enterprise sources appear here automatically when the Enterprise edition is
+  installed — the OSS build shows only OSS sources.
+
+Connecting a source from this page — the guided connect and manage flow — lands in
+a follow-up (the connection API itself is already in place; see
+[Inbound Task Sync](/features/inbound-task-sync/) and ADR-0097 for the
+source-and-pull machinery). Once a source is connected, its items appear in My
+Work with a per-source freshness line and a reconnect prompt if the credential
+expires.
+
 ## Git-aware task links
 
 Paste a GitLab, GitHub, cloud-file, or any URL onto a task and track its live
@@ -201,6 +240,8 @@ the cached preview — reach the mobile client through the project sync delta.
 - **ADR-0050** — Task Detail Drawer Section Extension Points (where
   `task_detail.external_links` registers)
 - **ADR-0076** — Integration Management Surface Boundary
+- **ADR-0097** — User-scoped external task sources (the OSS Jira personal pull)
+- **ADR-0291** — "Available sources" section on the Connected Accounts page
 - **ADR-0155** — At-a-glance external-link status indicators (the schedule
   list/Gantt roll-up)
 - **ADR-0163** — OSS cloud-file URL preview connector (Drive/Dropbox/Box/OneDrive
