@@ -4695,6 +4695,27 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
                 raise serializers.ValidationError(
                     {"tasks": "All linked tasks must belong to the same project as this risk."}
                 )
+
+        # #1725 (security): the risk owner must be a live member of the risk's
+        # project. ``owner`` is a writable, nullable FK with no membership guard
+        # (unlike Task.assignee, #684) — without this, any writer could point a
+        # risk at ANY existing user id and the serializer would echo back that
+        # user's real ``owner_name``/``owner_initials``, a display-name /
+        # user-enumeration disclosure primitive. Only validate when an owner is
+        # actually being set (unassigned is always valid); soft-deleted
+        # memberships are excluded, and the error names only "this project" so it
+        # leaks nothing about foreign projects.
+        owner = attrs.get("owner")
+        if "owner" in attrs and owner is not None and project_pk:
+            is_member = ProjectMembership.objects.filter(
+                project_id=project_pk,
+                user=owner,
+                is_deleted=False,
+            ).exists()
+            if not is_member:
+                raise serializers.ValidationError(
+                    {"owner": "The owner must be a member of this project."}
+                )
         return attrs
 
     class Meta:
