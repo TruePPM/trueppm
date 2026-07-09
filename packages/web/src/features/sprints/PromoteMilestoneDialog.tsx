@@ -25,6 +25,7 @@ import {
   type ReforecastPreview,
 } from '@/hooks/usePromoteMilestone';
 import type { ApiSprint } from '@/types';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { IterationLabelForms } from '@/lib/iterationLabel';
 import { formatShortDate } from './sprintMath';
@@ -64,14 +65,6 @@ export interface PromoteMilestoneDialogProps {
 }
 
 type Mode = 'create' | 'bind';
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
-}
 
 /** Flag glyph — local to keep the shared Icons.tsx free of a same-name collision
  *  with the parallel DA-01 bridge-banner work. */
@@ -132,8 +125,6 @@ export function PromoteMilestoneDialog({
   const [createName, setCreateName] = useState(() => derivedMilestoneName(sprint));
   const [createTargetDate, setCreateTargetDate] = useState(sprint.finish_date);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<Element | null>(null);
   const firstFieldRef = useRef<HTMLButtonElement>(null);
 
   const promote = usePromoteSprintToMilestone(projectId);
@@ -143,45 +134,20 @@ export function PromoteMilestoneDialog({
     sprint.target_milestone,
   );
 
-  // Capture trigger on open; restore focus on unmount. Focus the first form
-  // control when the form renders, else the first focusable in the conflict
-  // view (firstFieldRef only exists on the form path).
-  useEffect(() => {
-    triggerRef.current = document.activeElement;
-    const target =
-      firstFieldRef.current ??
-      (dialogRef.current ? getFocusable(dialogRef.current)[0] : null);
-    target?.focus();
-    return () => {
-      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
-    };
-  }, []);
+  // Trap focus while open (Escape closes, Tab cycles, trigger restored on
+  // unmount). The dialog stays mounted while its body swaps between the
+  // conflict view and the promote form — passing `showForm` as `focusKey`
+  // re-seats focus when the swap unmounts the focused control, so Tab can't
+  // escape to the background page (#1776).
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, showForm);
 
-  // Escape closes; Tab cycles within the dialog.
+  // Prefer the first form control over the trap's default seat (the header's
+  // first focusable) whenever the form view renders — on open and again on the
+  // conflict → rebind swap. Runs after the trap's own seat effect, so this
+  // wins when both fire in the same commit.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = getFocusable(dialogRef.current);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+    if (showForm) firstFieldRef.current?.focus();
+  }, [showForm]);
 
   // Create mode always has a target (the sprint finish); bind mode needs a
   // selected milestone before the dry-run preview can resolve.
@@ -277,7 +243,8 @@ export function PromoteMilestoneDialog({
               ? `${itl.singular} already bound to a milestone`
               : `Promote ${itl.lower} to milestone`
           }
-          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto`}
+          tabIndex={-1}
+          className={`w-full ${widthClass} max-h-[90vh] overflow-auto rounded-card border border-neutral-border bg-neutral-surface pointer-events-auto focus:outline-none`}
         >
           {/* Header */}
           <div className="flex items-start justify-between gap-4 border-b border-neutral-border p-5">

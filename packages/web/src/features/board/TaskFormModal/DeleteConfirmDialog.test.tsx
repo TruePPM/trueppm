@@ -69,6 +69,36 @@ describe('DeleteConfirmDialog', () => {
     expect(onConfirm).toHaveBeenCalled();
   });
 
+  it('traps Tab inside the alertdialog — Tab from Delete wraps to Cancel (#1776)', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="x"
+        isPending={false}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    // The parent TaskFormModal yields its trap while this dialog is open, so
+    // without an own trap Tab would escape into the background form.
+    screen.getByRole('button', { name: 'Delete' }).focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+  });
+
+  it('traps Shift+Tab inside the alertdialog — wraps from Cancel to Delete (#1776)', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="x"
+        isPending={false}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    screen.getByRole('button', { name: 'Cancel' }).focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Delete' })).toHaveFocus();
+  });
+
   it('calls onCancel when Escape is pressed at the document level', () => {
     const onCancel = vi.fn();
     render(

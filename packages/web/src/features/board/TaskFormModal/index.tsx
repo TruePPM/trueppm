@@ -252,8 +252,11 @@ export function TaskFormModal({
   // instead of window.confirm (which is unmanaged by the focus trap / screen reader).
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   // #838: trap focus inside the desktop modal (the mobile BottomSheet already
-  // traps). Yields while a sub-dialog (delete / discard) owns focus. Escape is
-  // handled by the document keydown handler above, so no onEscape is passed.
+  // traps). Yields while a sub-dialog owns focus — safe only because BOTH
+  // sub-dialogs run their own trap (ConfirmDiscardDialog, and per #1776
+  // DeleteConfirmDialog too; an untrapped child here lets Tab escape into the
+  // background form). Escape is handled by the document keydown handler above,
+  // so no onEscape is passed.
   const desktopTrapRef = useFocusTrap<HTMLDivElement>(
     !isMobile && !showDeleteConfirm && !showDiscardConfirm,
   );
