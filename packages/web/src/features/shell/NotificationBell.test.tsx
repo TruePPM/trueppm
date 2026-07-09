@@ -26,19 +26,27 @@ beforeEach(() => {
 });
 
 describe('NotificationBell', () => {
-  it('renders the 🔕 icon and screen-reader label when there are no unread', () => {
+  it('renders an active bell (never a muted/slashed glyph) and the SR label when there are no unread', () => {
     useUnreadMock.mockReturnValue({ count: 0, isLoading: false });
     renderWithRouter(<NotificationBell />);
     const button = screen.getByRole('button', { name: 'Notifications' });
     expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(button.textContent).toContain('🔕');
+    // The bell is an inline SVG (BellIcon), not an emoji — the resting state must
+    // not read as "notifications off" (#1707). No muted/slashed emoji glyph.
+    expect(button.querySelector('svg')).toBeTruthy();
+    expect(button.textContent).not.toContain('🔕');
+    expect(button.textContent).not.toContain('🔔');
+    // No count badge in the resting state (icon-only, no visible text).
+    expect(button.textContent).toBe('');
   });
 
-  it('shows the unread count badge when count > 0', () => {
+  it('shows the unread count badge when count > 0 (bell shape unchanged)', () => {
     useUnreadMock.mockReturnValue({ count: 3, isLoading: false });
     renderWithRouter(<NotificationBell />);
     const button = screen.getByRole('button', { name: 'Notifications, 3 unread' });
-    expect(button.textContent).toContain('🔔');
+    // Same SVG bell as the resting state — unread is conveyed by the badge, not
+    // by swapping the icon.
+    expect(button.querySelector('svg')).toBeTruthy();
     expect(button.textContent).toContain('3');
   });
 

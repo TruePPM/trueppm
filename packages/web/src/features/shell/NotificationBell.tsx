@@ -7,11 +7,18 @@
  * Bell visible at all widths so users on mobile still know they have unread
  * mentions before they tap through. Badge count comes from
  * useUnreadNotificationCount (30 s poll, pauses when tab hidden).
+ *
+ * The bell is ALWAYS the plain active BellIcon (#1707): unread is signalled by
+ * the count badge + brand-primary accent, never by swapping to a slashed/muted
+ * glyph. The former zero-unread muted-bell glyph read as "notifications turned
+ * off" even though no mute state exists. A genuine mute would use a distinct
+ * bell-off glyph driven by a real mute flag — never by `count === 0`.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
+import { BellIcon } from '@/components/Icons';
 import { NotificationPanel } from './NotificationPanel';
 
 const MAX_DISPLAY = 99;
@@ -67,9 +74,7 @@ export function NotificationBell() {
           hover:bg-neutral-surface-raised
           focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none`}
       >
-        <span aria-hidden="true" className="text-base leading-none">
-          {hasUnread ? '🔔' : '🔕'}
-        </span>
+        <BellIcon aria-hidden="true" className="w-5 h-5" />
         {hasUnread && (
           <span
             aria-hidden="true"
