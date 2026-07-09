@@ -133,6 +133,28 @@ class IsWorkspaceAuditViewer(BasePermission):
         return self.has_permission(request, view)
 
 
+class IsWorkspaceAdminStrict(BasePermission):
+    """ADMIN+ required for **every** method, reads included (#1724).
+
+    ``IsWorkspaceAdmin`` admits any member on safe methods, because every
+    authenticated user is an *implicit* workspace MEMBER (see
+    ``workspace_role_for_user``). That is correct for member-visible resources,
+    but wrong for admin-only collections whose GET leaks PII or org structure —
+    pending invites (email / role / invited_by) and group rosters. Those reads
+    must be gated exactly like their writes: ADMIN on all methods. This is the
+    same shape as ``IsWorkspaceAuditViewer`` without the audit-specific message.
+    """
+
+    message = "You need workspace Admin access to perform this action."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        role = _workspace_membership_role(request)
+        return role is not None and role >= WorkspaceRole.ADMIN
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        return self.has_permission(request, view)
+
+
 def request_is_workspace_owner(request: Request) -> bool:
     """True when the requesting user holds the workspace OWNER role.
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 from rest_framework import serializers
 
@@ -184,6 +185,23 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
         ]
         read_only_fields = ["id", "server_version", "resource_detail", "effective_max_units"]
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # #1711 BOLA guard: the writable ``project`` FK must not relocate an
+        # existing roster row to another project. ``perform_update`` enforces the
+        # SCHEDULER+ floor only against the row's *current* project, so without
+        # this a Scheduler on project A could PATCH ``project`` to a project B
+        # they cannot manage (a cross-project write-IDOR). A roster row never
+        # legitimately changes project — mirrors AcceptanceCriterionSerializer.
+        if (
+            self.instance is not None
+            and "project" in attrs
+            and attrs["project"].pk != self.instance.project_id
+        ):
+            raise serializers.ValidationError(
+                {"project": "A roster entry cannot be moved to another project."}
+            )
+        return attrs
+
     def get_effective_max_units(self, obj: ProjectResource) -> str:
         value = obj.units_override if obj.units_override is not None else obj.resource.max_units
         return f"{value:.2f}"
@@ -213,6 +231,23 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
         model = TaskResource
         fields = ["id", "task", "resource", "resource_name", "units"]
         read_only_fields = ["id", "resource_name"]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # #1711 BOLA guard: the writable ``task`` FK must not relocate an existing
+        # assignment to another task. ``perform_update`` enforces the SCHEDULER+
+        # floor only against the assignment's *current* task/project, so without
+        # this a Scheduler on project A could PATCH ``task`` to a project-B task
+        # they cannot manage (a cross-project write-IDOR). An assignment never
+        # legitimately moves tasks — mirrors AcceptanceCriterionSerializer.
+        if (
+            self.instance is not None
+            and "task" in attrs
+            and attrs["task"].pk != self.instance.task_id
+        ):
+            raise serializers.ValidationError(
+                {"task": "An assignment cannot be moved to another task."}
+            )
+        return attrs
 
     def validate_units(self, value: Decimal) -> Decimal:
         """Enforce that units stay within the valid assignment range.

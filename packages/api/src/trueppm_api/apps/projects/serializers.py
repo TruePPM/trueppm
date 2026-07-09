@@ -2259,6 +2259,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         either planned_start or a sprint assignment. ADMIN+ users are exempt
         so project managers can correct imported or manually-entered data.
         """
+        # #1711 BOLA guard: the writable ``project`` FK must not relocate an
+        # existing task to another project. ``perform_update`` re-checks object
+        # permissions only against the task's *current* project, so without this a
+        # member of project A could PATCH ``project`` to a project B they cannot
+        # see (a cross-project write-IDOR). Tasks never legitimately change project
+        # via this endpoint — mirrors AcceptanceCriterionSerializer.validate().
+        if (
+            self.instance is not None
+            and "project" in attrs
+            and attrs["project"].pk != self.instance.project_id
+        ):
+            raise serializers.ValidationError(
+                {"project": "A task cannot be moved to another project."}
+            )
+
         is_milestone = attrs.get("is_milestone")
         if is_milestone is None and self.instance is not None:
             is_milestone = self.instance.is_milestone
