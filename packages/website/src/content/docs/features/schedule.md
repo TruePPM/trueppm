@@ -91,7 +91,9 @@ All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-p
 
 ## Creating a dependency
 
-Two places open the same search-and-pick picker:
+**Drag-to-link (mouse / trackpad).** Hover a task bar to reveal its link handle, then drag from it to another bar to draw a **Finish-to-Start** dependency — the bar you start on becomes the predecessor, the bar you drop on the successor. A dashed guide line follows the cursor while you hunt; it snaps solid with a target ring over a valid successor, and shows a *not-allowed* cursor over an invalid drop (such as a link back to the same task). Release to create the link: the dependency arrow appears immediately, so the drawn arrow is its own confirmation. A drop that would form a cycle is refused with an error. Drag-to-link is pointer-fine only — on touch, and for keyboard users, use the picker below; the two are equivalent.
+
+The **picker** — a search-and-pick dialog for the same result, and the way to create the other three dependency types — opens from two places:
 
 - **Right-click a task row** in the task list and choose **Add predecessor…** or **Add successor…**.
 - **Open the task detail drawer**, expand the **Dependencies** section, and use the same **Add predecessor** / **Add successor** controls — or, for a task in another project, the **Search another project in this program…** link underneath them.

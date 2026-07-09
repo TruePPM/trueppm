@@ -65,7 +65,8 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 
 | Key | Action |
 |---|---|
-| Enter / F2 | Edit the focused cell (defaults to the Task name) |
+| Enter | Insert a new sibling row below (same level) and drop into its Name cell — the fast "type, Enter, type" flow |
+| F2 | Edit the focused cell (defaults to the Task name) |
 | Letter key | Start typing — opens the Task name cell |
 | Tab | Indent under the previous sibling row (forms an emergent phase) |
 | Shift + Tab | Outdent one level |
@@ -88,7 +89,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 
 | Key | Action |
 |---|---|
-| Enter | Save and return focus to the row |
+| Enter | In the **Name** cell: save, then open a new sibling row below ready to name (commit-and-continue — a blank name makes the next Enter a calm stop). In the Duration / % cells: save and return focus to the row |
 | Esc | Discard your edit and return focus to the row |
 | Tab | Save and move to the next editable cell in the same row |
 | Shift + Tab | Save and move to the previous editable cell |
@@ -111,7 +112,7 @@ The reverse holds when you outdent: if a summary task loses all its children, it
 ## What's not in v1
 
 - **No mobile signal.** Build mode is desktop-only. On mobile, use the Add Task button as before.
-- There is no **Insert below** item in the right-click menu — the underlying API does not yet support positioned insertion. Use Tab to indent the next-created row instead, or open the Add Task modal.
+- **No positional insert.** Enter adds a new sibling row, but the server appends it at the end of its parent's children rather than immediately below the focused row — precise mid-list insertion is not supported yet.
 - **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
 - **No multi-row select / fill-down / paste-from-Excel.** Single-row keyboard editing only.
 - **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.

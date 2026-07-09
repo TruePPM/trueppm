@@ -50,9 +50,24 @@ function rehypeFixMermaidLineBreaks() {
   return (tree) => walk(tree, false);
 }
 
-// When a release is cut, add an entry here. The plugin is only loaded when
-// at least one version exists (it errors on an empty array).
-// Example: { slug: "0.1.0", label: "v0.1.0" }
+// Documentation versioning (starlight-versions) is intentionally DORMANT until
+// the 0.4 (first beta) tag. The plugin snapshots the *current* docs tree, and
+// that tree documents in-flight 0.4 work (MCP server, Jira import — pages that
+// did not exist in 0.3). So the FIRST frozen version is cut at the 0.4 release,
+// when the live tree IS the 0.4 docs. Freezing 0.3 from this tree would bake
+// unshipped "Coming in 0.4" pages into a 0.3 snapshot — do not do it.
+//
+// To cut the first version at the 0.4 tag (one step, on `main`, after the
+// release-status SSOT in src/content/_release-status.mdx reads "0.4 shipped"):
+//   1. add the entry:  const versions = [{ slug: "0.4", label: "v0.4" }]
+//   2. run `npm run build` once — on build the plugin (`ensureNewVersion` →
+//      copyDirectory) archives the current docs into src/content/docs/0.4/ and
+//      the live tree becomes "Next (unreleased)".
+//   3. commit the generated src/content/docs/0.4/ snapshot.
+// See the release checklist (contributing/release.md → "Cut the docs version").
+//
+// The guard below keeps the plugin unloaded while the array is empty (it errors
+// on an empty `versions`), so the site ships unversioned until the first cut.
 const versions = [];
 
 const versionPlugins =
