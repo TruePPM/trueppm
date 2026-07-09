@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -52,6 +53,29 @@ class TimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
             "server_version",
             "created_at",
         ]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject logging time against a *phase* (ADR-0293) — code ``time_log_on_phase``.
+
+        A phase is a rollup: its effort is the sum of its children's logged time, so a
+        direct entry against the phase itself would double-count. The target task is
+        the nested-route task on create (passed in context by the view) or the entry's
+        own task on PATCH. Enforced here so an MCP/agent caller is blocked identically
+        to the UI (ADR-0112). Non-phase leaves — including a leaf-with-subtasks — accept
+        time as before.
+        """
+        from trueppm_api.apps.projects.models import task_is_phase
+
+        task = self.context.get("task") or getattr(self.instance, "task", None)
+        if task is not None and task_is_phase(task):
+            raise serializers.ValidationError(
+                serializers.ErrorDetail(
+                    "Time cannot be logged against a phase — it rolls up the logged "
+                    "time of its child tasks. Log against a leaf task instead.",
+                    code="time_log_on_phase",
+                )
+            )
+        return attrs
 
     def validate_entry_date(self, value: date) -> date:
         today = timezone.localdate()

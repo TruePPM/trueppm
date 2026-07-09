@@ -81,6 +81,13 @@ class SyncProjectSerializer(serializers.ModelSerializer[Project]):
 class SyncTaskSerializer(serializers.ModelSerializer[Task]):
     """Sync payload for Task — full CPM and baseline fields for offline scheduling previews."""
 
+    # Computed (ADR-0293): a non-subtask task with >=1 structural (non-subtask)
+    # child is a phase — a pure rollup whose status/estimate/assignee/percent are
+    # derived from its children. Read-only; annotated onto the sync tasks queryset
+    # in the pull view. ``default=False`` makes it safe if the annotation is absent
+    # (e.g. a bare instance in a test), matching TaskSerializer.is_phase.
+    is_phase = serializers.BooleanField(read_only=True, default=False)
+
     class Meta:
         model = Task
         fields = [
@@ -111,6 +118,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "is_subtask",
             "sprint",
             "assignee",
+            "is_phase",
         ]
 
 

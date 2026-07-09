@@ -49076,6 +49076,11 @@
                         "readOnly": true,
                         "default": false
                     },
+                    "is_phase": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
                     "parent_id": {
                         "type": "string",
                         "format": "uuid",
@@ -49380,6 +49385,7 @@
                     "is_blocked",
                     "is_critical",
                     "is_impediment",
+                    "is_phase",
                     "is_stalled",
                     "is_summary",
                     "late_finish",

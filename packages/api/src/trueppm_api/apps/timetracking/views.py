@@ -23,7 +23,7 @@ from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -119,7 +119,11 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
         task = _member_task_or_404(request, task_pk)
         # Role gate: Member+ may log; Viewer is denied 403 (CanLogTime object check).
         self.check_object_permissions(request, task)
-        serializer = TimeEntrySerializer(data=request.data, context={"request": request})
+        # Pass the nested-route task in context so the serializer can reject a
+        # time-log against a phase (ADR-0293) — the task is not in the request body.
+        serializer = TimeEntrySerializer(
+            data=request.data, context={"request": request, "task": task}
+        )
         serializer.is_valid(raise_exception=True)
         entry = services.log_time(
             user=cast("_User", request.user),
@@ -377,6 +381,19 @@ class MeTimerStartView(IdempotencyMixin, APIView):
         body.is_valid(raise_exception=True)
         task = _member_task_or_404(request, body.validated_data["task"])
         self.check_object_permissions(request, task)
+        # A phase carries no logged time (ADR-0293); reject starting a timer on one
+        # up front so the timer-stop path can never create a phase entry that would
+        # bypass TimeEntrySerializer. Same stable code as the manual-entry lock.
+        from trueppm_api.apps.projects.models import task_is_phase
+
+        if task_is_phase(task):
+            raise ValidationError(
+                ErrorDetail(
+                    "Time cannot be logged against a phase — it rolls up the logged "
+                    "time of its child tasks. Log against a leaf task instead.",
+                    code="time_log_on_phase",
+                )
+            )
         timer, finalized = services.start_timer(
             user=cast("_User", request.user),
             task=task,

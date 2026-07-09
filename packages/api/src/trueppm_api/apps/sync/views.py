@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Max
+from django.db.models import BooleanField, Max
+from django.db.models.expressions import RawSQL
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers, status
@@ -232,7 +233,28 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             ),
             (
                 "tasks",
-                Task.objects.filter(project=project, server_version__gt=since),
+                # is_phase annotation (ADR-0293): EXISTS a direct non-subtask child.
+                # Mirrors the projects app's annotate_tasks_queryset is_phase shape so
+                # offline clients receive the same computed rollup flag. Static SQL
+                # literal, empty params — no user input interpolated; the ltree
+                # operator can't be expressed in the ORM.
+                Task.objects.filter(project=project, server_version__gt=since).annotate(
+                    # nosemgrep: avoid-raw-sql
+                    is_phase=RawSQL(
+                        "EXISTS("
+                        "  SELECT 1 FROM projects_task c"
+                        "  WHERE c.project_id = projects_task.project_id"
+                        "    AND c.is_deleted = false"
+                        "    AND c.is_subtask = false"
+                        "    AND c.id != projects_task.id"
+                        "    AND c.wbs_path IS NOT NULL"
+                        "    AND projects_task.wbs_path IS NOT NULL"
+                        "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+                        ")",
+                        [],
+                        output_field=BooleanField(),
+                    )
+                ),
                 SyncTaskSerializer,
             ),
             (
