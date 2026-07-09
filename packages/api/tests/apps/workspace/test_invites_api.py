@@ -109,6 +109,19 @@ def test_list_and_revoke(admin: object) -> None:
     assert invite.email_token == ""
 
 
+@pytest.mark.django_db
+def test_non_admin_cannot_list_invites(admin: object) -> None:
+    # #1724: pending invites expose PII (email / role / invited_by). A plain
+    # implicit member must not read them — GET is now gated at ADMIN, not just
+    # writes. The admin still sees the list (200).
+    services.create_invite(
+        workspace=Workspace.load(), email="secret@x.io", role=WorkspaceRole.MEMBER, invited_by=admin
+    )
+    member = User.objects.create_user(username="peeker", password="pw")
+    assert _client(member).get(LIST_URL).status_code == 403
+    assert _client(admin).get(LIST_URL).status_code == 200
+
+
 # --- acceptance (public) ----------------------------------------------------
 
 

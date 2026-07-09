@@ -48,6 +48,7 @@ from trueppm_api.apps.workspace.models import (
 )
 from trueppm_api.apps.workspace.permissions import (
     IsWorkspaceAdmin,
+    IsWorkspaceAdminStrict,
     IsWorkspaceAuditViewer,
     IsWorkspaceOwner,
     _workspace_membership_role,
@@ -551,7 +552,9 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
 class WorkspaceInviteListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/invites/ (#518). Admin only."""
 
-    permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # #1724: pending invites expose PII (email / role / invited_by). IsWorkspaceAdmin
+    # would admit any implicit member on GET — gate reads at ADMIN too.
+    permission_classes = [IsAuthenticated, IsWorkspaceAdminStrict]
     # Standard page-number envelope so this bounded admin list returns the same
     # {count,next,previous,results} shape as every other list endpoint — an
     # integrator can't tell paginated from unpaginated when one list returns a
@@ -822,7 +825,9 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
 class GroupListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/groups/ (#519). Read and create: admin only."""
 
-    permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # #1724: group rosters are org structure — IsWorkspaceAdmin would leak them to
+    # any implicit member on GET. Gate reads at ADMIN, matching create.
+    permission_classes = [IsAuthenticated, IsWorkspaceAdminStrict]
     # Standard page-number envelope so this admin list matches every other list
     # endpoint's {count,next,previous,results} shape (#1355).
     pagination_class = PageNumberPagination
@@ -849,7 +854,9 @@ class GroupListView(IdempotencyMixin, APIView):
 class GroupDetailView(IdempotencyMixin, APIView):
     """GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519)."""
 
-    permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
+    # #1724: a group's roster is org structure — IsWorkspaceAdmin would leak it to
+    # any implicit member on GET. Gate reads at ADMIN, matching patch/delete.
+    permission_classes = [IsAuthenticated, IsWorkspaceAdminStrict]
 
     def _get_group_or_404(self, group_id: str) -> Group:
         return get_object_or_404(Group, pk=group_id, is_deleted=False)

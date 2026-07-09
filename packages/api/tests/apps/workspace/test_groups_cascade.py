@@ -67,9 +67,17 @@ def test_create_and_list_group(admin: object) -> None:
 
 
 @pytest.mark.django_db
-def test_non_admin_can_read_but_not_create(teammate: object) -> None:
-    assert _client(teammate).get(GROUPS_URL).status_code == 200
+def test_non_admin_cannot_read_or_create_groups(admin: object, teammate: object) -> None:
+    # #1724: a group roster is org structure — a plain implicit member must not
+    # read it. Previously GET returned 200 (IsWorkspaceAdmin admits any member on
+    # safe methods); it is now gated at ADMIN like create, so both GET and POST
+    # are 403 for a non-admin. The admin still reads the list (200).
+    gid = _make_group(admin, "Roster")
+    assert _client(teammate).get(GROUPS_URL).status_code == 403
+    assert _client(teammate).get(f"{GROUPS_URL}{gid}/").status_code == 403
     assert _client(teammate).post(GROUPS_URL, {"name": "X"}, format="json").status_code == 403
+    assert _client(admin).get(GROUPS_URL).status_code == 200
+    assert _client(admin).get(f"{GROUPS_URL}{gid}/").status_code == 200
 
 
 # --- cascade ----------------------------------------------------------------
