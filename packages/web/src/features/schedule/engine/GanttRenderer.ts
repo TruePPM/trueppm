@@ -87,11 +87,17 @@ export const COLOR = {
   todayLine: SAGE_600, // sage-600 — the "now" on the path (ADR-0103)
   text: '#1A1917', // neutral-text-primary — dark text on light surface
   textSecondary: '#6B6965', // neutral-text-secondary
-  barNormal: '#3B82F6', // blue-500 — non-CP task
+  // Non-CP task fill = brand `info` blue (= --info light, globals.css), not the
+  // off-brand Tailwind blue-500 (#1700 / #1740). Deliberately NOT navy: navy is
+  // the selection-ring ink (ADR-0103 D4), so a navy bar would erase its own ring —
+  // the distinguishability triad stays info(normal) / sage(complete) / navy(ring) /
+  // amber(milestone). The DOM legend TaskSwatch is single-sourced to the same
+  // var(--info).
+  barNormal: '#2F6FD1', // info (--info light) — non-CP task
   barCritical: '#B91C1C', // semantic-critical — dark red, WCAG on light surface
   barComplete: SAGE_600, // semantic on-track = sage-600 (brand v1.0, ADR-0103)
-  barSummary: '#374151', // gray-700 — visible on white
-  milestone: '#E8A020', // brand-accent
+  barSummary: '#353E4B', // slate-700 (brand neutral) — visible on white
+  milestone: '#E8A020', // brand-accent (amber) — kept in sync with the PDF export renderer (rule 234)
   // Dependency arrows are charcoal regardless of critical-path state.
   // Critical path is conveyed by red bar fill (rule 73), not by arrow color.
   // The previous "critical = red arrow" rule made arrows visually merge with
@@ -143,10 +149,10 @@ export const COLOR_DARK: ColorPalette = {
   todayLine: SAGE_400, // sage-400 — the "now" on the path, holds on dark (ADR-0103)
   text: '#E8E8E8', // neutral-text-primary dark
   textSecondary: '#94A3B8', // Slate-400 — neutral-text-secondary dark
-  barNormal: '#60A5FA', // Blue-400 — readable on dark surface
+  barNormal: '#6FA0E8', // info (--info dark) — non-CP task, readable on the dark surface
   barCritical: '#F87171', // Red-400 — semantic-critical dark, 4.87:1 on #12141E
   barComplete: SAGE_400, // sage-400 — semantic on-track, holds on dark (ADR-0103)
-  barSummary: '#94A3B8', // Slate-400
+  barSummary: '#9AA4B2', // slate-400 (brand neutral)
   milestone: '#E8A020', // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
   arrowNormal: '#B8B5AE',

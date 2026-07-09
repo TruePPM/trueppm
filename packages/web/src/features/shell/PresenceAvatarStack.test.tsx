@@ -34,6 +34,14 @@ describe('PresenceAvatarStack', () => {
     expect(screen.getByText('DA')).toBeInTheDocument();
   });
 
+  it('marks the cluster live with a single "viewing now" dot on the top-of-stack avatar (#1736)', () => {
+    const { container } = render(<PresenceAvatarStack users={USERS.slice(0, 3)} />);
+    // One decorative green dot conveys live presence (aria-hidden — the "viewing"
+    // state is named in the role=status aria-label).
+    const dots = container.querySelectorAll('span.bg-semantic-on-track.rounded-full');
+    expect(dots).toHaveLength(1);
+  });
+
   it('exposes a role=status with aggregated "viewing" label', () => {
     render(<PresenceAvatarStack users={USERS.slice(0, 2)} />);
     const status = screen.getByRole('status');

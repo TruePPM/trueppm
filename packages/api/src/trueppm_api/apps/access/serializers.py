@@ -503,6 +503,12 @@ class MeSerializer(serializers.Serializer[Any]):
     # the other prefs it is a server fact (identical for web, mobile, MCP) and
     # never gates access — it only re-groups a nav tab.
     schedule_in_deliver = serializers.SerializerMethodField()
+    # Account-wide Do-Not-Disturb (#1707, ADR-0292). Read-only projection so the
+    # web current-user query carries the DND state and the bell reflects it with no
+    # extra request; the authoritative read/write surface is
+    # /api/v1/me/notification-settings/. Non-creating on this hot GET path — the
+    # absence of a settings row reads as DND off.
+    dnd_enabled = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -592,6 +598,17 @@ class MeSerializer(serializers.Serializer[Any]):
 
     def get_schedule_in_deliver(self, obj: Any) -> bool:
         return self._prefs(obj)[3]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_dnd_enabled(self, obj: Any) -> bool:
+        from trueppm_api.apps.notifications.models import UserNotificationSettings
+
+        return (
+            UserNotificationSettings.objects.filter(user=obj)
+            .values_list("dnd_enabled", flat=True)
+            .first()
+            or False
+        )
 
     def get_display_name(self, obj: Any) -> str:
         name = f"{obj.first_name} {obj.last_name}".strip()

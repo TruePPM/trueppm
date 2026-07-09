@@ -36,6 +36,7 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     hidden_views: [],
     role_context: 'unified',
     schedule_in_deliver: false,
+    dnd_enabled: false,
     ...overrides,
   };
 }

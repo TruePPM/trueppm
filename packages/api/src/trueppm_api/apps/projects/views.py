@@ -3843,6 +3843,11 @@ class TaskViewSet(
             if recipients:
                 b_subj, b_body = render_blocker_notification(instance)
                 b_rcpts = list(recipients)
+                # Literal mirrors NotificationEventType.TASK_BLOCKED (kept a literal
+                # here per the line-833 convention). It MUST stay in step with that
+                # value: notifications.DND_BYPASS_EVENTS is keyed on it so a blocker
+                # always emails through Do-Not-Disturb (#1707, ADR-0292) — a drift
+                # here would silently let DND swallow the flagship blocker alert.
                 transaction.on_commit(
                     lambda: _notify_event(
                         "task.blocked", b_rcpts, b_subj, b_body, project_id, task_id=task_id

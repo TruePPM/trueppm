@@ -17,6 +17,7 @@ from .models import (
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    UserNotificationSettings,
     WorkspaceEmailSettings,
 )
 
@@ -279,6 +280,20 @@ class ProjectNotificationPreferenceSerializer(
             "quiet_hours_until",
             "updated_at",
         ]
+        read_only_fields = ["updated_at"]
+
+
+class UserNotificationSettingsSerializer(serializers.ModelSerializer[UserNotificationSettings]):
+    """Account-wide notification settings (#1707, ADR-0292).
+
+    Only ``dnd_enabled`` is writable; ``updated_at`` is read-only. The endpoint is
+    self-scoped (the row is always the caller's own), so there is no ``user`` field
+    to expose or spoof.
+    """
+
+    class Meta:
+        model = UserNotificationSettings
+        fields = ["dnd_enabled", "updated_at"]
         read_only_fields = ["updated_at"]
 
 

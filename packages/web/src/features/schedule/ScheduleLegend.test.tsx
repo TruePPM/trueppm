@@ -26,6 +26,14 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();
   });
 
+  it('renders the Task (progress) swatch in the brand info blue that matches the canvas bar (#1700)', () => {
+    // The normal-task swatch fill is now var(--info) (== COLOR.barNormal), so the
+    // legend describes the actual blue bars — it no longer shows sage, which never
+    // matched the canvas normal-task fill.
+    const { container } = render(<ScheduleLegend taskListWidth={240} />);
+    expect(container.querySelector('span[style*="var(--info)"]')).not.toBeNull();
+  });
+
   it('surfaces the interaction hints (pan + open details) in the legend body', () => {
     // The bar cursor is `grab`, so the timeline reads as drag-only; these two
     // quiet lines are the discoverability surface for pan and "open details"

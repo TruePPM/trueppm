@@ -168,11 +168,18 @@ function MilestoneSwatch() {
 }
 
 function TaskSwatch() {
-  // brand-primary is sage (sage-600 light / sage-400 dark, ADR-0103) and is AA in
-  // both modes, so no dark escape hatch is needed — the token reverses itself.
+  // The normal in-progress bar is the brand `info` blue on the canvas
+  // (barNormal = --info; #1700 / #1740 reconciliation — the swatch previously
+  // showed sage, which never matched the blue bars it described). Mode-aware:
+  // --info flips light/dark in globals.css, matching COLOR/COLOR_DARK. Applied via
+  // the CSS var in `style` (rule 10 — CSS custom property) since there is no
+  // `bg-info` Tailwind token.
   return (
     <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
-      <span className="absolute inset-y-0 left-0 w-3/5 bg-brand-primary" />
+      <span
+        className="absolute inset-y-0 left-0 w-3/5"
+        style={{ backgroundColor: 'var(--info)' }}
+      />
     </span>
   );
 }

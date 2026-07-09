@@ -161,6 +161,11 @@ export function TopBar({ onHamburgerClick }: Props) {
         {/* Notification bell — visible at all widths. */}
         <NotificationBell />
 
+        {/* Vertical divider fencing the "me" identity chip off from the utility
+            cluster (presence, sync, bell) so there is one unambiguous identity
+            affordance (#1736, design §02). Decorative. */}
+        <span className="h-6 w-px shrink-0 bg-chrome-border/40" aria-hidden="true" />
+
         {/* User menu — avatar chip; the single home for the theme toggle, plus
             notifications, keyboard shortcuts, and sign out. */}
         <UserMenu />

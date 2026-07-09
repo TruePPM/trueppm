@@ -154,6 +154,26 @@ describe('Sidebar rail — Tier 1 "You"', () => {
   });
 });
 
+describe('Sidebar footer — identity + settings gear', () => {
+  it('routes the gear to the settings hub deterministically, even for a non-admin (#1738)', () => {
+    // The gear must NOT branch to /me/settings/notifications by role — an
+    // identical control never changes destination. It always opens the hub;
+    // RequireAdminSettings redirects a non-admin on to their reachable scope.
+    mockUseCurrentUser.mockReturnValue({
+      user: { ...DEFAULT_USER.user, can_access_admin_settings: false },
+    });
+    renderRail();
+    const gear = screen.getByRole('link', { name: 'Settings' });
+    expect(gear).toHaveAttribute('href', '/settings');
+  });
+
+  it('shows identity as a name-only "Signed in" label, not a tappable avatar (#1737)', () => {
+    renderRail();
+    expect(screen.getByText('Signed in')).toBeInTheDocument();
+    expect(screen.getAllByText('Anika K.').length).toBeGreaterThan(0);
+  });
+});
+
 describe('Sidebar rail — Tier 3 "Jump"', () => {
   it('opens the command palette from the ⌘K trigger', () => {
     renderRail();
