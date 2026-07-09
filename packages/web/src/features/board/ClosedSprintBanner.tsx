@@ -12,6 +12,7 @@
  * actionable", NEVER amber/red. The 🔒 glyph is `aria-hidden`; the banner text
  * carries the full meaning.
  */
+import { LockIcon } from '@/components/Icons';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 
 interface ClosedSprintBannerProps {
@@ -26,7 +27,7 @@ export function ClosedSprintBanner({ projectId }: ClosedSprintBannerProps) {
       className="flex items-center gap-2 border-y border-neutral-border bg-neutral-surface-sunken
         px-4 py-2 text-sm text-neutral-text-secondary"
     >
-      <span aria-hidden="true">🔒</span>
+      <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
       <span>
         Closed {itl.singular.toLowerCase()} — read only. Card moves won&rsquo;t change this{' '}
         {itl.singular.toLowerCase()}&rsquo;s scope.

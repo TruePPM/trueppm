@@ -73,8 +73,9 @@ describe('ScheduleSummaryChip', () => {
       cpmError: { error: 'cyclic_dependency', cycle: ['a', 'b'] },
     });
     render(<ScheduleSummaryChip visibleTasks={[makeTask('a'), makeTask('b')]} />);
-    expect(screen.getByLabelText(/CPM error/)).toBeInTheDocument();
-    expect(screen.getByText('⚠')).toBeInTheDocument();
+    // The warning glyph is now the WarningIcon SVG (aria-hidden); assert it
+    // renders inside the CPM-error chip rather than the old ⚠ emoji text.
+    expect(screen.getByLabelText(/CPM error/).querySelector('svg')).not.toBeNull();
   });
 
   it('error state takes precedence over recalculating', () => {

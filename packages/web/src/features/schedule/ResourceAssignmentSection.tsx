@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { useTaskAssignments } from '@/hooks/useTaskAssignments';
 import {
@@ -173,7 +174,7 @@ function AssignmentWarningBanner({ warning, onDismiss, dismissLabel }: Assignmen
       className="mt-2 flex items-start gap-2 rounded-card border border-semantic-at-risk/40
         bg-transparent px-3 py-2 text-xs text-semantic-at-risk"
     >
-      <span aria-hidden="true" className="mt-0.5 shrink-0">⚠</span>
+      <WarningIcon className="mt-0.5 shrink-0 inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
       <p className="flex-1">{warning.detail}</p>
       <button
         type="button"

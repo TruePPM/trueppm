@@ -8,6 +8,7 @@
  * heavier, team-owned "Raise ceiling" act, surfaced as a separate affordance.
  */
 
+import { LockIcon } from '@/components/Icons';
 import type { ReactNode } from 'react';
 import {
   AUDIENCE_RUNG_LABEL,
@@ -104,7 +105,7 @@ export function SignalLadder({
                   fallback. The full name is always in aria-label + title above. */}
               <span className="hidden md:inline">{AUDIENCE_RUNG_LABEL_FULL[rung]}</span>
               <span className="md:hidden">{AUDIENCE_RUNG_LABEL[rung]}</span>
-              {isCeiling && <span aria-hidden="true">🔒</span>}
+              {isCeiling && <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
             </button>
           );
         })}

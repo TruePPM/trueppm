@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useMemo, useState } from 'react';
 
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
@@ -70,7 +71,7 @@ export function BlockedRollupPanel(props: Props) {
         <span className="tppm-mono text-xs text-neutral-text-secondary">({count})</span>
         {isSprint && count > 0 && (
           <span className="text-xs text-neutral-text-secondary">
-            <span aria-hidden="true">⚠ </span>
+            <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
             {`${impedimentCount} impediment${impedimentCount === 1 ? '' : 's'} · ${pausedCount} paused`}
           </span>
         )}

@@ -33,7 +33,7 @@ import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
-import { LinkIcon } from '@/components/Icons';
+import { LinkIcon, WarningIcon } from '@/components/Icons';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
 import {
   useBuildMode,
@@ -890,7 +890,7 @@ function TaskListRowInner({
                 aria-label="Missing schedule dates"
                 data-testid="missing-dates-chip"
               >
-                <span aria-hidden="true">⚠</span>
+                <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 <span>missing dates</span>
               </span>
             )}

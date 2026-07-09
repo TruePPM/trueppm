@@ -8,6 +8,7 @@
  * to Early/Likely/Late. Renders an explicit team-private wall when the velocity
  * signal is gated (ADR-0104) and a warm-up state until two sprints have closed.
  */
+import { LockIcon } from '@/components/Icons';
 import { formatShortDate } from '@/features/sprints/sprintMath';
 import { useSprintForecast } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -38,7 +39,7 @@ function Body({ data }: { data: NonNullable<ReturnType<typeof useSprintForecast>
   if (data.velocity_suppressed) {
     return (
       <p className="text-sm text-neutral-text-secondary" data-testid="forecast-suppressed">
-        <span aria-hidden="true">🔒 </span>The backlog forecast is team-private (visible to the
+        <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />The backlog forecast is team-private (visible to the
         team).
       </p>
     );

@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import type { ApiSprint } from '@/types';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { formatDateRange, daysUntil } from './sprintMath';
@@ -234,7 +235,7 @@ function SprintCard({
               // the ⚠ glyph + "+N over" text carry the signal; text uses the AA-dark
               // at-risk token, the brand amber stays a fill (the bar overflow segment).
               <span className="font-medium text-semantic-at-risk inline-flex items-center gap-0.5">
-                <span aria-hidden="true">⚠</span>+{completed - committed} over
+                <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />+{completed - committed} over
               </span>
             )}
           </p>

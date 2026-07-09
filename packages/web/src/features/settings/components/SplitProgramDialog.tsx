@@ -20,6 +20,7 @@
  * error surface (mirrors `TransferOwnershipDialog`).
  */
 
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 
@@ -268,7 +269,7 @@ export function SplitProgramDialog({
 
         <div className="shrink-0 border-t border-neutral-border p-5 pt-3">
           <p className="mb-3 text-[11px] text-semantic-at-risk">
-            <span aria-hidden="true">⚠ </span>
+            <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
             {programName} will be closed after the split. It keeps any projects you leave unassigned
             and can be reopened later.
           </p>

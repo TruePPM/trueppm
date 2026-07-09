@@ -1,3 +1,4 @@
+import { LockIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   usePulse,
@@ -71,7 +72,7 @@ function PulseGatedWall() {
       className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 flex flex-col items-center gap-2 text-center"
     >
       <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
-        <span aria-hidden="true">🔒 </span>Team health
+        <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Team health
       </p>
       <p className="text-sm text-neutral-text-secondary max-w-prose">
         This team keeps its health pulse private. Mood and energy signals are shared with
@@ -329,7 +330,7 @@ function PulseTrend({
           role="status"
           className="inline-flex items-center gap-1 self-start text-xs text-semantic-warning bg-semantic-warning-bg rounded px-2 py-0.5"
         >
-          <span aria-hidden="true">⚠</span> Energy down 2 {itl.lowerPlural} running.
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" /> Energy down 2 {itl.lowerPlural} running.
         </p>
       )}
       <Sparkline label="Mood" points={points} value={(p) => p.avg_mood} />

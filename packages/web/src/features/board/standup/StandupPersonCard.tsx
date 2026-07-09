@@ -9,6 +9,7 @@
  * never on the wire; a blocker shows only its routable type and coarse age.
  */
 
+import { WarningIcon } from '@/components/Icons';
 import type { ReactNode } from 'react';
 import { blockerTypeLabel, formatBlockedAge } from '@/lib/blocker';
 import type { StandupBucket, StandupCard } from './useStandup';
@@ -134,7 +135,7 @@ function BlockerChip({ card }: { card: StandupCard }): ReactNode {
     : null;
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-semantic-at-risk-bg px-1.5 py-0.5 text-xs text-semantic-at-risk">
-      <span aria-hidden="true">⚠</span>
+      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
       <span>{typeLabel ?? 'Blocked'}</span>
       {age && (
         <>

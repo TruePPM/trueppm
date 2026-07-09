@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   useSprintBurndown,
@@ -420,7 +421,7 @@ function BlockersRow({
   return (
     <div className="px-3 py-2 flex flex-col gap-1">
       <h4 id="dd-blockers" className="text-xs font-medium text-semantic-at-risk">
-        <span aria-hidden="true">⚠ </span>New blockers ({headline})
+        <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />New blockers ({headline})
       </h4>
       <ul aria-labelledby="dd-blockers" className="flex flex-col gap-0.5">
         {blockers.map((b) => {

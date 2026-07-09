@@ -5,7 +5,7 @@
  * Pass `className` and `aria-hidden="true"` at the call site.
  */
 
-interface IconProps {
+export interface IconProps {
   className?: string;
   'aria-hidden'?: boolean | 'true' | 'false';
 }
@@ -645,6 +645,246 @@ export function MoreHorizontalIcon({ className, ...rest }: IconProps) {
       <circle cx="3.5" cy="8" r="1.3" />
       <circle cx="8" cy="8" r="1.3" />
       <circle cx="12.5" cy="8" r="1.3" />
+    </svg>
+  );
+}
+
+/**
+ * Padlock — the "private / team-private / baselined / locked" affordance
+ * (issue 1739). Replaces the 🔒 emoji, which rendered inconsistently across
+ * platforms and never inherited the surrounding text color.
+ */
+export function LockIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="3" y="7" width="10" height="7" rx="1.5" />
+      <path d="M5 7V5a3 3 0 0 1 6 0v2" />
+    </svg>
+  );
+}
+
+/** Concentric target — the sprint-goal affordance (issue 1739, replaces 🎯). */
+export function TargetIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="6.25" />
+      <circle cx="8" cy="8" r="3.25" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** No-entry circle — the "disabled / not permitted" affordance (issue 1739, replaces 🚫). */
+export function BanIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="6.25" />
+      <line x1="3.6" y1="3.6" x2="12.4" y2="12.4" />
+    </svg>
+  );
+}
+
+/**
+ * File-type glyphs (issue 1739) — a generic, house-style set that replaces the
+ * emoji mime/preview maps in AttachmentSection and previewType. Deliberately
+ * generic line marks (not third-party brand logos): the per-host provider marks
+ * — GitHub/GitLab/Figma/… — are a separate brand-asset decision (issue #1748).
+ * All share the folded-corner sheet outline so the family reads as one set.
+ */
+const FILE_OUTLINE = 'M4 1.75h4.5L12.25 5.5v8.25a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2.25a.5.5 0 0 1 .5-.5Z';
+const FILE_CORNER = 'M8.5 1.75V5.5h3.75';
+
+/** Generic document (folded-corner sheet). */
+export function FileIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Text document — sheet with body lines (doc / word / pdf). */
+export function FileTextIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+      <path d="M5.75 8.5h4.5M5.75 10.75h4.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** PDF — text sheet with a filled label tag to distinguish it from a plain doc. */
+export function FilePdfIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+      <rect x="5" y="8.5" width="6" height="3.25" rx="0.75" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Spreadsheet — sheet with a small grid. */
+export function FileSpreadsheetIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+      <path d="M5.5 8.25h5M5.5 11h5M8 8.25V11" />
+    </svg>
+  );
+}
+
+/** Image file — sheet with a sun + mountain. */
+export function FileImageIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+      <circle cx="6.5" cy="9" r="0.9" />
+      <path d="M5 12.75l2-2 1.25 1.25L9.75 10.5l1.75 2.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Presentation — sheet with a slide bar chart. */
+export function PresentationIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d={FILE_OUTLINE} />
+      <path d={FILE_CORNER} strokeLinecap="round" />
+      <path d="M6 12v-1.5M8 12V9M10 12v-2.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Folder — the "folder / multi-file" affordance. */
+export function FolderIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M1.75 4a1 1 0 0 1 1-1h3l1.5 1.75h5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1h-9.5a1 1 0 0 1-1-1V4Z" />
+    </svg>
+  );
+}
+
+/** Paperclip — the generic attachment affordance (replaces 📎). */
+export function PaperclipIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M13 7.5l-5.4 5.4a3 3 0 0 1-4.24-4.24l5.65-5.66a2 2 0 0 1 2.83 2.83l-5.66 5.65a1 1 0 0 1-1.41-1.41L9.7 5" />
     </svg>
   );
 }

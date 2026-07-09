@@ -17,6 +17,7 @@
  * carries an sr-only text summary so the data is reachable without seeing the SVG
  * (web-rule 176).
  */
+import { LockIcon } from '@/components/Icons';
 import { type ReactNode, useCallback, useState } from 'react';
 import {
   Area,
@@ -116,7 +117,7 @@ export function FlowAnalyticsPanel({ projectId, boardCadence }: Props) {
         Flow analytics
         {!open && (
           <span className="ml-2 font-normal normal-case text-neutral-text-disabled">
-            <span aria-hidden="true">🔒 </span>team-private
+            <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />team-private
           </span>
         )}
       </button>
@@ -176,7 +177,7 @@ function ThroughputForecastCard({
     return (
       <ForecastFrame>
         <p className="text-xs text-neutral-text-secondary" data-testid="throughput-forecast-suppressed">
-          <span aria-hidden="true">🔒 </span>The throughput forecast is team-private (visible to the
+          <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />The throughput forecast is team-private (visible to the
           team).
         </p>
       </ForecastFrame>
@@ -314,7 +315,7 @@ function PanelBody({
   return (
     <div data-testid="flow-analytics-charts">
       <p className="pb-2 text-xs text-neutral-text-disabled">
-        <span aria-hidden="true">🔒 </span>Team-private · aggregate only — no individual breakdown
+        <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Team-private · aggregate only — no individual breakdown
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <CumulativeFlowChart cfd={data.cfd} />
@@ -334,7 +335,7 @@ function SuppressedWall() {
       data-testid="flow-metrics-suppressed"
     >
       <p className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
-        <span aria-hidden="true">🔒 </span>Flow analytics
+        <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Flow analytics
       </p>
       <p className="max-w-prose text-sm text-neutral-text-secondary">
         This team keeps its flow metrics private. Cycle time, throughput, and the cumulative flow

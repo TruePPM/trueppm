@@ -1,3 +1,4 @@
+import { LockIcon } from '@/components/Icons';
 import { type ChangeEvent, useState } from 'react';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -294,7 +295,7 @@ function MilestoneRollupReadOnly({
         </span>
       )}
       <p className="text-xs text-neutral-text-secondary flex items-start gap-1.5 mt-1">
-        <span aria-hidden="true">🔒</span>
+        <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         <span>Progress rolls up from {itl.lower}(s) — close or unlink to edit.</span>
       </p>
       {variance != null && variance !== 0 && (

@@ -1053,7 +1053,7 @@ function BoardCardImpl({
                       : 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track',
                 ].join(' ')}
               >
-                {floatDays < 0 && <span aria-hidden="true">⚠</span>}
+                {floatDays < 0 && <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
                 <span className="tppm-mono">{floatDays}d float</span>
               </span>
             </div>

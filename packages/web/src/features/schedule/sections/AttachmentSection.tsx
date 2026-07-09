@@ -7,7 +7,15 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent } from 'react';
+import type { ChangeEvent, ReactNode } from 'react';
+import {
+  BanIcon,
+  FileImageIcon,
+  FileSpreadsheetIcon,
+  FileTextIcon,
+  PaperclipIcon,
+  PinIcon,
+} from '@/components/Icons';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import { useProject } from '@/hooks/useProject';
@@ -31,14 +39,21 @@ function formatBytes(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Single-glyph file icon based on MIME — uses Unicode for zero icon-library cost. */
-function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null): string {
+/**
+ * File icon based on MIME. Local files use the house SVG file-type set (#1739);
+ * external/pinned links still use the per-host emoji glyph from
+ * `externalLinkIcon` — those are third-party brand marks whose SVG conversion is
+ * a separate brand-asset decision (#1748).
+ */
+function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null): ReactNode {
   if (isExternal) return externalLinkIcon(externalUrl);
-  if (mime.startsWith('image/')) return '🖼';
-  if (mime === 'application/pdf') return '📄';
-  if (mime.includes('spreadsheet') || mime === 'text/csv') return '📊';
-  if (mime.includes('wordprocessing')) return '📝';
-  return '📎';
+  const cls = 'h-4 w-4 text-neutral-text-secondary';
+  if (mime.startsWith('image/')) return <FileImageIcon className={cls} aria-hidden="true" />;
+  if (mime === 'application/pdf') return <FileTextIcon className={cls} aria-hidden="true" />;
+  if (mime.includes('spreadsheet') || mime === 'text/csv')
+    return <FileSpreadsheetIcon className={cls} aria-hidden="true" />;
+  if (mime.includes('wordprocessing')) return <FileTextIcon className={cls} aria-hidden="true" />;
+  return <PaperclipIcon className={cls} aria-hidden="true" />;
 }
 
 /**
@@ -153,8 +168,12 @@ function AttachmentRow({ attachment, projectId, taskId, canEdit }: AttachmentRow
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sm font-medium text-neutral-text-primary truncate">
             {attachment.is_pinned && (
-              <span aria-label="Pinned" title="Pinned" className="mr-1">
-                📌
+              <span
+                aria-label="Pinned"
+                title="Pinned"
+                className="mr-1 inline-flex align-[-0.125em]"
+              >
+                <PinIcon className="h-3 w-3" aria-hidden="true" />
               </span>
             )}
             {displayName}
@@ -391,7 +410,11 @@ export function AttachmentSection({
 
       {showDisabledNote && (
         <p role="note" className="text-xs text-neutral-text-secondary mt-1">
-          <span aria-hidden="true">🚫</span> File attachments are disabled for this project.
+          <BanIcon
+            className="inline-block h-3 w-3 align-[-0.125em] mr-1"
+            aria-hidden="true"
+          />{' '}
+          File attachments are disabled for this project.
         </p>
       )}
 

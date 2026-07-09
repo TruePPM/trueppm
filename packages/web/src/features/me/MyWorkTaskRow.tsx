@@ -10,6 +10,7 @@
  *   - story-point / remaining-point display
  *   - due date with `due_source` suffix (e.g. "Due May 30 (planned)")
  */
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
@@ -222,7 +223,7 @@ export function MyWorkTaskRow({ task }: Props) {
             title="On the critical path — a delay here delays the project end date"
             aria-label="On the critical path"
           >
-            <span aria-hidden="true">⚠</span>
+            <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           </span>
         )}
         <span className="tppm-mono text-xs text-neutral-text-secondary">{task.short_id}</span>

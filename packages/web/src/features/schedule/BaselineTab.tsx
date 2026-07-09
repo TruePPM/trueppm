@@ -1,3 +1,4 @@
+import { BarChartIcon } from '@/components/Icons';
 import { useTaskBaseline } from '@/hooks/useTaskBaseline';
 import type { BaselineComparison } from '@/hooks/useTaskBaseline';
 
@@ -18,7 +19,7 @@ export function BaselineTab({ projectId, taskId }: BaselineTabProps) {
   if (!data.has_baseline) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-        <span className="text-2xl" aria-hidden="true">📊</span>
+        <BarChartIcon className="h-7 w-7 text-neutral-text-secondary" aria-hidden="true" />
         <p className="text-sm font-medium text-neutral-text-primary">No baseline set</p>
         <p className="text-xs text-neutral-text-secondary">
           Take a baseline snapshot on this project to enable plan vs. actual tracking.

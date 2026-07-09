@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -243,7 +244,7 @@ export function ShareViewDialog({
               className="mb-3 flex items-start gap-1.5 rounded-card border border-semantic-warning/70 bg-semantic-warning-bg px-2.5 py-2 text-xs text-semantic-warning"
               role="alert"
             >
-              <span aria-hidden="true">⚠</span>
+              <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               Copy this link now — you won&rsquo;t be able to see it again.
             </p>
             <div className="mb-2 flex items-center gap-2">

@@ -1,3 +1,4 @@
+import { LockIcon, WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState, type SVGProps } from 'react';
 
 import { BurnChart } from '@/features/reports/BurnChart';
@@ -247,7 +248,7 @@ function Header({
                 title="On the critical path — a delay on any of these tasks delays the project end date"
                 aria-label={`${criticalCount} ${criticalCount === 1 ? 'task' : 'tasks'} on the critical path`}
               >
-                <span aria-hidden="true">⚠</span>
+                <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 <span className="tppm-mono">{criticalCount}</span>
                 <span>on critical path</span>
               </span>
@@ -366,7 +367,7 @@ function WipChip({ count, limit, onClick }: WipChipProps) {
         focus-visible:ring-offset-1 focus-visible:outline-none hover:bg-chrome-row-hover
         ${colorClass}`}
     >
-      {flagged && <span aria-hidden="true">⚠</span>}
+      {flagged && <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
       WIP {count}/{limit}
     </button>
   );
@@ -393,7 +394,7 @@ function VelocityCard({ projectId, velocity, isLoading, targetMilestoneId }: Vel
       </h3>
       {suppressed ? (
         <p className="text-xs text-neutral-text-secondary" data-testid="velocity-suppressed">
-          <span aria-hidden="true">🔒 </span>Velocity is team-private (visible to the team).
+          <LockIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />Velocity is team-private (visible to the team).
         </p>
       ) : (
         <>
@@ -726,7 +727,7 @@ function WipCard({ sprint, canEdit, isSaving, onSave }: WipCardProps) {
           }`}
           aria-live="polite"
         >
-          <span aria-hidden="true">⚠</span>
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
           <span>{state === 'over' ? `Over WIP by ${count - (limit ?? 0)}` : 'At WIP limit'}</span>
         </p>
       )}

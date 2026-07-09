@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import type { Task } from '@/types';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 
@@ -61,7 +62,7 @@ export function ScheduleSummaryChip({ visibleTasks }: ScheduleSummaryChipProps) 
           <span aria-hidden="true">·</span>
           {status === 'error' ? (
             <span className="text-semantic-at-risk">
-              CPM <span aria-hidden="true">⚠</span>
+              CPM <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
             </span>
           ) : (
             <span className="text-semantic-on-track">

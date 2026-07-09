@@ -17,7 +17,7 @@ import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import { detectProvider } from '@/lib/detectProvider';
 import type { DetectedProvider } from '@/lib/detectProvider';
-import { previewTypeGlyph } from '@/lib/previewType';
+import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
 import {
@@ -82,7 +82,7 @@ function FilePreview({ link }: { link: TaskExternalLink }) {
   // Nothing to show until a preview has been fetched.
   if (!link.description && !link.thumbnail_url) return null;
   const showImage = !!link.thumbnail_url && !imgFailed;
-  const glyph = previewTypeGlyph(link.preview_type || 'file');
+  const PreviewIcon = previewTypeIcon(link.preview_type || 'file');
   return (
     <div className="flex items-start gap-2">
       <div
@@ -99,9 +99,7 @@ function FilePreview({ link }: { link: TaskExternalLink }) {
             className="h-full w-full object-cover"
           />
         ) : (
-          <span className="text-xl" aria-hidden="true">
-            {glyph}
-          </span>
+          <PreviewIcon className="h-6 w-6 text-neutral-text-secondary" aria-hidden="true" />
         )}
       </div>
       {link.description && (

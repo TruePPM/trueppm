@@ -16,6 +16,7 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
+import { WarningIcon } from '@/components/Icons';
 import {
   memo,
   useState,
@@ -340,7 +341,7 @@ function WipBreachChip({ state }: { state: 'at' | 'over' }) {
       data-breach={state}
       className={`inline-flex items-center gap-0.5 rounded-chip px-1 py-0.5 text-xs font-semibold ${cls}`}
     >
-      <span aria-hidden="true">⚠</span>
+      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
       {state === 'over' ? 'Over limit' : 'At limit'}
     </span>
   );
@@ -3201,7 +3202,7 @@ export function BoardView() {
                             : 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
                         }`}
                     >
-                      <span aria-hidden="true">⚠</span>
+                      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                       {breachLabel}
                     </button>
                   )}
