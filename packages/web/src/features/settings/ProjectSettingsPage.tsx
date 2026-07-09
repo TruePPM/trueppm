@@ -134,6 +134,8 @@ export function ProjectSettingsPage() {
       contextOptions={contextOptions}
       contextActiveId={projectId}
       navGroups={navGroups}
+      exitTo={`/projects/${projectId}/overview`}
+      exitLabel="Overview"
     >
       <SettingsSection id="general"><ProjectGeneralPage /></SettingsSection>
       <SettingsSection id="access"><ProjectAccessPage /></SettingsSection>

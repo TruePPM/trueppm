@@ -113,6 +113,8 @@ export function WorkspaceSettingsPage() {
       ]}
       contextName="TrueScope Aerospace"
       navGroups={NAV_GROUPS}
+      exitTo="/"
+      exitLabel="Home"
     >
       <SettingsSection id="general"><WorkspaceGeneralPage /></SettingsSection>
       <SettingsSection id="members"><WorkspaceMembersPage /></SettingsSection>
