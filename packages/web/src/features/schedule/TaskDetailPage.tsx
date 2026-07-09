@@ -31,13 +31,19 @@ export function TaskDetailPage() {
   // sections in one column rather than behind tabs.
   const sections = useMemo(() => {
     if (!task) return [];
+    // A phase (summary that groups real WBS work) has a structural, non-subtask
+    // child — the Subtasks section gates on this so its section is dropped here
+    // exactly as its tab is hidden in the drawer (#1750).
+    const hasStructuralChildren = (tasks ?? []).some(
+      (t) => t.parentId === task.id && t.isSubtask !== true,
+    );
     return (registry.get('task_detail.section') as DrawerSectionRegistration[]).filter(
       // `user` gates Enterprise-only sections; OSS canRender predicates read only
       // `task`. The full page has no separate section-context user (matches the
       // drawer's `sectionContext?.user` being undefined).
-      (s) => !s.canRender || s.canRender({ user: undefined, task }),
+      (s) => !s.canRender || s.canRender({ user: undefined, task, hasStructuralChildren }),
     );
-  }, [task]);
+  }, [task, tasks]);
 
   const backLink = projectId ? `/projects/${projectId}/schedule` : '/';
 

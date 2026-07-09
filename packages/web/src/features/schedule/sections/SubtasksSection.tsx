@@ -78,6 +78,24 @@ export function SubtasksSection({ taskId, projectId, userRole, canEdit }: Drawer
     );
   }
 
+  // Phase guard (#1750) — defense in depth behind the section's canRender gate
+  // (which hides this whole tab on a phase). A phase groups real WBS work — it has
+  // at least one structural (non-subtask) child — so a subtask here would surface
+  // as an ordinary task in the WBS. Gate on structural children, NOT isSummary: a
+  // leaf that already has drawer-subtasks is also isSummary and must stay editable.
+  const hasStructuralChildren = (tasks ?? []).some(
+    (t) => t.parentId === taskId && t.isSubtask !== true,
+  );
+  if (hasStructuralChildren) {
+    return (
+      <div className="rounded-card border border-neutral-border bg-neutral-surface-raised px-3 py-2">
+        <p className="text-xs text-neutral-text-secondary">
+          Phases group work — add tasks inside the phase, not subtasks.
+        </p>
+      </div>
+    );
+  }
+
   const subtasks = (tasks ?? []).filter(
     (t) => t.parentId === taskId && t.isSubtask === true,
   );

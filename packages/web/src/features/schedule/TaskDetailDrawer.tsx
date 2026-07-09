@@ -218,11 +218,17 @@ export function TaskDetailDrawer({
   // sections that gate on license disappear cleanly.
   const sections = useMemo(() => {
     if (!task) return [];
-    const ctx = { user: sectionContext?.user, task };
+    // A phase — a summary that groups real WBS work — has at least one structural
+    // (non-subtask) child. The Subtasks section gates on this so its tab is hidden
+    // on a phase but stays visible on a leaf that already has subtasks (#1750).
+    const hasStructuralChildren = (allTasks ?? []).some(
+      (t) => t.parentId === task.id && t.isSubtask !== true,
+    );
+    const ctx = { user: sectionContext?.user, task, hasStructuralChildren };
     return (registry.get('task_detail.section') as DrawerSectionRegistration[]).filter(
       (s) => !s.canRender || s.canRender(ctx),
     );
-  }, [task, sectionContext?.user]);
+  }, [task, sectionContext?.user, allTasks]);
 
   // Group the filtered sections by tab (default `details`), preserving the
   // priority order the registry already sorted them into.

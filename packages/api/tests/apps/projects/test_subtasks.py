@@ -211,6 +211,85 @@ class TestSubtaskDepthEnforcement:
 
 
 # ---------------------------------------------------------------------------
+# Phase guard (#1750) — a summary task with structural children rejects subtasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSubtaskPhaseGuard:
+    def _add_structural_child(self, client: APIClient, project: Project, parent: Task) -> None:
+        """Give ``parent`` one real (non-subtask) WBS child, making it a phase."""
+        r = client.post(
+            "/api/v1/tasks/",
+            {
+                "name": "Structural child",
+                "duration": 2,
+                "project": str(project.pk),
+                "parent_id": str(parent.pk),
+            },
+        )
+        assert r.status_code == 201, r.data
+        assert r.data["is_subtask"] is False
+
+    def test_subtask_on_phase_rejected(
+        self, client: APIClient, project: Project, parent_task: Task
+    ) -> None:
+        # A parent with a structural (non-subtask) child is a phase — a subtask
+        # there would conflate the two decomposition models, so reject it.
+        self._add_structural_child(client, project, parent_task)
+
+        r = client.post(
+            "/api/v1/tasks/",
+            {
+                "name": "Illegal subtask",
+                "duration": 1,
+                "project": str(project.pk),
+                "parent_id": str(parent_task.pk),
+                "is_subtask": "true",
+            },
+        )
+        assert r.status_code == 400
+        assert "parent_id" in r.data
+        assert r.data["parent_id"][0].code == "subtask_on_phase"
+
+    def test_regular_child_on_phase_still_allowed(
+        self, client: APIClient, project: Project, parent_task: Task
+    ) -> None:
+        # The guard is subtask-specific — a phase must keep accepting real WBS
+        # children (the whole point of a phase is to group tasks).
+        self._add_structural_child(client, project, parent_task)
+
+        r = client.post(
+            "/api/v1/tasks/",
+            {
+                "name": "Another structural child",
+                "duration": 3,
+                "project": str(project.pk),
+                "parent_id": str(parent_task.pk),
+            },
+        )
+        assert r.status_code == 201, r.data
+
+    def test_second_subtask_on_leaf_still_allowed(
+        self, client: APIClient, project: Project, parent_task: Task
+    ) -> None:
+        # A leaf that already has drawer-subtasks is is_summary too, but it is NOT
+        # a phase (its only children are subtasks) — adding more subtasks must work.
+        for name in ("First subtask", "Second subtask"):
+            r = client.post(
+                "/api/v1/tasks/",
+                {
+                    "name": name,
+                    "duration": 1,
+                    "project": str(project.pk),
+                    "parent_id": str(parent_task.pk),
+                    "is_subtask": "true",
+                },
+            )
+            assert r.status_code == 201, r.data
+
+
+# ---------------------------------------------------------------------------
 # SprintScopeChange creation
 # ---------------------------------------------------------------------------
 

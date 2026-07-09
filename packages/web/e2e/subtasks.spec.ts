@@ -87,6 +87,25 @@ const SUBTASK_TASK = {
   parent_id: null,
 };
 
+// A phase — a summary task with a real (non-subtask) child — must not offer the
+// Subtasks affordance (#1750).
+const PHASE_TASK = {
+  ...PARENT_TASK,
+  id: 'phase-t1',
+  wbs_path: '3',
+  name: 'Assess phase',
+  is_summary: true,
+};
+
+const PHASE_STRUCTURAL_CHILD = {
+  ...PARENT_TASK,
+  id: 'child-c1',
+  wbs_path: '3.1',
+  name: 'Real child task',
+  is_subtask: false,
+  parent_id: 'phase-t1',
+};
+
 async function setupRoutes(page: Page, tasks: object[]) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -296,5 +315,14 @@ test.describe('Subtasks drawer section', () => {
     const drawer = await openSubtasksTab(page, 'A leaf subtask');
     await expect(drawer.getByText(/cannot be nested/i)).toBeVisible({ timeout: 5_000 });
     await expect(drawer.getByRole('button', { name: /add subtask/i })).not.toBeVisible();
+  });
+
+  test('hides the Subtasks tab for a phase (task with structural children)', async ({ page }) => {
+    await setupRoutes(page, [PHASE_TASK, PHASE_STRUCTURAL_CHILD]);
+    const drawer = await openDrawer(page, 'Assess phase');
+    // The Details tab always renders; the Subtasks tab must not appear because
+    // the section's canRender returns false for a phase (#1750).
+    await expect(drawer.getByRole('tab', { name: 'Details' })).toBeVisible({ timeout: 5_000 });
+    await expect(drawer.getByRole('tab', { name: 'Subtasks' })).toHaveCount(0);
   });
 });
