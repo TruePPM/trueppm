@@ -24,18 +24,23 @@ Load one or more of the four bundled samples. On a fresh install the **Programs*
 page has a **Load demo data** button; or load from the command line:
 
 ```bash
-python manage.py load_sample_project --sample aurora-mobile-app
-python manage.py load_sample_project --sample bayside-civic-center
-python manage.py load_sample_project --sample helios-crm-replacement
-python manage.py load_sample_project                          # Atlas (default)
+docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app --with-personas
+docker compose exec api python manage.py load_sample_project --sample bayside-civic-center --with-personas
+docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement --with-personas
+docker compose exec api python manage.py load_sample_project --with-personas                          # Atlas (default)
 ```
 
 See [Sample projects & JSON import/export](/getting-started/sample-projects/) for
-what each sample is built to demonstrate, and the
-[Quickstart](/getting-started/quickstart/) for the persona logins (loaded with
-`--create-users`, every persona signs in with the seeded password). When you are
-done, the program owner can **Remove sample data** to tear a demo down without
-touching real work.
+what each sample is built to demonstrate. Each persona account is namespaced
+`<sample>-<name>` (for example `aurora-priya`, `bayside-sam`). The
+`--with-personas` flag gives those accounts a usable login password and **prints
+the persona usernames and the shared password** after loading — in local Docker
+dev with `DEBUG` on, that password is `demo` (otherwise it is `$TRUEPPM_DEMO_PASSWORD`
+if set, or a random token printed once). Without the flag the personas are
+view-only and cannot sign in. You can also just use your own admin account: you
+own every sample you load, so you already see everything the walkthroughs point
+at. When you are done, the program owner can **Remove sample data** to tear a demo
+down without touching real work.
 
 :::tip
 Pick the sample that matches the methodology you care about: **Aurora** for pure
@@ -75,12 +80,12 @@ is the signal that the capability works.
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| Sprint lifecycle & burndown | Aurora · Alex (Scrum Master) | Sprint 1–2 (closed) → burndown | A real downward curve with day-by-day points, not a single number |
-| Velocity trend with a range | Aurora · Jordan (Product Owner) | Velocity chart | A 20 → 27 ramp across the closed sprints, with a forecast spread |
-| Sprint goal verdict | Aurora · Alex | Closed sprint header | Sprint 1 reads **Partially met** (20 of 26), Sprint 2 **Met** |
-| Active sprint brackets "today" | Aurora / Helios · any | Active sprint board | The in-flight sprint straddles the current date, with work mid-column |
-| Mid-sprint scope audit (accepted) | Aurora · Priya / Alex | "Widget gallery" task → sprint scope chip | A goal-impacting injection accepted mid-sprint, recorded in the audit |
-| Mid-sprint scope audit (rejected) | Helios · Ivan / Jordan | "Search & filters" task | An injection rejected and deferred — the task drops out of the sprint |
+| Sprint lifecycle & burndown | Aurora · `aurora-priya` | Sprint 1–2 (closed) → burndown | A real downward curve with day-by-day points, not a single number |
+| Velocity trend with a range | Aurora · `aurora-priya` | Velocity chart | A 20 → 27 ramp across the closed sprints, with a forecast spread |
+| Sprint goal verdict | Aurora · `aurora-priya` | Closed sprint header | Sprint 1 reads **Partially met** (20 of 26), Sprint 2 **Met** |
+| Active sprint brackets "today" | Aurora · `aurora-priya` / Helios · `helios-jordan` | Active sprint board | The in-flight sprint straddles the current date, with work mid-column |
+| Mid-sprint scope audit (accepted) | Aurora · `aurora-priya` | "Widget gallery" task → sprint scope chip | A goal-impacting injection accepted mid-sprint, recorded in the audit |
+| Mid-sprint scope audit (rejected) | Helios · `helios-ivan` / `helios-jordan` | "Search & filters" task | An injection rejected and deferred — the task drops out of the sprint |
 
 ### Task history & collaboration (new in this guide)
 
@@ -95,11 +100,11 @@ is the signal that the capability works.
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| Critical path | Bayside · Sarah (PM) | Schedule view | A highlighted critical path through the construction phases |
-| All four dependency types | Bayside · Sarah | Foundation/Finish-out links | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
-| Three-point estimates | Bayside · Sarah | Any scheduled task | Optimistic / most-likely / pessimistic on the estimate |
-| Baseline-vs-actual slip | Bayside · Sarah | Baseline overlay | Completed work compared against the captured **Contract baseline** |
-| Monte Carlo P50/P80/P95 | Bayside / Atlas · Sarah | Monte Carlo modal | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
+| Critical path | Bayside · `bayside-sam` | Schedule view | A highlighted critical path through the construction phases |
+| All four dependency types | Bayside · `bayside-sam` | Foundation/Finish-out links | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
+| Three-point estimates | Bayside · `bayside-sam` | Any scheduled task | Optimistic / most-likely / pessimistic on the estimate |
+| Baseline-vs-actual slip | Bayside · `bayside-sam` | Baseline overlay | Completed work compared against the captured **Contract baseline** |
+| Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Monte Carlo modal | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
 
 ### Risk register
 
@@ -107,16 +112,16 @@ is the signal that the capability works.
 |---|---|---|---|
 | Populated register | Bayside (12) · Atlas (20) | Risk register | A full register with a probability × impact matrix |
 | Risk status lifecycle | every sample | A risk → **History** | Dated Open → Mitigating → Resolved/Closed (e.g. Bayside "soil conditions"; Atlas "SSO security finding") |
-| Schedule-driving risks | Atlas · Alex | Risk → Monte Carlo | Several high probability × impact risks that visibly move the forecast |
+| Schedule-driving risks | Atlas · `atlas-alex` | Risk → Monte Carlo | Several high probability × impact risks that visibly move the forecast |
 
 ### Hybrid & program scale
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| The bridge demo | Helios · Sarah → Jordan | Plan → build handoff | A completed waterfall plan feeding live build sprints across a cross-phase dependency |
-| Hybrid rollup | Helios / Atlas · any | Program / project overview | Gated and flow work rolling up together under one parent |
-| Cross-project critical path | Atlas · program lead | Program schedule | Platform Core gates Migration, which gates the public-launch milestone |
-| Methodology mix in one program | Atlas · program lead | Three projects | Agile, waterfall, and hybrid streams side by side |
+| The bridge demo | Helios · `helios-jordan` | Plan → build handoff | A completed waterfall plan feeding live build sprints across a cross-phase dependency |
+| Hybrid rollup | Helios · `helios-jordan` / Atlas · `atlas-alex` | Program / project overview | Gated and flow work rolling up together under one parent |
+| Cross-project critical path | Atlas · `atlas-alex` | Program schedule | Platform Core gates Migration, which gates the public-launch milestone |
+| Methodology mix in one program | Atlas · `atlas-alex` | Three projects | Agile, waterfall, and hybrid streams side by side |
 
 ### Interface (v2)
 
@@ -132,8 +137,8 @@ If you would rather follow one role end to end, pick the path that matches you.
 
 ### Scrum Master / agile delivery — ~10 min (Aurora)
 
-1. Sign in as **Alex**. Open the closed **Sprint 1** — read its **Partially met**
-   verdict and its burndown curve.
+1. Sign in as **`aurora-priya`**. Open the closed **Sprint 1** — read its
+   **Partially met** verdict and its burndown curve.
 2. Open the **Velocity** chart — note the 20 → 27 ramp and the forecast range.
 3. Open the active sprint board. Find **"Onboarding flow"** and open its
    **History**: it went to Review, bounced back on a real defect, was reworked,
@@ -143,7 +148,7 @@ If you would rather follow one role end to end, pick the path that matches you.
 
 ### Project Manager / scheduler — ~10 min (Bayside)
 
-1. Sign in as **Sarah**. Open the **Schedule** — follow the critical path and
+1. Sign in as **`bayside-sam`**. Open the **Schedule** — follow the critical path and
    spot the four dependency types (the parallel pours and the "finish together"
    framing links).
 2. Turn on the **Contract baseline** overlay — compare completed phases against
@@ -155,19 +160,19 @@ If you would rather follow one role end to end, pick the path that matches you.
 
 ### Product Owner / hybrid lead — ~10 min (Helios, then Atlas)
 
-1. In **Helios**, sign in as **Jordan**. See the finished waterfall **Planning**
+1. In **Helios**, sign in as **`helios-jordan`**. See the finished waterfall **Planning**
    phase hand off to the live **Build** sprints across the cross-phase
    dependency.
 2. Find **"Search & filters"** — an injection that was **rejected** mid-sprint
    and deferred, so it dropped back out of the sprint.
-3. Open **Atlas** as the program lead. Follow the cross-project critical path
+3. Open **Atlas** and sign in as **`atlas-alex`** (the program lead). Follow the cross-project critical path
    (Platform Core → Migration → public launch) and open the **SSO login** task's
    History to see a security-review bounce that became a tracked audit risk.
 
 ### Team member / contributor — ~5 min (Aurora)
 
-1. Sign in as **Priya**. Open the board (or **My Work**) and find your in-flight
-   cards.
+1. Sign in as **`aurora-priya`**. Open the board (or **My Work**) and find your
+   in-flight cards.
 2. Move a card to the next column — the active sprint's **burndown** redraws
    immediately; you didn't touch anything else.
 3. Open a "hero" task's **History** — your reassignments and a review bounce-back
@@ -221,7 +226,7 @@ leveling) is the enterprise layer — the
 Your evaluation is about autonomy, so check the artifacts that prove the sprint
 belongs to the team:
 
-1. In **Aurora**, sign in as **Alex**. Open a closed sprint's **retrospective**
+1. In **Aurora**, sign in as **`aurora-priya`**. Open a closed sprint's **retrospective**
    and confirm a promoted action item carried into the next sprint's backlog —
    the pipeline is real, not a checkbox.
 2. Find the mid-sprint scope injection that was **accepted** and recorded in the

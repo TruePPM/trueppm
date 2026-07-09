@@ -107,10 +107,14 @@ Three commands cover bundled sample projects and the canonical JSON seed format
 (ADR-0109). See [Sample projects](/getting-started/sample-projects/) for the
 user-facing guide.
 
-- **`load_sample_project [--sample <key>] [--owner <username>]`** — imports a
-  bundled sample seed (default: the Atlas hybrid-large launch demo) and flags its
-  projects as sample data. Idempotent — re-running replaces the sample. The owner
-  defaults to the first superuser.
+- **`load_sample_project [--sample <key>] [--owner <username>] [--with-personas]`** —
+  imports a bundled sample seed (default: the Atlas hybrid-large launch demo) and
+  flags its projects as sample data. Idempotent — re-running replaces the sample. The
+  owner defaults to the first superuser. `--with-personas` gives the sample's persona
+  accounts the resolved demo password so they are loginable and prints their real,
+  namespaced usernames (e.g. `atlas-alex`) — same resolution as `seed_demo_project`
+  (`TRUEPPM_DEMO_PASSWORD` if set, else `demo` under `DEBUG=True`, else a random token
+  printed once). Without it the personas exist but carry unusable passwords.
 - **`import_seed <path> [--owner <username>] [--create-users]`** — imports a
   TruePPM JSON seed file into the database. Re-running with the same file rebuilds
   the program subtree idempotently on the program slug. `--create-users` mints any

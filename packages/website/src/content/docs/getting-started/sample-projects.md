@@ -144,11 +144,18 @@ without maintaining two representations of the same work.
 ### Loading from the command line
 
 ```bash
-python manage.py load_sample_project                          # Atlas (default)
-python manage.py load_sample_project --sample aurora-mobile-app
-python manage.py load_sample_project --sample bayside-civic-center
-python manage.py load_sample_project --sample helios-crm-replacement
+docker compose exec api python manage.py load_sample_project                          # Atlas (default)
+docker compose exec api python manage.py load_sample_project --sample aurora-mobile-app
+docker compose exec api python manage.py load_sample_project --sample bayside-civic-center
+docker compose exec api python manage.py load_sample_project --sample helios-crm-replacement
 ```
+
+Add `--with-personas` to any of these to give the sample's persona accounts a
+usable login password (namespaced `<sample>-<name>`, e.g. `aurora-priya`); the
+command prints the usernames and the shared password after loading — `demo` in
+local Docker dev with `DEBUG` on. Without the flag the personas are view-only.
+See the [evaluation guide](/getting-started/evaluation-guide/) for the persona
+sign-in walkthrough.
 
 Or over the API: `POST /api/v1/programs/load-sample/` (any authenticated user;
 the caller becomes the program owner).
@@ -172,7 +179,7 @@ round-trip counterpart to **Export to JSON**. The same dialog imports MS Project
 ### From the command line
 
 ```bash
-python manage.py import_seed path/to/seed.json [--owner <username>] [--create-users]
+docker compose exec api python manage.py import_seed path/to/seed.json [--owner <username>] [--create-users]
 ```
 
 - `--owner` sets the program owner (defaults to the first superuser).

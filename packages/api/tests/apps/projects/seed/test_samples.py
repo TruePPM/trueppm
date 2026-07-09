@@ -105,6 +105,62 @@ def test_management_command_loads_sample(owner: Any) -> None:
     assert Program.objects.filter(code="atlas-platform-launch", is_deleted=False).exists()
 
 
+# --- persona logins (#1760) ------------------------------------------------
+
+
+def test_personas_have_unusable_password_by_default(owner: Any) -> None:
+    """Without a persona_password the created personas cannot log in (unchanged)."""
+    load_sample("atlas-platform-launch", owner=owner, create_users=True)
+    alex = User.objects.get(username="atlas-alex")
+    assert alex.has_usable_password() is False
+
+
+def test_persona_password_makes_personas_loginable(owner: Any) -> None:
+    """persona_password gives created personas a real, checkable login password."""
+    load_sample("atlas-platform-launch", owner=owner, create_users=True, persona_password="demo")
+    alex = User.objects.get(username="atlas-alex")
+    assert alex.has_usable_password() is True
+    assert alex.check_password("demo") is True
+
+
+def test_persona_password_never_repasswords_existing_user(owner: Any) -> None:
+    """A pre-existing account matching a persona username keeps its own password.
+
+    The password is applied only to accounts this import *creates*, so loading a
+    sample can never overwrite (or expose) a real user's credentials — even if the
+    real username collides with a namespaced persona slug.
+    """
+    existing = User.objects.create_user(username="atlas-alex", password="original-secret")
+    load_sample("atlas-platform-launch", owner=owner, create_users=True, persona_password="demo")
+    existing.refresh_from_db()
+    assert existing.check_password("original-secret") is True
+    assert existing.check_password("demo") is False
+
+
+def test_with_personas_flag_enables_login_under_debug(
+    owner: Any, settings: Any, capsys: Any
+) -> None:
+    """`--with-personas` under DEBUG seeds the 'demo' password and echoes usernames."""
+    settings.DEBUG = True
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    call_command("load_sample_project", "--with-personas")
+
+    alex = User.objects.get(username="atlas-alex")
+    assert alex.check_password("demo") is True
+    out = capsys.readouterr().out
+    assert "atlas-alex" in out  # the real username the guide must reference
+
+
+def test_without_flag_personas_stay_unusable_via_command(owner: Any) -> None:
+    """The default command path leaves personas view-only (no dormant weak login)."""
+    owner.is_superuser = True
+    owner.save(update_fields=["is_superuser"])
+    call_command("load_sample_project")
+    alex = User.objects.get(username="atlas-alex")
+    assert alex.has_usable_password() is False
+
+
 # --- endpoints -------------------------------------------------------------
 
 

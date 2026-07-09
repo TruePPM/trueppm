@@ -19,7 +19,7 @@ short **go-offline** demo you can run yourself.
 Load the flagship sample first:
 
 ```bash
-python manage.py load_sample_project        # Atlas Platform Launch (default)
+docker compose exec api python manage.py load_sample_project        # Atlas Platform Launch (default)
 ```
 
 Or, in the app, open **Programs → Load demo data → Atlas Platform Launch**.
@@ -107,7 +107,7 @@ reproduces the same forecast trend, so a walkthrough you rehearse is the
 walkthrough your audience sees.
 
 ```bash
-python manage.py load_sample_project        # replaces the existing Atlas sample
+docker compose exec api python manage.py load_sample_project        # replaces the existing Atlas sample
 ```
 
 See [Sample projects & JSON import/export](/getting-started/sample-projects/) for
