@@ -138,9 +138,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { edition } = useEdition();
   const projectId = useProjectId();
 
-  const canAccessAdminSettings = user?.can_access_admin_settings ?? true;
-  const settingsTo = canAccessAdminSettings ? '/settings' : '/me/settings/notifications';
-  const settingsLabel = canAccessAdminSettings ? 'Workspace settings' : 'Notification settings';
+  // One deterministic destination for the gear (#1738): an identical control must
+  // never branch where it lands by role. It always opens the settings hub;
+  // `RequireAdminSettings` redirects a non-admin on to their reachable scope
+  // (RBAC gates the sections *inside* the hub, not the gear's target). See ADR-0030.
+  const settingsTo = '/settings';
+  const settingsLabel = 'Settings';
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);
@@ -709,16 +712,25 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           )}
         </div>
 
-        {/* Footer — user + settings gear (stays at the very bottom) */}
+        {/* Footer — signed-in label + settings gear (stays at the very bottom).
+            The identity is a quiet "Signed in / {name}" orientation label, not a
+            control: the former avatar circle looked tappable but was inert
+            (aria-hidden), so it was demoted to text (#1737). The gear is the one
+            interactive element here. */}
         <div className="shrink-0 border-t border-chrome-border/8 p-2">
           <div className="flex items-center gap-2">
-            <AvatarInitials initials={user?.initials ?? '··'} size="md" />
             {showFull && (
-              <span className="min-w-0 truncate text-sm text-chrome-text-primary">
-                {user?.display_name ?? user?.username ?? 'Account'}
-              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold uppercase tracking-widest leading-none text-chrome-text-secondary">
+                  Signed in
+                </div>
+                <div className="mt-0.5 truncate text-sm font-medium leading-tight text-chrome-text-primary">
+                  {user?.display_name ?? user?.username ?? 'Account'}
+                </div>
+              </div>
             )}
-            <div className="flex-1" />
+            {/* When the rail is collapsed (label suppressed) keep the gear right-aligned. */}
+            {!showFull && <div className="flex-1" />}
             <NavLink
               to={settingsTo}
               aria-label={settingsLabel}

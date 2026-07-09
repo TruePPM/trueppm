@@ -43,17 +43,26 @@ export function PresenceAvatarStack({ users }: Props) {
       title={`${tooltipLabel}. ${presenceContract}`}
       role="status"
     >
-      {/* Avatar circles — overlap slightly with negative margin */}
+      {/* Avatar circles — overlap slightly with negative margin. The rightmost
+          (top-of-stack, unobstructed) avatar carries a green "viewing now" dot so
+          the cluster reads as live presence — differentiating it at a glance from
+          the solid full-size "me" identity chip further along the bar (#1736,
+          design §02). The dot is decorative (aria-hidden with the avatar); the
+          "viewing" state is already named in the group aria-label + title. Green
+          matches the StatusBar "Live" dot (rule 44). */}
       <div className="flex -space-x-1.5">
-        {visible.map((u) => (
+        {visible.map((u, i) => (
           <span
             key={u.user_id}
-            className="flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold
+            className="relative flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold
               bg-brand-primary-light text-brand-primary
               ring-2 ring-neutral-surface"
             aria-hidden="true"
           >
             {initials(u.display_name)}
+            {i === visible.length - 1 && (
+              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-semantic-on-track ring-2 ring-neutral-surface" />
+            )}
           </span>
         ))}
       </div>
