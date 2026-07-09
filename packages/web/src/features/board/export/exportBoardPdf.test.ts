@@ -4,12 +4,19 @@ import { exportBoardPdf, boardPdfFileName } from './exportBoardPdf';
 // html-to-image + jspdf are dynamically imported by the helper; mock both.
 // Spies are declared via vi.hoisted so the hoisted vi.mock factories can close
 // over them (a plain const would be in the temporal dead zone at mock time).
-const { toPng, addImage, addPage, save } = vi.hoisted(() => ({
-  toPng: vi.fn(),
-  addImage: vi.fn(),
-  addPage: vi.fn(),
-  save: vi.fn(),
-}));
+const { toPng, addImage, addPage, save, text, setFontSize, setTextColor, setLanguage, setProperties } =
+  vi.hoisted(() => ({
+    toPng: vi.fn(),
+    addImage: vi.fn(),
+    addPage: vi.fn(),
+    save: vi.fn(),
+    // The selectable text layer (issue 1687) exercises these; real jsPDF exposes them.
+    text: vi.fn(),
+    setFontSize: vi.fn(),
+    setTextColor: vi.fn(),
+    setLanguage: vi.fn(),
+    setProperties: vi.fn(),
+  }));
 vi.mock('html-to-image', () => ({ toPng }));
 vi.mock('jspdf', () => ({
   // A class so `new jsPDF()` constructs; methods delegate to the hoisted spies.
@@ -17,6 +24,11 @@ vi.mock('jspdf', () => ({
     addImage = addImage;
     addPage = addPage;
     save = save;
+    text = text;
+    setFontSize = setFontSize;
+    setTextColor = setTextColor;
+    setLanguage = setLanguage;
+    setProperties = setProperties;
     // A4 landscape in points.
     internal = { pageSize: { getWidth: () => 841.89, getHeight: () => 595.28 } };
   },
@@ -44,6 +56,11 @@ beforeEach(() => {
   addImage.mockClear();
   addPage.mockClear();
   save.mockClear();
+  text.mockClear();
+  setFontSize.mockClear();
+  setTextColor.mockClear();
+  setLanguage.mockClear();
+  setProperties.mockClear();
 });
 
 afterEach(() => {
@@ -89,6 +106,45 @@ describe('exportBoardPdf', () => {
     expect(addPage).toHaveBeenCalledTimes(3);
     expect(addImage).toHaveBeenCalledTimes(4);
     expect(save).toHaveBeenCalledWith('board-tall.pdf');
+  });
+});
+
+describe('exportBoardPdf — selectable text layer (issue 1687)', () => {
+  function stubRect(el: HTMLElement, box: [number, number, number, number]) {
+    const [left, top, width, height] = box;
+    el.getBoundingClientRect = () =>
+      ({
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+        width,
+        height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+
+  it('sets document metadata and stamps invisible card/column text over the raster', async () => {
+    stubImage(800, 400);
+    const node = document.createElement('div');
+    const card = document.createElement('div');
+    card.dataset.printText = 'card';
+    card.textContent = 'RIV-1.3 Wire the API';
+    stubRect(card, [12, 12, 180, 30]);
+    node.appendChild(card);
+
+    await exportBoardPdf(node, { fileName: 'board-apollo.pdf' });
+
+    expect(setLanguage).toHaveBeenCalledWith('en-US');
+    expect(setProperties).toHaveBeenCalledWith(expect.objectContaining({ title: 'board-apollo' }));
+    expect(text).toHaveBeenCalledWith(
+      'RIV-1.3 Wire the API',
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ renderingMode: 'invisible', baseline: 'top' }),
+    );
   });
 });
 

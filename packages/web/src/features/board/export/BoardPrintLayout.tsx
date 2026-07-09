@@ -26,7 +26,10 @@ const PRINT_WIDTH_PX = 1123;
 function PrintCard({ card }: { card: BoardPrintCard }) {
   const due = card.due ? fmtUtcShort(card.due) : null;
   return (
-    <div className="rounded-card border border-neutral-border bg-neutral-surface px-2 py-1.5">
+    <div
+      data-print-text="card"
+      className="rounded-card border border-neutral-border bg-neutral-surface px-2 py-1.5"
+    >
       <div className="flex items-start gap-1.5">
         {card.isCritical && (
           <span
@@ -88,7 +91,7 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
         className="theme-light bg-white p-6 font-sans text-neutral-text-primary"
       >
         {/* Header band */}
-        <header className="mb-4 border-b border-neutral-border pb-3">
+        <header data-print-text="masthead" className="mb-4 border-b border-neutral-border pb-3">
           <h1 className="text-lg font-semibold">{data.projectName}</h1>
           <p className="mt-0.5 text-xs text-neutral-text-secondary">
             Board{data.sprintName ? ` · ${data.sprintName}` : ''} · {cardCount} cards
@@ -101,6 +104,7 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
           {cols.map((col) => (
             <div
               key={col.status}
+              data-print-text="column"
               className="border-b-2 border-neutral-border pb-1 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary"
             >
               {col.label}
@@ -115,7 +119,7 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
             className="mt-3 grid gap-2 border-t border-neutral-border pt-2"
             style={gridTemplate}
           >
-            <div className="text-xs font-semibold text-neutral-text-primary">
+            <div data-print-text="lane" className="text-xs font-semibold text-neutral-text-primary">
               {lane.name}
               <span className="ml-1 font-normal text-neutral-text-secondary">
                 ({lane.cards.length})
@@ -132,7 +136,10 @@ export const BoardPrintLayout = forwardRef<HTMLDivElement, BoardPrintLayoutProps
         ))}
 
         {/* Footer band */}
-        <footer className="mt-6 border-t border-neutral-border pt-2 text-xs text-neutral-text-secondary">
+        <footer
+          data-print-text="footer"
+          className="mt-6 border-t border-neutral-border pt-2 text-xs text-neutral-text-secondary"
+        >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span>
               {data.projectName} · Generated {data.footer.generatedAtLabel}

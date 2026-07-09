@@ -282,13 +282,17 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
         <header className="mb-3 border-b border-neutral-border pb-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-lg font-semibold leading-tight">{masthead.projectName}</h1>
-              <p className="text-xs text-neutral-text-secondary">{masthead.methodSubtitle}</p>
+              <h1 data-print-text="masthead" className="text-lg font-semibold leading-tight">
+                {masthead.projectName}
+              </h1>
+              <p data-print-text="masthead" className="text-xs text-neutral-text-secondary">
+                {masthead.methodSubtitle}
+              </p>
             </div>
             {/* Export-provenance block (issue 1437): org, baseline, export date,
                 project key, and workspace URL — so a printed sheet is traceable
                 back to the workspace and schedule version it came from. */}
-            <div className="text-right text-xs text-neutral-text-secondary">
+            <div data-print-text="masthead" className="text-right text-xs text-neutral-text-secondary">
               {masthead.orgName && <div className="font-medium">{masthead.orgName}</div>}
               {masthead.baselineLabel && <div>{masthead.baselineLabel}</div>}
               <div>Exported {masthead.exportDateLabel}</div>
@@ -303,6 +307,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
           {kpiCells.map((kpi) => (
             <div
               key={kpi.label}
+              data-print-text="kpi"
               className="rounded-card border border-neutral-border bg-neutral-surface px-2 py-1.5"
             >
               <div className="text-xs uppercase tracking-wide text-neutral-text-secondary">
@@ -336,6 +341,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               {rows.map((row) => (
                 <div
                   key={row.id}
+                  data-print-text="row"
                   style={{ height: ROW_H, paddingLeft: labelIndentPx(row.indentLevel) }}
                   className={`flex items-center gap-1.5 pr-2 text-xs ${
                     row.kind === 'phase' ? 'font-semibold' : ''
@@ -773,7 +779,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               {/* whitespace-nowrap on both: there is always ample width, and without it
                   html-to-image can re-measure the uppercase/tracked title as one line but
                   paint it as two, overlapping the first list row (issue 1686). */}
-              <div className="mb-1.5 flex items-baseline justify-between gap-2">
+              <div data-print-text="cp" className="mb-1.5 flex items-baseline justify-between gap-2">
                 <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
                   Critical path chain
                 </span>
@@ -786,6 +792,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 {cpChain.map((t) => (
                   <li
                     key={t.id}
+                    data-print-text="cp"
                     className="flex items-baseline gap-1.5 text-xs text-neutral-text-primary"
                   >
                     <span className="tppm-mono flex-shrink-0 text-neutral-text-secondary">
@@ -807,6 +814,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
               break may fall at its top but never inside it (ADR-0276, issue 1694). */}
           <div
             data-print-vmark="footer"
+            data-print-text="footer"
             className="mt-2 flex flex-wrap items-center justify-between gap-2"
           >
             <span>
