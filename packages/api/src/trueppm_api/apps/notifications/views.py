@@ -49,9 +49,10 @@ from .serializers import (
     NotificationPreferenceSerializer,
     NotificationSerializer,
     ProjectNotificationPreferenceSerializer,
+    UserNotificationSettingsSerializer,
     WorkspaceEmailSettingsSerializer,
 )
-from .services import get_or_create_default_preferences
+from .services import get_or_create_default_preferences, get_or_create_notification_settings
 
 logger = logging.getLogger(__name__)
 
@@ -511,6 +512,45 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         payload = ProjectNotificationPreferenceSerializer(pref).data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class MyNotificationSettingsView(IdempotencyMixin, APIView):
+    """GET/PATCH the authenticated user's account-wide notification settings.
+
+    Mounted at ``/api/v1/me/notification-settings/`` — the authoritative read/write
+    surface for the Do-Not-Disturb switch (#1707, ADR-0292). The same
+    ``dnd_enabled`` value is projected read-only onto ``/auth/me`` so the web
+    current-user query carries it without a second request.
+
+    Self-scoped by construction: the row is always ``request.user``'s own
+    (``get_or_create`` on the caller), there is no object id in the path, and there
+    is no way to address another user's settings — so there is no IDOR surface and
+    no admin edit path, mirroring ADR-0075's "each user owns their notification
+    contract" rule.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: UserNotificationSettingsSerializer})
+    def get(self, request: Request) -> Response:
+        settings_row = get_or_create_notification_settings(request.user)
+        return Response(
+            UserNotificationSettingsSerializer(settings_row).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        request=UserNotificationSettingsSerializer,
+        responses={200: UserNotificationSettingsSerializer},
+    )
+    def patch(self, request: Request) -> Response:
+        settings_row = get_or_create_notification_settings(request.user)
+        serializer = UserNotificationSettingsSerializer(
+            settings_row, data=request.data, partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> dict[str, Any]:

@@ -15,6 +15,13 @@ import {
 } from 'react';
 import { Link } from 'react-router';
 import { useMarkAllRead, useNotifications } from '@/hooks/useNotifications';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import {
+  DND_ERROR_ANNOUNCEMENT,
+  dndAnnouncement,
+  useUpdateNotificationSettings,
+} from '@/hooks/useUpdateNotificationSettings';
+import { Toggle } from '@/features/settings/components/Toggle';
 import {
   CATEGORY_FILTERS,
   type NotificationCategory,
@@ -34,7 +41,19 @@ export function NotificationPanel({ onClose }: Props) {
   const { notifications, isLoading, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useNotifications({ filter, category });
   const markAllRead = useMarkAllRead();
+  const { user } = useCurrentUser();
+  const updateDnd = useUpdateNotificationSettings();
+  const dnd = user?.dnd_enabled ?? false;
   const [announce, setAnnounce] = useState<string>('');
+
+  // Reachable-from-the-bell DND quick-toggle — same optimistic hook as the
+  // settings card; the switch and the bell's muted glyph flip immediately.
+  const handleToggleDnd = (next: boolean) => {
+    setAnnounce(dndAnnouncement(next));
+    updateDnd.mutate(next, {
+      onError: () => setAnnounce(DND_ERROR_ANNOUNCEMENT),
+    });
+  };
   const firstFocusRef = useRef<HTMLButtonElement>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -113,6 +132,25 @@ export function NotificationPanel({ onClose }: Props) {
             ✕
           </button>
         </div>
+      </div>
+
+      {/* DND quick-toggle — reachable without leaving the bell (#1707). A static
+          "Do Not Disturb" label + an On/Off state word, so the OFF state never
+          reads as active (ux-review). */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-border">
+        <span className="text-xs font-medium text-neutral-text-primary">Do Not Disturb</span>
+        <Toggle
+          on={dnd}
+          onChange={handleToggleDnd}
+          onLabel="On"
+          offLabel="Off"
+          ariaLabel="Do Not Disturb"
+        />
+        {dnd && (
+          <span className="ml-auto text-xs text-neutral-text-secondary">
+            Emails &amp; push paused
+          </span>
+        )}
       </div>
 
       {/* Read-state filter tabs */}
@@ -212,18 +250,21 @@ export function NotificationPanel({ onClose }: Props) {
             Couldn&apos;t load notifications.
           </p>
         )}
-        {!isLoading && !error && sorted.length === 0 && (() => {
-          const copy = notificationEmptyCopy(filter, category);
-          return (
-            <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
-              <span aria-hidden="true" className="text-2xl">
-                {copy.emoji}
-              </span>
-              <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
-              <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
-            </div>
-          );
-        })()}
+        {!isLoading &&
+          !error &&
+          sorted.length === 0 &&
+          (() => {
+            const copy = notificationEmptyCopy(filter, category);
+            return (
+              <div className="flex flex-col items-center gap-1 py-10 text-center px-4">
+                <span aria-hidden="true" className="text-2xl">
+                  {copy.emoji}
+                </span>
+                <p className="text-sm font-medium text-neutral-text-primary">{copy.title}</p>
+                <p className="text-xs text-neutral-text-secondary">{copy.body}</p>
+              </div>
+            );
+          })()}
         {!isLoading && !error && sorted.length > 0 && (
           <div className="flex flex-col gap-2">
             {sorted.map((n) => (

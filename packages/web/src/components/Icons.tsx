@@ -609,6 +609,28 @@ export function BellIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/**
+ * Moon — a filled crescent; the Do-Not-Disturb indicator (#1707). Rides as a
+ * small corner chip over the (unchanged, active) bell. Deliberately the OS-standard
+ * "quiet mode" glyph, NOT a slashed bell — DND pauses emails/push, the in-app
+ * inbox stays active, so an off-implying bell would misread. Filled (like
+ * CriticalDotIcon) so it stays crisp in the ~9px chip.
+ */
+export function MoonIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.8 10.2A6 6 0 1 1 7.6 2.2 4.7 4.7 0 0 0 13.8 10.2Z" />
+    </svg>
+  );
+}
+
 /** Horizontal ellipsis — overflow menus */
 export function MoreHorizontalIcon({ className, ...rest }: IconProps) {
   return (

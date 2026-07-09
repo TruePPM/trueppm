@@ -270,10 +270,11 @@ emoji picker landed in 0.3.
 
 ### The bell
 
-The TopBar bell tracks your unread mention count. A filled bell with a
-brand-colored count badge means you have unread mentions; a quiet outline
-bell means you're caught up. The count caps at "99+" in the badge but the
-underlying value is exact.
+The TopBar bell tracks your unread mention count. The bell keeps the **same
+active shape in every state** — unread is signalled by a brand-colored count
+badge and accent, never by swapping to a muted or "off"-looking glyph, so the
+resting (caught-up) state never reads as *notifications turned off*. The count
+caps at "99+" in the badge but the underlying value is exact.
 
 On desktop, clicking the bell opens a 380–420 px slide-out panel anchored to
 the right of the topbar. On mobile, it navigates to `/me/notifications` as a
@@ -281,6 +282,29 @@ full-screen route.
 
 The unread count refreshes every **30 seconds** while the tab is in the
 foreground. Background tabs pause the poll to save battery and API calls.
+
+### Do Not Disturb
+
+:::note[Ships in 0.4]
+The account-wide Do Not Disturb switch lands in the **0.4 beta**.
+:::
+
+Do Not Disturb is a personal, account-wide quiet switch. Turn it on from
+**Settings → Notifications** (or the quick toggle in the bell panel) to pause
+notification **emails and push** — your in-app inbox and unread count keep
+receiving everything, so nothing is lost. While it is on, the bell shows a small
+crescent-moon indicator; because it is driven by a real setting, that indicator
+means *you chose quiet*, not *notifications are broken*.
+
+Critical alerts always come through even while muted — a task of yours being
+**blocked**, a team **signal-visibility proposal** opening or resolving, and a
+**milestone forecast shift** are never silenced. Do Not Disturb only holds back
+the interrupting channels; it can never swallow the signals that need you.
+
+Do Not Disturb is a single on/off switch today. It reads and writes through
+`GET`/`PATCH /api/v1/me/notification-settings/`, so it is identical for web,
+mobile, and MCP clients. It is distinct from per-notification **Snooze** (which
+defers one item) and inline **Mute** (which turns down one *type*) below.
 
 ### The inbox
 

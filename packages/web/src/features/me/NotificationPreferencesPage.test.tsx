@@ -7,6 +7,7 @@ const useNotificationPreferences = vi.fn();
 const mutate = vi.fn();
 const applyPresetMutate = vi.fn();
 const useCurrentUser = vi.fn();
+const dndMutate = vi.fn();
 
 vi.mock('@/hooks/useNotificationPreferences', () => ({
   useNotificationPreferences: () => useNotificationPreferences() as unknown,
@@ -21,6 +22,12 @@ vi.mock('@/hooks/useNotificationPreferences', () => ({
 vi.mock('@/hooks/useCurrentUser', () => ({
   useCurrentUser: () => useCurrentUser() as unknown,
 }));
+
+// Keep the real announcement helpers; stub only the mutation (no QueryClient here).
+vi.mock('@/hooks/useUpdateNotificationSettings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useUpdateNotificationSettings')>();
+  return { ...actual, useUpdateNotificationSettings: () => ({ mutate: dndMutate }) };
+});
 
 function pref(
   id: number,
@@ -58,11 +65,50 @@ beforeEach(() => {
   mutate.mockReset();
   applyPresetMutate.mockReset();
   useCurrentUser.mockReset();
+  dndMutate.mockReset();
   // Default to admin so the existing matrix tests see the full grid.
   useCurrentUser.mockReturnValue(adminUser());
 });
 
 describe('NotificationPreferencesPage', () => {
+  it('toggles Do Not Disturb via an instant PATCH (no save bar)', () => {
+    useNotificationPreferences.mockReturnValue({
+      preferences: PREFERENCES,
+      isLoading: false,
+      error: null,
+    });
+    render(<NotificationPreferencesPage />);
+    const dndSwitch = screen.getByRole('switch', { name: 'Do Not Disturb' });
+    expect(dndSwitch.getAttribute('aria-checked')).toBe('false');
+    // Truthful helper copy + the safety guarantee are on screen.
+    expect(
+      screen.getByText(
+        'Pause notification emails and push. Your in-app inbox still receives everything.',
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText('Blockers and critical schedule alerts always come through.'),
+    ).toBeTruthy();
+    fireEvent.click(dndSwitch);
+    expect(dndMutate).toHaveBeenCalledWith(true, expect.anything());
+  });
+
+  it('reflects an already-enabled DND state on the switch', () => {
+    useCurrentUser.mockReturnValue({
+      user: { can_access_admin_settings: true, dnd_enabled: true },
+      isLoading: false,
+    });
+    useNotificationPreferences.mockReturnValue({
+      preferences: PREFERENCES,
+      isLoading: false,
+      error: null,
+    });
+    render(<NotificationPreferencesPage />);
+    expect(
+      screen.getByRole('switch', { name: 'Do Not Disturb' }).getAttribute('aria-checked'),
+    ).toBe('true');
+  });
+
   it('renders friendly labels for the new own-task events', () => {
     useNotificationPreferences.mockReturnValue({
       preferences: PREFERENCES,
@@ -87,9 +133,12 @@ describe('NotificationPreferencesPage', () => {
       error: null,
     });
     render(<NotificationPreferencesPage />);
-    const switches = screen.getAllByRole('switch');
-    expect(switches.length).toBeGreaterThan(0);
-    fireEvent.click(switches[0]);
+    // Exclude the always-present DND switch — this asserts a *matrix* channel toggle.
+    const matrixSwitches = screen
+      .getAllByRole('switch')
+      .filter((s) => s.getAttribute('aria-label') !== 'Do Not Disturb');
+    expect(matrixSwitches.length).toBeGreaterThan(0);
+    fireEvent.click(matrixSwitches[0]);
     // The page debounces the save (~300ms) — wait for the deferred mutate.
     await waitFor(() => expect(mutate).toHaveBeenCalled());
   });
@@ -103,8 +152,13 @@ describe('NotificationPreferencesPage', () => {
     useCurrentUser.mockReturnValue(contributorUser());
     render(<NotificationPreferencesPage />);
     expect(screen.getByText('Signal-only')).toBeInTheDocument();
-    // Matrix is collapsed behind the escape until requested.
-    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    // Matrix is collapsed behind the escape until requested — only the always-on
+    // DND switch remains (the matrix channel toggles are hidden).
+    expect(
+      screen
+        .queryAllByRole('switch')
+        .filter((s) => s.getAttribute('aria-label') !== 'Do Not Disturb'),
+    ).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: /Use signal-only/i }));
     expect(applyPresetMutate).toHaveBeenCalledWith('signal_only', expect.anything());
     // The escape reveals the full matrix.

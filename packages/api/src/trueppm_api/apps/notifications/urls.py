@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 
 from .views import (
+    MyNotificationSettingsView,
     NotificationPreferenceViewSet,
     NotificationViewSet,
     ProjectNotificationPreferenceView,
@@ -55,6 +56,12 @@ urlpatterns = [
         "me/notification-preferences/<int:pk>/",
         NotificationPreferenceViewSet.as_view({"patch": "partial_update"}),
         name="me-notification-preferences-detail",
+    ),
+    # Account-wide notification settings — Do-Not-Disturb switch (#1707, ADR-0292)
+    path(
+        "me/notification-settings/",
+        MyNotificationSettingsView.as_view(),
+        name="me-notification-settings",
     ),
     # Project-scoped routing matrix + quiet hours (#522)
     path(

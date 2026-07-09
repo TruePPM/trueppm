@@ -17,6 +17,12 @@ import {
   useUpdateNotificationPreference,
 } from '@/hooks/useNotificationPreferences';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import {
+  DND_ERROR_ANNOUNCEMENT,
+  dndAnnouncement,
+  useUpdateNotificationSettings,
+} from '@/hooks/useUpdateNotificationSettings';
+import { Toggle } from '@/features/settings/components/Toggle';
 
 const EVENT_LABELS: Record<string, { title: string; example: string }> = {
   mention_individual: {
@@ -120,6 +126,9 @@ export function NotificationPreferencesPage() {
   const updatePreference = useUpdateNotificationPreference();
   const applyPreset = useApplyNotificationPreset();
   const { user } = useCurrentUser();
+  const updateDnd = useUpdateNotificationSettings();
+  const dnd = user?.dnd_enabled ?? false;
+  const [dndAnnounce, setDndAnnounce] = useState('');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const debounceTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   // #855: a contributor (no admin access anywhere) gets the simplified
@@ -182,6 +191,17 @@ export function NotificationPreferencesPage() {
     debounceTimers.current.set(id, handle);
   }
 
+  // Do Not Disturb is an instant-toggle (rule 217 carve-out): a single optimistic
+  // PATCH, no save bar. The switch and the bell's muted glyph flip immediately
+  // (the hook writes the ['current-user'] cache); the announcement is optimistic
+  // and only overridden on a write failure (the hook also reverts the value).
+  function handleToggleDnd(next: boolean) {
+    setDndAnnounce(dndAnnouncement(next));
+    updateDnd.mutate(next, {
+      onError: () => setDndAnnounce(DND_ERROR_ANNOUNCEMENT),
+    });
+  }
+
   // Auto-dismiss the "Saved" indicator after 3 s.
   useEffect(() => {
     if (savedAt == null) return;
@@ -238,6 +258,35 @@ export function NotificationPreferencesPage() {
         </p>
       </header>
 
+      {/* Do Not Disturb (#1707) — the coarse master switch, above the per-event
+          matrix. Instant-toggle; pauses only the transient channels. */}
+      <section
+        aria-label="Do Not Disturb"
+        className="rounded-card border border-neutral-border bg-neutral-surface p-4 flex flex-col gap-2"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-text-primary">Do Not Disturb</h2>
+            <p className="text-[13px] text-neutral-text-secondary mt-0.5">
+              Pause notification emails and push. Your in-app inbox still receives everything.
+            </p>
+          </div>
+          <Toggle
+            on={dnd}
+            onChange={handleToggleDnd}
+            onLabel="On"
+            offLabel="Off"
+            ariaLabel="Do Not Disturb"
+          />
+        </div>
+        <p className="text-[12px] text-neutral-text-secondary">
+          Blockers and critical schedule alerts always come through.
+        </p>
+        <p role="status" aria-live="polite" className="sr-only">
+          {dndAnnounce}
+        </p>
+      </section>
+
       {/* Signal-only card (#855) — contributors only. The full matrix stays
           collapsed behind the escape until they ask for it. */}
       {isContributor && (
@@ -248,8 +297,8 @@ export function NotificationPreferencesPage() {
           <div>
             <h2 className="text-sm font-semibold text-neutral-text-primary">Signal-only</h2>
             <p className="text-sm text-neutral-text-secondary mt-0.5">
-              You&apos;ll only hear about blocked work and deadline changes. Everything else
-              stays quiet.
+              You&apos;ll only hear about blocked work and deadline changes. Everything else stays
+              quiet.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -282,106 +331,106 @@ export function NotificationPreferencesPage() {
 
       {/* Desktop matrix (≥ md): one row per event_type, one column per channel. */}
       {matrixVisible && (
-      <>
-      <div className="hidden md:block border border-neutral-border rounded-card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-neutral-border">
-              <th
-                scope="col"
-                className="text-left text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2"
-              >
-                Event
-              </th>
-              {channels.map((ch) => (
-                <th
-                  key={ch}
-                  scope="col"
-                  className="text-center text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2 w-32"
-                >
-                  {CHANNEL_LABELS[ch] ?? ch}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+        <>
+          <div className="hidden md:block border border-neutral-border rounded-card">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-border">
+                  <th
+                    scope="col"
+                    className="text-left text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2"
+                  >
+                    Event
+                  </th>
+                  {channels.map((ch) => (
+                    <th
+                      key={ch}
+                      scope="col"
+                      className="text-center text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2 w-32"
+                    >
+                      {CHANNEL_LABELS[ch] ?? ch}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {eventTypes.map((evt) => {
+                  const meta = EVENT_LABELS[evt];
+                  return (
+                    <tr key={evt} className="border-b border-neutral-border last:border-b-0">
+                      <th scope="row" className="text-left px-4 py-3 align-top">
+                        <div className="text-sm text-neutral-text-primary font-medium">
+                          {meta?.title ?? evt}
+                        </div>
+                        {meta?.example && (
+                          <div className="text-xs text-neutral-text-secondary mt-0.5">
+                            {meta.example}
+                          </div>
+                        )}
+                      </th>
+                      {channels.map((ch) => {
+                        const pref = prefByKey.get(`${evt}:${ch}`);
+                        if (!pref) {
+                          return (
+                            <td
+                              key={ch}
+                              className="text-center px-4 py-3 text-xs text-neutral-text-disabled"
+                            >
+                              —
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={ch} className="text-center px-4 py-3">
+                            <PreferenceToggle pref={pref} onChange={scheduleUpdate} />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile stack (< md): per-event section with channel sub-rows. */}
+          <div className="md:hidden flex flex-col gap-4">
             {eventTypes.map((evt) => {
               const meta = EVENT_LABELS[evt];
               return (
-                <tr key={evt} className="border-b border-neutral-border last:border-b-0">
-                  <th scope="row" className="text-left px-4 py-3 align-top">
-                    <div className="text-sm text-neutral-text-primary font-medium">
-                      {meta?.title ?? evt}
-                    </div>
-                    {meta?.example && (
-                      <div className="text-xs text-neutral-text-secondary mt-0.5">
-                        {meta.example}
-                      </div>
-                    )}
-                  </th>
-                  {channels.map((ch) => {
-                    const pref = prefByKey.get(`${evt}:${ch}`);
-                    if (!pref) {
+                <section
+                  key={evt}
+                  aria-labelledby={`pref-event-${evt}`}
+                  className="border border-neutral-border rounded-card p-3"
+                >
+                  <h2
+                    id={`pref-event-${evt}`}
+                    className="text-sm font-medium text-neutral-text-primary"
+                  >
+                    {meta?.title ?? evt}
+                  </h2>
+                  {meta?.example && (
+                    <p className="text-xs text-neutral-text-secondary mt-0.5">{meta.example}</p>
+                  )}
+                  <div className="flex flex-col gap-2 mt-3">
+                    {channels.map((ch) => {
+                      const pref = prefByKey.get(`${evt}:${ch}`);
+                      if (!pref) return null;
                       return (
-                        <td
-                          key={ch}
-                          className="text-center px-4 py-3 text-xs text-neutral-text-disabled"
-                        >
-                          —
-                        </td>
+                        <div key={ch} className="flex items-center justify-between">
+                          <span className="text-sm text-neutral-text-primary">
+                            {CHANNEL_LABELS[ch] ?? ch}
+                          </span>
+                          <PreferenceToggle pref={pref} onChange={scheduleUpdate} />
+                        </div>
                       );
-                    }
-                    return (
-                      <td key={ch} className="text-center px-4 py-3">
-                        <PreferenceToggle pref={pref} onChange={scheduleUpdate} />
-                      </td>
-                    );
-                  })}
-                </tr>
+                    })}
+                  </div>
+                </section>
               );
             })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile stack (< md): per-event section with channel sub-rows. */}
-      <div className="md:hidden flex flex-col gap-4">
-        {eventTypes.map((evt) => {
-          const meta = EVENT_LABELS[evt];
-          return (
-            <section
-              key={evt}
-              aria-labelledby={`pref-event-${evt}`}
-              className="border border-neutral-border rounded-card p-3"
-            >
-              <h2
-                id={`pref-event-${evt}`}
-                className="text-sm font-medium text-neutral-text-primary"
-              >
-                {meta?.title ?? evt}
-              </h2>
-              {meta?.example && (
-                <p className="text-xs text-neutral-text-secondary mt-0.5">{meta.example}</p>
-              )}
-              <div className="flex flex-col gap-2 mt-3">
-                {channels.map((ch) => {
-                  const pref = prefByKey.get(`${evt}:${ch}`);
-                  if (!pref) return null;
-                  return (
-                    <div key={ch} className="flex items-center justify-between">
-                      <span className="text-sm text-neutral-text-primary">
-                        {CHANNEL_LABELS[ch] ?? ch}
-                      </span>
-                      <PreferenceToggle pref={pref} onChange={scheduleUpdate} />
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-      </>
+          </div>
+        </>
       )}
 
       <p aria-live="polite" className="text-xs text-neutral-text-secondary">

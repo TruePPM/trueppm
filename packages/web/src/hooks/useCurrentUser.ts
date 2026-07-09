@@ -76,6 +76,14 @@ export interface CurrentUser {
    * PATCH /auth/me/profile/.
    */
   schedule_in_deliver: boolean;
+  /**
+   * Account-wide Do-Not-Disturb (#1707, ADR-0292) — `false` if unset. When true,
+   * notification emails and push are paused for routine events (the in-app inbox
+   * and unread count are unaffected, and critical alerts always come through).
+   * Read-only projection here; the authoritative read/write surface is
+   * PATCH /me/notification-settings/ (useUpdateNotificationSettings).
+   */
+  dnd_enabled: boolean;
 }
 
 /**
