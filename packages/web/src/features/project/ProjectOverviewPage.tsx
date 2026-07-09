@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
+import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import { apiClient } from '@/api/client';
@@ -942,6 +944,25 @@ export function ProjectOverviewPage() {
   const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
   const { data: mcData } = useMonteCarloResult(projectId);
 
+  // Methodology-adaptive rendering (#1765). The Overview is the landing page, so a
+  // single-methodology team must not be pushed the other workflow's chrome. Gate the
+  // three cross-methodology widgets exactly where the rest of the app already draws the
+  // line, never inventing a new rule:
+  //   • Monte Carlo → the `monte_carlo` leaf surface (ADR-0193; defaults off for AGILE,
+  //     still honors an admin who turns it back on).
+  //   • Critical path → the `schedule` tab (hidden for AGILE, ADR-0041) — it is a CPM
+  //     artifact and its empty state literally says "Run the scheduler".
+  //   • Backlog/sprint forecast → the `sprints` tab (hidden for WATERFALL) — a schedule-
+  //     first PM never runs sprints, so its permanent "warming up" state is pure noise.
+  // Defaults resolve to HYBRID / all-visible until the project loads, so nothing flashes
+  // hidden on first paint (matching `useSurfaceVisibility`'s lossless default).
+  const { data: project } = useProject(projectId);
+  const surfaces = useSurfaceVisibility(projectId);
+  const effectiveMethodology = project?.effective_methodology ?? 'HYBRID';
+  const showMonteCarlo = surfaces.monte_carlo;
+  const showCriticalPath = isTabVisibleForMethodology('schedule', effectiveMethodology);
+  const showSprintForecast = isTabVisibleForMethodology('sprints', effectiveMethodology);
+
   // The Team utilization card only drills into the role-gated Resources view
   // (rule 94) for SCHEDULER+; lower roles get a static read (no click into a
   // 403). Pessimistic while the role loads (role null → not linkable).
@@ -1033,8 +1054,8 @@ export function ProjectOverviewPage() {
       {/* Blocked-task roll-up — the PM's impediment triage list (ADR-0124). */}
       {projectId && <BlockedRollupPanel scope="project" projectId={projectId} />}
 
-      {/* Monte Carlo forecast widget (#172) */}
-      {projectId && <MonteCarloWidget projectId={projectId} />}
+      {/* Monte Carlo forecast widget (#172) — gated on the monte_carlo surface (#1765). */}
+      {projectId && showMonteCarlo && <MonteCarloWidget projectId={projectId} />}
 
       {/* Burn-up chart */}
       {projectId && (
@@ -1046,8 +1067,9 @@ export function ProjectOverviewPage() {
         </section>
       )}
 
-      {/* Backlog delivery forecast — velocity Monte Carlo (#487) */}
-      {projectId && <SprintForecastWidget projectId={projectId} />}
+      {/* Backlog delivery forecast — velocity Monte Carlo (#487). Sprint artifact:
+         hidden on WATERFALL, where its permanent "warming up" state is noise (#1765). */}
+      {projectId && showSprintForecast && <SprintForecastWidget projectId={projectId} />}
 
       {/* Two-column lower section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1076,8 +1098,8 @@ export function ProjectOverviewPage() {
         </section>
       </div>
 
-      {/* Critical path panel */}
-      {projectId && (
+      {/* Critical path panel — CPM/schedule artifact, hidden on AGILE (#1765). */}
+      {projectId && showCriticalPath && (
         <section aria-label="Critical path">
           <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
             Critical path
