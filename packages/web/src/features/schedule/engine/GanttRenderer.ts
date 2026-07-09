@@ -181,6 +181,57 @@ export const COLOR_DARK: ColorPalette = {
   linkPreview: SAGE_400, // sage-400 — brand-primary (dark)
 };
 
+/**
+ * Forced-colors (Windows High Contrast / `forced-colors: active`) palette (#1742).
+ *
+ * A `<canvas>` draws raw pixels that the forced-colors user-agent transform does
+ * NOT touch — so a normally-painted Gantt is invisible or unreadable under a
+ * high-contrast theme. The remedy (per MDN) is to detect the mode and repaint
+ * using the CSS *system color* keywords, which the 2D context resolves to the
+ * user's active theme: `Canvas`/`CanvasText` for surface/ink, `GrayText` for
+ * de-emphasis, `Highlight` for the accent/selection, `LinkText` for links. The
+ * system palette is intentionally flat (few colors), so bar *kinds* lean on
+ * shape (milestone diamond, summary endcaps) and the Highlight accent for
+ * critical/selection rather than hue — color is never the sole differentiator
+ * here either. Semi-transparent tints (banding, weekend, ghost) collapse to the
+ * solid surface/ink so nothing depends on alpha the theme may not honor.
+ */
+export const COLOR_FORCED: ColorPalette = {
+  surface: 'Canvas',
+  rowBandAlt: 'Canvas',
+  weekend: 'Canvas',
+  gridLine: 'GrayText',
+  todayLine: 'Highlight',
+  text: 'CanvasText',
+  textSecondary: 'GrayText',
+  barNormal: 'CanvasText',
+  barCritical: 'Highlight', // critical-path frame reads via the accent, not red
+  barComplete: 'GrayText',
+  barSummary: 'CanvasText',
+  milestone: 'CanvasText', // the diamond shape carries the distinction
+  arrowNormal: 'CanvasText',
+  arrowCritical: 'CanvasText',
+  selectionRing: 'Highlight',
+  ghostFill: 'Canvas',
+  ghostBorder: 'GrayText',
+  chipTextOnSurface: 'Canvas', // ink-filled bars → surface-colored in-bar text
+  chipPillOnSurface: 'CanvasText',
+  linkDraft: 'LinkText',
+  linkOpen: 'LinkText',
+  linkPreview: 'Highlight',
+};
+
+/**
+ * Pick the palette for a paint pass. Forced-colors wins over dark/light because
+ * the high-contrast theme is a hard user preference (accessibility), not a
+ * cosmetic mode. Pure + exported so the selection is unit-testable without a
+ * canvas.
+ */
+export function pickPalette(dark: boolean, forced: boolean): ColorPalette {
+  if (forced) return COLOR_FORCED;
+  return dark ? COLOR_DARK : COLOR;
+}
+
 // Active palette — swapped by GanttEngineImpl before each paint pass.
 // Synchronous access only: set immediately before any draw call, never in async context.
 let _palette: ColorPalette = COLOR;
@@ -189,8 +240,8 @@ let _palette: ColorPalette = COLOR;
  * Switch the active color palette for all subsequent draw calls in the current pass.
  * Called by GanttEngineImpl at the start of each paint method.
  */
-export function setRendererColorMode(dark: boolean): void {
-  _palette = dark ? COLOR_DARK : COLOR;
+export function setRendererColorMode(dark: boolean, forced = false): void {
+  _palette = pickPalette(dark, forced);
 }
 
 // ---------------------------------------------------------------------------

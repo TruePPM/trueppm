@@ -1204,7 +1204,7 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
 // initial text to near-black ink. Light mode keeps white on its darker fills.
 // ---------------------------------------------------------------------------
 
-import { setRendererColorMode, COLOR_DARK } from './GanttRenderer';
+import { setRendererColorMode, COLOR_DARK, COLOR_FORCED, pickPalette } from './GanttRenderer';
 
 describe('drawTaskBar — in-bar label contrast (#1032)', () => {
   const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
@@ -1546,5 +1546,37 @@ describe('draw primitives (#848 coverage)', () => {
       expect(lineTo!.args[1]).toBe(50 + BAR_HEIGHT);
       expect(calls.filter((c) => c.name === 'stroke').length).toBe(1);
     });
+  });
+});
+
+describe('forced-colors (Windows High Contrast) palette (#1742)', () => {
+  // Restore the default light palette so forced state never leaks (module-global).
+  afterEach(() => setRendererColorMode(false, false));
+
+  it('pickPalette: forced wins over dark/light', () => {
+    expect(pickPalette(false, false)).toBe(COLOR);
+    expect(pickPalette(true, false)).toBe(COLOR_DARK);
+    expect(pickPalette(false, true)).toBe(COLOR_FORCED);
+    expect(pickPalette(true, true)).toBe(COLOR_FORCED); // forced overrides dark
+  });
+
+  it('the forced palette is entirely CSS system-color keywords, never hex', () => {
+    const systemColors = new Set(['Canvas', 'CanvasText', 'GrayText', 'Highlight', 'LinkText']);
+    for (const value of Object.values(COLOR_FORCED)) {
+      expect(systemColors.has(value)).toBe(true);
+    }
+  });
+
+  it('drawing a bar in forced mode emits system colors, not the brand hex', () => {
+    const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+    setRendererColorMode(false, true);
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask({ progress: 50 }), 0, scales, 0, false, 800);
+    const fills = calls.filter((c) => c.name === 'fillStyle').map((c) => c.args[0]);
+    // The normal-bar brand blue is replaced by system ink.
+    expect(fills).not.toContain('#2F6FD1');
+    expect(
+      fills.some((f) => f === 'CanvasText' || f === 'GrayText' || f === 'Highlight' || f === 'Canvas'),
+    ).toBe(true);
   });
 });

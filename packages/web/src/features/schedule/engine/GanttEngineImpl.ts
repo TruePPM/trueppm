@@ -210,6 +210,10 @@ export class GanttEngineImpl implements GanttEngine {
   // Accessibility
   private _reducedMotion = false;
   private _reducedMotionMQ: MediaQueryList | null = null;
+  // forced-colors (Windows High Contrast, #1742): a canvas is not touched by the
+  // UA forced-colors transform, so we repaint with system-color keywords when active.
+  private _forcedColors = false;
+  private _forcedColorsMQ: MediaQueryList | null = null;
 
   // Resize
   private _resizeObserver: ResizeObserver;
@@ -247,7 +251,7 @@ export class GanttEngineImpl implements GanttEngine {
   constructor(options: GanttEngineImplOptions) {
     const { container, bgCanvas, barsCanvas, ixCanvas, initialZoom, isDark } = options;
     this._isDark = isDark ?? false;
-    setRendererColorMode(this._isDark);
+    setRendererColorMode(this._isDark, this._forcedColors);
     this._container = container;
     this._bgCanvas = bgCanvas;
     this._barsCanvas = barsCanvas;
@@ -278,6 +282,13 @@ export class GanttEngineImpl implements GanttEngine {
       this._reducedMotionMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
       this._reducedMotion = this._reducedMotionMQ.matches;
       this._reducedMotionMQ.addEventListener('change', this._onReducedMotionChange);
+
+      // forced-colors (#1742) — repaint with the system-color palette when active,
+      // and re-detect on theme change (High Contrast toggled at runtime).
+      this._forcedColorsMQ = window.matchMedia('(forced-colors: active)');
+      this._forcedColors = this._forcedColorsMQ.matches;
+      setRendererColorMode(this._isDark, this._forcedColors);
+      this._forcedColorsMQ.addEventListener('change', this._onForcedColorsChange);
     }
 
     // ResizeObserver
@@ -544,7 +555,7 @@ export class GanttEngineImpl implements GanttEngine {
 
   setDark(dark: boolean): void {
     this._isDark = dark;
-    setRendererColorMode(dark);
+    setRendererColorMode(dark, this._forcedColors);
     this._headerContentDirty = true; // header palette changes (issue 1523)
     this._fullRepaintPending = true;
     // The rAF loop may be parked (issue 1569) — re-arm it so the next tick actually
@@ -642,6 +653,9 @@ export class GanttEngineImpl implements GanttEngine {
 
     if (this._reducedMotionMQ) {
       this._reducedMotionMQ.removeEventListener('change', this._onReducedMotionChange);
+    }
+    if (this._forcedColorsMQ) {
+      this._forcedColorsMQ.removeEventListener('change', this._onForcedColorsChange);
     }
 
     this._handlers.clear();
@@ -917,7 +931,7 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   private _paintBg(): void {
-    setRendererColorMode(this._isDark);
+    setRendererColorMode(this._isDark, this._forcedColors);
     const ctx = this._bgCtx;
     const w = this._viewportWidth;
     const h = this._viewportHeight;
@@ -1030,7 +1044,7 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   private _paintRow(rowIndex: number): void {
-    setRendererColorMode(this._isDark);
+    setRendererColorMode(this._isDark, this._forcedColors);
     if (!this._scales) return;
     const ctx = this._barsCtx;
     const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
@@ -1599,5 +1613,15 @@ export class GanttEngineImpl implements GanttEngine {
 
   private readonly _onReducedMotionChange = (e: MediaQueryListEvent): void => {
     this._reducedMotion = e.matches;
+  };
+
+  // forced-colors change (#1742): flip the palette and force a full repaint so the
+  // canvas re-renders in (or out of) the system-color theme immediately.
+  private readonly _onForcedColorsChange = (e: MediaQueryListEvent): void => {
+    this._forcedColors = e.matches;
+    setRendererColorMode(this._isDark, this._forcedColors);
+    this._headerContentDirty = true;
+    this._fullRepaintPending = true;
+    this._requestRepaint();
   };
 }

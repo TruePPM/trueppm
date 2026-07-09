@@ -30,11 +30,15 @@ describe('KeyboardShortcutsModal', () => {
     expect(screen.getByRole('heading', { name: 'Global' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Command palette' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Schedule (Gantt)' })).toBeInTheDocument();
     // A representative binding from each group.
     expect(screen.getByText('Open the command palette')).toBeInTheDocument();
     expect(screen.getByText('Show or hide the sidebar')).toBeInTheDocument();
     expect(screen.getByText('Run the selected action')).toBeInTheDocument();
     expect(screen.getByText('Move focus between cards')).toBeInTheDocument();
+    // The keyboard-reschedule bindings are documented (#1742).
+    expect(screen.getByText('Reschedule the selected task')).toBeInTheDocument();
+    expect(screen.getByText('Nudge by one working day')).toBeInTheDocument();
   });
 
   it('renders the OS modifier chip for the command palette shortcut', () => {
