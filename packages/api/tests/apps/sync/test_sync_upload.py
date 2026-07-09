@@ -536,6 +536,68 @@ def test_update_of_deleted_task_is_skipped(admin_client: APIClient, project: Pro
     assert resp.json()["applied"]["tasks"]["updated"] == []
 
 
+@pytest.mark.django_db
+def test_recreate_of_tombstoned_row_is_skipped(admin_client: APIClient, project: Project) -> None:
+    """#1730: re-pushing a created row whose id matches a tombstone is a no-op.
+
+    Without the created-bucket is_deleted guard this ran a full serializer save
+    on the dead row, bumping server_version and emitting a spurious task_updated.
+    """
+    task = Task.objects.create(project=project, name="Gone")
+    task.soft_delete()
+    task.refresh_from_db()
+    version_after_delete = task.server_version
+
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": str(task.pk), "name": "Resurrected"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    # Not reported as created, and no version bump / no content change on the grave.
+    assert resp.json()["applied"]["tasks"]["created"] == []
+    task.refresh_from_db()
+    assert task.is_deleted is True
+    assert task.name == "Gone"
+    assert task.server_version == version_after_delete
+
+
+# ---------------------------------------------------------------------------
+# Push-path hardening: malformed row ids → clean 400, not 500 (#1730)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_malformed_deleted_id_is_400(admin_client: APIClient, project: Project) -> None:
+    resp = admin_client.post(
+        _url(project),
+        _payload(deleted=["not-a-uuid"]),
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+def test_malformed_created_id_is_400(admin_client: APIClient, project: Project) -> None:
+    resp = admin_client.post(
+        _url(project),
+        _payload(created=[{"id": "nope", "name": "X"}]),
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert not Task.objects.exists()
+
+
+@pytest.mark.django_db
+def test_malformed_updated_id_is_400(admin_client: APIClient, project: Project) -> None:
+    resp = admin_client.post(
+        _url(project),
+        _payload(updated=[{"id": "12345", "notes": "x"}]),
+        format="json",
+    )
+    assert resp.status_code == 400
+
+
 # ---------------------------------------------------------------------------
 # Purge task
 # ---------------------------------------------------------------------------
