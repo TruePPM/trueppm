@@ -515,3 +515,90 @@ class TestPercentCompleteRollupDeepWbs:
         r = client.get(f"/api/v1/tasks/{parent.pk}/")
         assert r.status_code == 200
         assert r.data["percent_complete"] == 50.0
+
+
+@pytest.mark.django_db
+class TestRestructurePermission:
+    """WBS restructuring is gated at field-edit authority, not any-Member (#1771).
+
+    Indent/outdent/reparent rewrite a task's phase, rollup parent, and summary-lock
+    across its subtree — a heavier act than a field PATCH — yet previously only
+    required IsProjectMemberWrite (any Member could move any task). They now delegate
+    to ``can_user_edit_task``, so a Member may only restructure a task they could
+    also edit (own-assigned), matching the PATCH gate.
+    """
+
+    @pytest.fixture
+    def member(self, project: Project) -> object:
+        User = get_user_model()
+        u = User.objects.create_user(username="wbs_member", password="pw")
+        ProjectMembership.objects.create(project=project, user=u, role=Role.MEMBER)
+        return u
+
+    @pytest.fixture
+    def member_client(self, member: object) -> APIClient:
+        c = APIClient()
+        c.force_authenticate(user=member)
+        return c
+
+    def test_member_cannot_indent_unowned_task(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        Task.objects.create(project=project, name="T1", duration=5, wbs_path="1")
+        t2 = Task.objects.create(project=project, name="T2", duration=3, wbs_path="2")
+        r = member_client.post(f"/api/v1/projects/{project.id}/tasks/{t2.id}/indent/")
+        assert r.status_code == 403
+        t2.refresh_from_db()
+        assert t2.wbs_path == "2"
+
+    def test_member_cannot_outdent_unowned_task(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        child = Task.objects.create(project=project, name="Work", duration=5, wbs_path="1.1")
+        r = member_client.post(f"/api/v1/projects/{project.id}/tasks/{child.id}/outdent/")
+        assert r.status_code == 403
+        child.refresh_from_db()
+        assert child.wbs_path == "1.1"
+
+    def test_member_cannot_reparent_unowned_task(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        phase_b = Task.objects.create(project=project, name="Phase B", duration=0, wbs_path="2")
+        t = Task.objects.create(project=project, name="Stray", duration=5, wbs_path="3")
+        r = member_client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(phase_b.id)},
+            format="json",
+        )
+        assert r.status_code == 403
+        t.refresh_from_db()
+        assert t.wbs_path == "3"
+
+    def test_member_can_indent_own_assigned_task(
+        self, member_client: APIClient, project: Project, member: object
+    ) -> None:
+        """Field-edit parity: a Member may restructure a task assigned to them."""
+        Task.objects.create(project=project, name="T1", duration=5, wbs_path="1")
+        t2 = Task.objects.create(
+            project=project, name="T2", duration=3, wbs_path="2", assignee=member
+        )
+        r = member_client.post(f"/api/v1/projects/{project.id}/tasks/{t2.id}/indent/")
+        assert r.status_code == 200
+        t2.refresh_from_db()
+        assert t2.wbs_path == "1.1"
+
+    def test_admin_can_reparent_any_task(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Regression guard: the Owner/Admin path is unaffected by the tightened gate."""
+        phase_b = Task.objects.create(project=project, name="Phase B", duration=0, wbs_path="2")
+        t = Task.objects.create(project=project, name="Stray", duration=5, wbs_path="3")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(phase_b.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        t.refresh_from_db()
+        assert t.wbs_path == "2.1"

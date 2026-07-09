@@ -20,6 +20,13 @@ so mobile writes inherit identical validation and business rules (progress-ancho
 gate, milestone invariant, sprint cross-project IDOR check, auto-promote on
 past planned_start). This is deliberate: the upload path must never be able to
 do something a member could not do via ``PATCH /tasks/{id}/``.
+
+Per-row edit/delete permission likewise calls ``can_user_edit_task`` (the ADR-0133
+source of truth) directly rather than re-implementing the role matrix, so the
+upload path can never drift from REST — it previously omitted the Product Owner
+facet, silently rolling back a PO's whole offline batch the moment one groomed
+EPIC/STORY row was touched (#1771). Edits pass ``method="PATCH"`` and deletes
+``method="DELETE"`` so the PO-may-groom-but-not-delete asymmetry is preserved.
 """
 
 from __future__ import annotations
@@ -31,7 +38,7 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.permissions import can_user_edit_task
 from trueppm_api.apps.projects.models import Task
 
 if TYPE_CHECKING:
@@ -98,23 +105,6 @@ class BatchApplyResult:
     @property
     def changed(self) -> bool:
         return bool(self.created or self.updated or self.deleted)
-
-
-def _can_write_existing(task: Task, user_pk: Any, role: int) -> bool:
-    """Mirror ``IsProjectMemberWriteOrOwn`` for an existing task.
-
-    ADMIN+ edit any task; Resource Manager (SCHEDULER) cannot edit task content;
-    a Team Member may edit only tasks assigned to them; Viewer cannot write.
-    Keeping this identical to the REST object permission is what prevents the
-    upload path from becoming a privilege-escalation bypass.
-    """
-    if role >= Role.ADMIN:
-        return True
-    if role == Role.SCHEDULER:
-        return False
-    if role == Role.MEMBER:
-        return task.assignee_id is not None and task.assignee_id == user_pk
-    return False
 
 
 def _content(row: dict[str, Any]) -> dict[str, Any]:
@@ -262,7 +252,7 @@ def apply_task_changes(
         if existing is not None:
             # Idempotent re-create (the row already landed in a prior batch) —
             # apply as an update, but enforce the stricter edit permission.
-            if not _can_write_existing(existing, user.pk, role):
+            if not can_user_edit_task(request, existing, method="PATCH"):
                 raise PermissionDenied("You may not edit this task.")
             old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
             # We already know this row exists (it came from the batched
@@ -310,7 +300,7 @@ def apply_task_changes(
             # offline/online race. (Predicate mirrors the original
             # filter(pk=row_id, project=project, is_deleted=False).)
             continue
-        if not _can_write_existing(target, user.pk, role):
+        if not can_user_edit_task(request, target, method="PATCH"):
             raise PermissionDenied("You may not edit this task.")
         # ADR-0102 §4: capture the prior sprint link so a task linked to an ACTIVE
         # sprint via sync enters pending-acceptance, same as the REST PATCH path —
@@ -344,7 +334,7 @@ def apply_task_changes(
         target = existing_by_id.get(str(del_id))
         if target is None or target.project_id != project.pk or target.is_deleted:
             continue  # unknown, cross-project, or already gone — idempotent
-        if not _can_write_existing(target, user.pk, role):
+        if not can_user_edit_task(request, target, method="DELETE"):
             raise PermissionDenied("You may not delete this task.")
         target.soft_delete()  # bumps server_version, sets deleted_version, cascades
         result.deleted.append({"id": str(target.pk), "server_version": target.server_version})

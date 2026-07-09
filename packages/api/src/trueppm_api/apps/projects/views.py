@@ -47,7 +47,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -5806,6 +5806,22 @@ def _rewrite_descendants(
     return updated
 
 
+def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
+    """Gate a WBS structural move at the same authority as a field edit (#1771).
+
+    Indent/outdent/reparent only declare ``IsProjectMemberWrite`` (any Member may
+    write the project), but moving a task rewrites its phase, rollup parent, and
+    summary-lock across the whole subtree — a heavier act than a field PATCH, which
+    is gated by ``IsProjectMemberWriteOrOwn`` (Member = own-assigned tasks only).
+    Left weaker, a Member who cannot rename a colleague's task could still reparent
+    it anywhere in the tree. Delegate to the ADR-0133 source of truth so restructure
+    authority tracks field-edit authority exactly (Admin+, PO facet on EPIC/STORY,
+    or own-assigned Member).
+    """
+    if not can_user_edit_task(request, task):
+        raise PermissionDenied("You do not have permission to restructure this task.")
+
+
 @extend_schema_view(
     post=extend_schema(
         summary="Indent a task under its previous sibling",
@@ -5841,6 +5857,7 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 project_id=pk,
                 is_deleted=False,
             )
+            _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
                     {"detail": "Task has no WBS path."},
@@ -5932,6 +5949,7 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 project_id=pk,
                 is_deleted=False,
             )
+            _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
                     {"detail": "Task has no WBS path."},
@@ -6087,6 +6105,7 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 project_id=pk,
                 is_deleted=False,
             )
+            _require_wbs_restructure_permission(request, task)
             if not task.wbs_path:
                 return Response(
                     {"detail": "Task has no WBS path."},
