@@ -34,7 +34,14 @@ The server is configured entirely from the environment:
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TRUEPPM_API_URL` | yes | Base URL of your TruePPM instance, e.g. `https://ppm.example.com` |
-| `TRUEPPM_API_TOKEN` | yes | A project API token (`tppm_<64-hex>`), minted in project settings |
+| `TRUEPPM_API_TOKEN` | yes | A **personal access token** (`tppm_<64-hex>`) minted with the **`mcp:read` scope** and an **expiry**, from **Personal Settings → API tokens** |
+
+**Mint the right token.** The MCP read surface accepts only a personal (owner-scoped)
+token carrying the `mcp:read` scope — a project- or program-scoped token is rejected
+there so it can never read beyond the single scope it was minted for. Choose the
+`mcp:read` scope and set an expiry (required for `mcp:read`): the token acts as *you*,
+reads only what your role permits, and cannot write or outlive its expiry — so a leaked
+token is read-only and self-limiting.
 
 Run it as a local subprocess (the primary, stdio transport):
 
@@ -60,7 +67,8 @@ The read-tool surface ships in 0.4: **14 read-only tools** across projects and
 programs, tasks and My Work, schedule and risk, and sprints — each mapping to
 one existing REST endpoint and returning only what your role permits. The
 `mcp:read` token scope that marks a token read-only at the API layer lands
-alongside. Write tools are deliberately held to a later release.
+alongside; the read surface admits only owner-scoped `mcp:read` tokens, which
+must carry an expiry. Write tools are deliberately held to a later release.
 
 ## License
 

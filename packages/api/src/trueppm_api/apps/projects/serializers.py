@@ -32,6 +32,7 @@ from trueppm_api.apps.projects.models import (
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
     SCOPE_LEGACY_FULL,
+    SCOPE_MCP_READ,
     AcceptanceCriterion,
     ApiTokenAuditEntry,
     BacklogItem,
@@ -5985,12 +5986,19 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         required=False,
         help_text="Capabilities to grant. Defaults to ['legacy:full'] "
         "(full access). Send ['mcp:read'] to mint a read-only token for the "
-        "MCP server.",
+        "MCP server; an mcp:read token requires a non-null expires_at.",
+    )
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional expiry. Required (non-null, in the future) for any "
+        "token carrying the 'mcp:read' scope so a leaked read token cannot live "
+        "forever; optional for legacy:full sync tokens (backward-compatible).",
     )
 
     class Meta:
         model = ProjectApiToken
-        fields = ["name", "status_map", "scopes"]
+        fields = ["name", "status_map", "scopes", "expires_at"]
 
     def validate_name(self, value: str) -> str:
         value = value.strip()
@@ -6009,6 +6017,25 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
         for scope in value:
             deduped.setdefault(scope, None)
         return list(deduped)
+
+    def validate_expires_at(self, value: Any) -> Any:
+        # An expiry already in the past would mint a token that is dead on arrival.
+        if value is not None and value <= timezone.now():
+            raise serializers.ValidationError("expires_at must be in the future.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Blast-radius bound (#1713): a token that can read via the MCP surface must
+        # expire, so a leaked mcp:read credential is self-limiting. Enforced at mint
+        # time (here) rather than as a DB constraint so legacy:full sync tokens —
+        # which legitimately never expire — are unaffected. ``scopes`` may be absent
+        # (defaults to legacy:full) so read it defensively.
+        scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
+        if SCOPE_MCP_READ in scopes and attrs.get("expires_at") is None:
+            raise serializers.ValidationError(
+                {"expires_at": "expires_at is required for an mcp:read token."}
+            )
+        return attrs
 
     def validate_status_map(self, value: dict[str, str]) -> dict[str, str]:
         if not isinstance(value, dict):
@@ -6063,16 +6090,28 @@ class MyApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
 class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
     """Write serializer for minting a Personal Access Token (ADR-0214).
 
-    Accepts ``name`` (required) and an optional ``expires_at``. Scopes are fixed
-    to ``['legacy:full']`` server-side — v1 PATs are full-access, acting as the
-    user, so there is no scope picker (the ``scopes`` field is deferred to a
-    future Enterprise scoping layer on the same column). The raw token is
-    generated in the viewset and returned once via a separate response shape.
+    Accepts ``name`` (required), an optional ``expires_at``, and an optional
+    ``scopes`` list. Scopes default to ``['legacy:full']`` (a full-access PAT that
+    acts as the user — the historical behavior), but the MCP read server needs a
+    read-only personal token, so ``['mcp:read']`` is accepted here (#1712/#1713):
+    the MCP read surface admits only owner-scoped tokens, and mcp:read cannot
+    write. Any ``mcp:read`` token must carry a non-null ``expires_at`` so a leaked
+    read credential is self-limiting. The raw token is generated in the viewset and
+    returned once via a separate response shape.
     """
+
+    scopes = serializers.ListField(
+        child=serializers.ChoiceField(choices=API_TOKEN_SCOPES),
+        required=False,
+        help_text="Capabilities to grant. Defaults to ['legacy:full'] "
+        "(full access, acts as you). Send ['mcp:read'] to mint a read-only "
+        "personal token for the MCP server; an mcp:read token requires a "
+        "non-null expires_at.",
+    )
 
     class Meta:
         model = ProjectApiToken
-        fields = ["name", "expires_at"]
+        fields = ["name", "expires_at", "scopes"]
 
     def validate_name(self, value: str) -> str:
         value = value.strip()
@@ -6080,12 +6119,34 @@ class MyApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
             raise serializers.ValidationError("name is required.")
         return value
 
+    def validate_scopes(self, value: list[str]) -> list[str]:
+        # Empty / omitted collapses to the legacy full scope (unchanged PAT default,
+        # backward-safe). ChoiceField already rejected any out-of-set value; de-dupe
+        # while preserving request order.
+        if not value:
+            return [SCOPE_LEGACY_FULL]
+        deduped: dict[str, None] = {}
+        for scope in value:
+            deduped.setdefault(scope, None)
+        return list(deduped)
+
     def validate_expires_at(self, value: Any) -> Any:
         # An expiry in the past would mint a token that is dead on arrival — reject
         # it so the caller gets a clear error instead of a silently-useless token.
         if value is not None and value <= timezone.now():
             raise serializers.ValidationError("expires_at must be in the future.")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Blast-radius bound (#1713): an mcp:read personal token must expire so a
+        # leaked read credential is self-limiting. Legacy:full PATs keep the
+        # optional-expiry behavior (backward-safe).
+        scopes = attrs.get("scopes") or [SCOPE_LEGACY_FULL]
+        if SCOPE_MCP_READ in scopes and attrs.get("expires_at") is None:
+            raise serializers.ValidationError(
+                {"expires_at": "expires_at is required for an mcp:read token."}
+            )
+        return attrs
 
 
 _INBOUND_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")

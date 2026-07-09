@@ -32,26 +32,29 @@ nothing you could not already read in the web client with the same token.
 
 ## Authentication
 
-The server authenticates with a **project API token** — the same `tppm_<64-hex>`
-token used for inbound integrations (see [Sharing and access](./sharing-and-access.md)),
-scoped read-only for this purpose.
+The server authenticates with a **personal access token** carrying the
+**`mcp:read`** scope. The MCP read surface accepts **only** owner-scoped
+(personal) tokens: a project- or program-scoped token is rejected there, so it
+can never be turned into a credential that reads beyond the single scope it was
+minted for. The token acts as *you* and returns only what your role permits.
 
-The easiest way to get one: **Project or Program → Settings → Integrations →
-API Tokens → Create token**, then choose the **"Read-only for AI assistants"**
-scope (`mcp:read`). The reveal dialog shows the raw token once and a
+Mint one at **Personal Settings → API tokens → Create token**: choose the
+**"Read-only for AI assistants"** scope (`mcp:read`) and **set an expiry**
+(required for `mcp:read`). The reveal dialog shows the raw token once and a
 ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
-straight into your client's config and skip the manual assembly below. Pick
-**"Full access"** instead only if the token needs to write (inbound sync); it
-is never appropriate for an MCP client.
+straight into your client's config and skip the manual assembly below. A
+**"Full access"** (`legacy:full`) token is for inbound sync and is never
+appropriate for an MCP client — and is refused on this surface regardless.
 
 The token is read from the environment and is never written to logs or echoed
 in an error message. Treat it like a password: anyone holding it can read
-everything your role can read in that project.
+everything your role can read — but only until it expires, and it can never
+write.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com` (the `/api/v1` suffix is added automatically if omitted) |
-| `TRUEPPM_API_TOKEN` | yes | A project API token (`tppm_<64-hex>`) |
+| `TRUEPPM_API_TOKEN` | yes | A personal access token (`tppm_<64-hex>`) with the `mcp:read` scope and an expiry |
 
 On startup the server calls `GET /api/v1/auth/me/` once to confirm the token
 authenticates. A rejected token (HTTP 401) fails the boot immediately with a
@@ -170,5 +173,9 @@ prompts, see the [MCP server feature page](../features/mcp-server.md).
 - **Read-only.** The server defines only read tools and issues only `GET`
   requests; the `mcp:read` token scope additionally rejects any write even if
   the token is replayed directly against a write endpoint.
+- **Owner-scoped and expiring.** The read surface accepts only a personal
+  (owner-scoped) `mcp:read` token, so a leaked token reads exactly what its owner
+  can read — never a whole project or program membership — and only until its
+  required expiry. Project/program tokens are refused here entirely.
 - **Self-hosted.** All traffic stays between your AI client, the server, and
   your own API — no third-party service is involved.

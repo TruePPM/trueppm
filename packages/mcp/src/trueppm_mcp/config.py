@@ -17,7 +17,9 @@ DEFAULT_API_PATH = "/api/v1"
 
 #: Environment variable holding the TruePPM instance base URL.
 ENV_API_URL = "TRUEPPM_API_URL"
-#: Environment variable holding the project API token (``tppm_<64-hex>``).
+#: Environment variable holding the personal ``mcp:read`` API token (``tppm_<64-hex>``).
+#: The MCP read surface accepts only owner-scoped (personal) tokens, minted with the
+#: ``mcp:read`` scope and an expiry — see the package README.
 ENV_API_TOKEN = "TRUEPPM_API_TOKEN"  # noqa: S105 — variable *name*, not a secret
 
 
@@ -69,7 +71,8 @@ class Settings:
             )
         if not token:
             raise ConfigError(
-                f"{ENV_API_TOKEN} is required (a project API token minted in project settings)."
+                f"{ENV_API_TOKEN} is required (a personal access token with the "
+                "'mcp:read' scope and an expiry, minted in Personal Settings)."
             )
         return cls(api_base_url=_compose_base_url(raw_url), token=token)
 
