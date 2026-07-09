@@ -1,3 +1,4 @@
+import { LockIcon } from '@/components/Icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -270,7 +271,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
               </div>
             ) : (
               <p className="flex items-center gap-1.5 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary">
-                <span aria-hidden="true">🔒</span>
+                <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 The reason is private to the assignee and anyone they @mentioned.
               </p>
             )}
@@ -310,7 +311,7 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 className={CONTROL_CLASS}
               />
               <p className="mt-1 flex items-center gap-1 text-xs text-neutral-text-secondary">
-                <span aria-hidden="true">🔒</span>
+                <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 Only you and anyone you @mention can read this. Your team sees the type, age, and who
                 flagged it — never the reason.
               </p>
@@ -399,13 +400,13 @@ export function BlockerSection({ taskId, projectId, userRole, canEdit }: DrawerS
                 className={CONTROL_CLASS}
               />
               <p className="mt-1 flex items-center gap-1 text-xs text-neutral-text-secondary">
-                <span aria-hidden="true">🔒</span>
+                <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 Only you and anyone you @mention can read this.
               </p>
             </div>
           ) : (
             <p className="flex items-center gap-1.5 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2 text-xs text-neutral-text-secondary">
-              <span aria-hidden="true">🔒</span>
+              <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               The reason is private to the assignee and anyone they @mentioned.
             </p>
           )}

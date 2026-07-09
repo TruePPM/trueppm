@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useMemo } from 'react';
 import { useProgramId } from '@/hooks/useProgramId';
 import {
@@ -145,7 +146,7 @@ function ResourceCard({
             className="inline-flex items-center gap-1 text-xs font-semibold text-semantic-critical"
             aria-label={`Over-allocated in ${weekRange}`}
           >
-            <span aria-hidden="true">⚠</span>
+            <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
             Over-allocated · <span className="tppm-mono">{weekRange}</span>
           </span>
         )}

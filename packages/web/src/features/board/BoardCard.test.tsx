@@ -380,7 +380,10 @@ describe('BoardCard', () => {
   it('comfortable: negative float shows warning icon (issue #183)', () => {
     renderCard({ task: { ...baseTask, totalFloat: -2 }, density: 'comfortable' });
     expect(screen.getByText('-2d float')).toBeInTheDocument();
-    expect(screen.getByText('⚠')).toBeInTheDocument();
+    // The warning glyph is now the WarningIcon SVG (aria-hidden) in the critical
+    // float chip, not the old ⚠ emoji text.
+    const chip = screen.getByText('-2d float').closest('.inline-flex');
+    expect(chip?.querySelector('svg')).not.toBeNull();
   });
 
   it('compact: does not show float chip (issue #183)', () => {

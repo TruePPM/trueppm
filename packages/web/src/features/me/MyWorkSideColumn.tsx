@@ -14,6 +14,7 @@
  * none has anything, so a sprintless / non-critical contributor sees the
  * single-column list with no empty rail.
  */
+import { WarningIcon } from '@/components/Icons';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
@@ -128,7 +129,7 @@ export function MyWorkSideColumn({
                   title="On the critical path — a delay here delays the project end date"
                   aria-label="On the critical path"
                 >
-                  <span aria-hidden="true">⚠</span>
+                  <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
                 </span>
                 <Link
                   to={t.url}

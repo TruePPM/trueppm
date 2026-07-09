@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { TargetIcon } from '@/components/Icons';
 import { Link } from 'react-router';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -162,7 +163,7 @@ function Header({
         </p>
         {goal !== '' && (
           <p className="mt-1 flex items-center gap-1.5 text-sm text-neutral-text-secondary">
-            <span aria-hidden="true">🎯</span>
+            <TargetIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate" title={goal} aria-label={goal}>
               {goal}
             </span>

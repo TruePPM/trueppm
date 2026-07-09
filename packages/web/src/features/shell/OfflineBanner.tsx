@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useState } from 'react';
 
 /**
@@ -37,7 +38,7 @@ export function OfflineBanner() {
       aria-live="polite"
       className="flex items-center justify-center gap-2 border-b border-semantic-at-risk bg-semantic-at-risk-bg px-4 py-1.5 text-xs font-medium text-semantic-at-risk"
     >
-      <span aria-hidden="true">⚠</span>
+      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
       You&rsquo;re offline — changes will be saved when you reconnect.
     </div>
   );

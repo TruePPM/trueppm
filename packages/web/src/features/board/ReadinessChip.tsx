@@ -1,3 +1,4 @@
+import { LockIcon } from '@/components/Icons';
 import type { TaskReadiness } from '@/types';
 
 /**
@@ -30,7 +31,7 @@ export function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
     case 'baselined':
       return (
         <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary font-medium">
-          <span aria-hidden="true">🔒</span> baselined
+          <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" /> baselined
         </span>
       );
   }

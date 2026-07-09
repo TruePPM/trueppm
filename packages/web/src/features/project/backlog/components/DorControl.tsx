@@ -7,6 +7,7 @@
  * setting points re-enables it in real time without a save.
  */
 
+import { WarningIcon } from '@/components/Icons';
 import type { DorState } from '@/types';
 
 const OPTIONS: { value: DorState; label: string }[] = [
@@ -78,7 +79,7 @@ export function DorControl({
       </div>
       {!canBeReady && blockerReasons.length > 0 && (
         <p id="drawer-dor-blockers" className="text-xs text-semantic-at-risk">
-          <span aria-hidden>⚠ </span>
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
           Can&apos;t mark Ready: {blockerReasons.join('; ')}
         </p>
       )}

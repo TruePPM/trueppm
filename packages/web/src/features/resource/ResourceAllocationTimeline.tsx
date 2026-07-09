@@ -8,6 +8,7 @@
  * Overallocation is computed client-side via detectOverallocatedAssignments().
  * Calendar-aware non-working-day exclusion is deferred to a follow-up issue.
  */
+import { WarningIcon } from '@/components/Icons';
 import { useRef, useState } from 'react';
 import type { AllocationResource, AllocationResponse } from './resourceUtils';
 import {
@@ -362,7 +363,7 @@ export function ResourceAllocationTimeline({
         {unscheduled.length > 0 && (
           <div className="border-t-2 border-semantic-at-risk/30 bg-semantic-at-risk-bg">
             <div className="flex items-center gap-2 px-4 py-2 text-xs text-semantic-at-risk border-b border-semantic-at-risk/20">
-              <span aria-hidden="true">⚠</span>
+              <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
               <span className="font-medium">
                 {unscheduled.length} unscheduled assignment
                 {unscheduled.length !== 1 ? 's' : ''} — tasks with no computed dates.

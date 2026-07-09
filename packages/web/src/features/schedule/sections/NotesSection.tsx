@@ -14,6 +14,7 @@
  */
 
 import type { ReactElement } from 'react';
+import { PinIcon } from '@/components/Icons';
 import { useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
@@ -120,8 +121,8 @@ function NoteRow({
     >
       <div className="flex items-baseline gap-2 flex-wrap">
         {note.pinned && (
-          <span className="text-xs text-brand-primary" title="Pinned" aria-hidden="true">
-            📌
+          <span className="text-brand-primary" title="Pinned" aria-hidden="true">
+            <PinIcon className="inline-block h-3 w-3 align-[-0.125em]" />
           </span>
         )}
         {note.decision && (
@@ -210,7 +211,8 @@ function NoteRow({
                   : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
               }`}
           >
-            {note.pinned ? '📌 Pinned' : '📌 Pin'}
+            <PinIcon className="inline-block h-3 w-3 align-[-0.125em] mr-1" aria-hidden="true" />
+            {note.pinned ? 'Pinned' : 'Pin'}
           </button>
           <button
             type="button"

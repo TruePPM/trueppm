@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useState } from 'react';
 import { useSprintScopeChanges } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -32,7 +33,7 @@ export function SprintScopeBadge({ sprintId }: Props) {
           bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk
           hover:border-semantic-at-risk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
-        <span aria-hidden="true">⚠</span>
+        <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-{itl.lower}
       </button>
       {open && <ScopeChangeDrawer sprintId={sprintId} onClose={() => setOpen(false)} />}

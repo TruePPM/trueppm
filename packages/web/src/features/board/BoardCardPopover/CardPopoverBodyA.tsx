@@ -1,3 +1,4 @@
+import { LockIcon } from '@/components/Icons';
 import type { ReactNode } from 'react';
 import type { Task } from '@/types';
 import { isTaskScheduled } from '@/lib/task';
@@ -243,7 +244,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
     case 'baselined':
       return (
         <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary font-medium">
-          <span aria-hidden="true">🔒</span> baselined
+          <LockIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" /> baselined
         </span>
       );
   }

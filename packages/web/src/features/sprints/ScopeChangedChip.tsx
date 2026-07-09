@@ -1,3 +1,4 @@
+import { WarningIcon } from '@/components/Icons';
 import { useState } from 'react';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
 
@@ -55,7 +56,7 @@ export function ScopeChangedChip({
           hover:border-semantic-at-risk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           ${iconOnly ? 'px-1 py-0 text-xs' : compact ? 'px-1.5 py-0 text-xs' : 'px-2 py-0.5 text-xs'}`}
       >
-        <span aria-hidden="true">⚠</span>
+        <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
         {!iconOnly && label}
       </button>
       {open && <ScopeChangeDrawer sprintId={sprintId} onClose={() => setOpen(false)} />}

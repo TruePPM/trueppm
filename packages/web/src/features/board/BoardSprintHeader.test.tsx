@@ -104,11 +104,12 @@ describe('BoardSprintHeader (#1138)', () => {
     expect(goal).toHaveClass('truncate');
   });
 
-  it('omits the 🎯 goal line entirely when goal is empty', () => {
+  it('omits the goal line entirely when goal is empty', () => {
     const sprint = makeSprint({ goal: '' });
     mockSprintData(sprint);
     renderWithProviders(<BoardSprintHeader sprint={sprint} projectId="p-1" />);
-    expect(screen.queryByText('🎯')).toBeNull();
+    // The goal line (TargetIcon + text) is gated on a non-empty goal.
+    expect(screen.queryByTestId('sprint-goal')).toBeNull();
   });
 
   it('PLANNED future sprint shows the not-started caption', () => {

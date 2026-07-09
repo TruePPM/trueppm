@@ -12,6 +12,7 @@
  * `title` and `aria-label` so the truncated one-line render stays accessible
  * (rule 161).
  */
+import { TargetIcon } from '@/components/Icons';
 import type { ApiSprint } from '@/types';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { sprintTimebox } from './sprintTimebox';
@@ -84,8 +85,11 @@ export function BoardSprintHeader({ sprint, projectId, onOpenStandup }: BoardSpr
           </p>
 
           {goal !== '' && (
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-neutral-text-secondary">
-              <span aria-hidden="true">🎯</span>
+            <p
+              data-testid="sprint-goal"
+              className="mt-1 flex items-center gap-1.5 text-sm text-neutral-text-secondary"
+            >
+              <TargetIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate" title={goal} aria-label={goal}>
                 {goal}
               </span>
