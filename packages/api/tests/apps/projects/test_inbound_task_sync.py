@@ -802,3 +802,152 @@ def test_empty_external_id_rejected(project: Project, admin_user: Any) -> None:
         format="json",
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# #1767 — the bulk .update() path must re-apply the coercions Task.save() /
+# TaskSerializer.update() do, and fire task_status_changed, on a status flip.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_external_complete_coerces_percent_and_stamps_actual_finish(
+    project: Project, admin_user: Any
+) -> None:
+    """A task flipped to COMPLETE by an external push lands at 100% with an
+    actual_finish and zero remaining effort — not 0% with no dates (#1767)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    # Create as "todo" (NOT_STARTED) so the flip travels the bulk-.update() path.
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "todo"},
+        format="json",
+    )
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "done"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.COMPLETE
+    assert task.percent_complete == 100.0
+    assert task.actual_finish == timezone.localdate()
+    assert task.remaining_points == 0
+
+
+@pytest.mark.django_db
+def test_external_in_progress_stamps_actual_start(project: Project, admin_user: Any) -> None:
+    """IN_PROGRESS via the external push stamps actual_start when it was null (#1767)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "in_progress"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.actual_start == timezone.localdate()
+
+
+@pytest.mark.django_db
+def test_external_status_flip_fires_task_status_changed(project: Project, admin_user: Any) -> None:
+    """The bulk .update() path fires task_status_changed so burndown upserts and
+    notification delivery still run for externally-driven flips (#1767)."""
+    from trueppm_api.apps.projects.signals import task_status_changed
+
+    received: list[dict[str, Any]] = []
+
+    def _probe(sender: Any, **kwargs: Any) -> None:
+        received.append(kwargs)
+
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo"},
+        format="json",
+    )
+    task_status_changed.connect(_probe)
+    try:
+        client.post(
+            f"/api/v1/projects/{project.pk}/task-sync/",
+            {"source": "jira", "external_id": "X-1", "status": "done"},
+            format="json",
+        )
+    finally:
+        task_status_changed.disconnect(_probe)
+
+    assert len(received) == 1
+    assert received[0]["old_status"] == TaskStatus.NOT_STARTED.value
+    assert received[0]["new_status"] == TaskStatus.COMPLETE.value
+
+
+@pytest.mark.django_db
+def test_external_repush_without_status_change_does_not_fire_signal(
+    project: Project, admin_user: Any
+) -> None:
+    """A re-push that does not change status must not fire task_status_changed
+    (no spurious notifications / burndown churn) (#1767)."""
+    from trueppm_api.apps.projects.signals import task_status_changed
+
+    received: list[dict[str, Any]] = []
+
+    def _probe(sender: Any, **kwargs: Any) -> None:
+        received.append(kwargs)
+
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "in_progress"},
+        format="json",
+    )
+    task_status_changed.connect(_probe)
+    try:
+        client.post(
+            f"/api/v1/projects/{project.pk}/task-sync/",
+            {"source": "jira", "external_id": "X-1", "name": "v2", "status": "in_progress"},
+            format="json",
+        )
+    finally:
+        task_status_changed.disconnect(_probe)
+    assert received == []
+
+
+@pytest.mark.django_db
+def test_external_reopen_from_complete_clears_finish_and_restores_remaining(
+    project: Project, admin_user: Any
+) -> None:
+    """Reopening a COMPLETE task via the external push clears actual_finish and
+    restores remaining effort from the commitment baseline, mirroring the REST
+    path so burndown counts the reopened work again (#1767)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "todo", "story_points": 8},
+        format="json",
+    )
+    # Flip to done → remaining zeroed, actual_finish stamped.
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "done", "story_points": 8},
+        format="json",
+    )
+    # Reopen → done reverted.
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "status": "in_progress", "story_points": 8},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp.data["task_id"])
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.actual_finish is None
+    assert task.remaining_points == 8
