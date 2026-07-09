@@ -174,3 +174,29 @@ def test_program_pass_broadcasts_cpm_complete_per_member(
     }
     assert str(proj_a.pk) in broadcast_projects
     assert str(proj_b.pk) in broadcast_projects
+
+
+@pytest.mark.django_db
+def test_program_pass_excludes_backlog_and_soft_deleted(calendar: Calendar) -> None:
+    """The program-scoped CPM feed must apply the same committed-task filter as the
+    single-project pass: BACKLOG cards and soft-deleted tombstones in a member
+    project are never admitted to the merged network, so the program pass cannot
+    stamp early/late dates on them (#1772)."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    program, _a, proj_b, a1, _b1 = _program(calendar, accepted=True)
+    backlog = Task.objects.create(
+        project=proj_b, name="Backlog idea", duration=3, status=TaskStatus.BACKLOG
+    )
+    deleted = Task.objects.create(project=proj_b, name="Deleted", duration=3)
+    deleted.soft_delete()
+
+    _run_program_schedule(str(program.pk))
+
+    a1.refresh_from_db()
+    backlog.refresh_from_db()
+    deleted.refresh_from_db()
+    # Committed cross-project task is scheduled; excluded rows get no dates.
+    assert a1.early_start is not None
+    assert backlog.early_start is None and backlog.early_finish is None
+    assert deleted.early_start is None and deleted.early_finish is None
