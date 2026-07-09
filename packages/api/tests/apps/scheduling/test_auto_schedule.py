@@ -493,3 +493,44 @@ def test_sprint_milestone_not_floored_at_sprint_start(project: Project) -> None:
 
     ms.refresh_from_db()
     assert ms.early_start == date(2026, 1, 5)
+
+
+@pytest.mark.django_db
+def test_backlog_and_soft_deleted_tasks_are_excluded_from_cpm(project: Project) -> None:
+    """The deterministic CPM feed must match CommittedTaskManager: BACKLOG cards and
+    soft-deleted tombstones are not scheduled, so grooming the backlog cannot move
+    the critical path and the two forecasts cannot structurally disagree (#1772)."""
+    from trueppm_api.apps.projects.models import TaskStatus
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    committed = Task.objects.create(
+        project=project, name="Committed", duration=3, status=TaskStatus.NOT_STARTED
+    )
+    backlog = Task.objects.create(
+        project=project, name="Backlog idea", duration=3, status=TaskStatus.BACKLOG
+    )
+    deleted = Task.objects.create(
+        project=project, name="Deleted", duration=3, status=TaskStatus.NOT_STARTED
+    )
+    deleted.soft_delete()
+
+    mock_redis = MagicMock()
+    mock_redis.set.return_value = "OK"  # lock acquired → task body runs
+    with (
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        mock_redis_module.from_url.return_value = mock_redis
+        recalculate_schedule.run(str(project.pk))
+
+    committed.refresh_from_db()
+    backlog.refresh_from_db()
+    deleted.refresh_from_db()
+
+    # The committed task is scheduled from the project start.
+    assert committed.early_start == date(2026, 1, 5)
+    # BACKLOG and soft-deleted rows are never admitted to the network, so CPM never
+    # stamps early/late dates on them.
+    assert backlog.early_start is None and backlog.early_finish is None
+    assert deleted.early_start is None and deleted.early_finish is None

@@ -686,6 +686,7 @@ def _run_schedule(
         Project,
         Task,
         TaskActivityEvent,
+        TaskStatus,
         TaskType,
     )
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
@@ -742,8 +743,21 @@ def _run_schedule(
     # type=EPIC is excluded for the same reason (ADR-0105): an epic is a grouping
     # node, not schedulable work — its rollup dates are computed from child stories, not
     # fed to CPM. CommittedTaskManager applies the matching exclusion at its boundary.
+    #
+    # status=BACKLOG and soft-deleted tombstones are excluded so the deterministic CPM
+    # feed matches CommittedTaskManager exactly (#1772). Monte Carlo already reads from
+    # Task.committed; feeding CPM from the unfiltered manager let backlog ideas and
+    # deleted rows into the network, so grooming the backlog could move the deterministic
+    # critical path and the two engines could structurally disagree on the Overview page.
     # Filtered in Python so the prefetch cache from the queryset above is reused.
-    db_tasks = [t for t in db_project.tasks.all() if not t.is_recurring and t.type != TaskType.EPIC]
+    db_tasks = [
+        t
+        for t in db_project.tasks.all()
+        if not t.is_recurring
+        and t.type != TaskType.EPIC
+        and t.status != TaskStatus.BACKLOG
+        and not t.is_deleted
+    ]
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
         return

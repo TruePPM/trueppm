@@ -120,6 +120,7 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         Dependency,
         EstimationMode,
         Project,
+        TaskStatus,
         TaskType,
     )
     from trueppm_api.apps.scheduling.calendars import compose_project_calendar
@@ -143,10 +144,11 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
     project_by_id = {p.id: p for p in member_projects}
 
     # --- Per-project conversion, replicating the single-project _run_schedule
-    # filter (drop recurring + EPIC grouping nodes) and tagging each task with its
-    # own project's calendar so the merged pass uses per-task calendars (ADR-0120
-    # D3 engine substrate). Task ids are globally-unique UUIDs, so merging the
-    # per-project task lists needs no namespacing.
+    # filter (drop recurring, EPIC grouping nodes, BACKLOG cards, and soft-deleted
+    # tombstones — matching CommittedTaskManager, #1772) and tagging each task with
+    # its own project's calendar so the merged pass uses per-task calendars
+    # (ADR-0120 D3 engine substrate). Task ids are globally-unique UUIDs, so
+    # merging the per-project task lists needs no namespacing.
     all_sched_tasks: list[Any] = []
     all_children_map: dict[str, list[str]] = {}
     calendars: dict[str, SchedCalendar] = {}
@@ -154,7 +156,14 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
     total_tasks = 0
 
     for p in member_projects:
-        db_tasks = [t for t in p.tasks.all() if not t.is_recurring and t.type != TaskType.EPIC]
+        db_tasks = [
+            t
+            for t in p.tasks.all()
+            if not t.is_recurring
+            and t.type != TaskType.EPIC
+            and t.status != TaskStatus.BACKLOG
+            and not t.is_deleted
+        ]
         if not db_tasks:
             continue
         total_tasks += len(db_tasks)
