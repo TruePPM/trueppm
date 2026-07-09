@@ -139,7 +139,7 @@ One honest note against your own test — *"does this work on my phone with no s
 | Summary tasks + WBS rollup | Shipped |
 | Hybrid velocity → CPM forecast | Shipped |
 | MS Project import/export | Shipped (UI + API, 0.2) |
-| Gantt drag-to-reschedule (WASM CPM) | Shipped |
+| Gantt drag-to-reschedule (live CPM preview) | Shipped — the drag preview approximates a standard Mon–Fri calendar; the server's authoritative CPM (custom calendars, holidays) reconciles exact dates on commit |
 | Baseline UI + structured rebaseline reasons | Roadmap (0.5) |
 | Time tracking | Roadmap (0.5) |
 | EVM (CPI / SPI / BCWP) | Roadmap (post-1.0) |

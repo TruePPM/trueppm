@@ -87,10 +87,15 @@ flowchart LR
 This is the property that makes the whole design defensible. TruePPM's Critical
 Path Method and Monte Carlo risk analysis live in a **standalone, deterministic
 package** — [`trueppm-scheduler`](/architecture/overview/#scheduling-as-a-separate-package),
-published to PyPI and independent of Django, with a second Rust + petgraph
-implementation compiled to WASM for in-browser and offline recompute. It handles
-all four dependency types, calendar-aware lag, cycle detection, and P50/P80/P95
-forecasts (see [Monte Carlo forecasting](/features/monte-carlo/)).
+published to PyPI and independent of Django. It handles all four dependency
+types, calendar-aware lag, cycle detection, and P50/P80/P95 forecasts (see
+[Monte Carlo forecasting](/features/monte-carlo/)). A second Rust + petgraph
+CPM implementation (`packages/wasm-scheduler`) is validated against it by a
+shared conformance fixture suite in CI; today that Rust engine is a conformance
+reference only — the web client's drag preview runs a calendar-approximate
+TypeScript worker, reconciled by the authoritative server CPM on commit, and
+wiring the WASM build into the browser for in-browser and offline recompute is
+future work (#1777).
 
 Because the engine is deterministic and separable, the same inputs always produce
 the same schedule, and that schedule can be validated without a running database or
@@ -143,7 +148,7 @@ team's own AI capability is OSS; org-level AI governance is Enterprise.**
 | Capability | Edition | Status |
 |---|---|---|
 | OpenAPI 3.0.3 contract, API-first surface | Community (OSS) | Shipped |
-| Deterministic engine (`trueppm-scheduler`, WASM) | Community (OSS) | Shipped |
+| Deterministic engine (`trueppm-scheduler` on PyPI; Rust/WASM conformance reference, not yet browser-wired) | Community (OSS) | Shipped |
 | Read-only MCP server + provenance (query the schedule) | Community (OSS) | Ships in 0.4 |
 | Natural-language query layer, local-model adapter | Community (OSS) | Planned for 0.5 |
 | MCP write surface (create/update task, move card, log time), engine-as-referee safe writes | Community (OSS) | Planned for 0.6 |

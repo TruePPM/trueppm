@@ -115,7 +115,7 @@ The API exposes a WatermelonDB-compatible sync endpoint (`GET /api/v1/projects/{
 
 The CPM and Monte Carlo engine lives in `packages/scheduler` (`trueppm-scheduler` on PyPI), completely independent of Django. This means:
 
-- The engine can be used without the API (embedded in other tools, WASM compilation for on-device scheduling)
+- The engine can be used without the API (embedded in other tools and scripts); a Rust sibling (`packages/wasm-scheduler`) compiles to WASM and is held in conformance with it in CI, for future on-device scheduling (#1777)
 - The engine has its own test suite and release cycle
 - Algorithmic correctness can be validated without a running database
 
