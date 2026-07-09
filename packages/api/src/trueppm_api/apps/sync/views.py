@@ -382,6 +382,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         envelope = SyncUploadRequestSerializer(data=request.data)
         envelope.is_valid(raise_exception=True)
         client_batch_id = envelope.validated_data["client_batch_id"]
+        # The high-water mark the client last pulled — the default per-row base for the
+        # field-level conflict guard (#1718). Advisory only: absent → last-writer-wins.
+        last_pulled_at = envelope.validated_data.get("last_pulled_at")
         # Feed the RAW changes map (not envelope.validated_data["changes"]) to
         # apply_task_changes so it stays the single authority for the writable-
         # collection whitelist (ADR-0082 §B). The typed nested serializer (#786)
@@ -430,7 +433,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             return Response(existing.response_body, status=existing.response_status)
 
         try:
-            return self._apply_and_record(request, project, role, client_batch_id, changes)
+            return self._apply_and_record(
+                request, project, role, client_batch_id, changes, last_pulled_at
+            )
         except IntegrityError:
             # A concurrent duplicate committed between our check and create, or a
             # stale row exists. Re-fetch (project + actor-scoped) and resolve.
@@ -452,7 +457,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             # Expired row is blocking a re-run: drop it and apply once more. After
             # the freshness window the same client_batch_id is allowed to re-run.
             existing.delete()
-            return self._apply_and_record(request, project, role, client_batch_id, changes)
+            return self._apply_and_record(
+                request, project, role, client_batch_id, changes, last_pulled_at
+            )
 
     def _apply_and_record(
         self,
@@ -461,6 +468,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
         role: int,
         client_batch_id: Any,
         changes: dict[str, Any],
+        last_pulled_at: int | None = None,
     ) -> Response:
         """Apply the delta and snapshot the response inside one atomic batch.
 
@@ -487,7 +495,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             # rollback still discards the watermark.
             with coalesce_watermark_bumps():
                 applied = apply_task_changes(
-                    project=project, request=request, role=role, changes=changes
+                    project=project,
+                    request=request,
+                    role=role,
+                    changes=changes,
+                    last_pulled_at=last_pulled_at,
                 )
             body = {
                 "client_batch_id": str(client_batch_id),
@@ -498,6 +510,10 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                         "deleted": applied.deleted,
                     }
                 },
+                # Per-row lost-update conflicts (#1718): rows that were NOT applied
+                # because a concurrent writer changed an overlapping field. The client
+                # reloads these and reapplies; empty on the common no-conflict batch.
+                "conflicts": {"tasks": applied.conflicts},
                 "timestamp": applied.max_version,
             }
             batch.status = SyncBatchStatus.COMPLETED
