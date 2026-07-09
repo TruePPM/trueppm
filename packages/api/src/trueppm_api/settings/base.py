@@ -802,6 +802,17 @@ REST_FRAMEWORK = {
         "anon": env("TRUEPPM_THROTTLE_ANON_RATE", default="60/min"),
         "user": env("TRUEPPM_THROTTLE_USER_RATE", default="1000/min"),
         "login": "10/min",
+        # Per-account login lockout (#1717). The "login" scope above keys on the
+        # client IP, so it only bounds guesses per source address; a distributed
+        # credential-stuffing attack from a rotating IP pool gets the full per-IP
+        # allowance from every fresh IP and is unbounded in aggregate against one
+        # account. This scope keys on the (hashed, normalized) submitted username
+        # instead, so attempts against a single account are capped no matter how
+        # many IPs participate. It is STACKED with "login" — both throttles apply
+        # to the login view. Env-tunable so an operator can tighten or loosen it.
+        # 5/min still leaves room for a human who fat-fingers a password a few
+        # times, while making cross-IP account targeting expensive.
+        "login_account": env("TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE", default="5/min"),
         # Self-service password reset (#765, ADR-0209). Covers BOTH the request
         # endpoint (which emails a reset link) and the confirm endpoint (which sets
         # the new password). 5/min per IP bounds two abuses at once: email-bombing a

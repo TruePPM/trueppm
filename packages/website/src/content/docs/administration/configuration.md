@@ -43,6 +43,7 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | General default rate limit for **unauthenticated** requests, per client IP, in DRF `<count>/<period>` form (`period` is `sec`, `min`, `hour`, or `day`). Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | General default rate limit for an **authenticated** account, in DRF `<count>/<period>` form. Applies to every endpoint that does not set its own throttle. See [general API rate limiting](#general-api-rate-limiting) below. |
 | `TRUEPPM_NUM_PROXIES` | `1` | Number of trusted reverse proxies in front of the API. Used to extract the real client IP for the **unauthenticated** rate limit from the `X-Forwarded-For` chain. The standard Helm chart runs a single ingress (`1`); set to your actual proxy depth, or `0` if the API is reached directly (uses `REMOTE_ADDR`). An incorrect value lets a client spoof its IP and evade the anon limit, so match it to your deployment. |
+| `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` | `5/min` | Per-**account** login rate limit, bucketed by hashed username across all source IPs, in DRF `<count>/<period>` form. Stacks with the fixed per-IP `login` throttle to bound distributed credential stuffing. See [login brute-force protection](#login-brute-force-protection) below. |
 | `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` | `true` | Org-wide kill switch for [public sharing](/features/board-sharing/) — governs **both** board and schedule links. When `false`, project Admins cannot mint public links (`403`) **and** every existing public link stops resolving (`404`) instance-wide — the operator lever for locked-down environments. No data is exposed until an Admin explicitly creates a link, so the default is on. |
 | `TRUEPPM_THROTTLE_SHARE_ACCESS_RATE` | `60/min` | Rate limit for the **unauthenticated** public board endpoint (`GET /share/board/<token>/`), per client IP, in DRF `<count>/<period>` form. Bounds scraping of a leaked or widely-shared link. |
 | `TRUEPPM_THROTTLE_SHARE_MINT_RATE` | `20/min` | Rate limit for an Admin minting public board links, per account, in DRF `<count>/<period>` form. |
@@ -103,6 +104,39 @@ A few behaviors are worth knowing:
 
 The throttle count lives in the configured cache (Valkey/Redis in production),
 so the limit is shared across all API replicas rather than per-process.
+
+## Login brute-force protection
+
+The login endpoint (`POST /api/v1/auth/token/`) is protected by **two stacked
+throttles** — both must pass before credentials are checked, so an attacker is
+bounded on two independent axes:
+
+| Variable | Default | Buckets by | What it bounds |
+|----------|---------|------------|----------------|
+| _(fixed)_ `login` scope | `10/min` | Client IP | Password guessing from a single source address |
+| `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` | `5/min` | Account (hashed username) | Guessing against a single account across **all** source IPs |
+
+The per-account throttle exists because the IP throttle alone only caps guesses
+_per source address_. A distributed credential-stuffing attack that rotates
+through a botnet or proxy pool gets the full per-IP allowance from every fresh
+IP, so the aggregate guess rate against one account is unbounded. The
+account-keyed throttle closes that gap: once the per-account rate is exceeded,
+further login attempts for that username return `429 Too Many Requests` no matter
+how many IPs participate.
+
+- **The username is hashed before it becomes a cache key** — the raw email or
+  username is never written to the cache backend.
+- **Both success and failure count** toward the per-account bucket, so a normal
+  interactive user (well under 5 logins/minute) is never affected while an
+  automated attack is stopped quickly. Tighten or loosen the rate with
+  `TRUEPPM_THROTTLE_LOGIN_ACCOUNT_RATE` using the same `<count>/<period>` syntax
+  as the general rate limits.
+
+Every rejected login also emits a structured `auth.login_failed` audit event on
+the `trueppm.auth` logger, carrying the **hashed** username and client IP (never
+the raw credential). Ship this logger to your SIEM to alarm on credential-stuffing
+bursts — a spike of failures against one `username_hash` from many `client_ip`
+values is the distributed-attack signature.
 
 ## MS Project import limit
 

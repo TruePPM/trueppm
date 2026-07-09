@@ -32,12 +32,15 @@ CSRF posture:
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import logging
 from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -46,6 +49,48 @@ from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
+
+from trueppm_api.core.throttling import LoginAccountRateThrottle
+
+# Auth-domain logger. Failed-login attempts are emitted here as a structured
+# WARNING so self-hosting operators can alarm on brute-force / credential-stuffing
+# spikes (e.g. ship trueppm.auth to a SIEM and alert on a burst). Reuses the same
+# named logger as the password-reset flow so all auth events land on one channel.
+logger = logging.getLogger("trueppm.auth")
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP for the audit event.
+
+    Prefers the left-most ``X-Forwarded-For`` hop when present (deployments sit
+    behind an ingress), falling back to ``REMOTE_ADDR``. This value is only used
+    for an operator-facing log line, never for a security decision, so a spoofable
+    header is acceptable here — the per-account throttle does the enforcement.
+    """
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
+    if forwarded:
+        return str(forwarded).split(",")[0].strip()
+    return str(request.META.get("REMOTE_ADDR", "unknown"))
+
+
+def _emit_login_failure_event(request: Request) -> None:
+    """Emit an auth-failure audit event for a rejected login (#1717).
+
+    The attempted username is hashed (never logged in the clear) so the event is
+    correlatable across attempts — an operator can see that one account is being
+    hammered from many IPs — without writing raw credentials/emails into logs.
+    """
+    raw_username = request.data.get("username") if hasattr(request, "data") else None
+    username_hash = (
+        hashlib.sha256(str(raw_username).strip().lower().encode("utf-8")).hexdigest()
+        if raw_username
+        else "unknown"
+    )
+    logger.warning(
+        "auth.login_failed username_hash=%s client_ip=%s",
+        username_hash,
+        _client_ip(request),
+    )
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -100,11 +145,17 @@ class CookieTokenObtainPairView(TokenObtainPairView):
     The refresh token is *removed* from the JSON response body and set as a
     hardened cookie instead, so a successful login response no longer carries the
     long-lived credential anywhere JavaScript can read it (#897).
+
+    Two throttles are STACKED (#1717): the IP-keyed ``login`` scope bounds guesses
+    per source address, and ``LoginAccountRateThrottle`` bounds guesses per
+    *account* (hashed username) across all source IPs — closing the distributed
+    credential-stuffing gap where a rotating IP pool gets the full per-IP allowance
+    from every fresh IP. Both must pass for a request to reach authentication.
     """
 
     # RUF012: throttle_classes is inherited from the simplejwt base; ruff reads
     # this as a fresh mutable default it can't resolve.
-    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
+    throttle_classes = [ScopedRateThrottle, LoginAccountRateThrottle]  # noqa: RUF012
     throttle_scope = "login"
 
     @extend_schema(
@@ -124,6 +175,13 @@ class CookieTokenObtainPairView(TokenObtainPairView):
             serializer.is_valid(raise_exception=True)
         except TokenError as exc:
             raise InvalidToken(exc.args[0]) from exc
+        except AuthenticationFailed:
+            # Bad credentials (simplejwt raises AuthenticationFailed with code
+            # "no_active_account"). Emit an auth-failure audit event before
+            # re-raising so operators can alarm on credential-stuffing bursts, then
+            # let DRF return the normal 401 unchanged (no enumeration signal).
+            _emit_login_failure_event(request)
+            raise
 
         # Password-login policy seam (ADR-0187 §4). OSS always allows password
         # login (the default returns True); trueppm-enterprise registers a policy
