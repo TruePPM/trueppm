@@ -278,14 +278,59 @@ def upsert_inbound_task(
         # Only set assignee on resolve — never overwrite an existing assignment.
         if task.assignee_id is None and assignee_user is not None:
             update_fields["assignee"] = assignee_user
-        if task.status != new_status:
-            update_fields["status"] = new_status
+        old_status = task.status
+        status_changed = old_status != new_status
+        if status_changed:
             from django.utils import timezone as _tz
 
+            update_fields["status"] = new_status
             update_fields["status_changed_at"] = _tz.now()
+
+            # Re-apply the actual-date / percent coercions that Task.save() and
+            # TaskSerializer.update() perform on the REST path but that this bulk
+            # .update() bypasses (#1767). Without them, a task marked "Done" by an
+            # external system lands in the Done column at 0% with no actual dates —
+            # EVM/burndown under-count it. Mirrors the status-transition rules in
+            # TaskSerializer.update() and the REVIEW/COMPLETE percent coercion in
+            # Task.save().
+            today = _tz.localdate()
+            if old_status == TaskStatus.COMPLETE.value:
+                # Reopened from COMPLETE — clear the finish stamp and restore
+                # remaining effort from the commitment baseline (the COMPLETE
+                # transition zeroed it). Mirrors TaskSerializer.update(). Uses the
+                # story_points being written on this push (falls back to the stored
+                # value) so burndown counts the reopened work again.
+                update_fields["actual_finish"] = None
+                update_fields["remaining_points"] = (
+                    story_points if story_points is not None else task.story_points
+                )
+            if new_status == TaskStatus.IN_PROGRESS.value and task.actual_start is None:
+                update_fields["actual_start"] = today
+            elif new_status == TaskStatus.COMPLETE.value:
+                if task.actual_finish is None:
+                    update_fields["actual_finish"] = today
+                update_fields["remaining_points"] = 0
+            if new_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value):
+                update_fields["percent_complete"] = 100.0
         Task.objects.filter(pk=task.pk).update(**update_fields)
         # Refresh task to get post-update field values for downstream callers.
         task.refresh_from_db()
+
+        if status_changed:
+            # task_status_changed is the OSS extension point Task.save() emits on a
+            # status transition — it drives real-time burndown upserts today and is
+            # the documented hook other OSS/Enterprise receivers register against.
+            # The bulk .update() above skips it, so fire it explicitly here (#1767).
+            # send_robust: a raising third-party/Enterprise receiver must never
+            # propagate out of and break this OSS write path (mirrors Task.save()).
+            from trueppm_api.apps.projects.signals import task_status_changed
+
+            task_status_changed.send_robust(
+                sender=Task,
+                task=task,
+                old_status=old_status,
+                new_status=new_status,
+            )
 
         # Link row updates: refresh URL + last_synced_via_token, clear
         # pending_assignee_email if we just resolved it.
