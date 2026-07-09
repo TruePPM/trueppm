@@ -4540,6 +4540,115 @@
                 "summary": "Apply preset notification preferences"
             }
         },
+        "/api/v1/me/notification-settings/": {
+            "get": {
+                "operationId": "v1_me_notification_settings_retrieve",
+                "description": "GET/PATCH the authenticated user's account-wide notification settings.\n\nMounted at ``/api/v1/me/notification-settings/`` — the authoritative read/write\nsurface for the Do-Not-Disturb switch (#1707, ADR-0292). The same\n``dnd_enabled`` value is projected read-only onto ``/auth/me`` so the web\ncurrent-user query carries it without a second request.\n\nSelf-scoped by construction: the row is always ``request.user``'s own\n(``get_or_create`` on the caller), there is no object id in the path, and there\nis no way to address another user's settings — so there is no IDOR surface and\nno admin edit path, mirroring ADR-0075's \"each user owns their notification\ncontract\" rule.",
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserNotificationSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve notification setting"
+            },
+            "patch": {
+                "operationId": "v1_me_notification_settings_partial_update",
+                "description": "GET/PATCH the authenticated user's account-wide notification settings.\n\nMounted at ``/api/v1/me/notification-settings/`` — the authoritative read/write\nsurface for the Do-Not-Disturb switch (#1707, ADR-0292). The same\n``dnd_enabled`` value is projected read-only onto ``/auth/me`` so the web\ncurrent-user query carries it without a second request.\n\nSelf-scoped by construction: the row is always ``request.user``'s own\n(``get_or_create`` on the caller), there is no object id in the path, and there\nis no way to address another user's settings — so there is no IDOR surface and\nno admin edit path, mirroring ADR-0075's \"each user owns their notification\ncontract\" rule.",
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserNotificationSettingsRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserNotificationSettingsRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedUserNotificationSettingsRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserNotificationSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update notification setting"
+            }
+        },
         "/api/v1/me/notifications/": {
             "get": {
                 "operationId": "v1_me_notifications_list",
@@ -39707,12 +39816,17 @@
                     "schedule_in_deliver": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "dnd_enabled": {
+                        "type": "boolean",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "can_access_admin_settings",
                     "default_landing",
                     "display_name",
+                    "dnd_enabled",
                     "email",
                     "hidden_views",
                     "id",
@@ -43557,6 +43671,15 @@
                         "maxLength": 140
                     },
                     "email_default_on": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PatchedUserNotificationSettingsRequest": {
+                "type": "object",
+                "description": "Account-wide notification settings (#1707, ADR-0292).\n\nOnly ``dnd_enabled`` is writable; ``updated_at`` is read-only. The endpoint is\nself-scoped (the row is always the caller's own), so there is no ``user`` field\nto expose or spoof.",
+                "properties": {
+                    "dnd_enabled": {
                         "type": "boolean"
                     }
                 }
@@ -51011,6 +51134,23 @@
                 },
                 "required": [
                     "name"
+                ]
+            },
+            "UserNotificationSettings": {
+                "type": "object",
+                "description": "Account-wide notification settings (#1707, ADR-0292).\n\nOnly ``dnd_enabled`` is writable; ``updated_at`` is read-only. The endpoint is\nself-scoped (the row is always the caller's own), so there is no ``user`` field\nto expose or spoof.",
+                "properties": {
+                    "dnd_enabled": {
+                        "type": "boolean"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "updated_at"
                 ]
             },
             "UserProfile": {

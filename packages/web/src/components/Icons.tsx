@@ -583,6 +583,54 @@ export function PinIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/**
+ * Bell — the TopBar notification affordance (issue 1707). Always the plain,
+ * active bell; unread is signalled by the count badge + accent color, never by
+ * swapping to a slashed/muted variant. A genuine muted state (none exists today)
+ * would use a distinct bell-with-stroke glyph driven by a real mute flag.
+ */
+export function BellIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.5 11.25c.75-.75 1.5-1.75 1.5-4.5a4 4 0 0 1 8 0c0 2.75.75 3.75 1.5 4.5Z" />
+      <path d="M6.5 13a1.5 1.5 0 0 0 3 0" />
+    </svg>
+  );
+}
+
+/**
+ * Moon — a filled crescent; the Do-Not-Disturb indicator (#1707). Rides as a
+ * small corner chip over the (unchanged, active) bell. Deliberately the OS-standard
+ * "quiet mode" glyph, NOT a slashed bell — DND pauses emails/push, the in-app
+ * inbox stays active, so an off-implying bell would misread. Filled (like
+ * CriticalDotIcon) so it stays crisp in the ~9px chip.
+ */
+export function MoonIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <path d="M13.8 10.2A6 6 0 1 1 7.6 2.2 4.7 4.7 0 0 0 13.8 10.2Z" />
+    </svg>
+  );
+}
+
 /** Horizontal ellipsis — overflow menus */
 export function MoreHorizontalIcon({ className, ...rest }: IconProps) {
   return (

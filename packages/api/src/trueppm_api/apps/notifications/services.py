@@ -42,6 +42,7 @@ from trueppm_api.apps.access.groups import (
 
 from .models import (
     DEFAULT_PREFERENCES,
+    DND_BYPASS_EVENTS,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     Mention,
     MentionScope,
@@ -52,6 +53,7 @@ from .models import (
     ProjectNotificationChannel,
     ProjectNotificationEventType,
     ProjectNotificationPreference,
+    UserNotificationSettings,
 )
 
 if TYPE_CHECKING:
@@ -180,6 +182,14 @@ def get_or_create_default_preferences(user: UserType) -> list[NotificationPrefer
 # GitHub DND: the record persists; only the interruption is held back.
 _QUIET_HOURS_EXEMPT_CHANNELS = frozenset({ProjectNotificationChannel.IN_APP.value})
 
+# Channels account-wide Do-Not-Disturb (UserNotificationSettings.dnd_enabled)
+# silences. Same rationale as _QUIET_HOURS_EXEMPT_CHANNELS: the in-app inbox row
+# is the durable record and is NEVER silenced — DND holds back the interrupt, not
+# the record. The "in_app" string value is shared by NotificationChannel.IN_APP
+# and ProjectNotificationChannel.IN_APP, so this exemption is correct on both the
+# global event-sourced gate and the project-scoped gate.
+_DND_EXEMPT_CHANNELS = frozenset({NotificationChannel.IN_APP.value})
+
 
 def _project_timezone(project: Any) -> ZoneInfo:
     """Resolve the tz that a project's quiet-hours window is interpreted in.
@@ -282,7 +292,72 @@ def should_deliver(
     pref, _ = ProjectNotificationPreference.objects.get_or_create(project=project, user=user)
     return _preference_allows(
         pref, event_type=event_type, channel=channel, now=now, tz=_project_timezone(project)
+    ) and _dnd_allows(user, event_type, channel)
+
+
+# ---------------------------------------------------------------------------
+# Account-wide Do-Not-Disturb gate (#1707, ADR-0292)
+# ---------------------------------------------------------------------------
+
+
+def get_or_create_notification_settings(user: Any) -> UserNotificationSettings:
+    """Return the user's account-wide notification settings, creating the row on
+    first access.
+
+    Mirrors :func:`get_or_create_default_preferences` — no backfill on user
+    create; the absence of a row reads as DND off. This is the authoritative
+    accessor used by the read/write endpoint and the single-user delivery gate.
+    ``user`` is typed ``Any`` to match the request-context accessors in this
+    module (``should_deliver`` / ``_get_or_create_pref``): the ``IsAuthenticated``
+    gate on the view guarantees a real ``User`` at runtime.
+    """
+    settings_row, _ = UserNotificationSettings.objects.get_or_create(user=user)
+    return settings_row
+
+
+def load_dnd_user_ids(user_ids: Any) -> set[Any]:
+    """Return the subset of ``user_ids`` that currently have DND enabled.
+
+    One query for a whole fan-out (no N+1, no write-amplifying get_or_create) —
+    a user with no settings row is simply absent from the result, which reads as
+    DND off. Pair with :func:`_dnd_silences` in a batch dispatch loop.
+    """
+    return set(
+        UserNotificationSettings.objects.filter(user_id__in=user_ids, dnd_enabled=True).values_list(
+            "user_id", flat=True
+        )
     )
+
+
+def _dnd_silences(event_type: str, channel: str, *, dnd_enabled: bool) -> bool:
+    """Whether account-wide DND holds back this ``(event_type, channel)`` delivery.
+
+    Pure — takes the already-resolved DND flag so a batch fan-out can load the DND
+    set once (see :func:`load_dnd_user_ids`) and evaluate each recipient without a
+    query. DND silences ONLY transient channels (email/push) and ONLY for events
+    outside :data:`DND_BYPASS_EVENTS`; the in-app inbox row (``_DND_EXEMPT_CHANNELS``)
+    and the four bypass events always deliver — the safety contract is one
+    frozenset checked at one gate, so it cannot drift or swallow a blocker.
+    """
+    if not dnd_enabled:
+        return False
+    if channel in _DND_EXEMPT_CHANNELS:
+        return False
+    # A non-exempt (transient) channel under DND: silence it unless the event is
+    # on the always-through safety list.
+    return event_type not in DND_BYPASS_EVENTS
+
+
+def _dnd_allows(user: Any, event_type: str, channel: str) -> bool:
+    """Single-user DND gate for :func:`should_deliver`.
+
+    Resolves (and lazily creates) the caller's settings row, then delegates to the
+    pure :func:`_dnd_silences` predicate. For a fan-out to many recipients, use
+    :func:`load_dnd_user_ids` + :func:`_dnd_silences` instead of calling this per
+    recipient.
+    """
+    settings_row = get_or_create_notification_settings(user)
+    return not _dnd_silences(event_type, channel, dnd_enabled=settings_row.dnd_enabled)
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +729,10 @@ def create_mention_notifications(
         ).values_list("user_id", flat=True)
     )
 
+    # Account-wide DND (#1707): a mention is not a bypass event, so DND silences
+    # its email while the durable in-app inbox row (matrix-gated above) still lands.
+    dnd_user_ids = load_dnd_user_ids(list(recipients.keys()))
+
     notifications: list[Notification] = []
     for user_id, source_mention in recipients.items():
         pref = project_prefs.get(user_id) or ProjectNotificationPreference()
@@ -697,6 +776,12 @@ def create_mention_notifications(
             # Never email the comment body to a non-source-project recipient
             # (cross-project read boundary — see source_project_member_ids above).
             and user_id in source_project_member_ids
+            # Account-wide Do-Not-Disturb (#1707) — mentions are silenceable.
+            and not _dnd_silences(
+                global_event,
+                ProjectNotificationChannel.EMAIL.value,
+                dnd_enabled=user_id in dnd_user_ids,
+            )
         )
         notifications.append(
             Notification(
@@ -766,6 +851,10 @@ def create_event_notifications(
             return per_user[channel]
         return defaults.get((event_type, channel), False)
 
+    # Account-wide DND (#1707) silences email for non-bypass events. Loaded once
+    # over the recipient set; the in-app inbox row below is never gated by DND.
+    dnd_user_ids = load_dnd_user_ids(unique_ids)
+
     notifications: list[Notification] = []
     for user_id in unique_ids:
         if not _allows(user_id, NotificationChannel.IN_APP.value):
@@ -778,7 +867,12 @@ def create_event_notifications(
                 body=body,
                 project_id=project_id,
                 task_id=task_id,
-                email_pending=_allows(user_id, NotificationChannel.EMAIL.value),
+                email_pending=_allows(user_id, NotificationChannel.EMAIL.value)
+                and not _dnd_silences(
+                    event_type,
+                    NotificationChannel.EMAIL.value,
+                    dnd_enabled=user_id in dnd_user_ids,
+                ),
             )
         )
     if not notifications:
@@ -836,6 +930,10 @@ def create_event_notifications_batch(
             return per_user[channel]
         return defaults.get((event_type, channel), False)
 
+    # Account-wide DND (#1707) silences email for non-bypass events. Loaded once
+    # over the recipient set; the in-app inbox row below is never gated by DND.
+    dnd_user_ids = load_dnd_user_ids(unique_ids)
+
     notifications: list[Notification] = []
     for recipient_id, subject, body, task_id in rows:
         if recipient_id is None or not _allows(recipient_id, NotificationChannel.IN_APP.value):
@@ -848,7 +946,12 @@ def create_event_notifications_batch(
                 body=body,
                 project_id=project_id,
                 task_id=task_id,
-                email_pending=_allows(recipient_id, NotificationChannel.EMAIL.value),
+                email_pending=_allows(recipient_id, NotificationChannel.EMAIL.value)
+                and not _dnd_silences(
+                    event_type,
+                    NotificationChannel.EMAIL.value,
+                    dnd_enabled=recipient_id in dnd_user_ids,
+                ),
             )
         )
     if not notifications:
@@ -952,6 +1055,9 @@ def create_stale_task_notifications(
             user_id__in=assignee_ids, event_type=event
         ):
             stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
+        # Account-wide DND (#1707): task.stale is not a bypass event, so DND
+        # suppresses its email nudge while the durable in-app row still lands.
+        dnd_user_ids = load_dnd_user_ids(assignee_ids)
 
         rows: list[Notification] = []
         for task_id, name, assignee_id in candidates:
@@ -983,6 +1089,11 @@ def create_stale_task_notifications(
                     task_id=task_id,
                     email_pending=_stale_pref_allows(
                         stored, defaults, event, assignee_id, NotificationChannel.EMAIL.value
+                    )
+                    and not _dnd_silences(
+                        event,
+                        NotificationChannel.EMAIL.value,
+                        dnd_enabled=assignee_id in dnd_user_ids,
                     ),
                 )
             )

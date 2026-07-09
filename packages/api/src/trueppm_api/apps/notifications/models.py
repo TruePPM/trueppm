@@ -465,6 +465,31 @@ SIGNAL_ONLY_EVENTS: frozenset[str] = frozenset(
 
 
 # ---------------------------------------------------------------------------
+# Do-Not-Disturb bypass set (#1707, ADR-0292)
+# ---------------------------------------------------------------------------
+# The account-wide DND switch (UserNotificationSettings.dnd_enabled) silences
+# transient channels (email/push) for routine events. These four events ALWAYS
+# deliver on every channel regardless of DND — the "needs my attention now"
+# signals a muted bell must never swallow: a task of mine got blocked, a team
+# signal-visibility vote opened or resolved, or a milestone forecast shifted.
+#
+# This is deliberately NOT SIGNAL_ONLY_EVENTS: that set is the contributor
+# settings *preset* (task.blocked + task.due_date_changed) and is the wrong
+# membership for a safety bypass — it would let a routine due-date change punch
+# through DND while silencing a signal-ceiling proposal. The two sets are
+# distinct on purpose; keep this membership in step as new critical event types
+# are added (it is the load-bearing safety contract, #1707).
+DND_BYPASS_EVENTS: frozenset[str] = frozenset(
+    {
+        NotificationEventType.TASK_BLOCKED,
+        NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED,
+        NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED,
+        NotificationEventType.MILESTONE_FORECAST_SHIFTED,
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # Project-scoped notification preferences (#522)
 # ---------------------------------------------------------------------------
 
@@ -607,6 +632,48 @@ class ProjectNotificationPreference(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectNotificationPreference(project={self.project_id}, user={self.user_id})"
+
+
+class UserNotificationSettings(models.Model):
+    """Per-user, account-wide notification settings — the Do-Not-Disturb switch
+    (#1707, ADR-0292).
+
+    One row per user, lazily created on first access
+    (:func:`services.get_or_create_notification_settings`) — no backfill on user
+    create, mirroring :func:`services.get_or_create_default_preferences`; the
+    absence of a row reads as DND off. Distinct in grain from the per-(event,
+    channel) :class:`NotificationPreference` matrix and the per-project
+    :class:`ProjectNotificationPreference`: this is a single account-wide switch
+    that silences transient channels (email/push) across every project, exactly
+    as quiet hours gate only transient channels — the durable in-app inbox row is
+    never silenced and :data:`DND_BYPASS_EVENTS` always deliver.
+
+    A plain ``Model`` (no ``server_version``): a personal installation preference,
+    never synced or broadcast, mirroring ``ProjectNotificationPreference`` and
+    ``profiles.UserProfile``. Shaped to grow a scheduled quiet-hours window + a
+    per-user timezone later; only the DND switch ships now (ADR-0292 §4).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notification_settings",
+    )
+    # Account-wide Do-Not-Disturb. When True, transient channels (email/push) are
+    # suppressed for all non-bypass events; the durable in-app inbox row is
+    # unaffected and DND_BYPASS_EVENTS always deliver on every channel.
+    dnd_enabled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "notifications_user_settings"
+        verbose_name = "user notification settings"
+        verbose_name_plural = "user notification settings"
+
+    def __str__(self) -> str:
+        state = "on" if self.dnd_enabled else "off"
+        return f"UserNotificationSettings(user={self.user_id}, dnd={state})"
 
 
 # ---------------------------------------------------------------------------
