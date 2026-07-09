@@ -178,7 +178,7 @@ export function LoginPage() {
           <LogoMark size={36} className="flex-shrink-0" />
           <span className="font-display text-2xl font-bold tracking-[-0.02em] leading-none">
             <span className="text-navy-700 dark:text-reversed">True</span>
-            <span className="text-sage-500">PPM</span>
+            <span className="text-brand-primary">PPM</span>
           </span>
         </div>
 
@@ -217,7 +217,7 @@ export function LoginPage() {
               className="
                 h-10 px-3 rounded border border-neutral-border
                 bg-neutral-surface text-neutral-text-primary text-sm
-                placeholder:text-neutral-text-disabled
+                placeholder:text-neutral-text-secondary
                 focus-visible:outline-none focus-visible:border-brand-primary
                 focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
                 disabled:opacity-50 disabled:cursor-not-allowed
@@ -315,7 +315,7 @@ export function LoginPage() {
           {/* OR divider */}
           <div className="flex items-center gap-3" aria-hidden="true">
             <div className="flex-1 h-px bg-neutral-border" />
-            <span className="text-xs text-neutral-text-disabled">OR</span>
+            <span className="text-xs text-neutral-text-secondary">OR</span>
             <div className="flex-1 h-px bg-neutral-border" />
           </div>
 
@@ -357,7 +357,7 @@ export function LoginPage() {
         {/* Footer: TruePPM is self-hosted and invite-based, so there is no
             self-service signup. Direct the user to their admin rather than to a
             nonexistent /signup route. Team invites are tracked in issue 1410. */}
-        <p className="text-xs text-neutral-text-disabled w-fit">
+        <p className="text-xs text-neutral-text-secondary w-fit">
           Need access? Ask your workspace admin to invite you.
         </p>
       </div>

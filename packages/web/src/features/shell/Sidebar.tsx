@@ -473,7 +473,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             <LogoMark size={22} className="shrink-0" />
             <span className="font-display text-base font-bold tracking-[-0.02em] leading-none truncate">
               <span className="text-navy-700 dark:text-reversed">True</span>
-              <span className="text-sage-500">PPM</span>
+              <span className="text-brand-primary">PPM</span>
             </span>
           </NavLink>
           <div className="flex-1" />
@@ -511,7 +511,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <div className="flex items-center gap-2 px-1 pb-1.5">
                 <span
                   aria-hidden="true"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-brand-primary"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-neutral-text-primary"
                 >
                   {user?.initials ?? '··'}
                 </span>
@@ -718,7 +718,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           <div className="flex items-center gap-2">
             <span
               aria-hidden="true"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-brand-primary"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-neutral-text-primary"
             >
               {user?.initials ?? '··'}
             </span>

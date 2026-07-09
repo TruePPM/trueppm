@@ -16,18 +16,15 @@ import { expectNoA11yViolations, setupApiMocks, setupAuth, setupCatchAll } from 
  */
 
 /**
- * `color-contrast` is temporarily disabled for this foothold. The gate's first
- * run surfaced only pre-existing DS-v2 color-token contrast debt (the sage-500
- * wordmark, disabled text, the brand-primary badge, the StatusBar build hash) —
- * no structural violations. Those tokens are a design-system decision with a
- * wide blast radius and must go through /brand + /ux-review (like the earlier
- * dark-mode contrast sweep), not ride in on this CI-infra change. The gate still
- * enforces every other critical/serious WCAG 2.1 A/AA rule today; contrast is
- * fixed and re-enabled in the tracked follow-up.
+ * `color-contrast` is fully enforced. The foothold's first run (#1685) surfaced
+ * only pre-existing DS-v2 color-token contrast debt — the sage-500 wordmark,
+ * login disabled/placeholder text, the brand-primary/15 badge, and the StatusBar
+ * build hash on the sunken surface. That debt was resolved through /brand +
+ * /ux-review in #1689 (wordmark → sage-700 brand-primary; disabled text →
+ * secondary; badge tint /15 → /10; StatusBar moved to the raised surface), so the
+ * gate now runs with no rule exclusions — every critical/serious WCAG 2.1 A/AA
+ * rule, contrast included, fails the pipeline.
  */
-// TODO(#1689): fix the DS-v2 contrast debt and remove this exclusion.
-const DISABLED_RULES = ['color-contrast'];
-
 test.describe('accessibility @a11y', () => {
   test('login page has no critical/serious WCAG violations', async ({ page }, testInfo) => {
     // Public route — no auth seed, no API mocks needed. It renders a self-
@@ -35,7 +32,7 @@ test.describe('accessibility @a11y', () => {
     await page.goto('/login');
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
-    await expectNoA11yViolations(page, testInfo, { disableRules: DISABLED_RULES });
+    await expectNoA11yViolations(page, testInfo);
   });
 
   test('authenticated app shell has no critical/serious WCAG violations', async ({
@@ -54,6 +51,6 @@ test.describe('accessibility @a11y', () => {
     await expect(page.getByRole('banner')).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Workspace navigation' })).toBeVisible();
 
-    await expectNoA11yViolations(page, testInfo, { disableRules: DISABLED_RULES });
+    await expectNoA11yViolations(page, testInfo);
   });
 });
