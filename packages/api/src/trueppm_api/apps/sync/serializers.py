@@ -447,8 +447,11 @@ class SyncUploadRequestSerializer(serializers.Serializer):  # type: ignore[type-
     the generated web types, instead of the opaque object it was before (#786).
     Per-collection row validation still happens in ``sync.upload`` so an
     unsupported collection can be rejected with an explicit 400 rather than
-    silently dropped. ``last_pulled_at`` is accepted but advisory only — conflict
-    resolution is plain last-writer-wins here; #322 owns richer merge.
+    silently dropped. ``last_pulled_at`` is the client's last-pull high-water mark
+    and is the default per-row base version for the field-level conflict guard
+    (#1718): a stale edit that overlaps a concurrent writer is reported in the
+    response ``conflicts`` collection instead of silently clobbering. Omit it (and
+    any per-row ``base_version``) to keep plain last-writer-wins.
     """
 
     client_batch_id = serializers.UUIDField()

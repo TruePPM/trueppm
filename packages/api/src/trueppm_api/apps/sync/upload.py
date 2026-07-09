@@ -5,9 +5,15 @@ idempotency/atomicity orchestration. The single public entry point is
 :func:`apply_task_changes`, called from ``ProjectSyncView.post`` inside the
 batch's ``transaction.atomic`` block.
 
-Conflict resolution is plain last-writer-wins: each row is applied
-unconditionally and ``server_version`` is bumped. Field-level merge / 409
-conflict bodies are owned by #322 and intentionally not implemented here.
+Conflict resolution mirrors the REST ``perform_update`` field-level guard
+(ADR-0217, #1718): a row whose ``base_version`` (its own ``base_version`` key, or
+the batch's ``last_pulled_at`` watermark) is stale is checked against the fields a
+concurrent writer changed. A disjoint edit still applies (field-level merge); an
+overlapping one is reported as a per-row conflict entry and **skipped** — it does
+not bump ``server_version`` and does not broadcast. This closes the lost-update
+hole where routing a stale edit through ``/sync/`` bypassed the REST 409 that a
+stale ``PATCH`` would have hit. A row that omits any base version keeps plain
+last-writer-wins, so existing clients are unaffected.
 
 Apply reuses ``TaskSerializer`` — the same serializer the REST PATCH path uses —
 so mobile writes inherit identical validation and business rules (progress-anchor
@@ -79,6 +85,11 @@ class BatchApplyResult:
     created: list[dict[str, Any]] = field(default_factory=list)
     updated: list[dict[str, Any]] = field(default_factory=list)
     deleted: list[dict[str, Any]] = field(default_factory=list)
+    # Rows rejected by the field-level conflict guard (#1718): each entry carries the
+    # REST-parity 409 body (conflict_fields / server_value / client_value /
+    # server_version) plus the row ``id``. A conflicting row is NOT applied — it is
+    # absent from created/updated and never bumps server_version or broadcasts.
+    conflicts: list[dict[str, Any]] = field(default_factory=list)
     # (event_type, task_id) pairs to broadcast on_commit, mirroring single-row writes.
     events: list[tuple[str, str]] = field(default_factory=list)
     # Highest server_version touched — a convenience watermark for the client.
@@ -111,12 +122,37 @@ def _content(row: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in row.items() if k not in _STRIPPED_ROW_KEYS}
 
 
+def _row_base_version(row: dict[str, Any], batch_base: int | None) -> int | None:
+    """The ``server_version`` the client last saw for this row (#1718 conflict guard).
+
+    Prefer a row-level ``base_version`` key (mirroring the REST ``base_version`` body
+    key that :func:`~trueppm_api.apps.sync.conflict.parse_base_version` reads) for
+    per-row precision; fall back to the batch's ``last_pulled_at`` watermark when the
+    row omits it. ``None`` (neither present, or unparseable) preserves the pre-#1718
+    last-writer-wins behavior, so existing clients are fully backward compatible.
+
+    Note the row's own ``server_version`` field is deliberately NOT used as the base:
+    it is a read-only, server-owned field (stripped on input) and clients have long
+    sent arbitrary values there as an opaque marker — repurposing it as a conflict
+    base would silently change their semantics.
+    """
+    raw = row.get("base_version")
+    if raw is None or isinstance(raw, bool):
+        return batch_base
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return batch_base
+    return value if value >= 0 else batch_base
+
+
 def apply_task_changes(
     *,
     project: Project,
     request: Request,
     role: int,
     changes: dict[str, Any],
+    last_pulled_at: int | None = None,
 ) -> BatchApplyResult:
     """Apply a WatermelonDB-shaped delta for the ``tasks`` collection.
 
@@ -125,12 +161,19 @@ def apply_task_changes(
     fails its RBAC check raises ``PermissionDenied``, which rolls the whole batch
     back (all-or-nothing) — a batch carrying a forbidden op is rejected entirely.
 
+    A stale edit whose fields overlap a concurrent writer's is NOT an error: it is
+    collected in ``result.conflicts`` and skipped (mirroring the REST 409 rather
+    than aborting the batch), so the client reconciles just that row while the rest
+    commit. ``last_pulled_at`` is the batch's high-water mark from its last pull and
+    is the default per-row conflict base (a row may override it with ``base_version``).
+
     Raises:
         ValidationError: malformed envelope or an unsupported collection key.
         PermissionDenied: a row the caller may not write.
     """
     from trueppm_api.apps.projects.serializers import TaskSerializer
     from trueppm_api.apps.projects.services import maybe_record_scope_injection
+    from trueppm_api.apps.sync.conflict import check_row_conflict
 
     if not isinstance(changes, dict):
         raise ValidationError({"changes": "Must be an object."})
@@ -229,6 +272,12 @@ def apply_task_changes(
             existing._sync_known_exists = True  # type: ignore[attr-defined]
             ser = TaskSerializer(existing, data=_content(row), partial=True, context=ctx)
             ser.is_valid(raise_exception=True)
+            # An idempotent re-create is an in-place edit, so it can lose a concurrent
+            # update just like the updated bucket — guard it identically (#1718).
+            conflict = check_row_conflict(ser, _row_base_version(row, last_pulled_at))
+            if conflict is not None:
+                result.conflicts.append({"id": str(existing.pk), **conflict})
+                continue
             task = ser.save()
             maybe_record_scope_injection(task, old_sprint_id, user)
             result.events.append(("task_updated", str(task.pk)))
@@ -273,6 +322,17 @@ def apply_task_changes(
         target._sync_known_exists = True  # type: ignore[attr-defined]
         ser = TaskSerializer(target, data=_content(row), partial=True, context=ctx)
         ser.is_valid(raise_exception=True)
+        # Field-level lost-update guard (#1718): if this stale edit overlaps a field a
+        # concurrent writer changed since the client's base version, skip it and report
+        # a per-row conflict rather than silently clobbering — mirrors the REST 409.
+        # Skipping before save() means no server_version bump and no broadcast for it.
+        # No batch N+1: check_row_conflict short-circuits (no query) unless the row's
+        # server_version has actually advanced past the client's base, so the bounded
+        # history read runs only for the typically-tiny contended subset, not per row.
+        conflict = check_row_conflict(ser, _row_base_version(row, last_pulled_at))
+        if conflict is not None:
+            result.conflicts.append({"id": str(target.pk), **conflict})
+            continue
         saved = ser.save()
         maybe_record_scope_injection(saved, old_sprint_id, user)
         result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})

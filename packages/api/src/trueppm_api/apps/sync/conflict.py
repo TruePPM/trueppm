@@ -127,6 +127,30 @@ def _payload_changed_fields(instance: Any, validated_data: dict[str, Any]) -> se
     return changed
 
 
+def _evaluate_conflict(
+    instance: Any, validated_data: dict[str, Any], base_version: int | None
+) -> tuple[set[str], set[str], bool]:
+    """Core field-level conflict evaluation shared by the REST and sync paths.
+
+    Returns ``(concurrent, overlap, ambiguous)``:
+
+    - ``concurrent`` — fields a writer changed on this row since ``base_version``;
+    - ``overlap`` — the intersection of ``concurrent`` with the payload's changed
+      fields (non-empty ⇒ an unsafe, data-losing write);
+    - ``ambiguous`` — the intervening history could not be reconstructed, so the
+      caller must fail closed rather than risk a silent merge over an unknown change.
+
+    A caller with empty ``overlap`` and ``ambiguous is False`` may safely apply the
+    write (either the client is current, opted out, or the edit is disjoint from the
+    concurrent one), surfacing ``concurrent`` so the client reconciles its cache.
+    """
+    if base_version is None or int(instance.server_version) <= base_version:
+        return set(), set(), False
+    concurrent, ambiguous = _concurrent_changed_fields(instance, base_version)
+    client_fields = _payload_changed_fields(instance, dict(validated_data))
+    return concurrent, client_fields & concurrent, ambiguous
+
+
 def check_field_conflict(request: Request, serializer: BaseSerializer[Any]) -> list[str]:
     """Detect a field-level conflict before a stale write is applied (ADR-0217).
 
@@ -138,19 +162,50 @@ def check_field_conflict(request: Request, serializer: BaseSerializer[Any]) -> l
     intervening history is ambiguous (fail-closed).
     """
     instance = serializer.instance
+    if instance is None:
+        return []
     base = parse_base_version(request)
-    if instance is None or base is None:
-        return []
-    if int(instance.server_version) <= base:
-        return []
-
-    concurrent, ambiguous = _concurrent_changed_fields(instance, base)
-    client_fields = _payload_changed_fields(instance, dict(serializer.validated_data))
-    overlap = client_fields & concurrent
-
+    concurrent, overlap, ambiguous = _evaluate_conflict(
+        instance, dict(serializer.validated_data), base
+    )
     if overlap or ambiguous:
         raise MergeConflict(_conflict_body(serializer, instance, overlap, ambiguous))
     return sorted(concurrent)
+
+
+def check_row_conflict(
+    serializer: BaseSerializer[Any], base_version: int | None
+) -> dict[str, Any] | None:
+    """Non-raising per-row field-conflict check for the sync upload batch (#1718).
+
+    The batch upload path applies rows through the same ``TaskSerializer`` as REST
+    but never went through ``perform_update``, so the REST 409 guard
+    (:func:`check_field_conflict`) was bypassed and a stale ``/sync/`` write silently
+    clobbered a concurrent REST edit (lost update). This is the batch-safe mirror:
+
+    - It takes an explicit ``base_version`` (the row's ``base_version`` key, or the
+      batch's ``last_pulled_at`` watermark) instead of a request header, because a
+      batch has no single per-row header to read.
+    - It **returns** a structured conflict entry (same shape as the REST 409 body)
+      instead of raising, so a single conflicting row is reported and skipped without
+      aborting the whole batch — the non-conflicting rows still commit.
+
+    Returns ``None`` when the write is safe to apply (client current, opted out via a
+    missing base version, or a disjoint concurrent edit). The caller must, on a
+    non-``None`` result, skip ``serializer.save()`` for that row so it neither bumps
+    ``server_version`` nor broadcasts.
+
+    Call after ``serializer.is_valid()`` and before ``serializer.save()``.
+    """
+    instance = serializer.instance
+    if instance is None or base_version is None:
+        return None
+    _concurrent, overlap, ambiguous = _evaluate_conflict(
+        instance, dict(serializer.validated_data), base_version
+    )
+    if overlap or ambiguous:
+        return _conflict_body(serializer, instance, overlap, ambiguous)
+    return None
 
 
 def _conflict_body(

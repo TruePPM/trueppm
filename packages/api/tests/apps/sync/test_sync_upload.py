@@ -29,6 +29,7 @@ from trueppm_api.apps.projects.models import (
     SprintScopeChange,
     SprintState,
     Task,
+    TaskStatus,
 )
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
 
@@ -38,6 +39,23 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _bypass_upload_throttle() -> Any:
+    """Bypass SyncUploadThrottle on the upload path for these integration tests.
+
+    The throttle hits Redis (which now fails *closed* on error, #1719), so leaving it
+    live would couple every upload assertion to a running Redis and turn a cache blip
+    into a spurious 429. Its own behavior — fail-closed, per-project + per-user global
+    buckets — is covered directly in ``test_upload_throttle.py``. Mirrors the
+    throttle-bypass pattern in ``test_task_collaboration.py``.
+    """
+    with patch(
+        "trueppm_api.apps.sync.throttles.SyncUploadThrottle.allow_request",
+        return_value=True,
+    ):
+        yield
 
 
 @pytest.fixture
@@ -942,3 +960,144 @@ def test_sync_create_with_member_assignee_succeeds(
     )
     assert resp.status_code == 200
     assert Task.objects.get(pk=task_id).assignee_id == member.pk
+
+
+# ---------------------------------------------------------------------------
+# Field-level lost-update guard on the push path (#1718, ADR-0217)
+#
+# A stale /sync/ upload of a field a concurrent REST writer changed must NOT
+# silently clobber it (the pre-#1718 last-writer-wins hole). It is reported as a
+# per-row conflict and skipped, mirroring the REST 409 — without aborting the
+# whole batch, so a non-conflicting row in the same batch still commits.
+# ---------------------------------------------------------------------------
+
+
+def _conflict_payload(base: int, **collections: Any) -> dict[str, Any]:
+    """An upload envelope carrying the client's last-pull watermark as the base."""
+    payload = _payload(**collections)
+    payload["last_pulled_at"] = base
+    return payload
+
+
+@pytest.mark.django_db
+def test_stale_sync_update_conflicts_and_does_not_clobber(
+    admin_client: APIClient, project: Project
+) -> None:
+    task = Task.objects.create(project=project, name="Design", notes="orig")
+    base = task.server_version
+
+    # A concurrent writer (e.g. a REST PATCH) changes the SAME field the offline
+    # batch is about to edit, bumping server_version past the client's base.
+    task.name = "Their name"
+    task.save()
+    task.refresh_from_db()
+    concurrent_version = task.server_version
+    assert concurrent_version > base
+
+    resp = admin_client.post(
+        _url(project),
+        _conflict_payload(base, updated=[{"id": str(task.pk), "name": "My name"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # The stale row is reported as a conflict, NOT applied.
+    assert body["applied"]["tasks"]["updated"] == []
+    conflicts = body["conflicts"]["tasks"]
+    assert len(conflicts) == 1
+    entry = conflicts[0]
+    assert entry["id"] == str(task.pk)
+    assert entry["conflict_fields"] == ["name"]
+    assert entry["server_value"]["name"] == "Their name"
+    assert entry["client_value"]["name"] == "My name"
+    assert entry["server_version"] == concurrent_version
+
+    # No clobber and — crucially — no server_version bump for the rejected row.
+    task.refresh_from_db()
+    assert task.name == "Their name"
+    assert task.server_version == concurrent_version
+
+
+@pytest.mark.django_db
+def test_nonconflicting_row_applies_alongside_a_conflict(
+    admin_client: APIClient, project: Project
+) -> None:
+    stale = Task.objects.create(project=project, name="Stale", notes="")
+    fresh = Task.objects.create(project=project, name="Fresh", notes="")
+    base = max(stale.server_version, fresh.server_version)
+
+    # Only `stale` is edited concurrently; `fresh` is untouched since the pull.
+    stale.name = "Their name"
+    stale.save()
+
+    resp = admin_client.post(
+        _url(project),
+        _conflict_payload(
+            base,
+            updated=[
+                {"id": str(stale.pk), "name": "My name"},
+                {"id": str(fresh.pk), "notes": "field note"},
+            ],
+        ),
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # The untouched row applies; the concurrently-edited one conflicts.
+    assert [r["id"] for r in body["applied"]["tasks"]["updated"]] == [str(fresh.pk)]
+    assert [c["id"] for c in body["conflicts"]["tasks"]] == [str(stale.pk)]
+
+    stale.refresh_from_db()
+    fresh.refresh_from_db()
+    assert stale.name == "Their name"  # not clobbered
+    assert fresh.notes == "field note"  # applied
+
+
+@pytest.mark.django_db
+def test_disjoint_sync_edit_still_merges(admin_client: APIClient, project: Project) -> None:
+    """A stale edit to a DIFFERENT field than the concurrent writer merges (not a conflict).
+
+    Parity with the REST field-level merge: disjoint edits are not data loss, so the
+    upload applies rather than blocking on a bare version regression.
+    """
+    task = Task.objects.create(project=project, name="Design", notes="orig")
+    base = task.server_version
+
+    # Concurrent writer changes `status`; the offline batch edits `notes`.
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+
+    resp = admin_client.post(
+        _url(project),
+        _conflict_payload(base, updated=[{"id": str(task.pk), "notes": "edited offline"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["conflicts"]["tasks"] == []
+    assert [r["id"] for r in body["applied"]["tasks"]["updated"]] == [str(task.pk)]
+
+    task.refresh_from_db()
+    assert task.notes == "edited offline"  # our edit landed
+    assert task.status == TaskStatus.IN_PROGRESS  # the concurrent edit survived
+
+
+@pytest.mark.django_db
+def test_no_base_version_keeps_last_writer_wins(admin_client: APIClient, project: Project) -> None:
+    """Omitting last_pulled_at (and base_version) preserves LWW — backward compatible."""
+    task = Task.objects.create(project=project, name="Design", notes="orig")
+    task.name = "Their name"
+    task.save()
+
+    resp = admin_client.post(
+        _url(project),
+        _payload(updated=[{"id": str(task.pk), "name": "My name"}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["conflicts"]["tasks"] == []
+    task.refresh_from_db()
+    assert task.name == "My name"  # last-writer-wins, unchanged behavior
