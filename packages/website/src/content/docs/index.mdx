@@ -9,9 +9,16 @@ hero:
       link: /getting-started/installation/
       icon: right-arrow
       variant: primary
+    # Hosted read-only demo (#1487). Placeholder domain — the try.trueppm.dev
+    # instance goes live with the 0.4 tag; the URL is stable once it does.
+    - text: Try it live
+      link: https://try.trueppm.dev
+      icon: external
+      variant: secondary
     - text: View on GitLab
       link: https://gitlab.com/trueppm/trueppm
       icon: external
+      variant: minimal
 ---
 
 import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
@@ -41,6 +48,14 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
 </CardGrid>
 
 ## 5-minute local demo
+
+:::tip[Just want to look, not install?]
+The [**Try it**](/getting-started/try-it/) page leads with two zero-config paths:
+a hosted read-only demo at [try.trueppm.dev](https://try.trueppm.dev) (nothing to
+install) and a one-command local demo (`docker compose -f docker-compose.demo.yml up`).
+Both go live with the 0.4 beta. The dev stack below is for *building* with
+TruePPM — six persona logins, full write access.
+:::
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm

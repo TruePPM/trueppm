@@ -1,0 +1,196 @@
+# TruePPM PUBLIC READ-ONLY DEMO stack (issue #1487).
+#
+# One command, zero config, sample data auto-seeded:
+#
+#     docker compose -f docker-compose.demo.yml up
+#
+# What it does:
+#   * brings up Postgres + Valkey + API + a hardened nginx;
+#   * auto-seeds the "Platform Migration" hybrid sample (seed_demo_project,
+#     WITHOUT persona logins — the demo is reachable ONLY through the product's
+#     own tokenized, read-only share link, so there is no login and no write
+#     path — near-zero abuse surface);
+#   * mints/pins the public read-only SCHEDULE share link and logs its URL;
+#   * serves everything `noindex` (X-Robots-Tag + robots.txt Disallow: /);
+#   * applies conservative per-container resource caps.
+#
+# This is the hosted-demo counterpart of the production Helm/compose path — it is
+# NOT a production deployment. Front it with TLS at your load balancer / ingress.
+#
+# ── Making the demo URL stable ────────────────────────────────────────────────
+# The raw share token is stored only as a hash, so a randomly-minted link cannot
+# be reprinted after the first run. To get a stable, reprintable deep-link that
+# survives restarts, pin a token before first `up`:
+#
+#     TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
+#     TRUEPPM_DEMO_BASE_URL=https://try.trueppm.dev \
+#       docker compose -f docker-compose.demo.yml up
+#
+# The public URL is then:  https://try.trueppm.dev/share/schedule/your-fixed-token
+#
+# ── Security note ─────────────────────────────────────────────────────────────
+# The SECRET_KEY / INTEGRATION_ENCRYPTION_KEY below are BAKED DEMO VALUES, safe
+# ONLY because this stack has zero user accounts and no authenticated write path
+# (nobody ever logs in — access is exclusively via the anonymous read-only share
+# endpoint). Do NOT copy these into a real deployment; use docker-compose.prod.yml
+# with generated secrets for anything that holds real data.
+
+# Shared environment for every API-image container (init, seed, api).
+# Top-level `x-` extension field + YAML anchor keeps the demo config in one place.
+x-api-env: &api-env
+  DATABASE_URL: postgres://trueppm:${DB_PASSWORD:-trueppm-demo}@db:5432/trueppm
+  REDIS_URL: redis://valkey:6379
+  DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
+  # Baked demo secrets — safe only because the demo has no accounts / no auth
+  # write path (see header). Override with your own for any real deployment.
+  SECRET_KEY: ${SECRET_KEY:-trueppm-public-demo-secret-key-read-only-no-accounts-0000}
+  INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-bCrnaS7Vi4J94X52yHZ5V1clG-7Sn-WUhO_pIIX8qBk=}
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,api,try.trueppm.dev}
+  # Internal Docker network links only; TLS is terminated upstream.
+  TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
+  TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    environment:
+      POSTGRES_DB: trueppm
+      POSTGRES_USER: trueppm
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-trueppm-demo}
+    volumes:
+      - demo_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trueppm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    tmpfs:
+      - /data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Runs migrations + collectstatic + admin bootstrap once. The admin account
+  # exists only so an operator can manage share links via the loopback-only
+  # /admin/; it is never exposed publicly.
+  api-init:
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             python manage.py create_admin"
+    environment:
+      <<: *api-env
+      TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
+      STATIC_ROOT: /app/staticfiles
+    volumes:
+      - demo_admin_password:/run/trueppm
+      - demo_static_files:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  # Auto-seeds the read-only sample and mints/pins the public share link.
+  # NOTE: seed_demo_project runs WITHOUT --with-personas — no persona logins,
+  # no TRUEPPM_DEMO_PASSWORD path (#1350). Read-only posture by construction.
+  demo-seed:
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
+    command: >
+      sh -c "python manage.py seed_demo_project &&
+             python manage.py create_demo_share_link"
+    environment:
+      <<: *api-env
+      TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-https://try.trueppm.dev}
+      # Optional: pin a fixed token for a stable, reprintable share URL.
+      TRUEPPM_DEMO_SHARE_TOKEN: ${TRUEPPM_DEMO_SHARE_TOKEN:-}
+    depends_on:
+      api-init:
+        condition: service_completed_successfully
+
+  api:
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 512
+    environment:
+      <<: *api-env
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # Copies the pre-built frontend assets into the shared volume for nginx.
+  web-build:
+    image: ghcr.io/trueppm/web:${APP_VERSION:-latest}
+    user: "0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["cp -r /usr/share/nginx/html/. /dist/"]
+    volumes:
+      - demo_frontend_dist:/dist
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    ports:
+      - "80:80"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    command: >
+      /bin/sh -c
+      "envsubst '$${DOMAIN}'
+       < /etc/nginx/templates/default.conf.template
+       > /etc/nginx/conf.d/default.conf
+       && nginx -g 'daemon off;'"
+    volumes:
+      - ./nginx/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - demo_frontend_dist:/usr/share/nginx/html:ro
+      - demo_static_files:/usr/share/nginx/html/static:ro
+    depends_on:
+      web-build:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+
+volumes:
+  demo_postgres_data:
+  demo_admin_password:
+  demo_frontend_dist:
+  demo_static_files:

@@ -1,0 +1,88 @@
+# TruePPM PUBLIC DEMO nginx config (issue #1487).
+#
+# Serves the hosted read-only demo (e.g. try.trueppm.dev). The demo is reachable
+# ONLY through the product's own tokenized, read-only share link (#283 / #1486):
+# there is no login, no write path, and near-zero abuse surface. This config
+# terminates plain HTTP on :80 — front it with TLS at an upstream load balancer
+# or reverse proxy (the demo deploy runbook covers try.trueppm.dev's certificate).
+#
+# Differences from the production template (nginx/app-http.conf.template):
+#   * every response carries `X-Robots-Tag: noindex, nofollow` and a
+#     `Disallow: /` robots.txt so search engines never index the demo;
+#   * a hard request-body cap and tighter timeouts (the demo is read-only);
+#   * /admin/ is loopback-only, same as production.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    # Keep the public demo out of every search index (acceptance: `noindex`).
+    add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+    add_header X-Frame-Options        "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
+
+    # Read-only demo: small body cap, no large uploads are ever legitimate.
+    client_max_body_size 1M;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # Belt-and-braces alongside X-Robots-Tag: an explicit robots.txt disallow.
+    location = /robots.txt {
+        add_header Content-Type text/plain;
+        return 200 "User-agent: *\nDisallow: /\n";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass         http://api:8000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+    }
+
+    location /ws/ {
+        proxy_pass             http://api:8000;
+        proxy_http_version     1.1;
+        proxy_set_header       Upgrade           $http_upgrade;
+        proxy_set_header       Connection        $connection_upgrade;
+        proxy_set_header       Host              $host;
+        proxy_set_header       X-Real-IP         $remote_addr;
+        proxy_set_header       X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header       X-Forwarded-Proto $scheme;
+        proxy_read_timeout     3600s;
+    }
+
+    # Django admin — loopback-only even on the demo host. To manage share links,
+    # SSH-tunnel:  ssh -L 8080:127.0.0.1:80 user@demo-host  → http://localhost:8080/admin/
+    location /admin/ {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+
+        proxy_pass       http://api:8000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static/ {
+        proxy_pass http://api:8000;
+        proxy_set_header Host $host;
+    }
+}
