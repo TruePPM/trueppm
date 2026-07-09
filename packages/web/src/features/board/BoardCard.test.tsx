@@ -534,6 +534,20 @@ describe('BoardCard', () => {
     expect(screen.queryByLabelText(/Press D to view/)).not.toBeInTheDocument();
   });
 
+  it('renders the dependency count beside an SVG icon as one in-flow chip, not an emoji (#1735)', () => {
+    renderCard({ task: { ...baseTask, predecessorCount: 3, isBlocked: false } });
+    const btn = screen.getByLabelText(/3 dependencies\. Press D to view\./);
+    // Count renders beside the icon in the chip…
+    expect(btn).toHaveTextContent('3');
+    // …the glyph is the SVG LinkIcon, not the 🔗 emoji…
+    expect(btn.querySelector('svg')).toBeInTheDocument();
+    expect(btn.textContent).not.toContain('🔗');
+    // …and the chip is in the flex flow (shrink-0), no longer an absolute cluster
+    // overwriting the title.
+    expect(btn.className).toContain('shrink-0');
+    expect(btn.className).not.toContain('absolute');
+  });
+
   it('renders the chain icon as red and labels it Blocked when is_blocked', () => {
     renderCard({
       task: { ...baseTask, predecessorCount: 1, isBlocked: true },

@@ -22,6 +22,7 @@ import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
 import { phaseColor } from './phaseColors';
+import { LinkIcon, WarningIcon } from '@/components/Icons';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -180,20 +181,22 @@ function cpTooltip(_task: Task): string {
   return 'On critical path — any delay here will delay the project end date';
 }
 
-// Risk icon color band: maps the 5-tier severity register down to a 3-tier
-// RAG palette for icon-scale display (ADR-0035 §Q2).  Full 5-tier breakdown
-// is shown inside the RiskPopover for color-blind safety.
-function riskIconClass(severity: number | null | undefined): string {
+// Chip tone (bg + border + text) for the inline risk signal chip — maps the
+// 5-tier severity register down to a 3-tier RAG palette (ADR-0035 §Q2; full
+// breakdown lives in the RiskPopover for color-blind safety), matching the
+// float/SPI chip tone patterns below so the in-flow signal chips read as one
+// calm family.
+function riskChipToneClass(severity: number | null | undefined): string {
   const band = severityRagBand(severity);
   switch (band) {
     case 'red':
-      return 'text-semantic-critical';
+      return 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical';
     case 'amber':
-      return 'text-brand-accent-dark dark:text-brand-accent';
+      return 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark';
     case 'green':
-      return 'text-semantic-on-track';
+      return 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track';
     default:
-      return 'text-neutral-text-disabled';
+      return 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary';
   }
 }
 
@@ -419,14 +422,19 @@ function BoardCardImpl({
   // Stable id so the badge's aria-controls points at its disclosure peek.
   const peekId = `card-peek-${task.id}`;
 
-  const signalIcons =
+  // Signal chips (dependency / linked-risk) rendered INLINE in the badge/title
+  // flow as shrink-0 chips (issue 1735, design §01). Previously an
+  // absolute-positioned cluster at `right-9` that overwrote the truncating title
+  // and collided with the ··· menu; now the title is `flex-1 min-w-0` and these
+  // are `shrink-0`, so truncation happens before the icons at any density. Emoji
+  // (🔗 / ⚠) are replaced with the SVG LinkIcon / WarningIcon (inherit
+  // currentColor, so the blocked-red tint applies to the glyph), and the count
+  // renders beside the icon as one chip. They stay interactive: the chain chip
+  // opens the dependency popover + drives board dep-highlight hover; the risk
+  // chip opens the risk popover.
+  const signalChips =
     showChain || showRisk ? (
-      <div
-        className={[
-          'absolute top-2 right-9 flex items-center gap-1',
-          density === 'compact' ? 'top-[7px]' : '',
-        ].join(' ')}
-      >
+      <>
         {showChain && (
           <button
             type="button"
@@ -439,12 +447,11 @@ function BoardCardImpl({
             onFocus={handleChainHoverEnter}
             onBlur={handleChainHoverLeave}
             className={[
-              'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
-              'before:absolute before:inset-[-12px]',
-              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-              'focus-visible:outline-none',
-              isBlocked ? 'text-semantic-critical' : 'text-neutral-text-secondary',
-              'hover:bg-neutral-surface-raised',
+              'shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              isBlocked
+                ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
+                : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
             ].join(' ')}
             aria-label={
               isBlocked
@@ -452,12 +459,8 @@ function BoardCardImpl({
                 : `${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
             }
           >
-            <span aria-hidden="true">🔗</span>
-            {density === 'detailed' && predecessorCount > 1 && (
-              <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded-chip bg-neutral-surface border border-neutral-border">
-                {predecessorCount}
-              </span>
-            )}
+            <LinkIcon className="h-3 w-3" aria-hidden="true" />
+            <span className="tppm-mono leading-none">{predecessorCount}</span>
           </button>
         )}
         {showRisk && (
@@ -468,27 +471,20 @@ function BoardCardImpl({
               onShowRisks?.(task);
             }}
             className={[
-              'relative w-5 h-5 inline-flex items-center justify-center rounded-control text-xs',
-              'before:absolute before:inset-[-12px]',
-              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-              'focus-visible:outline-none',
-              riskIconClass(linkedRisksMaxSeverity),
-              'hover:bg-neutral-surface-raised',
+              'shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              riskChipToneClass(linkedRisksMaxSeverity),
             ].join(' ')}
             aria-label={
               `${linkedRisksCount} linked risk${linkedRisksCount === 1 ? '' : 's'}, ` +
               `severity ${severityRagBand(linkedRisksMaxSeverity) ?? 'low'}. Click to view.`
             }
           >
-            <span aria-hidden="true">⚠</span>
-            {linkedRisksCount > 1 && (
-              <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded-chip bg-neutral-surface border border-neutral-border">
-                {linkedRisksCount}
-              </span>
-            )}
+            <WarningIcon className="h-3 w-3" aria-hidden="true" />
+            <span className="tppm-mono leading-none">{linkedRisksCount}</span>
           </button>
         )}
-      </div>
+      </>
     ) : null;
 
   // Shared menu button rendered in all non-overlay/non-dragging states
@@ -728,6 +724,9 @@ function BoardCardImpl({
               <span>{cardSignal.label}</span>
             </span>
           )}
+          {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on a
+              pending card, which shows the accept ✓ instead. */}
+          {!isPending && signalChips}
         </div>
         {/* 3px progress strip at the bottom of each compact card */}
         <div
@@ -736,7 +735,7 @@ function BoardCardImpl({
         >
           <div className={`h-full ${progressColor}`} style={{ width: `${effectiveProgress}%` }} />
         </div>
-        {acceptIcon ?? signalIcons}
+        {acceptIcon}
         {menuButton}
       </div>
     );
@@ -874,11 +873,13 @@ function BoardCardImpl({
           </div>
         )}
 
-        {/* Badge row — worst-offender badge (or CP at detailed), pending chip, assignees */}
+        {/* Badge row — worst-offender badge (or CP at detailed), pending chip,
+            dependency/risk signal chips, assignees */}
         {((cardSignal && !isDetailed) ||
           showCriticalState ||
           isPending ||
           isPendingSync ||
+          (!isPending && (showChain || showRisk)) ||
           task.assignees.length > 0 ||
           isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
@@ -916,6 +917,9 @@ function BoardCardImpl({
                 </span>
               )
             )}
+            {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on
+                a pending card, which shows the accept ✓ instead. */}
+            {!isPending && signalChips}
             {isIdea ? (
               <span
                 className="inline-block w-5 h-5 rounded-full border border-dashed border-neutral-border
@@ -1151,10 +1155,10 @@ function BoardCardImpl({
       </div>
       {/* end padding wrapper */}
 
-      {/* A pending card shows the single-tap ✓ accept in the right-9 slot;
-          its signal icons (chain/risk) are suppressed there to avoid overlap
-          (they remain reachable via the card detail). */}
-      {acceptIcon ?? signalIcons}
+      {/* A pending card shows the single-tap ✓ accept in the right-9 slot. The
+          dependency/risk signal chips now live in-flow in the badge row (issue
+          1735), so the top-right corner holds only the accept ✓ and the ··· menu. */}
+      {acceptIcon}
       {menuButton}
     </div>
   );
