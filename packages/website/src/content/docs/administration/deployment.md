@@ -227,4 +227,4 @@ windows and how to disable a purge safely.
 
 ### WebSocket connections
 
-WebSocket connections authenticate via JWT (`?token=<jwt>` on the connection URL). Viewers (role=0) are rejected with close code 4003. Monitor the Django Channels logs for connection errors.
+WebSocket connections authenticate with a short-lived, single-use ticket (`?ticket=<ticket>` on the connection URL), minted via `POST /api/v1/ws/ticket/` — no JWT ever appears in the URL or access logs. The legacy `?token=<jwt>` handshake is disabled by default and opt-in only via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (deprecated, removed next release). Viewers (role=0) are rejected with close code 4003. Monitor the Django Channels logs for connection errors.

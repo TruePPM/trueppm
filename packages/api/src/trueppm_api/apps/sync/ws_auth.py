@@ -11,8 +11,11 @@ log (#818); the fix is a short-lived, single-use **ticket** (RFC 6750 §2.3):
   uses ``GETDEL`` so a ticket is valid exactly once — a ticket that later turns
   up in a log is already spent.
 * :func:`authenticate_scope` is the single entry point both consumers use: it
-  prefers ``?ticket=`` and falls back to the **deprecated** ``?token=<jwt>`` path
-  for one release (logged so operators can find stragglers).
+  prefers ``?ticket=``. The **deprecated** ``?token=<jwt>`` fallback is now gated
+  behind ``TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED`` (default off, #1723) — a raw JWT
+  in the URL leaks into every access log, so the fallback is opt-in for one last
+  release and removed next. When it is on and used, :func:`warn_if_legacy` logs it
+  (never the value) so operators can find stragglers before removal.
 
 The ticket carries authentication only. Each consumer still runs its own
 membership/role authorization gate after resolving the user.
@@ -147,8 +150,11 @@ async def authenticate_scope(scope: dict[str, Any]) -> WsAuthResult:
     """Resolve the connecting user from a Channels ``scope``.
 
     Prefers the single-use ``?ticket=`` (ADR-0141). Falls back to the deprecated
-    ``?token=<jwt>`` for one release. The caller closes with code 4001 when
-    ``user`` is ``None`` and applies its own authorization gate otherwise.
+    ``?token=<jwt>`` **only** when ``TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED`` is set
+    (default off, #1723) — with the fallback disabled a ``?token=`` handshake is
+    treated as no credential at all, so a client cannot force a raw JWT into the
+    URL. The caller closes with code 4001 when ``user`` is ``None`` and applies its
+    own authorization gate otherwise.
     """
     params = _parse_query(scope.get("query_string", b""))
 
@@ -159,7 +165,7 @@ async def authenticate_scope(scope: dict[str, Any]) -> WsAuthResult:
         return WsAuthResult(user=user, via="ticket")
 
     token_bytes = params.get(b"token")
-    if token_bytes:
+    if token_bytes and getattr(settings, "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", False):
         user = await authenticate_token(token_bytes.decode("utf-8"))
         return WsAuthResult(user=user, via="token")
 

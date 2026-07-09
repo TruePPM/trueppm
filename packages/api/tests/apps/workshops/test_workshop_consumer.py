@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import date
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -46,8 +47,14 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_connect_inactive_user_rejected(project: Project) -> None:
-    """A deactivated user with a valid JWT cannot connect to the workshop (#888)."""
+async def test_connect_inactive_user_rejected(project: Project, settings: Any) -> None:
+    """A deactivated user with a valid JWT cannot connect to the workshop (#888).
+
+    Exercises the legacy ?token= path's is_active filter, so the opt-in flag is
+    enabled here (#1723) — with it off the token is ignored entirely, which also
+    4001s but for a different reason and would leave this test vacuous.
+    """
+    settings.TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED = True
     from rest_framework_simplejwt.tokens import AccessToken
 
     inactive = await database_sync_to_async(User.objects.create_user)(

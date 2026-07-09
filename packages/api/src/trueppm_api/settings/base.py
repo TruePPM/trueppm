@@ -236,6 +236,16 @@ CHANNEL_LAYERS = {
     },
 }
 
+# Legacy WebSocket ?token=<jwt> handshake (ADR-0141, #1723). The single-use
+# ?ticket= scheme replaced it: a raw JWT in the URL leaks verbatim into
+# reverse-proxy / ingress / Daphne access logs (the credential-in-URL class of
+# #818). The fallback shipped deprecated-but-live for one release; it is now
+# OFF by default and must be explicitly opted into by an operator who still has
+# clients on the old path. It is removed entirely next release.
+TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED: bool = env.bool(
+    "TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED", default=False
+)
+
 CELERY_BROKER_URL = f"{REDIS_URL}/0"
 CELERY_RESULT_BACKEND = f"{REDIS_URL}/0"
 CELERY_ACCEPT_CONTENT = ["json"]

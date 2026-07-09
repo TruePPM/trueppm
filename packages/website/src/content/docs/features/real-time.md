@@ -14,7 +14,7 @@ ws://localhost:8000/ws/v1/projects/{project_id}/?ticket=<ticket>
 ```
 
 Authentication uses a short-lived, single-use ticket so no JWT ever appears in a
-WebSocket URL or access log (RFC 6750 §2.3) — see the [WebSocket API reference](/api/websockets/) for the handshake. The deprecated `?token=<jwt>` parameter still works for one release. Requires at least the Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
+WebSocket URL or access log (RFC 6750 §2.3) — see the [WebSocket API reference](/api/websockets/) for the handshake. The deprecated `?token=<jwt>` parameter is disabled by default (it leaked the JWT into access logs) and is opt-in via `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` for one last release. Requires at least the Member role on the project. Viewers are rejected with close code 4003. If a connected user's membership is revoked or demoted below Member mid-session, the server evicts the live socket immediately with close code 4003 — revocation does not wait for the client to disconnect.
 
 ## Event format
 

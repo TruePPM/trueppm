@@ -75,8 +75,10 @@ ALLOWED_EVENT_TYPES = frozenset(
 class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     """Relays workshop cursor and edit events to all session participants.
 
-    Authentication:  Single-use `?ticket=<id>` (ADR-0141); deprecated `?token=`
-                     fallback for one release. See `sync.ws_auth`.
+    Authentication:  Single-use `?ticket=<id>` (ADR-0141); the deprecated
+                     `?token=` fallback is off by default, opt-in via
+                     `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (#1723). See
+                     `sync.ws_auth`.
     Authorization:   User must hold at least Member role on the project AND an
                      active WorkshopSession must exist.  Rejects with 4004 if
                      no session is active (prevents ghost connections lingering
@@ -98,7 +100,8 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         scope = self.scope
-        # Single-use ?ticket= (ADR-0141), with the deprecated ?token= fallback.
+        # Single-use ?ticket= (ADR-0141); the deprecated ?token= fallback is off
+        # by default, opt-in via TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED (#1723).
         auth = await authenticate_scope(scope)
         if auth.user is None:
             await self.close(code=4001)

@@ -52,8 +52,9 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     Authentication:  A single-use ticket supplied as `?ticket=<id>` (ADR-0141),
                      issued by `POST /api/v1/ws/ticket/` and consumed from Redis
-                     on connect. The legacy `?token=<jwt>` query param still works
-                     for one release (logged as deprecated). Connection is
+                     on connect. The legacy `?token=<jwt>` query param is disabled
+                     by default and opt-in only via
+                     `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED` (#1723). Connection is
                      rejected (4001) if no valid credential is present.
 
     Authorization:   The user must hold at least the Member role (ordinal ≥ 1)
@@ -78,8 +79,8 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
         # Authenticate the handshake before calling super() which sends ACCEPT.
-        # Prefers the single-use ?ticket= (ADR-0141); ?token=<jwt> still works for
-        # one release as a logged, deprecated fallback.
+        # Prefers the single-use ?ticket= (ADR-0141); the ?token=<jwt> fallback is
+        # off by default, opt-in via TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED (#1723).
         scope = self.scope
         auth = await authenticate_scope(scope)
         if auth.user is None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from datetime import date
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -85,8 +86,14 @@ async def test_connect_no_token_rejected(project: Project) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_connect_invalid_token_rejected(project: Project) -> None:
-    """Connection with an invalid JWT is rejected with close code 4001."""
+async def test_connect_invalid_token_rejected(project: Project, settings: Any) -> None:
+    """Connection with an invalid JWT is rejected with close code 4001.
+
+    Exercises the legacy ?token= path itself, so the opt-in flag is enabled here
+    (#1723) — with it off the token is ignored entirely, which also 4001s but for a
+    different reason. This asserts the JWT validation branch still rejects garbage.
+    """
+    settings.TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED = True
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="not.a.valid.jwt")
@@ -104,13 +111,17 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_connect_inactive_user_rejected(project: Project) -> None:
+async def test_connect_inactive_user_rejected(project: Project, settings: Any) -> None:
     """A deactivated user with an otherwise-valid JWT cannot connect (#888).
 
     _authenticate resolves the user with is_active=True; a JWT issued before the
     account was disabled must no longer resolve, so the socket is rejected (4001)
     instead of streaming board events to a deactivated account.
+
+    The is_active filter lives on the legacy ?token= path, so the opt-in flag is
+    enabled here (#1723) to exercise it directly.
     """
+    settings.TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED = True
     from rest_framework_simplejwt.tokens import AccessToken
 
     inactive = await database_sync_to_async(User.objects.create_user)(

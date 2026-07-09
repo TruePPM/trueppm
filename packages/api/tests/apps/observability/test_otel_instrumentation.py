@@ -234,3 +234,81 @@ class TestAsgiWrap:
     def test_returns_app_unchanged_when_traces_disabled(self) -> None:
         app = object()
         assert otel.wrap_asgi_app(app) is app
+
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT=_ENDPOINT)
+    def test_wrap_installs_ws_credential_redaction_hook(self) -> None:
+        """The WS middleware is wired with the credential-redaction request hook (#1723)."""
+
+        async def app(scope: Any, receive: Any, send: Any) -> None:  # pragma: no cover
+            return None
+
+        wrapped = otel.wrap_asgi_app(app)
+        # failsafe() wraps the hook, so compare against the identity it closes over.
+        assert wrapped.server_request_hook is not None
+        wrapped.server_request_hook(_FakeSpan(), {"query_string": b"probe"})  # smoke: callable
+
+
+class _FakeSpan:
+    """Minimal recording span double for the redaction hook.
+
+    Mirrors the SDK ``_Span`` surface the hook touches: a readable ``attributes``
+    mapping, ``is_recording()``, and ``set_attribute`` overwriting in place.
+    """
+
+    def __init__(self, attributes: dict[str, Any] | None = None, *, recording: bool = True) -> None:
+        self.attributes: dict[str, Any] = dict(attributes or {})
+        self._recording = recording
+
+    def is_recording(self) -> bool:
+        return self._recording
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attributes[key] = value
+
+
+class TestWsCredentialRedaction:
+    """`_redact_ws_credential_span` must scrub the handshake credential (#1723)."""
+
+    _CREDS = "ticket=tk-secret&token=header.payload.sig"
+
+    def test_redacts_query_and_truncates_url_attributes(self) -> None:
+        span = _FakeSpan(
+            {
+                "url.query": self._CREDS,
+                "http.target": f"/ws/project/abc/?{self._CREDS}",
+                "http.url": f"ws://api.test/ws/project/abc/?{self._CREDS}",
+                "url.full": f"ws://api.test/ws/project/abc/?{self._CREDS}",
+                "url.path": "/ws/project/abc/",
+                "http.method": "GET",
+            }
+        )
+        instrumentation._redact_ws_credential_span(span, {"query_string": self._CREDS.encode()})
+
+        assert span.attributes["url.query"] == instrumentation._WS_REDACTED_QUERY
+        assert span.attributes["http.target"] == "/ws/project/abc/"
+        assert span.attributes["http.url"] == "ws://api.test/ws/project/abc/"
+        assert span.attributes["url.full"] == "ws://api.test/ws/project/abc/"
+        # Query-free attributes are left untouched.
+        assert span.attributes["url.path"] == "/ws/project/abc/"
+        assert span.attributes["http.method"] == "GET"
+        # No attribute anywhere still carries the credential.
+        assert not any(
+            "tk-secret" in v or "header.payload.sig" in v
+            for v in span.attributes.values()
+            if isinstance(v, str)
+        )
+
+    def test_noop_when_no_query_string(self) -> None:
+        span = _FakeSpan({"http.target": "/ws/project/abc/"})
+        instrumentation._redact_ws_credential_span(span, {"query_string": b""})
+        assert span.attributes["http.target"] == "/ws/project/abc/"
+
+    def test_noop_when_span_not_recording(self) -> None:
+        span = _FakeSpan({"url.query": self._CREDS}, recording=False)
+        instrumentation._redact_ws_credential_span(span, {"query_string": self._CREDS.encode()})
+        # Not recording → left as-is (span will not be exported anyway).
+        assert span.attributes["url.query"] == self._CREDS
+
+    def test_handles_none_span(self) -> None:
+        # The middleware can invoke the hook with no active span; must not raise.
+        instrumentation._redact_ws_credential_span(None, {"query_string": b"ticket=tk"})
