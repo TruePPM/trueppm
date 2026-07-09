@@ -96,6 +96,32 @@ def test_actor_cannot_assign_role_above_own(member: object) -> None:
 
 
 @pytest.mark.django_db
+def test_actor_cannot_assign_role_equal_to_own(member: object) -> None:
+    """#1728: an Admin cannot mint a peer Admin (role equal to their own).
+
+    ``>`` previously allowed this, creating a peer that neither Admin could then
+    manage (the peer-guard blocks modifying members at or above your own role).
+    Aligned to ``>=`` to match the project membership gate.
+    """
+    ws = Workspace.load()
+    WorkspaceMembership.objects.create(workspace=ws, user=member, role=WorkspaceRole.ADMIN)
+    target = User.objects.create_user(username="t", password="pw")
+    resp = _client(member).patch(_detail(target), {"role": WorkspaceRole.ADMIN}, format="json")
+    assert resp.status_code == 403
+    # The target was not granted the peer role.
+    assert not WorkspaceMembership.objects.filter(user=target, role=WorkspaceRole.ADMIN).exists()
+
+
+@pytest.mark.django_db
+def test_owner_can_still_assign_admin(superadmin: object, member: object) -> None:
+    """An Owner (strictly above Admin) may still grant Admin — the gate only
+    blocks equal-or-higher, so legitimate downward grants are unaffected."""
+    resp = _client(superadmin).patch(_detail(member), {"role": WorkspaceRole.ADMIN}, format="json")
+    assert resp.status_code == 200
+    assert WorkspaceMembership.objects.get(user=member).role == WorkspaceRole.ADMIN
+
+
+@pytest.mark.django_db
 def test_admin_cannot_demote_owner(member: object) -> None:
     ws = Workspace.load()
     # member is an explicit ADMIN actor; sole_owner is the only owner; no superusers.

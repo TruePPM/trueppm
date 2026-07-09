@@ -416,9 +416,16 @@ class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
 
             role_changed_from: int | None = None
             if new_role is not None:
-                # An actor cannot grant a role above their own.
-                if actor_role is not None and new_role > actor_role:
-                    raise PermissionDenied("You cannot assign a role higher than your own.")
+                # An actor may only grant a role STRICTLY BELOW their own (#1728).
+                # ``>`` let an Admin mint a peer Admin (equal role); combined with
+                # the peer-guard above (an actor can't modify a member at or above
+                # their own role) that peer was then unmanageable by either Admin.
+                # ``>=`` matches the project analog
+                # (access.views.ProjectMembershipViewSet.create).
+                if actor_role is not None and new_role >= actor_role:
+                    raise PermissionDenied(
+                        "You cannot assign a role equal to or higher than your own."
+                    )
                 # Demoting an owner must not strand the workspace.
                 if (
                     membership.role == WorkspaceRole.OWNER
@@ -582,12 +589,17 @@ class WorkspaceInviteListView(IdempotencyMixin, APIView):
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
 
-        # Actor-ceiling: an admin cannot invite someone above their own role —
-        # the same rule WorkspaceMemberDetailView.patch enforces on existing
-        # members, applied here so an invite can't be a back-door escalation.
+        # Actor-ceiling: an actor may only invite someone to a role STRICTLY
+        # BELOW their own — the same ``>=`` rule WorkspaceMemberDetailView.patch
+        # enforces on existing members (#1728), applied here so an invite can't
+        # be a back-door escalation. ``>`` would let an Admin invite a peer Admin
+        # (equal role); the accept path grants the invite's role verbatim, so the
+        # peer-Admin hole the PATCH gate closes would stay reachable via invites.
         actor_role = _workspace_membership_role(request)
-        if actor_role is not None and serializer.validated_data["role"] > actor_role:
-            raise PermissionDenied("You cannot invite someone to a role higher than your own.")
+        if actor_role is not None and serializer.validated_data["role"] >= actor_role:
+            raise PermissionDenied(
+                "You cannot invite someone to a role equal to or higher than your own."
+            )
 
         if User.objects.filter(email__iexact=email, is_active=True).exists():
             raise ValidationError({"email": "A member with this email already exists."})
