@@ -1,5 +1,6 @@
 ---
 name: dotplanning
+model: sonnet
 description: Plan a TruePPM dot release (0.x) BEFORE any development starts. Resolves the milestone scope, builds a full feature→asset map, flags every missing asset (screen, flow, endpoint, model, doc) that has no issue/ADR/design, surfaces the major open questions that must be answered before coding, sequences the work into gated workstreams, and drops a self-contained HTML report in ~/Downloads. The begin-gate bookend to /pre-release (which is the end-gate). Run once at dot-release kickoff — not per feature.
 argument-hint: "[milestone] [--no-file]"
 ---
