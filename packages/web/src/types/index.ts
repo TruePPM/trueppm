@@ -93,6 +93,17 @@ export interface Task {
   isSummary: boolean;
   isMilestone: boolean;
   /**
+   * Server-computed "phase" verdict (ADR-0293, epic #1752, #1753): a
+   * non-subtask task with at least one structural (non-subtask) child.
+   * Distinct from {@link isSummary} (true for ANY child, including a
+   * drawer-added subtask, ADR-0060 #308) — a leaf-with-subtasks is
+   * `isSummary && !isPhase`. `undefined` on payloads from a server that
+   * hasn't shipped #1753 yet; callers should derive the same answer via
+   * `isPhaseTask()` (`@/lib/isPhaseTask`) rather than reading this field
+   * directly.
+   */
+  isPhase?: boolean;
+  /**
    * Program schedule view only (ADR-0182, issue 1118): this row is a task in a
    * member project the viewer cannot access, redacted to the ADR-0120 D5
    * ExternalTaskCard shape. The renderer paints it muted/hatched and the

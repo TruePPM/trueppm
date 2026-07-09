@@ -159,9 +159,25 @@ interface Props {
    * "Added to Sprint X · Undo" toast only when the source sprint is ACTIVE.
    */
   sprintsById?: Map<string, { id: string; name: string; state: string }>;
+  /**
+   * Rows created via "+ Phase" (issue #1754) that have no structural child
+   * yet — each renders the ghost "Add first task to this phase" affordance
+   * instead of being indistinguishable from any other childless task.
+   */
+  phaseInWaitingIds?: Set<string>;
+  /** Creates the phase's first structural child (issue #1754). */
+  onAddPhaseFirstChild?: (phaseTaskId: string) => void;
+  /**
+   * Task id that should drop straight into the inline rename input on mount
+   * (issue #1754's "+ Phase" flow, outside Build Mode — see ScheduleView's
+   * `pendingAutoEditId` comment). Null/undefined most of the time.
+   */
+  autoEditTaskId?: string | null;
+  /** The row matching `autoEditTaskId` calls this once it has started editing. */
+  onAutoEditConsumed?: () => void;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById, phaseInWaitingIds, onAddPhaseFirstChild, autoEditTaskId, onAutoEditConsumed }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -260,6 +276,10 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   onHoverChange={onHoverChange}
                   onAddDependencyRequest={onAddDependencyRequest}
                   sourceSprint={task.sprintId ? sprintsById?.get(task.sprintId) ?? null : null}
+                  phaseInWaiting={phaseInWaitingIds?.has(task.id) ?? false}
+                  onAddPhaseFirstChild={onAddPhaseFirstChild}
+                  startInlineEditOnMount={autoEditTaskId === task.id}
+                  onAutoEditConsumed={onAutoEditConsumed}
                 />
               </div>
             );

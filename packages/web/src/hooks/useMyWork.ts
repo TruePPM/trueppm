@@ -79,6 +79,14 @@ export interface MyWorkTask {
    * (the decision is team-owned and never surfaces in the contributor me tree).
    * Snake_case wire key (`MeWorkTaskSerializer.sprint_pending`). */
   sprint_pending?: boolean;
+  /**
+   * Server-computed phase verdict (ADR-0293, #1753) — a phase can never be
+   * assigned (`assignee_on_phase`), so in practice this endpoint should never
+   * return one; kept as a defense-in-depth exclusion predicate (issue #1754)
+   * for a payload from a server that hasn't shipped that guard yet. Absent on
+   * a server that hasn't shipped #1753 — treated as "not a phase".
+   */
+  is_phase?: boolean;
 }
 
 export interface MyWorkActiveSprint {

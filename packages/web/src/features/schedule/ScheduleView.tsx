@@ -30,6 +30,7 @@ import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
 import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
+import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
@@ -92,6 +93,7 @@ import {
 } from '@/hooks/useTaskMutations';
 import { toast } from '@/components/Toast';
 import { siblingParentId } from './buildMode/insertBelow';
+import { isPhaseTask } from '@/lib/isPhaseTask';
 
 // ---------------------------------------------------------------------------
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
@@ -1045,6 +1047,124 @@ export function ScheduleView() {
     [allTasks, scheduleScales, visibleTasks, buildModeActive, focus],
   );
 
+  // "+ Phase" (epic #1752, issue #1754, ADR-0293): the create-empty-then-nest
+  // flow decided in ux-design. A phase is emergent — it becomes true only once
+  // the row has a structural (non-subtask) child — so a freshly inserted
+  // summary row is a "phase-in-waiting" until then. Track those ids for this
+  // session (sessionStorage, project-scoped) so the row can render the ghost
+  // "Add first task to this phase" affordance; a reload before adding a child
+  // just shows a normal (legitimately childless) row — no functional loss,
+  // per the ux-design decision that an empty phase-in-waiting persists fine.
+  const phaseInWaitingKey = projectId ? `trueppm.schedule.phaseInWaiting.${projectId}` : null;
+  const [phaseInWaitingIds, setPhaseInWaitingIds] = useState<Set<string>>(() => {
+    if (!phaseInWaitingKey) return new Set();
+    try {
+      const raw = window.sessionStorage.getItem(phaseInWaitingKey);
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    if (!phaseInWaitingKey) return;
+    try {
+      window.sessionStorage.setItem(
+        phaseInWaitingKey,
+        JSON.stringify(Array.from(phaseInWaitingIds)),
+      );
+    } catch {
+      // sessionStorage may be disabled — in-memory state still governs the hint.
+    }
+  }, [phaseInWaitingKey, phaseInWaitingIds]);
+
+  // Drop an id once it becomes a real phase (gained a structural child) or was
+  // deleted — keeps the persisted set from growing unbounded across a session.
+  useEffect(() => {
+    if (phaseInWaitingIds.size === 0) return;
+    setPhaseInWaitingIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) {
+        const t = allTasks.find((x) => x.id === id);
+        if (!t || isPhaseTask(t, allTasks)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTasks]);
+
+  // Rows still awaiting their first structural child — the set the row
+  // renders the ghost affordance from (already filtered to "still waiting",
+  // so TaskListRow only needs a plain `.has(id)` check).
+  const visiblePhaseInWaitingIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const id of phaseInWaitingIds) {
+      const t = allTasks.find((x) => x.id === id);
+      if (t && !isPhaseTask(t, allTasks)) out.add(id);
+    }
+    return out;
+  }, [phaseInWaitingIds, allTasks]);
+
+  // The row's inline rename input (TaskListRow's local `isEditing`, the
+  // always-available "double-click to rename" path) is what actually drops a
+  // freshly created row into edit mode when Build Mode (`schedule_build_mode_v1`,
+  // opt-in and default OFF) is not active — `focus.enterCellEdit` below only
+  // does anything when the `BuildModeProvider` is mounted (buildModeActive).
+  // Tracking one pending id here (rather than relying on focus.enterCellEdit
+  // alone) is what makes "+ Phase" work for every user, not just Build Mode
+  // opt-ins. Cleared as soon as the matching row consumes it so scrolling a
+  // virtualized row back into view can never re-trigger edit mode.
+  const [pendingAutoEditId, setPendingAutoEditId] = useState<string | null>(null);
+
+  const handleAddPhase = useCallback(() => {
+    if (!projectId || readOnly) return;
+    // Same insertion point as "+ Task" / "+ Milestone" (inferredParentId) — a
+    // phase can itself nest inside another phase. Non-blank placeholder name
+    // (mirrors handleAddFirstTask below): the API rejects a blank name at
+    // create, so the row opens straight into cell-edit for the user to
+    // overwrite.
+    createTaskMut.mutate(
+      { name: 'New phase', duration: 1, parent_id: inferredParentId },
+      {
+        onSuccess: (data) => {
+          setPhaseInWaitingIds((prev) => {
+            const next = new Set(prev);
+            next.add(data.id);
+            return next;
+          });
+          focus.focusRow(data.id);
+          focus.enterCellEdit(data.id, 'name');
+          if (!buildModeActive) setPendingAutoEditId(data.id);
+        },
+      },
+    );
+  }, [projectId, readOnly, createTaskMut, inferredParentId, focus, buildModeActive]);
+
+  // Ghost "⊕ Add first task to this phase" affordance (phase-in-waiting hint,
+  // TaskListRow). Creates a structural (is_subtask: false, the default)
+  // child nested one WBS level under the phase row — the first such child is
+  // what flips `isPhaseTask` true and retires the hint.
+  const handleAddPhaseFirstChild = useCallback(
+    (phaseTaskId: string) => {
+      if (!projectId) return;
+      createTaskMut.mutate(
+        { name: 'New task', duration: 1, parent_id: phaseTaskId },
+        {
+          onSuccess: (data) => {
+            focus.focusRow(data.id);
+            focus.enterCellEdit(data.id, 'name');
+            if (!buildModeActive) setPendingAutoEditId(data.id);
+          },
+        },
+      );
+    },
+    [projectId, createTaskMut, focus, buildModeActive],
+  );
+
   // Deep-link scroll + pulse (issue 734). The sprint→schedule bridge link
   // (AdvancingToMilestoneCard) navigates to `/projects/:id/schedule#task-{id}`.
   // On arrival, scroll the target task into view — horizontally to its date,
@@ -1104,6 +1224,11 @@ export function ScheduleView() {
       e.preventDefault();
       handleAddMilestone();
     };
+    out['mod+p'] = (e) => {
+      if (!projectId || readOnly) return;
+      e.preventDefault();
+      handleAddPhase();
+    };
     // Esc reverts the schedule to a chain-free state. Clears hover (#475),
     // turns off selection-driven focus mode (#131), and deselects the row
     // (which also closes the drawer if open). Drawer Esc has its own listener
@@ -1157,7 +1282,15 @@ export function ScheduleView() {
       engine?.fitToProject();
     };
     return out;
-  }, [projectId, readOnly, handleAddMilestone, buildModeActive, engine, setSelectedTaskId]);
+  }, [
+    projectId,
+    readOnly,
+    handleAddMilestone,
+    handleAddPhase,
+    buildModeActive,
+    engine,
+    setSelectedTaskId,
+  ]);
   useScheduleKeyboard(keyBindings);
 
   const handleAddFirstTask = useCallback(() => {
@@ -1279,6 +1412,16 @@ export function ScheduleView() {
         {projectId && (
           <ScheduleAddMilestoneButton
             onAddMilestone={handleAddMilestone}
+            disabled={readOnly}
+            pending={createTaskMut.isPending}
+          />
+        )}
+        {/* "+ Phase" peer button (epic #1752, issue #1754) — same gate as
+            "+ Task" / "+ Milestone". Schedule/Gantt only — never appears on a
+            contributor surface (board, sprints, My Work). */}
+        {projectId && (
+          <ScheduleAddPhaseButton
+            onAddPhase={handleAddPhase}
             disabled={readOnly}
             pending={createTaskMut.isPending}
           />
@@ -1481,6 +1624,10 @@ export function ScheduleView() {
               onHoverChange={setHoveredTaskId}
               onAddDependencyRequest={handleAddDependencyRequest}
               sprintsById={sprintsById}
+              phaseInWaitingIds={visiblePhaseInWaitingIds}
+              onAddPhaseFirstChild={handleAddPhaseFirstChild}
+              autoEditTaskId={pendingAutoEditId}
+              onAutoEditConsumed={() => setPendingAutoEditId(null)}
             />
             {/* Panel splitter — drag to resize task list width */}
             <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />

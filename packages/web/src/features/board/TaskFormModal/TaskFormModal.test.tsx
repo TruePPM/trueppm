@@ -722,4 +722,21 @@ describe('TaskFormModal (issue #305)', () => {
     // Modal stays open so the user can add a planned start date.
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  // ----- Assignee control hidden on a phase (issue #1754, ADR-0293) --------
+
+  it('shows the Assignees group when editing a plain (non-phase) task', () => {
+    renderModal({ task: baseTask() });
+    expect(screen.getByRole('group', { name: 'Assignees' })).toBeInTheDocument();
+  });
+
+  it('hides (not disables) the Assignees group when editing a phase — mirrors backend assignee_on_phase', () => {
+    renderModal({ task: baseTask({ isPhase: true }) });
+    expect(screen.queryByRole('group', { name: 'Assignees' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Assignees group in create mode even though isEdit-only phase logic exists (no children yet)', () => {
+    renderModal({ task: null });
+    expect(screen.getByRole('group', { name: 'Assignees' })).toBeInTheDocument();
+  });
 });

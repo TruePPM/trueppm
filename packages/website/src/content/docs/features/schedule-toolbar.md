@@ -3,12 +3,12 @@ title: Schedule Toolbar
 description: Reference for the Schedule view toolbar — filter groups, summary chip, column controls, and zoom.
 ---
 
-The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the two primary authoring actions (`+ Task`, `+ Milestone`).
+The Schedule view's toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the three primary authoring actions (`+ Task`, `+ Milestone`, `+ Phase`).
 
 ## Toolbar layout
 
 ```
-[ + Task ] [ + Milestone ] [ Build mode pill ]
+[ + Task ] [ + Milestone ] [ + Phase ] [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
 [ {N} tasks · {C} critical · CPM ✓ ]   [ Grid | Timeline ]   [ Today ]   [ − {level} + ] [ Fit ]
@@ -54,6 +54,22 @@ Two paths:
 Both insert a new milestone at today's date with an empty name field. The milestone's `parent_id` is inferred from your currently-focused row — if you have a phase summary selected (or any task inside it), the new milestone lands under that phase. Otherwise it lands at the project root.
 
 The diamond pulses on the timeline for 1.5s after insert (suppressed under `prefers-reduced-motion`). A polite live-region announcement reads `"Milestone {name} inserted at {date}"`.
+
+The button is disabled with a "Read-only access" tooltip for **Viewer** role.
+
+## Adding a phase
+
+Ships in 0.4 (Schedule/Gantt only — a phase-authoring action never appears on the board, sprints, or My Work).
+
+A **phase** is a WBS summary row — a non-subtask task with at least one structural child. It isn't a new task type: any summary task with a "real" (non-subtask) child under it is automatically a phase, the same way a task with subtasks is automatically a summary.
+
+Two paths:
+- **Click `+ Phase`** in the toolbar (the summary-bracket icon, distinct from the milestone's gold diamond).
+- **Press ⌘P (macOS) / Ctrl + P (Windows / Linux)** when the Schedule view has focus.
+
+Both insert a new summary row at your currently-focused insertion point (same phase-nesting inference as `+ Task` / `+ Milestone`) and drop it straight into inline rename. Because a freshly inserted row has no children yet, it isn't a phase yet either — it's a **phase-in-waiting**, and the row shows a dashed "⊕ Add first task to this phase" hint in place of the assignee display. Clicking the hint nests a first structural child under it; once that child exists, the row becomes a real phase and the hint retires. An empty phase-in-waiting is a legitimate state — nothing forces you to add a child immediately.
+
+Once a row is a phase, its rollup behavior matches every other WBS summary task (dates and percent complete roll up from children) with a few phase-specific locks: it can't take a direct assignee, a direct time log, or (once #1755 lands) a sprint assignment — dependency and baseline rollups still apply normally.
 
 The button is disabled with a "Read-only access" tooltip for **Viewer** role.
 

@@ -237,6 +237,19 @@ describe('MyWorkTaskRow timer control (#1415)', () => {
   });
 });
 
+describe('MyWorkTaskRow phase exclusion (issue #1754, ADR-0293)', () => {
+  it('renders nothing for a phase row (defense-in-depth — MyWorkPage already filters upstream)', () => {
+    const { container } = wrap(<MyWorkTaskRow task={{ ...BASE, is_phase: true }} />);
+    expect(container.querySelector('li')).toBeNull();
+    expect(screen.queryByText('Build login')).not.toBeInTheDocument();
+  });
+
+  it('renders normally when is_phase is absent (legacy payload, #1753 not yet deployed)', () => {
+    wrap(<MyWorkTaskRow task={BASE} />);
+    expect(screen.getByText('Build login')).toBeInTheDocument();
+  });
+});
+
 describe('MyWorkTaskRow program identity (#964)', () => {
   it('renders the program name as the accessible signal', () => {
     wrap(<MyWorkTaskRow task={BASE} />);

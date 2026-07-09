@@ -30,9 +30,11 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   parseProgressAnchorError: mockParseProgressAnchorError,
 }));
 
-// ResourceAssignmentSection makes its own queries — stub it out.
+// ResourceAssignmentSection makes its own queries — stub it out with a
+// detectable marker so tests can assert on its presence/absence (issue #1754:
+// the assignee control is hidden, not just disabled, on a phase row).
 vi.mock('../ResourceAssignmentSection', () => ({
-  ResourceAssignmentSection: () => null,
+  ResourceAssignmentSection: () => <div data-testid="resource-assignment-section" />,
 }));
 
 // ---------------------------------------------------------------------------
@@ -457,5 +459,37 @@ describe('OverviewSection — read-only when canEdit is false', () => {
     // says canEdit — e.g. a PO editing a story — so the control renders.
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" userRole={0} canEdit />);
     expect(screen.getByRole('combobox', { name: /Task status/i })).toBeInTheDocument();
+  });
+});
+
+describe('OverviewSection — assignee control hidden on a phase (issue #1754, ADR-0293)', () => {
+  it('shows the assignee control for a plain (non-phase) task', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByTestId('resource-assignment-section')).toBeInTheDocument();
+  });
+
+  it('hides (not disables) the assignee control for a phase — mirrors backend assignee_on_phase', () => {
+    mockTasks.splice(
+      0,
+      mockTasks.length,
+      { ...baseTask, id: 'phase1' },
+      { ...baseTask, id: 'child1', parentId: 'phase1', isSubtask: false },
+    );
+    renderWithProviders(<OverviewSection taskId="phase1" projectId="p1" canEdit />);
+    expect(screen.queryByTestId('resource-assignment-section')).not.toBeInTheDocument();
+  });
+
+  it('still shows the assignee control for a phase-in-waiting (no structural child yet)', () => {
+    // A freshly-created "+ Phase" row has no children — not a phase yet, so
+    // the control stays visible (matches backend semantics exactly).
+    mockTasks.splice(0, mockTasks.length, { ...baseTask, id: 'phaseInWaiting1' });
+    renderWithProviders(<OverviewSection taskId="phaseInWaiting1" projectId="p1" canEdit />);
+    expect(screen.getByTestId('resource-assignment-section')).toBeInTheDocument();
+  });
+
+  it('trusts a server-computed isPhase=true even with no client-visible structural child', () => {
+    mockTasks.splice(0, mockTasks.length, { ...baseTask, id: 't1', isPhase: true });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByTestId('resource-assignment-section')).not.toBeInTheDocument();
   });
 });
