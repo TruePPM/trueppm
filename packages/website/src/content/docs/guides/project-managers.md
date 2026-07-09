@@ -120,7 +120,7 @@ The fastest way to judge TruePPM as a PM is to watch the schedule react to a cha
 3. **Open Monte Carlo.** Confirm the dates climb P50 ≤ P80 ≤ P95. P80 is the date to commit to a client; the gap between P80 and your CPM date is your schedule risk, measured in days.
 4. **Turn on the baseline overlay.** Completed work is compared against the captured plan, so slip is visible. (Baseline *capture* is via the API today; the in-app button is on the 0.5 roadmap.)
 
-One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The native offline mobile editor is the headline of **0.4**. Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.
+One honest note against your own test — *"does this work on my phone with no signal?"* — not yet. The native offline mobile editor lands in **0.5** (the mobile release). Today this is a desktop/web evaluation, and that's the right thing to wait for if mobile is your dealbreaker.
 
 → For a guided, sample-by-sample walkthrough, see the [evaluation guide](/getting-started/evaluation-guide/).
 

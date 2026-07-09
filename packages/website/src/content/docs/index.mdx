@@ -9,9 +9,16 @@ hero:
       link: /getting-started/installation/
       icon: right-arrow
       variant: primary
+    # Hosted read-only demo (#1487). Placeholder domain — the try.trueppm.dev
+    # instance goes live with the 0.4 tag; the URL is stable once it does.
+    - text: Try it live
+      link: https://try.trueppm.dev
+      icon: external
+      variant: secondary
     - text: View on GitLab
       link: https://gitlab.com/trueppm/trueppm
       icon: external
+      variant: minimal
 ---
 
 import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
@@ -20,8 +27,8 @@ import { SHIPPED, SHIPPED_TAG, SHIPPED_DATE, FIRST_BETA } from "../_release-stat
 {/* Banner derives its version from the release-status SSOT (#807). The
     admonition label is plain directive text and cannot interpolate, so it
     stays in sync with SHIPPED by hand; the body interpolates the constants. */}
-:::caution[0.2 shipped (alpha) · pre-GA]
-TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as the <code>{SHIPPED_TAG}</code> pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path are all functional. {SHIPPED} is an alpha release; the first beta is planned for {FIRST_BETA}. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
+:::caution[0.3 shipped (alpha) · pre-GA]
+TruePPM {SHIPPED} shipped {SHIPPED_DATE} (as the <code>{SHIPPED_TAG}</code> pre-release) — the scheduling engine, REST API, real-time backend, the full web UI (Schedule, Board, Sprints, Risk, My Work, Programs), the settings/administration platform, program foundations, board and schedule depth, the first import/export migration path, and the agile-team feature set (first-class sprints, dual backlog, epic hierarchy, and the sprint↔schedule bridge) on the v2 interface refresh are all functional. {SHIPPED} is an alpha release; the first beta is planned for {FIRST_BETA}. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
 :::
 
 ## One platform, every methodology
@@ -41,6 +48,14 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
 </CardGrid>
 
 ## 5-minute local demo
+
+:::tip[Just want to look, not install?]
+The [**Try it**](/getting-started/try-it/) page leads with two zero-config paths:
+a hosted read-only demo at [try.trueppm.dev](https://try.trueppm.dev) (nothing to
+install) and a one-command local demo (`docker compose -f docker-compose.demo.yml up`).
+Both go live with the 0.4 beta. The dev stack below is for *building* with
+TruePPM — six persona logins, full write access.
+:::
 
 ```bash
 git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
@@ -115,7 +130,7 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 ## What's built today
 
-The **Since** column is the release a capability first shipped in. 0.2 (the `0.2.0-alpha.1` pre-release) is the current build; the 0.1 rows are the foundation it builds on.
+The **Since** column is the release a capability first shipped in. 0.3 (the `0.3.0-alpha.1` pre-release) is the current build; the 0.1 and 0.2 rows are the foundation it builds on.
 
 | Capability | Since | Description |
 |-----------|--------|-------------|

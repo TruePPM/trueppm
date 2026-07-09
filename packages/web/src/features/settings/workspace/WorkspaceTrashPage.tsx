@@ -180,6 +180,8 @@ export function WorkspaceTrashPage() {
       ]}
       contextName="TrueScope Aerospace"
       navGroups={NAV_GROUPS}
+      exitTo="/"
+      exitLabel="Home"
     >
       <SettingsPageTitle
         title="Trash"

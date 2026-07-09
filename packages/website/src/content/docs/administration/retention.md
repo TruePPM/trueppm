@@ -245,7 +245,7 @@ Project forecast-snapshot capture was added in **TruePPM 0.3**, available since
 the `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
-Every time the scheduler recomputes a project, TruePPM will record a
+Every time the scheduler recomputes a project, TruePPM records a
 `ProjectForecastSnapshot` — the CPM finish date, total float, Monte Carlo P50/P80/P95, and
 task counts at that moment — so a PM can see how the project's finish date has drifted over
 time. A nightly **floor** task (`scheduling.capture_daily_forecast_floor`, 00:30 UTC)

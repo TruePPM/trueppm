@@ -107,10 +107,10 @@ export function ForgotPasswordSentPage() {
   );
 }
 
-/** Circular mail badge. */
+/** Circular mail badge — rule-143 sage fill + navy glyph, AA on any surface (#1705). */
 function MailBadge() {
   return (
-    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary/10 text-brand-primary">
+    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary/15 text-neutral-text-primary">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <rect
           x="3"

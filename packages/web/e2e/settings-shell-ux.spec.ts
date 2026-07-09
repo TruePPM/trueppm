@@ -279,4 +279,33 @@ test.describe('Settings shell — mobile responsive collapse (#539)', () => {
     );
     expect(overflows).toBe(false);
   });
+
+  // The mobile header carries the only clear way out of settings on a phone: the
+  // desktop Sidebar is a hidden drawer and BottomNav self-suppresses off-project
+  // (issue 1709).
+  test('below md: an exit button leaves settings for the entity surface', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const exit = page.getByRole('button', { name: /back to/i });
+    await expect(exit).toBeVisible();
+    await exit.click();
+    // Left the settings tree — the URL no longer points at /settings.
+    await expect(page).not.toHaveURL(/\/settings/);
+  });
+
+  test('below md: exiting with unsaved changes opens the discard guard', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    await expect(page.getByLabel('Jump to section')).toBeVisible();
+
+    // Dirty the form, then attempt to exit — the guard must intercept.
+    await page.getByRole('textbox', { name: /project name/i }).fill('Atlas (renamed)');
+    await page.getByRole('button', { name: /back to/i }).click();
+
+    await expect(page.getByRole('alertdialog')).toBeVisible();
+    await expect(page.getByText('Discard unsaved changes?')).toBeVisible();
+    // Still on settings — navigation was blocked pending the choice.
+    await expect(page).toHaveURL(/\/settings/);
+  });
 });

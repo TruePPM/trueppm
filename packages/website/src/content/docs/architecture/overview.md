@@ -3,7 +3,7 @@ title: Architecture Overview
 description: System diagram, design decisions, and package structure.
 ---
 
-This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.2 — shipped as the `0.2.0-alpha.1` pre-release (May 31, 2026).
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, web frontend, and the 0.2 settings/administration and program platform are all functional as of 0.3 — the latest shipped pre-release is `0.3.0-alpha.1` (June 28, 2026), which layered the agile-team feature set and the v2 interface refresh on top of the 0.2 settings/administration and program platform.
 
 ## System diagram
 
@@ -150,7 +150,7 @@ Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on P
 
 ### packages/web
 
-React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
+React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v2.0 (navy/sage) tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
 
 ### packages/api
 
@@ -174,7 +174,7 @@ grep -r "trueppm_enterprise" packages/
 # must return zero results
 ```
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider) and the mobile apps land in 0.4, time tracking in 0.5.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), baseline comparison, offline sync, real-time, 5-role RBAC, REST/WS API, Helm chart, MS Project import/export. On the Community roadmap but not yet shipped: basic single sign-on (OIDC/OAuth login against your own identity provider) lands in 0.4; the mobile apps and time tracking land in 0.5.
 
 **Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, org identity governance (SAML 2.0 federation, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO), immutable audit trail, custom roles, approval workflows, the org-wide Jira/GitLab/ServiceNow integration hub, AI scheduling, scenario modeling, multi-tenancy.
 

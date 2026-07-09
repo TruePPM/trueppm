@@ -98,7 +98,7 @@ Two deliberate qualifiers:
 
 ## The frozen contract
 
-The set of WebSocket event-type strings is a **public contract**. 0.3 will freeze
+The set of WebSocket event-type strings is a **public contract**. 0.3 froze
 the event-string surface, and the read-only MCP server planned for 0.4 — along
 with any external integrator that subscribes to the board channel — will bind to
 that frozen set. Once a client builds against an `event_type`, renaming or removing

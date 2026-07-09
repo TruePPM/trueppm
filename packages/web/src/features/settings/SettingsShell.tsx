@@ -56,6 +56,16 @@ interface SettingsShellProps {
   /** Nav groups for the left rail */
   navGroups: SettingsNavGroup[];
   /**
+   * Mobile-only: route that leaves settings for the entity's main surface
+   * (project overview, program home, app root). Desktop exits via the always-
+   * visible global Sidebar (rule 123); on mobile the Sidebar is a hidden drawer
+   * and `BottomNav` self-suppresses on program/workspace scope, so the mobile
+   * header carries the only clear way out (issue 1709).
+   */
+  exitTo: string;
+  /** Mobile-only: short destination label, rendered as "Back to {exitLabel}". */
+  exitLabel: string;
+  /**
    * The consolidated page body — all `<SettingsSection>` regions for this entity,
    * rendered at once on one mounted page (ADR-0146). The shell stays mounted;
    * the left rail scroll-spies across these sections.
@@ -92,6 +102,8 @@ export function SettingsShell({
   contextOptions,
   contextActiveId,
   navGroups,
+  exitTo,
+  exitLabel,
   children,
 }: SettingsShellProps) {
   const navigate = useNavigate();
@@ -330,6 +342,28 @@ export function SettingsShell({
             OS-native, 44px, screen-reader-friendly picker with zero popover code. */}
         {isMobile && (
         <div className="shrink-0 bg-neutral-surface-raised border-b border-neutral-border px-3.5 py-3 space-y-2">
+          {/* Exit affordance — mobile only. Desktop exit is the always-visible
+              global Sidebar (rule 123); on mobile the Sidebar is a hidden drawer
+              and BottomNav self-suppresses on program/workspace scope, so this is
+              the only clear way out of settings (issue 1709). Routes through
+              navGuarded so a dirty form still hits ConfirmDiscardDialog. */}
+          <button
+            type="button"
+            onClick={() => navGuarded(exitTo)}
+            className="inline-flex items-center gap-1.5 min-h-[44px] -my-1.5 px-1 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
+              <path
+                d="M10 3.5L5.5 8l4.5 4.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+            Back to {exitLabel}
+          </button>
           <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} />
           <ContextRow
             scope={scope}

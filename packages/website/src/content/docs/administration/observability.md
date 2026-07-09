@@ -23,7 +23,7 @@ you configure a collector, TruePPM installs no telemetry provider at all — a
 strict no-op that costs nothing per request and opens no outbound connection.
 Telemetry is a deliberate operator choice, never a silent egress.
 
-## What this release ships
+## What 0.4 will ship
 
 - A provider bootstrap that builds the OTel `TracerProvider` / `MeterProvider` at
   API startup and wires the OTLP exporter — **only** when an endpoint is set.

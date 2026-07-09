@@ -11,6 +11,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
+import { AvatarInitials } from '@/components/AvatarInitials';
 import { modifierKeyLabel } from '@/lib/platform';
 import { registry } from '@/lib/widget-registry';
 import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
@@ -509,12 +510,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           {showFull && (
             <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
               <div className="flex items-center gap-2 px-1 pb-1.5">
-                <span
-                  aria-hidden="true"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-neutral-text-primary"
-                >
-                  {user?.initials ?? '··'}
-                </span>
+                <AvatarInitials initials={user?.initials ?? '··'} size="md" />
                 <span className="min-w-0 truncate text-sm font-medium text-chrome-text-primary">
                   {user?.display_name ?? user?.username ?? 'Account'}
                 </span>
@@ -716,12 +712,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         {/* Footer — user + settings gear (stays at the very bottom) */}
         <div className="shrink-0 border-t border-chrome-border/8 p-2">
           <div className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-primary/15 text-xs font-semibold text-neutral-text-primary"
-            >
-              {user?.initials ?? '··'}
-            </span>
+            <AvatarInitials initials={user?.initials ?? '··'} size="md" />
             {showFull && (
               <span className="min-w-0 truncate text-sm text-chrome-text-primary">
                 {user?.display_name ?? user?.username ?? 'Account'}

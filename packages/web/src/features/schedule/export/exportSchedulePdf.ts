@@ -19,6 +19,12 @@
  *      Letter AND A4.
  */
 
+import {
+  collectPrintTextRuns,
+  setPrintDocumentMetadata,
+  stampTextLayerForPage,
+  type PrintTextRun,
+} from '../../export/pdfTextLayer';
 import { planSheetColumns, sheetLabel } from './scheduleSheetPlan';
 import { planVerticalPages, pageLabel, type VerticalFlowGeometry } from './scheduleVerticalPlan';
 
@@ -266,9 +272,10 @@ function paginateVerticalReport(
     fileName: string;
     signal?: AbortSignal;
     onProgress?: (p: ExportProgress) => void;
+    textRuns: readonly PrintTextRun[];
   },
 ): ExportResult | null {
-  const { paper, pageW, pageH, fileName, signal, onProgress } = opts;
+  const { paper, pageW, pageH, fileName, signal, onProgress, textRuns } = opts;
   // Fit the full sheet width to the page; the body-height budget is one page MINUS the
   // reserved footer band (issue 1686), in img px — so content never runs into the
   // hairline/continued/counter furniture at the page bottom.
@@ -281,6 +288,15 @@ function paginateVerticalReport(
   if (pages.length === 1 && !pages[0].header) {
     onProgress?.({ phase: 'paginate', done: 0, total: 1 });
     pdf.addImage(dataUrl, 'PNG', 0, 0, img.width * scale, img.height * scale);
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: 0,
+      srcW: img.width,
+      srcH: img.height,
+      destX: 0,
+      destY: 0,
+      scale,
+    });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
     const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
     return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
@@ -310,6 +326,17 @@ function paginateVerticalReport(
 
     if (placed > 0) pdf.addPage();
     pdf.addImage(url, 'PNG', 0, 0, img.width * scale, (headerH + page.sh) * scale);
+    // Stamp the body runs for this page below the (raster) repeated header band; the
+    // continuation header itself stays raster-only (ADR-0289 deferral).
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: page.sy,
+      srcW: img.width,
+      srcH: page.sh,
+      destX: 0,
+      destY: headerH * scale,
+      scale,
+    });
     if (page.header?.kind === 'cp') drawCpContinuedHeader(pdf, headerH * scale);
     placed += 1;
     drawSheetCaption(pdf, pageLabel(placed, total), pageW, pageH);
@@ -392,6 +419,12 @@ export async function exportSchedulePdf(
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
 
+  // Selectable invisible-text layer (ADR-0289, issue 1687): collect the opt-in
+  // `data-print-text` runs from the surface once, and set the document title/language.
+  // Each pagination branch below stamps the runs that fall on its page over the raster.
+  const textRuns = collectPrintTextRuns(node);
+  setPrintDocumentMetadata(pdf, { title: fileName.replace(/\.pdf$/i, '') });
+
   // ── Week-snapped horizontal banding with a repeated label column (issue 1440) ──
   // When the print surface reports its geometry and the timeline is wider than one
   // sheet, band the bitmap on week boundaries: each sheet re-draws the frozen label
@@ -457,6 +490,26 @@ export async function exportSchedulePdf(
             (labelStripImg + column.sliceW) * scale,
             sliceH * scale,
           );
+          // Selectable text over both re-composited regions: the frozen label strip
+          // (repeated on every sheet) and this sheet's chart band (ADR-0289).
+          stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+            srcX: 0,
+            srcY: sy,
+            srcW: labelStripImg,
+            srcH: sliceH,
+            destX: 0,
+            destY: 0,
+            scale,
+          });
+          stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+            srcX: column.chartSx,
+            srcY: sy,
+            srcW: column.sliceW,
+            srcH: sliceH,
+            destX: labelStripImg * scale,
+            destY: 0,
+            scale,
+          });
           placed += 1;
           drawSheetCaption(pdf, sheetLabel(placed, total), pageW, pageH);
           onProgress?.({ phase: 'paginate', done: placed, total });
@@ -486,6 +539,7 @@ export async function exportSchedulePdf(
       fileName,
       signal,
       onProgress,
+      textRuns,
     });
     // Null only when no 2D context is available (before anything was placed) — fall
     // through to the plain single-image path below.
@@ -507,6 +561,15 @@ export async function exportSchedulePdf(
   if (total === 1) {
     onProgress?.({ phase: 'paginate', done: 0, total: 1 });
     pdf.addImage(dataUrl, 'PNG', 0, 0, columnWidth * scale, img.height * scale);
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: 0,
+      srcW: columnWidth,
+      srcH: img.height,
+      destX: 0,
+      destY: 0,
+      scale,
+    });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
     const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
     return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
@@ -519,6 +582,15 @@ export async function exportSchedulePdf(
     // No 2D context (headless without canvas) — fall back to a single oversized
     // page rather than failing the export outright (mirrors the board helper).
     pdf.addImage(dataUrl, 'PNG', 0, 0, pageW, img.height * scale);
+    stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+      srcX: 0,
+      srcY: 0,
+      srcW: img.width,
+      srcH: img.height,
+      destX: 0,
+      destY: 0,
+      scale: pageW / img.width,
+    });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
     const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
     return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
@@ -541,6 +613,15 @@ export async function exportSchedulePdf(
       const sliceUrl = canvas.toDataURL('image/png');
       if (placed > 0) pdf.addPage();
       pdf.addImage(sliceUrl, 'PNG', 0, 0, sliceW * scale, sliceH * scale);
+      stampTextLayerForPage(pdf, textRuns, PIXEL_RATIO, {
+        srcX: sx,
+        srcY: sy,
+        srcW: sliceW,
+        srcH: sliceH,
+        destX: 0,
+        destY: 0,
+        scale,
+      });
       placed += 1;
       onProgress?.({ phase: 'paginate', done: placed, total });
     }
