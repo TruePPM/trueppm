@@ -1,9 +1,23 @@
 {{- if .Values.networkPolicy.enabled }}
 {{/*
-Opt-in NetworkPolicy: restrict ingress to the bundled datastores so that ONLY
-the API and Celery worker pods can reach PostgreSQL (5432) and Valkey (6379).
+Default-on NetworkPolicy (#1715): the bundled datastores speak PLAINTEXT on the
+pod network, so this policy is the transport-security boundary in the dev/demo
+posture. Two directions are locked down on each bundled datastore pod:
+
+  - Ingress: ONLY the API and Celery worker pods (matched by selector labels) may
+    reach PostgreSQL (5432) / Valkey (6379). Every other pod is denied.
+  - Egress: default-DENY. A datastore pod has no legitimate reason to initiate
+    outbound connections; policyTypes lists Egress with no egress rules, which
+    denies all egress and blocks exfiltration from a compromised datastore.
+
+The API and Celery worker pods are deliberately NOT egress-restricted here: they
+make legitimate outbound calls (OIDC/OAuth login to the operator's IdP, SMTP,
+S3/object storage, OTLP telemetry) whose endpoints are deployment-specific, so a
+chart-imposed egress allowlist would break real installs. Restrict their egress
+at the platform layer if your environment requires it.
+
 Requires a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, etc.); on a
-cluster without one these objects are accepted but silently unenforced.
+cluster without one these objects are accepted but SILENTLY UNENFORCED.
 
 Only rendered for the datastores the chart actually bundles — when postgresql /
 valkey are disabled (managed-service path) the corresponding policy is skipped.
@@ -23,6 +37,7 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - podSelector:
@@ -36,6 +51,8 @@ spec:
       ports:
         - protocol: TCP
           port: 5432
+  # No egress rules → default-deny egress from the PostgreSQL pod.
+  egress: []
 {{- end }}
 {{- if .Values.valkey.enabled }}
 ---
@@ -52,6 +69,7 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes:
     - Ingress
+    - Egress
   ingress:
     - from:
         - podSelector:
@@ -65,5 +83,7 @@ spec:
       ports:
         - protocol: TCP
           port: 6379
+  # No egress rules → default-deny egress from the Valkey pod.
+  egress: []
 {{- end }}
 {{- end }}

@@ -70,9 +70,11 @@ A default install needs no extra security flags. The chart:
   (`readOnlyRootFilesystem`, dropped capabilities, `RuntimeDefault` seccomp,
   `runAsNonRoot`) and `automountServiceAccountToken: false`, with default
   resource requests/limits.
-- Offers an **opt-in NetworkPolicy** (`networkPolicy.enabled: true`) that limits
-  datastore ingress to the API and worker pods (requires a NetworkPolicy-enforcing
-  CNI).
+- Enables a **default-on NetworkPolicy** (`networkPolicy.enabled: true`) that
+  limits datastore ingress to the API and worker pods and applies default-deny
+  egress to the bundled datastore pods. This **requires a NetworkPolicy-enforcing
+  CNI** (Calico, Cilium, Antrea, Weave, …); on a cluster whose CNI does not enforce
+  policy the objects are accepted but silently unenforced.
 
 Retrieve the generated database password:
 
@@ -83,6 +85,49 @@ kubectl get secret <release>-trueppm-connection \
 
 See [Security](/administration/security/#helm-secure-by-default) for the full
 operator reference.
+
+### Ingress and edge TLS
+
+The chart ships a chart-managed `Ingress` template, **off by default** because the
+correct ingress class, hostnames, and certificate source are cluster-specific.
+Enable it and supply your host(s) and a TLS Secret to expose the API over HTTPS at
+the edge. The API `Service` stays `ClusterIP`; the `Ingress` is the sole
+externally-facing object and the TLS termination point.
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.hosts[0].host=trueppm.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.tls[0].secretName=trueppm-tls \
+  --set ingress.tls[0].hosts[0]=trueppm.example.com
+```
+
+With cert-manager, add the issuer under `ingress.annotations`
+(`cert-manager.io/cluster-issuer: <issuer>`) and cert-manager provisions the
+named TLS Secret automatically. Leaving `ingress.tls` empty renders an HTTP-only
+Ingress — acceptable only for a dev/demo cluster, never production. `settings.prod`
+already trusts `X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), so the app sets
+secure cookies and HSTS correctly behind edge TLS; the `/api/v1/health/` and
+`/api/v1/edition/` probe paths stay exempt from the optional HTTP→HTTPS redirect.
+
+### Bundled datastores are dev/demo only
+
+The bundled PostgreSQL and Valkey pods speak **plaintext** on the pod network — the
+chart-built `DATABASE_URL` carries no `sslmode`. This is safe **only** because the
+default-on NetworkPolicy isolates those pods so that just the API and worker can
+reach them. To keep that posture coherent, the chart automatically sets
+`TRUEPPM_ALLOW_UNENCRYPTED_DB=true` **only** when the bundled database is in use
+**and** the NetworkPolicy is enabled — so a default `helm install` boots without
+crash-looping the app's DB-encryption guard, and without any operator ever being
+told to "disable the security check."
+
+For production, use managed datastores with TLS instead (below). When
+`postgresql.enabled=false`, the chart injects **no** auto flag, so your
+`env.DATABASE_URL` **must** include `sslmode=require` — the app refuses to boot on
+a plaintext external database.
 
 ### Managed (external) datastores
 
@@ -95,9 +140,17 @@ Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
 ```bash
 helm install trueppm packages/helm \
   -f packages/helm/values-prod.yaml \
-  --set env.DATABASE_URL="postgres://user:pass@your-db:5432/trueppm" \
+  --set env.DATABASE_URL="postgres://user:pass@your-db:5432/trueppm?sslmode=require" \
   --set env.REDIS_URL="redis://:pass@your-cache:6379"
 ```
+
+The `sslmode=require` parameter is **mandatory** on an external `DATABASE_URL`:
+`settings.prod` refuses to boot without it (database connections would otherwise
+fall back to whatever the server negotiates, which may be plaintext). If — and only
+if — TLS is already enforced between the app and database at the network layer
+(a service-mesh sidecar or a private encrypted link), set
+`env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true` to acknowledge that and downgrade the guard
+to a warning.
 
 Prefer injecting `DATABASE_URL` / `REDIS_URL` via an external Secret rather than
 `--set` so they don't land in shell history. `SECRET_KEY` and `ALLOWED_HOSTS`

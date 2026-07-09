@@ -41,10 +41,15 @@ flags:
 - **`automountServiceAccountToken: false`** on the API and worker pods — they
   make no in-cluster Kubernetes API calls.
 - **Default resource requests/limits** for every workload.
-- **Opt-in NetworkPolicy** (`networkPolicy.enabled: true`) restricting ingress
-  to the bundled PostgreSQL (5432) and Valkey (6379) to only the API and Celery
-  worker pods. Off by default because it requires a CNI that enforces
-  NetworkPolicy; a silently-unenforced policy is worse than an explicit opt-in.
+- **Default-on NetworkPolicy** (`networkPolicy.enabled: true`, #1715)
+  restricting ingress to the bundled PostgreSQL (5432) and Valkey (6379) to only
+  the API and Celery worker pods, plus default-deny egress on the datastore pods.
+  The bundled datastores speak **plaintext** on the pod network, so this policy —
+  not in-transit TLS — is the transport-security boundary for the dev/demo posture.
+  **Requires a CNI that enforces NetworkPolicy** (Calico, Cilium, Antrea, Weave, …);
+  on a cluster whose CNI does not enforce policy these objects are accepted but
+  silently unenforced. If your cluster lacks one, do not use the bundled datastores
+  for anything sensitive — use managed external datastores with TLS instead.
 
 ### Retrieving the generated database password
 
@@ -60,7 +65,10 @@ kubectl get secret <release>-trueppm-connection \
 | `postgresql.auth.password` | `""` (generated) | Set to pin an explicit DB password. |
 | `valkey.auth.enabled` | `true` | Valkey requires a password by default. |
 | `valkey.auth.password` | `""` (generated) | Set to pin an explicit cache password. |
-| `networkPolicy.enabled` | `false` | Opt-in; requires a NetworkPolicy-enforcing CNI. |
+| `ingress.enabled` | `false` | Chart-managed Ingress + edge TLS. Enable and set `hosts`/`tls` to expose over HTTPS. |
+| `ingress.className` | `""` | IngressClass to bind (e.g. `nginx`). Empty uses the cluster default. |
+| `ingress.tls` | `[]` | TLS Secret + host list for edge termination. Empty renders HTTP-only (dev/demo). |
+| `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
 | `podSecurityContext` | `runAsNonRoot`, uid 1000 | Pod-level security context for API/worker. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
 | `resources.api` / `resources.worker` | 512Mi req / 2Gi limit | Per-container resources. |
@@ -82,20 +90,78 @@ creates a PersistentVolumeClaim you did not ask for. Restore is a deliberate man
 action with `scripts/restore.sh`. Full runbook: docs → Administration → Backup &
 Restore.
 
+## Ingress and edge TLS (#1714)
+
+The chart ships a chart-managed `Ingress`, **off by default** — the correct
+ingress class, hostnames, and certificate source are cluster-specific, so a
+default-on ingress would render a broken object. Enable it and supply your
+host(s) and a TLS Secret to expose the API over HTTPS at the edge. The API
+`Service` stays `ClusterIP`; the `Ingress` is the sole externally-facing object
+and the TLS termination point.
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: trueppm.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: trueppm-tls
+      hosts:
+        - trueppm.example.com
+```
+
+With cert-manager, the issuer annotation provisions the named TLS Secret
+automatically. Leaving `ingress.tls` empty renders an **HTTP-only** Ingress —
+acceptable only for a dev/demo cluster, never production. `settings.prod` trusts
+`X-Forwarded-Proto` (`SECURE_PROXY_SSL_HEADER`), so the app sets secure cookies
+and HSTS correctly behind edge TLS; the `/api/v1/health/` and `/api/v1/edition/`
+probe paths stay exempt from the optional HTTP→HTTPS redirect.
+
+## Bundled datastores are dev/demo only (#1715, #1716)
+
+The bundled PostgreSQL and Valkey subcharts are for **dev / demo / CI only**. They
+speak **plaintext** on the pod network — the chart-built `DATABASE_URL` carries no
+`sslmode`. That is safe **only** because the default-on NetworkPolicy isolates the
+datastore pods so that just the API and worker can reach them (and a
+policy-enforcing CNI is present).
+
+To keep that posture coherent with the app's DB-encryption boot guard, the chart
+automatically sets `TRUEPPM_ALLOW_UNENCRYPTED_DB=true` **only** when the bundled
+database is in use **and** the NetworkPolicy is enabled. This is why a default
+`helm install` boots without crash-looping and **without** any operator being told
+to disable a security check by hand. If you disable the NetworkPolicy, the chart
+stops injecting that flag and a bundled plaintext database fails the boot guard —
+by design: an unprotected plaintext datastore on a flat pod network should fail
+closed.
+
+For anything beyond dev/demo, use managed datastores with TLS (below). When
+`postgresql.enabled=false` the chart injects no auto flag, so your external
+`DATABASE_URL` **must** carry `sslmode=require`.
+
 ## Production (managed datastores)
 
 ```bash
 helm install trueppm packages/helm \
   -f packages/helm/values-prod.yaml \
-  --set env.DATABASE_URL="postgres://user:pass@your-db:5432/trueppm" \
+  --set env.DATABASE_URL="postgres://user:pass@your-db:5432/trueppm?sslmode=require" \
   --set env.REDIS_URL="redis://your-cache:6379"
 ```
 
 `values-prod.yaml` disables the bundled `postgresql` and `valkey` subcharts. When
 they are disabled you **must** supply `env.DATABASE_URL` and `env.REDIS_URL`
 (point them at your managed services); the chart fails the render with a clear
-message otherwise. Prefer injecting these via an external Secret rather than
-`--set` so they don't land in shell history.
+message otherwise. The external `DATABASE_URL` **must** include `sslmode=require`
+— `settings.prod` refuses to boot on a plaintext external database. Only if TLS is
+already enforced at the network layer (service mesh / private encrypted link) set
+`env.TRUEPPM_ALLOW_UNENCRYPTED_DB=true` to downgrade that guard to a warning.
+Prefer injecting these via an external Secret rather than `--set` so they don't
+land in shell history.
 
 ## Required secrets (prod refuses to boot without them)
 
