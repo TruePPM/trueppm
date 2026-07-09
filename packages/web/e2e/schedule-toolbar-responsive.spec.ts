@@ -1,9 +1,12 @@
 /**
- * E2E for the Schedule toolbar's responsive collapse rules (issue #568).
+ * E2E for the Schedule toolbar's clustered layout + responsive rules
+ * (issues #568 / #1741).
  *
- * Covers AC: at a 900px viewport (md tier, 768–1023px) the Schedule toolbar
- * shows primary actions with labels and renders secondary toggles icon-only.
- * The shared `ToolbarOverflowMenu` (rule 112) is asserted at the sm tier.
+ * #1741 grouped the flat toolbar into Time / Show / Actions clusters: the four
+ * view/render filters and column visibility moved into a single "Display"
+ * popover (the Show cluster), which is the filters' home at EVERY width — they
+ * never migrate into the `···` Actions overflow (web rule 243). Only the Display
+ * trigger's label collapses to icon-only below lg.
  */
 import { test, expect } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -60,80 +63,76 @@ async function gotoSchedule(page: import('@playwright/test').Page, viewportWidth
   });
 }
 
-test.describe('Schedule toolbar — responsive collapse (#568)', () => {
-  test('at 900px viewport (md tier) primary controls keep labels and secondary toggles render icon-only', async ({ page }) => {
-    await gotoSchedule(page, 900);
+test.describe('Schedule toolbar — clustered layout (#1741)', () => {
+  test('at 1280px (lg) the Display trigger shows its label and the filters live in its popover, not inline', async ({ page }) => {
+    await gotoSchedule(page, 1280);
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible();
 
-    // Primary controls retain their text labels at md (rule 111).
+    // Time cluster: the Today button stays labeled.
     await expect(toolbar.getByRole('button', { name: 'Today' })).toHaveText(/Today/);
-    await expect(toolbar.getByRole('button', { name: 'Columns' })).toHaveText(/Columns/);
 
-    // Secondary toggles still expose their accessible names but their
-    // visible inner text drops to the icon (rule 111 + 114). The accessible
-    // name comes from aria-label, so the role+name query still resolves; we
-    // check that the visible inner text is the icon-only form.
-    const cpOnly = toolbar.getByRole('button', { name: 'Show critical path only' });
-    await expect(cpOnly).toBeVisible();
-    await expect(cpOnly).not.toHaveText(/CP only/);
-    const focusChain = toolbar.getByRole('button', { name: 'Focus chain on selected task' });
-    await expect(focusChain).toBeVisible();
-    await expect(focusChain).not.toHaveText(/Focus chain/);
-    const criticalOnly = toolbar.getByRole('button', { name: 'Show only critical-path tasks' });
-    await expect(criticalOnly).toBeVisible();
-    await expect(criticalOnly).not.toHaveText(/Critical path/);
-    const milestonesOnly = toolbar.getByRole('button', { name: 'Show only milestones' });
-    await expect(milestonesOnly).toBeVisible();
-    await expect(milestonesOnly).not.toHaveText(/Milestones/);
+    // Show cluster: a single "Display" trigger (labeled at lg). The old inline
+    // filter toggles and the standalone Columns button no longer exist.
+    await expect(toolbar.getByRole('button', { name: 'Display' })).toHaveText(/Display/);
+    await expect(toolbar.getByRole('button', { name: 'Columns' })).toHaveCount(0);
+    await expect(toolbar.getByRole('button', { name: 'Show critical path only' })).toHaveCount(0);
 
-    // The "Project actions" menu (Import/Export, #68) is always present, but the
-    // secondary analysis toggles stay INLINE at md (rule 112, asserted above) —
-    // they do not collapse into this menu above the sm tier.
+    // Filters live inside the Display popover as checkboxes.
+    await toolbar.getByRole('button', { name: 'Display' }).click();
+    const display = page.getByRole('menu', { name: 'Display options' });
+    for (const name of ['CP only', 'Focus chain', 'Critical path', 'Milestones']) {
+      await expect(display.getByRole('menuitemcheckbox', { name })).toBeVisible();
+    }
+    await page.keyboard.press('Escape');
+
+    // Actions menu is present (Import/Export/Share fold in here).
+    await expect(toolbar.getByRole('button', { name: 'Project actions' })).toBeVisible();
+  });
+
+  test('at 900px (md) the Display trigger collapses to icon-only but keeps its accessible name', async ({ page }) => {
+    await gotoSchedule(page, 900);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    const display = toolbar.getByRole('button', { name: 'Display' });
+    await expect(display).toBeVisible();
+    // Icon-only: the visible "Display" label is dropped; the accessible name
+    // (used by the role+name query above) is retained via aria-label (rule 114).
+    await expect(display).not.toHaveText(/Display/);
+
+    // Filters are still reachable via the Display popover at md.
+    await display.click();
     await expect(
-      toolbar.getByRole('button', { name: 'Project actions' }),
+      page.getByRole('menu', { name: 'Display options' }).getByRole('menuitemcheckbox', { name: 'CP only' }),
     ).toBeVisible();
+    await page.keyboard.press('Escape');
 
-    // The toolbar must not wrap (rule 113) — a stacked row would push the
-    // measured height past the single-row h-10 (40px) target.
+    // Single-row, no wrap (rule 113) — a stacked row would exceed the h-10 target.
     const box = await toolbar.boundingBox();
     expect(box).not.toBeNull();
     if (box) expect(box.height).toBeLessThan(56);
   });
 
-  test('at 1280px viewport (lg tier) secondary toggles show their full labels', async ({ page }) => {
-    await gotoSchedule(page, 1280);
-
-    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
-    await expect(toolbar.getByRole('button', { name: 'Show critical path only' })).toHaveText(/CP only/);
-    await expect(toolbar.getByRole('button', { name: 'Focus chain on selected task' })).toHaveText(/Focus chain/);
-    await expect(toolbar.getByRole('button', { name: 'Show only critical-path tasks' })).toHaveText(/Critical path/);
-    await expect(toolbar.getByRole('button', { name: 'Show only milestones' })).toHaveText(/Milestones/);
-    // The "Project actions" menu (Import/Export, #68) is always present; the
-    // secondary toggles remain inline at lg, not collapsed into it.
-    await expect(
-      toolbar.getByRole('button', { name: 'Project actions' }),
-    ).toBeVisible();
-  });
-
-  test('at 600px viewport (sm tier) secondary toggles disappear and surface inside the overflow menu', async ({ page }) => {
+  test('at 600px (sm) the filters stay in the Display popover — they never move to the Actions overflow (rule 243)', async ({ page }) => {
     await gotoSchedule(page, 600);
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
-    // Secondary toggles are not in the toolbar at sm (rule 111) — they live
-    // inside the overflow menu, not as inline buttons.
-    await expect(toolbar.getByRole('button', { name: 'Show critical path only' })).toHaveCount(0);
-    await expect(toolbar.getByRole('button', { name: 'Focus chain on selected task' })).toHaveCount(0);
 
-    const overflowTrigger = toolbar.getByRole('button', { name: 'Project actions' });
-    await expect(overflowTrigger).toBeVisible();
-    await overflowTrigger.click();
-    const menu = page.getByRole('menu', { name: 'Project actions' });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitemcheckbox', { name: /CP only/ })).toBeVisible();
-    await expect(menu.getByRole('menuitemcheckbox', { name: /Focus chain/ })).toBeVisible();
-    await expect(menu.getByRole('menuitemcheckbox', { name: /Critical path/ })).toBeVisible();
-    await expect(menu.getByRole('menuitemcheckbox', { name: /Milestones/ })).toBeVisible();
+    // The Actions overflow does NOT host the filters (that was the old sm behavior).
+    const actions = toolbar.getByRole('button', { name: 'Project actions' });
+    await expect(actions).toBeVisible();
+    await actions.click();
+    const actionsMenu = page.getByRole('menu', { name: 'Project actions' });
+    await expect(actionsMenu).toBeVisible();
+    await expect(actionsMenu.getByRole('menuitemcheckbox', { name: /CP only/ })).toHaveCount(0);
+    await expect(actionsMenu.getByRole('menuitemcheckbox', { name: /Milestones/ })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // The filters remain reachable — in the Display popover, at sm too.
+    await toolbar.getByRole('button', { name: 'Display' }).click();
+    const display = page.getByRole('menu', { name: 'Display options' });
+    await expect(display.getByRole('menuitemcheckbox', { name: 'CP only' })).toBeVisible();
+    await expect(display.getByRole('menuitemcheckbox', { name: 'Milestones' })).toBeVisible();
   });
 });

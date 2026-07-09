@@ -27,8 +27,7 @@ import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleViewModeToggle } from './ScheduleViewModeToggle';
-import { ScheduleToolbarToggle } from './ScheduleToolbarToggle';
-import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
+import { ScheduleDisplayMenu } from './ScheduleDisplayMenu';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
@@ -71,7 +70,6 @@ import { useSprints } from '@/hooks/useSprints';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { SchedulePrintLayout } from './export/SchedulePrintLayout';
 import { useScheduleExport } from './export/useScheduleExport';
-import { ScheduleExportButton } from './export/ScheduleExportButton';
 import { ScheduleExportDialog } from './export/ScheduleExportDialog';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import {
@@ -418,10 +416,7 @@ export function ScheduleView() {
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
-  const quarterMode = useScheduleStore((s) => s.quarterMode);
-  const setQuarterMode = useScheduleStore((s) => s.setQuarterMode);
   const viewMode = useScheduleStore((s) => s.viewMode);
-  const fiscalStartMonth = useFiscalYearStartMonth();
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -491,8 +486,6 @@ export function ScheduleView() {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddMilestone, setShowAddMilestone] = useState(false);
-  const [showColMenu, setShowColMenu] = useState(false);
-  const colMenuRef = useRef<HTMLDivElement>(null);
 
   // Mobile breakpoint detection for the unified task form modal — matches the
   // pattern in BoardView's useBoardDensity (matchMedia at < md / 768px).
@@ -766,18 +759,6 @@ export function ScheduleView() {
   }, [engine]);
 
   // "Today" button handler (rule 82)
-  // Close column-visibility menu when clicking outside it
-  useEffect(() => {
-    if (!showColMenu) return;
-    function handleOutsideClick(e: MouseEvent) {
-      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
-        setShowColMenu(false);
-      }
-    }
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showColMenu]);
-
   const handleScrollToToday = useCallback(() => {
     if (!engine) return;
     const reducedMotion =
@@ -805,13 +786,12 @@ export function ScheduleView() {
   const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
   const buildModeActive = buildModeFlag && !isMobile;
 
-  // Toolbar responsive tier (issue #568, rules 110–112).
-  //   lg → all toggles show full labels
-  //   md → secondary toggles render icon-only via `hideLabel`
-  //   sm → secondary toggles collapse into the shared ToolbarOverflowMenu
+  // Toolbar responsive tier (issue #568 / #1741, rules 110–114).
+  //   lg → the Display trigger shows its full "Display ▾" label
+  //   md/sm → the Display trigger collapses to icon-only (`iconOnly`)
+  // The filters + column visibility live in the Display popover at every width
+  // (web rule 243); only the Display trigger label collapses.
   const breakpoint = useBreakpoint();
-  const toolbarHideLabel = breakpoint === 'md';
-  const toolbarShowSecondaryInline = breakpoint !== 'sm';
 
   // Role gate for milestone insert (#340) — VIEWER cannot author.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
@@ -1315,155 +1295,69 @@ export function ScheduleView() {
           }
         />
 
-        {toolbarShowSecondaryInline && (
-          <>
-            {/* View filter group (#248) — restyled from plain checkboxes */}
-            <div
-              role="group"
-              aria-label="Schedule view filters"
-              className="flex items-center rounded-control border border-neutral-border overflow-hidden flex-shrink-0"
-            >
-              <ScheduleToolbarToggle
-                pressed={showCpOnly}
-                onToggle={setShowCpOnly}
-                label="CP only"
-                ariaLabel="Show critical path only"
-                hideLabel={toolbarHideLabel}
-                icon="C"
-              />
-              <ScheduleToolbarToggle
-                pressed={focusModeEnabled}
-                onToggle={setFocusModeEnabled}
-                label="Focus chain"
-                ariaLabel="Focus chain on selected task"
-                hideLabel={toolbarHideLabel}
-                icon="F"
-              />
-            </div>
-
-            {/* Render filter group (#248) — filter what bars draw on the canvas */}
-            <div
-              role="group"
-              aria-label="Schedule render filters"
-              className="flex items-center rounded-control border border-neutral-border overflow-hidden flex-shrink-0"
-            >
-              <ScheduleToolbarToggle
-                pressed={showCriticalOnly}
-                onToggle={setShowCriticalOnly}
-                label="Critical path"
-                ariaLabel="Show only critical-path tasks"
-                hideLabel={toolbarHideLabel}
-                icon="!"
-              />
-              <ScheduleToolbarToggle
-                pressed={showMilestonesOnly}
-                onToggle={setShowMilestonesOnly}
-                label="Milestones"
-                ariaLabel="Show only milestones"
-                hideLabel={toolbarHideLabel}
-                icon="◆"
-              />
-            </div>
-          </>
-        )}
-
         <div className="flex-1" />
 
-        {/* Project-health summary chip (#248) */}
+        {/* Project-health summary chip (#248) — standalone read-only status. */}
         <ScheduleSummaryChip visibleTasks={visibleTasks} />
 
-        {/* Column visibility toggle — hidden on mobile (#1670), where the
-            task-list panel it controls is not rendered. */}
-        {!isMobile && (
-          <div className="relative" ref={colMenuRef}>
-            <button
-              type="button"
-              onClick={() => setShowColMenu((v) => !v)}
-              aria-expanded={showColMenu}
-              aria-haspopup="menu"
-              className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-              hover:border-brand-primary hover:text-brand-primary"
-            >
-              Columns
-            </button>
-            {showColMenu && (
-              <div
-                role="menu"
-                className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
-                rounded-card py-1 min-w-[120px]"
-                aria-label="Toggle column visibility"
-              >
-                {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
-                  <label
-                    key={col}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
-                    cursor-pointer hover:bg-neutral-surface-raised select-none"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={visible[col]}
-                      onChange={() => toggleColumn(col)}
-                      className="accent-brand-primary"
-                    />
-                    {col === 'dur'
-                      ? 'Dur'
+        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+
+        {/* Grid↔Timeline layout toggle (issue 1221) — standalone: Grid keeps the
+            WBS table beside the timeline, Timeline hides it for a full-width canvas.
+            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
+        {!isMobile && <ScheduleViewModeToggle />}
+
+        {/* Show cluster (#1741) — the Display popover is the single home for the
+            four view/render filters plus (in Grid mode) column visibility, at every
+            width. Filters never migrate to the ··· overflow (web rule 243). */}
+        <ScheduleDisplayMenu
+          showCpOnly={showCpOnly}
+          setShowCpOnly={setShowCpOnly}
+          focusModeEnabled={focusModeEnabled}
+          setFocusModeEnabled={setFocusModeEnabled}
+          showCriticalOnly={showCriticalOnly}
+          setShowCriticalOnly={setShowCriticalOnly}
+          showMilestonesOnly={showMilestonesOnly}
+          setShowMilestonesOnly={setShowMilestonesOnly}
+          columns={
+            effectiveViewMode === 'grid'
+              ? (['dur', 'start', 'finish', 'progress'] as const).map((col) => ({
+                  id: col,
+                  label:
+                    col === 'dur'
+                      ? 'Duration'
                       : col === 'start'
                         ? 'Start'
                         : col === 'finish'
                           ? 'Finish'
-                          : '%'}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+                          : '% Complete',
+                  checked: visible[col],
+                  onChange: () => toggleColumn(col),
+                }))
+              : null
+          }
+          iconOnly={breakpoint !== 'lg'}
+        />
 
-        {/* Grid↔Timeline layout toggle (issue 1221) — primary control: Grid keeps the
-            WBS table beside the timeline, Timeline hides it for a full-width canvas.
-            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
-        {!isMobile && <ScheduleViewModeToggle />}
-        {/* "Today" button (rule 82) */}
-        <button
-          type="button"
-          onClick={handleScrollToToday}
-          className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-        >
-          Today
-        </button>
-        <ZoomControl onFit={() => engine?.fitToProject()} />
-        {/* Fiscal/calendar quarter toggle (#755) — inline next to zoom at md+,
-            folded into the overflow menu at sm. Self-hides off quarter/year
-            zoom and when the workspace fiscal year starts in January. */}
-        {toolbarShowSecondaryInline && <QuarterModeControl />}
-        {/* Dedicated Export button (issue 1438) — standalone + labelled at lg;
-            below lg it folds into the ··· Project-actions menu; hidden at sm. */}
-        {projectId && breakpoint === 'lg' && (
-          <ScheduleExportButton
-            disabled={!scheduleExport.canExport}
-            onOpen={scheduleExport.openDialog}
-          />
-        )}
-        {/* Share this schedule (#1486) — standalone at md+ for Admin+; folds into the
-            ··· menu at sm (see the overflow items below). */}
-        {projectId && canShare && breakpoint !== 'sm' && (
+        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+
+        {/* Time cluster (#1741) — timeline navigation: jump-to-today, zoom, and the
+            fiscal/calendar quarter toggle (self-hides off quarter/year zoom and on a
+            January fiscal start). */}
+        <div role="group" aria-label="Timeline navigation" className="flex items-center gap-1">
+          {/* "Today" button (rule 82) */}
           <button
             type="button"
-            onClick={() => setShareOpen(true)}
-            aria-haspopup="dialog"
-            aria-label="Share this schedule"
-            title="Create a public read-only link to this schedule"
-            className={[
-              'inline-flex h-7 flex-shrink-0 items-center gap-1 rounded border border-neutral-border px-3',
-              'text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
-            ].join(' ')}
+            onClick={handleScrollToToday}
+            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
           >
-            <span aria-hidden="true">↗</span>
-            <span>Share</span>
+            Today
           </button>
-        )}
+          <ZoomControl onFit={() => engine?.fitToProject()} />
+          <QuarterModeControl />
+        </div>
+
+        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
         {/* Project actions (···) — always present so Import/Export are
             discoverable at every width. The secondary analysis toggles fold in
             here only at the narrowest breakpoint; at md+ they render inline. */}
@@ -1495,10 +1389,12 @@ export function ScheduleView() {
                       },
                     ]
                   : []),
-                // Schedule PDF export (issue 1438). At lg it's a standalone toolbar
-                // button (above); at md it folds into this ··· menu and opens the
-                // options dialog. Hidden at sm — a deck-style export is a desk task.
-                ...(projectId && breakpoint === 'md'
+                // Schedule PDF export (issue 1438). Now an Actions-menu item (#1741) —
+                // the standalone lg button was removed to hold the toolbar at ≤6
+                // affordances. Disabled (not hidden) when nothing is exportable, so it
+                // stays discoverable. Still hidden at sm — a deck-style export is a
+                // desk task, not a mobile one.
+                ...(projectId && breakpoint !== 'sm'
                   ? [
                       {
                         kind: 'action' as const,
@@ -1509,59 +1405,15 @@ export function ScheduleView() {
                       },
                     ]
                   : []),
-                // Share (#1486) folds into the ··· menu at sm (standalone at md+).
-                ...(projectId && canShare && breakpoint === 'sm'
+                // Share (#1486) — now an Actions-menu item at every width (#1741),
+                // Admin+ only.
+                ...(projectId && canShare
                   ? [
                       {
                         kind: 'action' as const,
                         id: 'share-schedule',
                         label: 'Share this schedule…',
                         onSelect: () => setShareOpen(true),
-                      },
-                    ]
-                  : []),
-                ...(breakpoint === 'sm'
-                  ? [
-                      ...((zoomLevel === 'quarter' || zoomLevel === 'year') &&
-                      fiscalStartMonth !== 1
-                        ? [
-                            {
-                              kind: 'checkbox' as const,
-                              id: 'fiscal-quarters',
-                              label: 'Fiscal quarters',
-                              checked: quarterMode === 'fiscal',
-                              onChange: (next: boolean) =>
-                                setQuarterMode(next ? 'fiscal' : 'calendar'),
-                            },
-                          ]
-                        : []),
-                      {
-                        kind: 'checkbox' as const,
-                        id: 'cp-only',
-                        label: 'CP only',
-                        checked: showCpOnly,
-                        onChange: setShowCpOnly,
-                      },
-                      {
-                        kind: 'checkbox' as const,
-                        id: 'focus-chain',
-                        label: 'Focus chain',
-                        checked: focusModeEnabled,
-                        onChange: setFocusModeEnabled,
-                      },
-                      {
-                        kind: 'checkbox' as const,
-                        id: 'critical-path',
-                        label: 'Critical path only',
-                        checked: showCriticalOnly,
-                        onChange: setShowCriticalOnly,
-                      },
-                      {
-                        kind: 'checkbox' as const,
-                        id: 'milestones',
-                        label: 'Milestones only',
-                        checked: showMilestonesOnly,
-                        onChange: setShowMilestonesOnly,
                       },
                     ]
                   : []),

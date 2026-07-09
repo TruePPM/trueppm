@@ -79,20 +79,16 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
     await expect(page.getByLabel('Owner: none')).toBeVisible(); // task rp2
   });
 
-  test('Toolbar shows four styled toggle buttons with aria-pressed', async ({ page }) => {
+  test('Display menu exposes the four filters as checkboxes (aria-checked)', async ({ page }) => {
+    // #1741: the four filters moved from inline toolbar toggles into the Display
+    // popover as menuitemcheckbox rows.
     await page.goto(BASE_URL);
-    await expect(page.getByRole('button', { name: 'Show critical path only' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Focus chain on selected task' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Show only critical-path tasks' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Show only milestones' })).toBeVisible();
-    // All start in pressed=false.
-    for (const name of [
-      'Show critical path only',
-      'Focus chain on selected task',
-      'Show only critical-path tasks',
-      'Show only milestones',
-    ]) {
-      await expect(page.getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false');
+    await page.getByRole('button', { name: 'Display' }).click();
+    const menu = page.getByRole('menu', { name: 'Display options' });
+    for (const name of ['CP only', 'Focus chain', 'Critical path', 'Milestones']) {
+      const item = menu.getByRole('menuitemcheckbox', { name });
+      await expect(item).toBeVisible();
+      await expect(item).toHaveAttribute('aria-checked', 'false');
     }
   });
 
@@ -101,8 +97,15 @@ test.describe('Schedule render parity — toolbar + columns (#248)', () => {
     await expect(page.getByText('Foundation')).toBeVisible();
     await expect(page.getByText('Framing')).toBeVisible();
     // Both fixture tasks are critical, so toggling on should leave them visible.
-    await page.getByRole('button', { name: 'Show only critical-path tasks' }).click();
-    await expect(page.getByRole('button', { name: 'Show only critical-path tasks' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Display' }).click();
+    const criticalItem = page
+      .getByRole('menu', { name: 'Display options' })
+      .getByRole('menuitemcheckbox', { name: 'Critical path' });
+    await criticalItem.click();
+    await expect(criticalItem).toHaveAttribute('aria-checked', 'true');
+    // Close the popover; the trigger now advertises one active filter.
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: 'Display, 1 active filter' })).toBeVisible();
     await expect(page.getByText('Foundation')).toBeVisible();
     await expect(page.getByText('Framing')).toBeVisible();
   });
