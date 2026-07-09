@@ -125,7 +125,7 @@ async function setup(
 }
 
 test.describe('Schedule export surfaces (issue 1438)', () => {
-  test('Export button opens the options dialog and produces a PDF download (lg)', async ({
+  test('Export opens the options dialog and produces a PDF download (lg)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -135,8 +135,13 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // At lg the export is a dedicated, always-visible toolbar button.
-    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
+    // #1741: Export is now an item in the Actions (⋯) menu at every width, not a
+    // standalone toolbar button.
+    await toolbar.getByRole('button', { name: 'Project actions' }).click();
+    await page
+      .getByRole('menu', { name: 'Project actions' })
+      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
+      .click();
 
     const dialog = page.getByRole('dialog', { name: 'Export schedule' });
     await expect(dialog).toBeVisible();
@@ -158,7 +163,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     });
   });
 
-  test('Export folds into the Project-actions ⋯ menu at the md breakpoint', async ({ page }) => {
+  test('Export is available in the Project-actions ⋯ menu at the md breakpoint', async ({ page }) => {
     await page.setViewportSize({ width: 900, height: 800 });
     await setup(page);
     await page.goto(BASE_URL);
@@ -166,7 +171,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // No standalone button at md — it lives in the overflow menu instead.
+    // No standalone button (never one after #1741) — it lives in the ⋯ menu.
     await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
 
     await toolbar.getByRole('button', { name: 'Project actions' }).click();
@@ -184,8 +189,9 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    // No standalone button, and the ⋯ overflow (which still holds the collapsed
-    // analysis toggles) carries no export entry below sm.
+    // No standalone button, and the ⋯ Actions menu carries no export entry at sm —
+    // a deck-style export is a desk task (the filters live in the Display popover,
+    // not here, per web rule 243).
     await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
     await toolbar.getByRole('button', { name: 'Project actions' }).click();
     const menu = page.getByRole('menu', { name: 'Project actions' });
@@ -193,7 +199,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(menu.getByRole('menuitem', { name: /Export schedule as PDF/ })).toHaveCount(0);
   });
 
-  test('Export button is disabled when the schedule is empty (lg)', async ({ page }) => {
+  test('Export menu item is disabled when the schedule is empty (lg)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await setup(page, []);
     await page.goto(BASE_URL);
@@ -201,7 +207,12 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
 
-    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toBeDisabled();
+    await toolbar.getByRole('button', { name: 'Project actions' }).click();
+    await expect(
+      page
+        .getByRole('menu', { name: 'Project actions' })
+        .getByRole('menuitem', { name: 'Export schedule as PDF…' }),
+    ).toBeDisabled();
   });
 
   test('A wide (multi-year) schedule bands across sheets and still exports cleanly (lg)', async ({
@@ -238,7 +249,11 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
     await expect(toolbar).toBeVisible({ timeout: 10_000 });
-    await toolbar.getByRole('button', { name: 'Export schedule as PDF' }).click();
+    await toolbar.getByRole('button', { name: 'Project actions' }).click();
+    await page
+      .getByRole('menu', { name: 'Project actions' })
+      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
+      .click();
 
     const dialog = page.getByRole('dialog', { name: 'Export schedule' });
     await expect(dialog).toBeVisible();

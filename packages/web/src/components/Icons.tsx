@@ -888,3 +888,32 @@ export function PaperclipIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Sliders — three tracks with offset handles; the "Display / adjust what you
+ * see" affordance for the Schedule Display menu (#1741). Distinct from the
+ * `SettingsIcon` cog (which reads as "configuration"), this reads as
+ * "filter/adjust the current view".
+ */
+export function SlidersIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      className={className}
+      {...rest}
+    >
+      <line x1="2" y1="4" x2="14" y2="4" />
+      <line x1="2" y1="8" x2="14" y2="8" />
+      <line x1="2" y1="12" x2="14" y2="12" />
+      <circle cx="5.5" cy="4" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="10.5" cy="8" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="6.5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
