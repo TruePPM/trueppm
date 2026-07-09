@@ -259,6 +259,14 @@ def apply_task_changes(
         if str(row_id) in cross_project_ids:
             raise SyncIdCollision()
         existing = existing_by_id.get(str(row_id))
+        if existing is not None and existing.is_deleted:
+            # A client re-pushing a created row whose id matches a tombstone —
+            # skip, mirroring the updated/deleted loops (#1730). ``is_deleted`` is
+            # non-writable so this could never resurrect the row anyway; without
+            # the guard the re-create branch below would run a full serializer save
+            # on the dead row, bump server_version, and emit a spurious
+            # task_updated. The next pull reconciles the client via the tombstone.
+            continue
         if existing is not None:
             # Idempotent re-create (the row already landed in a prior batch) —
             # apply as an update, but enforce the stricter edit permission.

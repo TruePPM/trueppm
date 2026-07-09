@@ -8,6 +8,9 @@ not the REST API consumer.
 
 from __future__ import annotations
 
+import uuid
+from typing import Any
+
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
@@ -27,6 +30,15 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.serializers import CalendarExceptionSerializer
 from trueppm_api.apps.timetracking.models import TimeEntry
+
+
+def _is_uuid(value: object) -> bool:
+    """True if ``value`` parses as a UUID (the PK type of every synced row)."""
+    try:
+        uuid.UUID(str(value))
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return True
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
@@ -430,6 +442,29 @@ class SyncUploadCollectionSerializer(serializers.Serializer):  # type: ignore[ty
     created = serializers.ListField(child=serializers.DictField(), required=False)
     updated = serializers.ListField(child=serializers.DictField(), required=False)
     deleted = serializers.ListField(child=serializers.CharField(), required=False)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # #1730: every row id here reaches a ``Task.objects.filter(pk__in=...)``
+        # in ``sync.upload``. A malformed (non-UUID) id would raise a django-core
+        # ValidationError/ValueError at query build that DRF does not catch → 500.
+        # Validate the ids up front so a bad one is a clean 400. Rows are free-form
+        # DictFields, so the id lives inside the row for created/updated and is a
+        # bare string for deleted. Empty/absent ids are left to ``sync.upload``'s
+        # existing "each row requires an 'id'" guard so its message is unchanged.
+        bad: list[str] = []
+        for bucket in ("created", "updated"):
+            for row in attrs.get(bucket, []) or []:
+                row_id = row.get("id") if isinstance(row, dict) else None
+                if row_id and not _is_uuid(row_id):
+                    bad.append(str(row_id))
+        for del_id in attrs.get("deleted", []) or []:
+            if del_id and not _is_uuid(del_id):
+                bad.append(str(del_id))
+        if bad:
+            raise serializers.ValidationError(
+                {"id": f"Row ids must be valid UUIDs; got: {', '.join(bad[:5])}."}
+            )
+        return attrs
 
 
 class SyncUploadChangesSerializer(serializers.Serializer):  # type: ignore[type-arg]
