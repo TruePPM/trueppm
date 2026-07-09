@@ -802,6 +802,7 @@ export function ScheduleView() {
   // and the section stays reachable by direct URL.
   const surfaces = useSurfaceVisibility(projectId ?? undefined);
   const focus = useScheduleFocus();
+  const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const indentTask = useIndentTask(projectId ?? null);
   const outdentTask = useOutdentTask(projectId ?? null);
   const updateTaskMut = useUpdateTask();
@@ -964,7 +965,54 @@ export function ScheduleView() {
         if (!projectId) return;
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
       },
-      deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
+      deleteTask: (taskId) => {
+        // Build-mode delete (Backspace/Delete keybinding and the ⋮ menu) is
+        // destructive with no confirm, to keep the daily build path fast. The
+        // safety net the keybinding always assumed but never had is this Undo
+        // toast (#1762): capture the task's recreatable fields BEFORE the delete,
+        // and on success surface "Deleted — Undo" that recreates it. Undo is
+        // core-field only (name, duration, parent, sprint, milestone) — it mints a
+        // new row id and does NOT restore child rows, dependencies, or resource
+        // assignments; the backend delete is a soft-delete but exposes no task
+        // restore endpoint, so a faithful in-place restore isn't available here.
+        if (!projectId) {
+          deleteTaskMut.mutate(taskId);
+          return;
+        }
+        const snapshot = allTasks.find((t) => t.id === taskId);
+        deleteTaskMut.mutate(taskId, {
+          onSuccess: () => {
+            if (!snapshot) return;
+            const label = snapshot.name || 'Untitled task';
+            setScheduleActionToast({
+              message: `Deleted “${label}”`,
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  createTaskMut.mutate(
+                    {
+                      name: snapshot.name,
+                      duration: snapshot.isMilestone ? 0 : snapshot.duration,
+                      parent_id: snapshot.parentId ?? null,
+                      sprint: snapshot.sprintId ?? null,
+                      is_milestone: snapshot.isMilestone,
+                    },
+                    {
+                      onSuccess: (recreated) => {
+                        focus.focusRow(recreated.id);
+                        setScheduleActionToast({ message: 'Task restored', durationMs: 2000 });
+                      },
+                      onError: () => {
+                        setScheduleActionToast({ message: 'Couldn’t restore the task.' });
+                      },
+                    },
+                  );
+                },
+              },
+            });
+          },
+        });
+      },
       // #806: include deleteTask so the row gets the "in-flight" treatment during
       // delete and downstream guards (context-menu suppression, auto-close of an
       // already-open menu) fire. Without delete here, the row unmounts on cache
@@ -976,7 +1024,17 @@ export function ScheduleView() {
         (outdentTask.isPending && outdentTask.variables === taskId) ||
         (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
     }),
-    [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId, allTasks],
+    [
+      focus,
+      indentTask,
+      outdentTask,
+      updateTaskMut,
+      deleteTaskMut,
+      createTaskMut,
+      projectId,
+      allTasks,
+      setScheduleActionToast,
+    ],
   );
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared

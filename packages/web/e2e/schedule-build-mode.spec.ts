@@ -212,14 +212,110 @@ test.describe('Schedule build-mode — delete does not block subsequent right-cl
     await firstMenu.getByRole('menuitem', { name: /Delete/ }).click();
 
     // The deleted row eventually drops out of the list (cache invalidates,
-    // refetch returns the truncated set).
-    await expect(page.getByText('Foundation')).toHaveCount(0);
+    // refetch returns the truncated set). Scope to the grid row, not any text:
+    // the #1762 delete-undo toast also names the task ("Deleted “Foundation”").
+    await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(0);
 
     // The bug: right-click on the surviving sibling did nothing until a full
     // page refresh. With the fix the menu opens normally.
     const secondRow = page.getByText('Framing');
     await secondRow.click({ button: 'right' });
     await expect(page.getByRole('menu', { name: 'Row actions' })).toBeVisible();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// #1762 — build-mode delete is destructive with no confirm (Backspace/Delete
+// keybinding and the ⋮ menu both fire it). The safety net the keybinding always
+// assumed but never had is a "Deleted — Undo" toast that recreates the task.
+// Both entry points route through the same buildMode.deleteTask, so exercising
+// the (reliable) menu path covers the keybinding's undo net too; the keybinding
+// → deleteTask call itself is asserted at the vitest layer.
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', () => {
+  let currentTasks: Array<Record<string, unknown>>;
+  let createBodies: Array<{ name?: string }>;
+
+  test.beforeEach(async ({ page }) => {
+    await enableBuildMode(page);
+    await setupAuth(page);
+    await setupCatchAll(page);
+    currentTasks = FIXTURE_TASKS.map((t) => ({ ...t }));
+    createBodies = [];
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: currentTasks,
+    });
+
+    // DELETE bm1 → splice the shared array the GET catch-all reads by reference,
+    // so the refetch after invalidation unmounts the row (mirrors #806).
+    await page.route('**/api/v1/tasks/bm1/', (route) => {
+      if (route.request().method() === 'DELETE') {
+        const idx = currentTasks.findIndex((t) => t.id === 'bm1');
+        if (idx >= 0) currentTasks.splice(idx, 1);
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.fallback();
+    });
+
+    // POST /tasks/ → the Undo recreate. Push the restored task back into the
+    // shared list (id 'bm1-restored') so the refetch re-renders it, and record
+    // the create body so the test can assert the snapshot fields were sent.
+    await page.route('**/api/v1/tasks/', (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { name?: string };
+        createBodies.push(body);
+        const restored = { ...FIXTURE_TASKS[0], id: 'bm1-restored', name: body.name };
+        currentTasks.push(restored);
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(restored),
+        });
+      }
+      return route.fallback();
+    });
+  });
+
+  test('deleting a row surfaces a "Deleted — Undo" toast', async ({ page }) => {
+    await page.goto(BASE_URL);
+    const row = page.getByText('Foundation');
+    await expect(row).toBeVisible();
+
+    await row.click({ button: 'right' });
+    const menu = page.getByRole('menu', { name: 'Row actions' });
+    await expect(menu).toBeVisible();
+    await menu.getByRole('menuitem', { name: /Delete/ }).click();
+
+    // The grid row unmounts on refetch (scope to role=row: the toast also names
+    // the task, so a bare getByText would still match it)…
+    await expect(page.getByRole('row').filter({ hasText: 'Foundation' })).toHaveCount(0);
+    // …and the schedule action toast offers the Undo safety net. Scope to the
+    // action toast (the page has several live `role=status` regions).
+    const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
+    await expect(toast).toContainText('Foundation');
+    await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
+  });
+
+  test('clicking Undo recreates the deleted task from its snapshot', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await page.getByText('Foundation').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Delete/ })
+      .click();
+    const foundationRow = page.getByRole('row').filter({ hasText: 'Foundation' });
+    await expect(foundationRow).toHaveCount(0);
+
+    await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+
+    // Undo POSTs a create with the deleted task's name, and the row returns.
+    await expect(foundationRow).toHaveCount(1);
+    expect(createBodies).toHaveLength(1);
+    expect(createBodies[0].name).toBe('Foundation');
   });
 });
 

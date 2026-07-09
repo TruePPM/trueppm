@@ -337,10 +337,10 @@ function TaskListRowInner({
       buildMode.focus.enterCellEdit(task.id, 'name');
       return;
     }
-    // Delete (Backspace/Delete) on focused row — destructive, no confirm.
-    // Toast-undo is the safety net (see ux-design spec); v1 surfaces a toast
-    // via the mutation's onError, not on success — the destructive nature is
-    // intentional but reversible by re-creating the task.
+    // Delete (Backspace/Delete) on focused row — destructive, no confirm, to
+    // keep the build path fast. The safety net is the "Deleted — Undo" toast
+    // wired into buildMode.deleteTask (ScheduleView, #1762): Undo recreates the
+    // task from a pre-delete snapshot. The same path backs the ⋮ menu's Delete.
     if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();
       buildMode.deleteTask(task.id);
