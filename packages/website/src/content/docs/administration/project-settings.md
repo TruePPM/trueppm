@@ -102,6 +102,16 @@ cannot be escalated. When the policy was supplied externally (an Enterprise
 resolver), the page shows a banner naming who set it, and composition Blocks
 stay inert until the team toggles acknowledgement.
 
+**Phase in a sprint is a hard block, not a policy toggle.** Committing a *phase*
+— a task that rolls up one or more real child tasks — to a sprint always double-counts
+velocity, so it is rejected unconditionally regardless of this policy: the API returns
+`400` with the stable error code `phase_in_sprint_forbidden`, and the sprint picker does
+not offer a phase as a target. This block is not owner-escalatable and cannot be relaxed
+to Warn. The `phase_in_sprint` matrix row therefore has no effect on phases; the softer
+Warn/Block matrix still governs the summary, out-of-window, and recurring rules. Assign the
+tasks *inside* the phase to the sprint instead. (A leaf task decomposed into drawer
+subtasks is not a phase and remains a legitimate, warn-only `summary_in_sprint` case.)
+
 ## Not yet available
 
 One page exists in the UI but is not yet functional:

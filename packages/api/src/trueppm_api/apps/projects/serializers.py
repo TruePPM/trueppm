@@ -2625,6 +2625,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         any tripped rule is escalated to BLOCK by the project's effective policy,
         raises :class:`GuardrailBlockedError` for the first such rule instead.
 
+        A **phase** (a non-subtask task with >= 1 structural non-subtask child) is a
+        special case: assigning it to a sprint is an *unconditional* hard rejection
+        (ADR-0293, superseding the ADR-0101 warn default) — a standard DRF
+        ``serializers.ValidationError`` on ``sprint`` with the stable code
+        ``phase_in_sprint_forbidden``, raised regardless of any
+        ``ProjectGuardrailPolicy`` (not owner-escalatable, not relaxable).
+
         Summary detection uses a direct ltree child-existence query rather than the
         ``is_summary`` annotation, because ``validate`` may run on an instance loaded
         without that annotation (e.g. a bare PATCH). Recurring tasks are exempt from
@@ -2643,6 +2650,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         wbs_path = task.wbs_path
         is_phase = bool(wbs_path) and re.fullmatch(r"\d+", str(wbs_path)) is not None
         has_children = False
+        has_structural_child = False
         if wbs_path:
             # A task is a summary if any non-deleted task has a wbs_path one or more
             # levels deeper, i.e. starting with "<this path>.". Uses `__regex` (the
@@ -2650,14 +2658,41 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # ltree-specific descendant operator, so it works without extra lookup
             # registration. The path segments are digits, so escaping is a safety net.
             child_prefix = re.escape(str(wbs_path))
-            has_children = (
-                TaskModel.objects.filter(
-                    project_id=task.project_id,
-                    is_deleted=False,
-                    wbs_path__regex=rf"^{child_prefix}\.",
-                )
-                .exclude(pk=task.pk)
-                .exists()
+            descendants = TaskModel.objects.filter(
+                project_id=task.project_id,
+                is_deleted=False,
+                wbs_path__regex=rf"^{child_prefix}\.",
+            ).exclude(pk=task.pk)
+            has_children = descendants.exists()
+            # A *structural* child is a real WBS task, not a drawer-created subtask
+            # (``is_subtask=True``). This is the reconciliation the epic (#1752) asks
+            # for: `is_phase` above only recognises a WBS L1 root (``^\d+$``), but a
+            # mid-tree summary that owns real (non-subtask) children is *also* a
+            # phase-rollup. Committing either to a sprint double-counts velocity, so
+            # the hard block below keys off ``has_structural_child`` (the broad
+            # definition) rather than the narrow L1-root ``is_phase``. Sibling issue
+            # #1753 adds a first-class ``is_phase`` annotation; until it lands on main
+            # we compute the structural-child probe independently here. The
+            # leaf-with-subtasks summary case (children are ``is_subtask=True``) is
+            # deliberately excluded so it keeps its legitimate ``summary_in_sprint``
+            # warn behaviour and is never hard-blocked.
+            has_structural_child = descendants.filter(is_subtask=False).exists()
+
+        # Hard invariant (ADR-0293, supersedes the ADR-0101 warn default for phases):
+        # committing a phase — a non-subtask task with >= 1 structural (non-subtask)
+        # child — to a sprint is never legitimate, so it is an unconditional 400,
+        # NOT owner-escalatable and NOT relaxable via ProjectGuardrailPolicy. Raised
+        # as a standard DRF field error on ``sprint`` carrying the stable machine code
+        # ``phase_in_sprint_forbidden`` (agent/MCP-safe API contract, ADR-0112). The
+        # softer WARN/BLOCK guardrail path below still handles summary/window/recurring.
+        if not task.is_subtask and has_structural_child:
+            raise serializers.ValidationError(
+                {
+                    "sprint": serializers.ErrorDetail(
+                        GUARDRAIL_WARNING_COPY["phase_in_sprint"],
+                        code="phase_in_sprint_forbidden",
+                    )
+                }
             )
 
         # Effective task window: planned_start (PM commitment) falling back to the

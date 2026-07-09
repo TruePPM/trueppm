@@ -144,4 +144,41 @@ describe('SprintSection', () => {
     renderWithProviders(<SprintSection taskId="t1" projectId="p1" />);
     expect(screen.queryByRole('button', { name: /Remove from sprint/i })).not.toBeInTheDocument();
   });
+
+  it('excludes a phase from the picker and explains why (ADR-0293, #1755)', () => {
+    // A phase: a non-subtask task with a structural (non-subtask) child. The picker
+    // must not offer it as a sprint target — the API hard-blocks it unconditionally.
+    const structuralChild: Task = {
+      ...baseTask,
+      id: 't1-child',
+      wbs: '1.1',
+      name: 'Inside work',
+      parentId: 't1',
+    };
+    mockTasks.splice(0, mockTasks.length, baseTask, structuralChild);
+    mockSprints = [activeSprint, plannedSprint];
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+    // No selectable sprint control is rendered.
+    expect(screen.queryByRole('combobox', { name: /Sprint assignment/i })).not.toBeInTheDocument();
+    // Outcome-language guidance is shown instead.
+    expect(screen.getByText(/Phases group work/i)).toBeInTheDocument();
+  });
+
+  it('still offers the picker for a leaf-with-subtasks summary (not a phase)', () => {
+    // Its only child is a drawer subtask (isSubtask), a legitimately committable
+    // decomposition — it must NOT be structurally excluded like a phase.
+    const subtaskChild: Task = {
+      ...baseTask,
+      id: 't1-sub',
+      wbs: '1.1',
+      name: 'Checklist item',
+      parentId: 't1',
+      isSubtask: true,
+    };
+    mockTasks.splice(0, mockTasks.length, baseTask, subtaskChild);
+    mockSprints = [activeSprint, plannedSprint];
+    renderWithProviders(<SprintSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.getByRole('combobox', { name: /Sprint assignment/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Phases group work/i)).not.toBeInTheDocument();
+  });
 });

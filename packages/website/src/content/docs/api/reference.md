@@ -246,6 +246,8 @@ implementation is not yet available.
 
 CPM fields (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `is_critical`) are read-only — set by the auto-scheduler.
 
+Assigning a **phase** (a task that rolls up one or more real child tasks) to a sprint is rejected unconditionally with `400` and a standard field error on `sprint` carrying the stable code `phase_in_sprint_forbidden`. This is a hard invariant — it is *not* affected by the project's guardrail policy and cannot be escalated or relaxed by an Owner (assigning a phase to a sprint double-counts velocity). Assign the child tasks inside the phase instead. Other sprint-composition guardrails (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) remain Warn-by-default and are configurable via the guardrail policy.
+
 ### Task attachments
 
 Each attachment is **either** an uploaded file **or** an external URL — never both.

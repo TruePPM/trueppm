@@ -11,6 +11,7 @@ import {
 } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
+import { isPhaseTask } from '../isPhaseTask';
 import { GuardrailNotice } from './GuardrailNotice';
 import { GuardrailBlock } from './GuardrailBlock';
 
@@ -49,6 +50,26 @@ export function SprintSection({ taskId, projectId, userRole, canEdit }: DrawerSe
   const [block, setBlock] = useState<GuardrailBlockedError | null>(null);
 
   if (!task) return null;
+
+  // Phase hard-exclusion (ADR-0293, #1755): a phase (a non-subtask task with a
+  // structural non-subtask child) can never be committed to a sprint — the API
+  // rejects it unconditionally with `phase_in_sprint_forbidden`. Rather than let
+  // the user pick a sprint and bounce off a 400, exclude it structurally: show the
+  // outcome-language guidance instead of the picker. This is a precise, component-
+  // level guard layered under the coarser `!isSummary` canRender gate in
+  // sections/index.ts (isSummary also hides a leaf-with-subtasks summary, which is
+  // a legitimate `summary_in_sprint` warn case, not a phase).
+  const phase = isPhaseTask(task, tasks ?? []);
+  if (phase) {
+    return (
+      <div>
+        <div className={LABEL_CLASS}>{itl.singular}</div>
+        <p className="text-sm italic text-neutral-text-secondary">
+          Phases group work; assign the tasks inside it to the {itl.lower} instead.
+        </p>
+      </div>
+    );
+  }
 
   const assignable = sprints.filter(
     (s) => s.state === 'ACTIVE' || s.state === 'PLANNED',
