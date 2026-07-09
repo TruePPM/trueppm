@@ -209,6 +209,34 @@ test.describe('Grid view responsive layout (#1701)', () => {
     const overflow = await grid.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(overflow).toBeLessThanOrEqual(1);
   });
+
+  test('toolbar reflows above the list without overlapping it on a narrow phone (#1708)', async ({ page }) => {
+    // 320px is the narrowest supported width — the toolbar wraps to multiple
+    // rows here. The pre-fix bug clamped the wrapping toolbar to a fixed `h-9`,
+    // so the wrapped rows overflowed the box and rendered on top of the first
+    // task row (the "+ Task"/"CSV" controls overlapping the list).
+    await page.setViewportSize({ width: 320, height: 800 });
+    await setup(page);
+    await page.goto(`${BASE_URL}/grid`);
+
+    const tree = page.getByRole('treegrid', { name: 'Outline task tree' });
+    await expect(tree).toBeVisible({ timeout: 10_000 });
+
+    // The bottom-most toolbar control (+ Task) must sit fully above the first
+    // task row — no vertical overlap.
+    const addTaskBottom = await page
+      .getByRole('button', { name: '+ Task' })
+      .evaluate((el) => el.getBoundingClientRect().bottom);
+    const firstRowTop = await tree
+      .getByRole('row')
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(firstRowTop).toBeGreaterThanOrEqual(addTaskBottom - 1);
+
+    // Search takes its own full-width row on mobile — the placeholder is legible,
+    // not squeezed to an icon-only sliver sharing the mode-toggle row.
+    await expect(page.getByPlaceholder('Search tasks…')).toBeVisible();
+  });
 });
 
 // Data continuity across modes (acceptance criterion in #334) is covered by

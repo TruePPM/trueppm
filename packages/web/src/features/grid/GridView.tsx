@@ -535,7 +535,11 @@ function Toolbar({
   const supportsBulkSelect = mode !== 'outline';
 
   return (
-    <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-border flex-shrink-0 flex-wrap md:flex-nowrap">
+    // Mobile (< md): controls wrap to 2 lines, so the container must grow to
+    // contain them (`min-h-9` + `py-1`) — a fixed `h-9` clamps the height while
+    // the wrapped rows overflow visibly and land on top of the task list below
+    // (the #1708 overlap). Desktop (md:+) keeps the single fixed-height nowrap row.
+    <div className="flex items-center gap-2 px-3 py-1 md:py-0 min-h-9 md:h-9 border-b border-neutral-border flex-shrink-0 flex-wrap md:flex-nowrap">
       <ModeToggle mode={mode} onChange={onModeChange} />
 
       {mode === 'grouped' && (
@@ -558,10 +562,12 @@ function Toolbar({
         </>
       )}
 
-      <span className="border-r border-neutral-border h-5 mx-1" aria-hidden="true" />
+      <span className="hidden md:block border-r border-neutral-border h-5 mx-1" aria-hidden="true" />
 
-      {/* Search */}
-      <div className="relative flex items-center">
+      {/* Search — takes its own full-width row on mobile (`w-full` forces a wrap
+          break); a fixed `w-52` sharing the mode-toggle row squeezed it to an
+          icon-only sliver on a phone. Reverts to the fixed inline width at md:+. */}
+      <div className="relative flex items-center w-full md:w-auto md:flex-none">
         <svg
           aria-hidden="true"
           className="absolute left-2 w-3 h-3 text-neutral-text-secondary"
@@ -583,7 +589,7 @@ function Toolbar({
           placeholder="Search tasks…"
           aria-label="Search tasks"
           className="
-            pl-7 pr-2 h-7 w-52 text-xs rounded border border-neutral-border
+            pl-7 pr-2 h-7 w-full md:w-52 text-xs rounded border border-neutral-border
             bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
           "
@@ -640,7 +646,9 @@ function Toolbar({
         {filteredCount} / {totalCount} shown
       </span>
 
-      <div className="flex-1" />
+      {/* Right-align spacer is desktop-only; on mobile it would claim a wrapped
+          line and force the actions onto a third row. */}
+      <div className="hidden md:block flex-1" />
 
       <button
         type="button"
