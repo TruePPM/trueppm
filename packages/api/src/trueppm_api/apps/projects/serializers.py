@@ -385,6 +385,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # (ADR-0041): the data is always computed; these toggle chrome, not access.
     effective_surface_visibility = serializers.SerializerMethodField()
     inherited_surface_visibility = serializers.SerializerMethodField()
+    # Sprint/story-point UI gate (ADR-0037 amendment), derived — not stored (#1766).
+    # A project has two "is this agile" signals: the ``methodology`` preset and this
+    # boolean. When the latter was a stored column set once at create time it drifted
+    # from ``methodology`` on every later Settings change (create WATERFALL → switch to
+    # AGILE and the board never surfaced sprint/points fields, because the stale column
+    # still read False). ``effective_methodology`` is already policy-driven
+    # computed-on-read (ADR-0107/0108 — a workspace INHERIT policy can flip it with no
+    # write to this project), so no stored boolean can track it faithfully. Resolve it
+    # the same way the map does: agile features are on for anything that is not pure
+    # WATERFALL. Read-only; clients (web/mobile/MCP) read this single resolved value.
+    agile_features = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -841,6 +852,19 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         from .methodology import resolve_effective_methodology
 
         return resolve_effective_methodology(obj, workspace=self._iteration_workspace())
+
+    def get_agile_features(self, obj: Project) -> bool:
+        """Whether sprint/story-point chrome is surfaced — derived from methodology.
+
+        On (True) for every effective methodology except pure WATERFALL, so the flag
+        follows the current ``effective_methodology`` instead of a stored column that
+        drifts when the methodology is later changed (#1766).
+        """
+        from .methodology import resolve_effective_methodology
+        from .models import Methodology
+
+        effective = resolve_effective_methodology(obj, workspace=self._iteration_workspace())
+        return effective != Methodology.WATERFALL
 
     def get_inherited_methodology(self, obj: Project) -> str:
         from .methodology import resolve_inherited_methodology

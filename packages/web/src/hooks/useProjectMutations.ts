@@ -34,8 +34,9 @@ export interface CreateProjectPayload {
   description?: string;
   /** Project planning methodology (ADR-0041). Server defaults to HYBRID when omitted. */
   methodology?: Methodology;
-  /** Sprint/story-points UI gate (ADR-0037). True for AGILE and HYBRID projects. */
-  agile_features?: boolean;
+  // `agile_features` is intentionally not settable: it is derived server-side from
+  // effective_methodology (#1766), so it is a read-only field on the project detail,
+  // never part of the create payload.
   /** Optional Program assignment at creation time (ADR-0070). Requires ADMIN on the target program. */
   program?: string;
   /**
