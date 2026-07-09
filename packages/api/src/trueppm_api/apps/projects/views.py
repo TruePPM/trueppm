@@ -3497,6 +3497,7 @@ class TaskViewSet(
 
         with transaction.atomic():
             if not serializer.validated_data.get("wbs_path") and project is not None:
+                from rest_framework.exceptions import ErrorDetail
                 from rest_framework.exceptions import ValidationError as DRFValidationError
 
                 parent_id = self.request.data.get("parent_id")
@@ -3520,6 +3521,27 @@ class TaskViewSet(
                             {"parent_id": "Cannot create a child of a subtask."}
                         )
                     children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
+                    # Phase guard (#1750): a phase — a summary task that groups real
+                    # WBS work — must not accept drawer-subtasks. Drawer-subtasks and
+                    # WBS-phase children are both WBS children, so both make the parent
+                    # ``is_summary``; the discriminator is whether the parent already has
+                    # a *structural* (non-subtask) child. If it does, it is a phase, and a
+                    # subtask would conflate the two decomposition models (the subtask
+                    # surfaces as an ordinary task in the WBS). A leaf — no children, or
+                    # only ``is_subtask`` children — stays decomposable. Reuses the
+                    # already-fetched, locked sibling list, so it costs no extra query.
+                    if is_subtask and any(not c.is_subtask for c in children):
+                        raise DRFValidationError(
+                            {
+                                "parent_id": [
+                                    ErrorDetail(
+                                        "Phases group work — add tasks inside the phase, "
+                                        "not subtasks.",
+                                        code="subtask_on_phase",
+                                    )
+                                ]
+                            }
+                        )
                     wbs_path = _build_wbs_path(str(parent.wbs_path), len(children) + 1)
                 else:
                     root_count = (

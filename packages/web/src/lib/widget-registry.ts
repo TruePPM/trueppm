@@ -208,6 +208,16 @@ export interface DrawerSectionContext {
   user: unknown;
   /** Current task object the drawer is rendering. */
   task: unknown;
+  /**
+   * True when the drawer's task has at least one *structural* (non-subtask) WBS
+   * child — i.e. it is a phase/summary that groups real work (#1750). Both a
+   * phase and a leaf-with-drawer-subtasks are `is_summary`, so the Subtasks
+   * section gates on this instead of `isSummary` (which would wrongly hide the
+   * tab after the first subtask). Optional + backward-compatible: sections that
+   * don't read it are unaffected. The drawer derives it from the loaded schedule
+   * cache, so it costs no extra fetch.
+   */
+  hasStructuralChildren?: boolean;
 }
 
 /**

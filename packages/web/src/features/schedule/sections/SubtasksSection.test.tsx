@@ -65,6 +65,15 @@ const subtask2: Task = {
   progress: 100,
 };
 
+// A real (non-subtask) WBS child — its presence makes `baseTask` a phase (#1750).
+const structuralChild: Task = {
+  ...baseTask,
+  id: 'child-1',
+  name: 'Structural child',
+  parentId: 'parent-1',
+  isSubtask: false,
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -153,5 +162,22 @@ describe('SubtasksSection', () => {
     renderWithProviders(<SubtasksSection taskId="sub-only" projectId="p1" />);
     expect(screen.getByText(/cannot be nested/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add subtask/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the phase guard (no add form) when the task has structural children', () => {
+    // A parent with a real (non-subtask) child is a phase — #1750.
+    mockTasks.splice(0, mockTasks.length, baseTask, structuralChild);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
+    expect(screen.getByText(/Phases group work/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add subtask/i })).not.toBeInTheDocument();
+  });
+
+  it('still allows adding subtasks to a leaf that already has subtasks', () => {
+    // A leaf whose only children are subtasks is is_summary but NOT a phase —
+    // the guard must not fire, so more subtasks can be added.
+    mockTasks.splice(0, mockTasks.length, baseTask, subtask1, subtask2);
+    renderWithProviders(<SubtasksSection taskId="parent-1" projectId="p1" canEdit />);
+    expect(screen.queryByText(/Phases group work/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add subtask/i })).toBeInTheDocument();
   });
 });

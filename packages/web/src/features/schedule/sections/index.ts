@@ -18,6 +18,7 @@
  */
 
 import { registry } from '@/lib/widget-registry';
+import type { DrawerSectionContext } from '@/lib/widget-registry';
 import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
 import { BlockerSection } from './BlockerSection';
@@ -72,7 +73,14 @@ export function registerOssDrawerSections(): void {
     priority: 300,
     tab: 'subtasks',
     // Milestones have no subtasks — duration is 0 and breaking them down is meaningless.
-    canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
+    // Phases (summary tasks with real structural children, #1750) don't get subtasks
+    // either: a subtask on a phase conflates the two decomposition models. Gate on
+    // hasStructuralChildren, NOT isSummary — a leaf that already has drawer-subtasks
+    // is also isSummary, and must keep its tab to add more.
+    canRender: (ctx) => {
+      const { task, hasStructuralChildren } = ctx as DrawerSectionContext & { task: Task };
+      return !task.isMilestone && !hasStructuralChildren;
+    },
   });
 
   registry.register('task_detail.section', {
