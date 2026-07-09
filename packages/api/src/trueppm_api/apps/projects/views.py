@@ -12088,6 +12088,9 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 name=write_serializer.validated_data["name"],
                 status_map=write_serializer.validated_data.get("status_map", {}),
                 scopes=token_scopes,
+                # An mcp:read token is required to expire (serializer-validated);
+                # legacy:full sync tokens leave this null and never expire.
+                expires_at=write_serializer.validated_data.get("expires_at"),
                 token_prefix=token_prefix,
                 token_hash=sha256_hex(raw_token),
                 created_by=request.user if request.user.is_authenticated else None,
@@ -12303,8 +12306,10 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             token = ProjectApiToken.objects.create(
                 owner=caller,
                 name=write_serializer.validated_data["name"],
-                # v1 PATs are full-access — the scope picker is deferred (ADR-0214).
-                scopes=[SCOPE_LEGACY_FULL],
+                # PATs default to full-access (acts as you); mcp:read is accepted so
+                # a personal token can drive the owner-scoped MCP read surface
+                # (#1712/#1713). An mcp:read PAT must expire (serializer-validated).
+                scopes=write_serializer.validated_data.get("scopes", [SCOPE_LEGACY_FULL]),
                 expires_at=write_serializer.validated_data.get("expires_at"),
                 token_prefix=token_prefix,
                 token_hash=sha256_hex(raw_token),

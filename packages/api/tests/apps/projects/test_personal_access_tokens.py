@@ -109,6 +109,37 @@ def test_create_accepts_future_expiry_and_rejects_past(client: APIClient) -> Non
 
 
 @pytest.mark.django_db
+def test_create_mcp_read_pat_requires_expiry(client: APIClient) -> None:
+    # #1713: a personal mcp:read token (the credential the MCP read server uses)
+    # must expire. Without expires_at the mint is a 400 at validation time.
+    resp = client.post(_URL, {"name": "MCP", "scopes": ["mcp:read"]}, format="json")
+    assert resp.status_code == 400, resp.data
+    assert "expires_at" in resp.data
+
+
+@pytest.mark.django_db
+def test_create_mcp_read_pat_with_expiry(client: APIClient, user: object) -> None:
+    future = (timezone.now() + timedelta(days=30)).isoformat()
+    resp = client.post(
+        _URL, {"name": "MCP", "scopes": ["mcp:read"], "expires_at": future}, format="json"
+    )
+    assert resp.status_code == 201, resp.data
+    assert resp.data["scopes"] == ["mcp:read"]
+    token = ApiToken.objects.get(pk=resp.data["id"])
+    assert token.scopes == ["mcp:read"]
+    assert token.owner_id == user.pk
+    assert token.expires_at is not None
+
+
+@pytest.mark.django_db
+def test_create_legacy_full_pat_still_needs_no_expiry(client: APIClient) -> None:
+    # Backward-safe: a default (legacy:full) PAT keeps the optional-expiry behavior.
+    resp = client.post(_URL, {"name": "Power BI", "scopes": ["legacy:full"]}, format="json")
+    assert resp.status_code == 201, resp.data
+    assert ApiToken.objects.get(pk=resp.data["id"]).expires_at is None
+
+
+@pytest.mark.django_db
 def test_create_requires_name(client: APIClient) -> None:
     resp = client.post(_URL, {"name": "   "}, format="json")
     assert resp.status_code == 400

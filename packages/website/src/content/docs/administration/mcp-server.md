@@ -46,17 +46,19 @@ placement:
 
 ## Prerequisites: mint a scoped token
 
-The server authenticates with a **project API token** (`tppm_<64-hex>`), the same
-token type used for [inbound task sync](/features/inbound-task-sync/). Mint one
-from a project's or program's settings; the raw token is shown **once**, so copy
-it immediately. Only the SHA-256 digest is stored server-side.
+The server authenticates with a **personal access token** (`tppm_<64-hex>`)
+carrying the **`mcp:read` scope**. Mint one from **Personal Settings → API
+tokens**; the raw token is shown **once**, so copy it immediately. Only the
+SHA-256 digest is stored server-side.
 
-Give the token the **`mcp:read` scope** when you mint it. That scope grants
-safe-method (`GET`) access to the viewsets the MCP wraps and is **rejected at
-every write path** — so even though the API also accepts an older unrestricted
-`legacy:full` token, an `mcp:read` token is the correct least-privilege
-credential for this server. A token is bound to a single project or a single
-program; it can read only what its role on that scope permits.
+The read surface accepts **only** owner-scoped (personal) tokens — a project- or
+program-scoped token is **rejected** here, so it can never be turned into a
+credential that reads beyond the single scope it was minted for. Choose the
+**`mcp:read` scope** and **set an expiry** (required for `mcp:read`). That scope
+grants safe-method (`GET`) access to the viewsets the MCP wraps and is **rejected
+at every write path**, and the token acts as *you*: it reads only what your role
+permits, cannot write, and cannot outlive its expiry. The unrestricted
+`legacy:full` token is for inbound sync and is refused on this surface.
 
 ## Environment configuration
 
@@ -66,7 +68,7 @@ file on disk, which keeps it spawnable as a subprocess with no state to manage.
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com`. The `/api/v1` suffix is appended automatically if you omit it (and is idempotent if you include it). |
-| `TRUEPPM_API_TOKEN` | yes | A project API token (`tppm_<64-hex>`) with the `mcp:read` scope. |
+| `TRUEPPM_API_TOKEN` | yes | A personal access token (`tppm_<64-hex>`) with the `mcp:read` scope and an expiry. |
 
 If either variable is missing or blank, the process exits immediately with exit
 code `2` and an actionable message on stderr — it names the absent variable and
@@ -163,10 +165,13 @@ may follow in a later release.
   tools and issues only `GET` requests, and an `mcp:read` token is rejected at
   every write path at the API layer. The two guarantees are independent — even a
   bug that added a write call would be refused by the token scope.
-- **Least-privilege tokens.** Scope each token to the single project or program
-  the assistant needs, with `mcp:read`. Revoke it from the same settings screen
-  the moment it is no longer needed; revocation takes effect immediately because
-  every request re-checks the token.
+- **Owner-scoped, least-privilege, expiring tokens.** The read surface accepts
+  only a personal (owner-scoped) `mcp:read` token, so a leaked token reads exactly
+  what its owner can read — never a whole project or program membership — and only
+  until its required expiry. Project/program tokens are refused here entirely.
+  Revoke a token from **Personal Settings → API tokens** the moment it is no longer
+  needed; revocation takes effect immediately because every request re-checks the
+  token.
 - **No secret in logs.** The token is never logged, never echoed in an error,
   and never included in a stack trace or a `repr`. Configuration errors name the
   missing variable, not its value.

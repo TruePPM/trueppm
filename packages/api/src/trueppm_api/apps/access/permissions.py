@@ -1160,6 +1160,46 @@ class TokenReadOnlyMethods(BasePermission):
         return request.method in SAFE_METHODS
 
 
+class TokenIsOwnerScoped(BasePermission):
+    """Confine the MCP read surface to owner-scoped (personal) API tokens (#1712).
+
+    Confused-deputy / blast-radius guard. A project- or program-scoped token is
+    confined to its bound scope on the *write* path by ``IsTokenForProject`` (the
+    URL project pk is checked against the token's project/program). That check has
+    no analogue on the MCP *read* surface: the collection tools (``list_projects``,
+    ``list_programs``, ``list_tasks``, ``/me/work/``) carry no project pk, so there
+    is nothing to check the token against. Because a project/program token
+    authenticates *as its human minter*, those tools would then return every
+    project or program the minter can see — not just the one the token is bound to.
+    A token minted to read a single project becomes a credential that reads the
+    minter's entire membership: exactly the over-broad, hard-to-reason-about blast
+    radius a scoped token is meant to prevent.
+
+    The simplest correct policy (per #1712) is to accept ONLY owner-scoped
+    (personal) tokens here and reject project/program tokens with a 401. A personal
+    token *is* its owner, so DRF's own object-level RBAC already confines its reads
+    to exactly what that user may see — there is no over-return to defend against.
+    Project/program tokens keep their designed write/sync surface unchanged.
+
+    Rejects with ``AuthenticationFailed`` (401, not 403) to match the rest of the
+    token surface — a caller cannot distinguish "wrong token type" from "no such
+    resource", preventing enumeration. Non-token callers (human JWT/Session) pass
+    unconditionally; their access is governed by the view's RBAC classes.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ApiToken):
+            return True  # Non-token auth path; RBAC classes handle it.
+        if token.owner_id is not None:
+            return True
+        raise AuthenticationFailed("Token is not authorized for the MCP read surface.")
+
+
 if TYPE_CHECKING:
     _McpViewBase = APIView
 else:
@@ -1195,16 +1235,24 @@ class McpReadableViewMixin(_McpViewBase):
     def mcp_token_guards(self) -> list[BasePermission]:
         """Read-only MCP token guards to append to a view's RBAC permission list.
 
-        Both permissions pass unconditionally for human JWT/Session auth, so they
-        are safe to append to *every* action's list. For an API-token caller they
-        confine it to safe methods (``TokenReadOnlyMethods``) and require the
-        ``mcp:read`` scope (``TokenHasScope``). ViewSets that override
+        All three permissions pass unconditionally for human JWT/Session auth, so
+        they are safe to append to *every* action's list. For an API-token caller
+        they confine it to: safe methods (``TokenReadOnlyMethods``), the
+        ``mcp:read`` scope (``TokenHasScope``), and — crucially — an owner-scoped
+        (personal) token (``TokenIsOwnerScoped``). The owner-scoped guard closes
+        the confused-deputy hole (#1712): a project/program token has no pk to
+        check against on the collection tools, so without it a scoped token would
+        read the minter's entire membership. ViewSets that override
         ``get_permissions`` with per-action lists call this from their wrapper so
         no branch — including write branches — can leak a token past the guards.
         """
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
-        return [TokenReadOnlyMethods(), TokenHasScope(SCOPE_MCP_READ)()]
+        return [
+            TokenReadOnlyMethods(),
+            TokenHasScope(SCOPE_MCP_READ)(),
+            TokenIsOwnerScoped(),
+        ]
 
     def get_permissions(self) -> list[BasePermission]:
         # DRF instantiates each permission_class, so these are BasePermission

@@ -58,20 +58,21 @@ flowchart LR
 ## Quickstart
 
 The server is configured entirely from the environment — no config file on disk.
-It authenticates with a **project API token** (`tppm_<64-hex>`), the same token
-used for [inbound integrations](/features/inbound-task-sync/), scoped read-only
-for this purpose.
+It authenticates with a **personal access token** (`tppm_<64-hex>`) carrying the
+**`mcp:read` scope**. The read surface accepts only owner-scoped (personal)
+tokens — a project- or program-scoped token is rejected here — so the credential
+reads only what your role permits and nothing beyond it.
 
-The fastest way to connect: **Project or Program → Settings → Integrations →
-API Tokens → Create token**, then choose the **"Read-only for AI assistants"**
-scope (`mcp:read`). The reveal dialog shows the raw token once, plus a
-ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
-straight into your client and skip the manual assembly below.
+The fastest way to connect: **Personal Settings → API tokens → Create token**,
+then choose the **"Read-only for AI assistants"** scope (`mcp:read`) and **set an
+expiry** (required for `mcp:read`). The reveal dialog shows the raw token once,
+plus a ready-to-paste `claude_desktop_config.json` snippet built from it — copy
+that straight into your client and skip the manual assembly below.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TRUEPPM_API_URL` | yes | Base URL of your instance, e.g. `https://ppm.example.com` (the `/api/v1` suffix is added automatically if omitted) |
-| `TRUEPPM_API_TOKEN` | yes | A project API token (`tppm_<64-hex>`) |
+| `TRUEPPM_API_TOKEN` | yes | A personal access token (`tppm_<64-hex>`) with the `mcp:read` scope and an expiry |
 
 Install from PyPI and run it as a local subprocess (the primary, stdio
 transport):
