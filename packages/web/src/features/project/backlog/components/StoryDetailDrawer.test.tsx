@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Task } from '@/types';
 import { StoryDetailDrawer } from './StoryDetailDrawer';
@@ -89,6 +89,14 @@ describe('StoryDetailDrawer (#1043)', () => {
   it('shows the deferred Save bar once a scalar field changes, and batches the PATCH', async () => {
     const user = userEvent.setup();
     renderDrawer(makeStory());
+    // The drawer's mount effect focuses the Close button ~50ms after render
+    // (StoryDetailDrawer.tsx). On a loaded CI shard userEvent's inter-event
+    // scheduling can stretch past that, so the timer fires mid-type and steals
+    // focus before the keystroke lands — the flake behind the #1751 web:test 3/6
+    // failures. Wait for that focus to settle so it can't race the type.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Close story detail' })).toHaveFocus(),
+    );
     await user.type(screen.getByLabelText('Story title'), '!');
     const save = await screen.findByRole('button', { name: 'Save' });
     await user.click(save);
