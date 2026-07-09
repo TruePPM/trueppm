@@ -78,8 +78,12 @@ export function QuickLogTime() {
   // tolerate an unexpected `/me/work/` payload (API skew, partial outage) and
   // render "no tasks" rather than tear down the whole app via the root error
   // boundary. `p?.results ?? []` guards a page that isn't the paginated shape.
+  // Exclude phases (issue #1754, ADR-0293) BEFORE the query filter, so a
+  // phase is never selectable, roving-focusable, or the default selection —
+  // a phase can't be assigned in the first place (`assignee_on_phase`, #1753),
+  // so this is defense-in-depth for the interim / a legacy payload.
   const tasks = useMemo(
-    () => (data?.pages ?? []).flatMap((p) => p?.results ?? []),
+    () => (data?.pages ?? []).flatMap((p) => p?.results ?? []).filter((t) => !t.is_phase),
     [data],
   );
   const filtered = useMemo(() => {

@@ -7,6 +7,7 @@ import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
 import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
+import { isPhaseTask } from '@/lib/isPhaseTask';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
 import {
@@ -248,8 +249,13 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
         </div>
       </div>
 
-      {/* People / assignees */}
-      <ResourceAssignmentSection taskId={taskId} projectId={projectId} canEdit={editable} />
+      {/* People / assignees — hidden (not disabled) on a phase, mirroring the
+          backend's `assignee_on_phase` rejection (ADR-0293, #1753). A
+          phase-in-waiting (no structural child yet) is not a phase yet, so it
+          still shows the control — matches backend semantics exactly. */}
+      {!isPhaseTask(task, tasks ?? []) && (
+        <ResourceAssignmentSection taskId={taskId} projectId={projectId} canEdit={editable} />
+      )}
     </div>
   );
 }

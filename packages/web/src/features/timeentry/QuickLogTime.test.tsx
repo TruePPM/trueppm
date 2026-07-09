@@ -167,6 +167,18 @@ describe('QuickLogTime', () => {
     expect(screen.getByRole('button', { name: /^Log \d/ })).toBeDisabled();
   });
 
+  it('excludes a phase from the picker entirely (issue #1754) — never selectable, roving-focusable, or default-selected', () => {
+    setTasks([
+      makeTask({ id: 'phase-a', short_id: 'RIV-0', name: 'Design Phase', is_phase: true }),
+      ...TASKS,
+    ]);
+    openPopover();
+    // Not rendered as a radio option at all — not merely unselected.
+    expect(screen.queryByRole('radio', { name: /Design Phase/ })).toBeNull();
+    // Default selection still lands on the first non-phase task.
+    expect(screen.getByRole('radio', { name: /RIV-1 Foundation pour/ })).toBeChecked();
+  });
+
   it('tolerates a non-paginated /me/work/ page without tearing down the app', () => {
     // Global TopBar widget: a page that is not the `{ results }` shape (API skew,
     // partial outage, or a bare-array test catch-all) must degrade to the empty

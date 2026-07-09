@@ -33,6 +33,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { AssigneesEditor, type AssigneeWorkingRow } from './AssigneesEditor';
 import { PredecessorsEditor, type PredecessorWorkingRow } from './PredecessorsEditor';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { isPhaseTask } from '@/lib/isPhaseTask';
 
 export type TaskFormMode = 'create' | 'edit';
 
@@ -263,6 +264,10 @@ export function TaskFormModal({
 
   // Dependent queries
   const { tasks: allTasks } = useScheduleTasks(projectId);
+  // A phase never gets an assignee, mirroring the backend's `assignee_on_phase`
+  // rejection (ADR-0293, #1753). Only meaningful in edit mode — a freshly
+  // create-mode task has no children yet, so it can never already be a phase.
+  const isEditingPhase = isEdit && task != null && isPhaseTask(task, allTasks ?? []);
   const { sprints } = useSprints(projectId);
   const { data: projectDetail } = useProject(projectId);
   const itl = useIterationLabel(projectId);
@@ -901,42 +906,47 @@ export function TaskFormModal({
           );
         })()}
 
-        {/* Assignees */}
-        <div role="group" aria-labelledby="task-assignees-label">
-          <div
-            id="task-assignees-label"
-            className="block text-xs font-medium text-neutral-text-secondary mb-1"
-          >
-            Assignees
+        {/* Assignees — hidden (not disabled) on a phase, mirroring the
+            backend's `assignee_on_phase` rejection (ADR-0293, #1753). A
+            phase-in-waiting (no structural child yet) is not a phase yet, so
+            it still shows the control — matches backend semantics exactly. */}
+        {!isEditingPhase && (
+          <div role="group" aria-labelledby="task-assignees-label">
+            <div
+              id="task-assignees-label"
+              className="block text-xs font-medium text-neutral-text-secondary mb-1"
+            >
+              Assignees
+            </div>
+            <AssigneesEditor
+              rows={form.assignees}
+              pool={resourcePool ?? []}
+              disabled={isReadOnly}
+              onAdd={(r) =>
+                setForm((s) => ({
+                  ...s,
+                  assignees: [
+                    ...s.assignees,
+                    { resourceId: r.id, resourceName: r.name, units: 1.0 },
+                  ],
+                }))
+              }
+              onUpdateUnits={(index, units) =>
+                setForm((s) => {
+                  const next = [...s.assignees];
+                  next[index] = { ...next[index], units };
+                  return { ...s, assignees: next };
+                })
+              }
+              onRemove={(index) =>
+                setForm((s) => ({
+                  ...s,
+                  assignees: s.assignees.filter((_, i) => i !== index),
+                }))
+              }
+            />
           </div>
-          <AssigneesEditor
-            rows={form.assignees}
-            pool={resourcePool ?? []}
-            disabled={isReadOnly}
-            onAdd={(r) =>
-              setForm((s) => ({
-                ...s,
-                assignees: [
-                  ...s.assignees,
-                  { resourceId: r.id, resourceName: r.name, units: 1.0 },
-                ],
-              }))
-            }
-            onUpdateUnits={(index, units) =>
-              setForm((s) => {
-                const next = [...s.assignees];
-                next[index] = { ...next[index], units };
-                return { ...s, assignees: next };
-              })
-            }
-            onRemove={(index) =>
-              setForm((s) => ({
-                ...s,
-                assignees: s.assignees.filter((_, i) => i !== index),
-              }))
-            }
-          />
-        </div>
+        )}
 
         {/* Predecessors */}
         <div role="group" aria-labelledby="task-predecessors-label">

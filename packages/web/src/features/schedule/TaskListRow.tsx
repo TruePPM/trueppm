@@ -102,6 +102,24 @@ interface Props {
   siblingNames?: string[];
   /** Source sprint snapshot used by the Undo affordance. Null when not in a sprint. */
   sourceSprint?: { id: string; name: string; state: string } | null;
+  /**
+   * True when this row was created via "+ Phase" (issue #1754) and has no
+   * structural child yet — renders the ghost "Add first task to this phase"
+   * affordance in place of the assignee chips. Never true once the row has a
+   * structural child (it is then a real phase, per `isPhaseTask`).
+   */
+  phaseInWaiting?: boolean;
+  /** Creates the phase's first structural child (issue #1754). */
+  onAddPhaseFirstChild?: (taskId: string) => void;
+  /**
+   * True for exactly one row (the one just created via "+ Phase" or its
+   * ghost "add first task" affordance, issue #1754) when Build Mode is not
+   * active — drops the row into the local inline rename input on mount, the
+   * same "double-click to rename" path a user would reach by hand.
+   */
+  startInlineEditOnMount?: boolean;
+  /** Fired once this row has started editing from `startInlineEditOnMount`. */
+  onAutoEditConsumed?: () => void;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -175,6 +193,10 @@ function TaskListRowInner({
   onAddDependencyRequest,
   siblingNames,
   sourceSprint,
+  phaseInWaiting = false,
+  onAddPhaseFirstChild,
+  startInlineEditOnMount = false,
+  onAutoEditConsumed,
 }: Props) {
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
@@ -202,6 +224,22 @@ function TaskListRowInner({
     setEditValue(task.name);
     setIsEditing(true);
   }, [task.name]);
+
+  // "+ Phase" auto-edit (issue #1754): a freshly created phase (or its first
+  // structural child) drops straight into the same inline rename input a
+  // double-click reaches — but only outside Build Mode (ScheduleView only
+  // sets `startInlineEditOnMount` when Build Mode is off; when it's on,
+  // `focus.enterCellEdit` drives the richer EditableCell path instead). The
+  // ref guards against re-firing if this row re-renders with the prop still
+  // true before the parent clears it.
+  const autoEditFiredRef = useRef(false);
+  useEffect(() => {
+    if (startInlineEditOnMount && !autoEditFiredRef.current) {
+      autoEditFiredRef.current = true;
+      startEdit();
+      onAutoEditConsumed?.();
+    }
+  }, [startInlineEditOnMount, startEdit, onAutoEditConsumed]);
 
   // Focus and select when edit mode activates (avoids jsx-a11y/no-autofocus)
   const prevEditingRef = useRef(false);
@@ -963,6 +1001,29 @@ function TaskListRowInner({
               </span>
             ) : (
               !task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />
+            )}
+            {/* Phase-in-waiting ghost affordance (issue #1754): a "+ Phase" row
+                has no structural child yet, so `isPhaseTask` is still false.
+                One tap nests a structural child under it — the row becomes a
+                real phase and this hint retires (ScheduleView stops passing
+                phaseInWaiting once isPhaseTask flips true). */}
+            {phaseInWaiting && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddPhaseFirstChild?.(task.id);
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
+                  px-1.5 py-0.5 text-xs text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                title="This phase has no tasks yet"
+                aria-label={`Add first task to ${task.name}`}
+                data-testid="phase-in-waiting-hint"
+              >
+                <span aria-hidden="true">⊕</span>
+                <span>Add first task to this phase</span>
+              </button>
             )}
           </div>
         )}

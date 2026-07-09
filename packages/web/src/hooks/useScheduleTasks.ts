@@ -39,6 +39,10 @@ export interface ApiTask {
   status: TaskStatus;
   is_milestone: boolean;
   is_summary: boolean;
+  /** Server-computed phase verdict (ADR-0293, #1753). Absent on a server that
+   *  hasn't shipped #1753 yet — `mapTask` maps a missing key to `undefined`,
+   *  and callers fall back to the client-side derivation in `isPhaseTask()`. */
+  is_phase?: boolean;
   parent_id: string | null;
   // Server-derived edit capabilities (ADR-0133, 1144). Optional: absent on
   // pre-field WebSocket deltas and on nested serializations without a request.
@@ -261,6 +265,7 @@ export function mapTask(t: ApiTask): Task {
     isComplete: t.percent_complete >= 100,
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
+    isPhase: t.is_phase,
     status: t.status,
     // Server-derived edit capabilities (ADR-0133). Preserve `undefined` when the
     // payload omits them (pre-field synced rows) so the drawer's

@@ -564,3 +564,47 @@ describe('TaskListRow', () => {
     });
   });
 });
+
+describe('TaskListRow — phase-in-waiting ghost affordance (issue #1754)', () => {
+  it('does not render the hint by default', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.queryByTestId('phase-in-waiting-hint')).not.toBeInTheDocument();
+  });
+
+  it('renders the "Add first task to this phase" hint when phaseInWaiting is true', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        phaseInWaiting
+      />,
+    );
+    const hint = screen.getByTestId('phase-in-waiting-hint');
+    expect(hint).toBeInTheDocument();
+    expect(hint).toHaveTextContent('Add first task to this phase');
+    expect(hint).toHaveAccessibleName(`Add first task to ${base.name}`);
+  });
+
+  it('clicking the hint calls onAddPhaseFirstChild with the task id', async () => {
+    const user = userEvent.setup();
+    const onAddPhaseFirstChild = vi.fn();
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        phaseInWaiting
+        onAddPhaseFirstChild={onAddPhaseFirstChild}
+      />,
+    );
+    await user.click(screen.getByTestId('phase-in-waiting-hint'));
+    expect(onAddPhaseFirstChild).toHaveBeenCalledWith(base.id);
+  });
+});

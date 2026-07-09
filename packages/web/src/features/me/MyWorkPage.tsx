@@ -141,8 +141,12 @@ export function MyWorkPage() {
   // Name for the time-aware greeting. Already cached from the shell.
   const { user } = useCurrentUser();
 
+  // Exclude phases (issue #1754, ADR-0293) — a phase is a WBS rollup, never a
+  // contributor's actionable to-do. In practice a phase can't be assigned at
+  // all once #1753 ships (`assignee_on_phase`), so this is a defense-in-depth
+  // filter for the interim / for any legacy payload.
   const allTasks = useMemo<MyWorkTask[]>(
-    () => (data?.pages ?? []).flatMap((p) => p.results),
+    () => (data?.pages ?? []).flatMap((p) => p.results).filter((t) => !t.is_phase),
     [data],
   );
   const firstPage = data?.pages[0];

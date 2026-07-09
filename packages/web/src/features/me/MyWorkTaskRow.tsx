@@ -179,6 +179,13 @@ export function MyWorkTaskRow({ task }: Props) {
         ? `${task.story_points}pts · ${task.remaining_points} left`
         : `${task.story_points}pts`;
 
+  // Defense-in-depth (issue #1754, ADR-0293): a phase never becomes an
+  // actionable My Work row. MyWorkPage already filters `allTasks` before this
+  // renders, and a phase can't be assigned in the first place
+  // (`assignee_on_phase`, #1753), so this never legitimately fires — kept for
+  // a stray caller. Placed after every hook call above (rules-of-hooks).
+  if (task.is_phase) return null;
+
   return (
     <li
       ref={rowRef}
