@@ -29,27 +29,50 @@ vi.mock('@/hooks/useIntegrationCredentials', () => ({
   }),
 }));
 
-// The "Available sources" section (#1420) reads each source's connection state
-// through this hook. Mock it so the credentials-section tests render
-// deterministically (not-connected → "Coming soon") without touching apiClient;
-// the dedicated section tests below drive it per-state.
+// The "Available sources" section (#1420/#1421) reads each source's connection
+// state + cached items through these hooks and writes through the connect / sync
+// / disconnect mutations. Mock the whole module so the section renders
+// deterministically without touching apiClient; the dedicated section tests below
+// drive each hook per-state.
+import type { ExternalWorkItem } from '@/hooks/useExternalConnection';
+
 interface ConnReturn {
   connection: {
     account_email: string;
+    base_url?: string;
     last_synced_at: string | null;
   } | null;
   isConnected: boolean;
   isLoading: boolean;
 }
 const useExternalConnection = vi.fn<(source: string, enabled?: boolean) => ConnReturn>();
+const useExternalItems = vi.fn<() => { items: ExternalWorkItem[]; isLoading: boolean }>();
+const syncMutate = vi.fn();
+const disconnectMutate = vi.fn();
+const connectMutate = vi.fn();
 vi.mock('@/hooks/useExternalConnection', () => ({
   useExternalConnection: (source: string, enabled?: boolean) =>
     useExternalConnection(source, enabled),
+  useExternalItems: () => useExternalItems(),
+  useSyncExternalSource: () => ({ mutate: syncMutate, isPending: false }),
+  useDisconnectExternalSource: () => ({ mutate: disconnectMutate, isPending: false }),
+  useConnectExternalSource: () => ({ mutate: connectMutate, isPending: false }),
+  extractConnectionError: (_err: unknown, fallback: string) => fallback,
 }));
 
 const NOT_CONNECTED: ConnReturn = {
   connection: null,
   isConnected: false,
+  isLoading: false,
+};
+
+const CONNECTED_JIRA: ConnReturn = {
+  connection: {
+    account_email: 'p.patel@acme.com',
+    base_url: 'https://acme.atlassian.net',
+    last_synced_at: '2026-05-20T14:00:00Z',
+  },
+  isConnected: true,
   isLoading: false,
 };
 
@@ -105,8 +128,13 @@ const EMPTY_LIST = [
 beforeEach(() => {
   upsertMutate.mockReset();
   revokeMutate.mockReset();
+  syncMutate.mockReset();
+  disconnectMutate.mockReset();
+  connectMutate.mockReset();
   useExternalConnection.mockReset();
   useExternalConnection.mockReturnValue(NOT_CONNECTED);
+  useExternalItems.mockReset();
+  useExternalItems.mockReturnValue({ items: [], isLoading: false });
 });
 
 describe('ConnectedAccountsPage', () => {
@@ -288,37 +316,100 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     expect(sources.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
   });
 
-  it('shows a non-interactive "Coming soon" pill and no clickable control', () => {
+  it('shows Connect on an available source and a gated "Coming soon" on a coming_soon one', () => {
     useExternalConnection.mockReturnValue(NOT_CONNECTED);
     renderPage();
-    const list = within(
-      screen.getByRole('list', { name: 'External task sources' }),
-    );
-    // jira (available, not connected) + github (coming_soon) → both "Coming soon".
-    expect(list.getAllByText(/Coming soon/i).length).toBeGreaterThanOrEqual(2);
-    // The gated affordance must never be a button or link (dead-click guard).
-    expect(list.queryByRole('button')).toBeNull();
-    expect(list.queryByRole('link')).toBeNull();
+    // jira is available-but-not-connected → an interactive Connect button (#1421).
+    const jira = within(document.getElementById('source-jira') as HTMLElement);
+    expect(jira.getByRole('button', { name: /^Connect$/ })).toBeInTheDocument();
+    // github is coming_soon → non-interactive "Coming soon", never a control.
+    const github = within(document.getElementById('source-github') as HTMLElement);
+    expect(github.getByText(/Coming soon/i)).toBeInTheDocument();
+    expect(github.queryByRole('button')).toBeNull();
+    expect(github.queryByRole('link')).toBeNull();
   });
 
-  it('shows "Active" with the linked account when a source is connected', () => {
+  it('opens the PAT connect wizard from the Connect button', async () => {
+    useExternalConnection.mockReturnValue(NOT_CONNECTED);
+    renderPage();
+    const jira = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(jira.getByRole('button', { name: /^Connect$/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
+    // The credential step (not an OAuth redirect) — site URL + email + token.
+    expect(within(dialog).getByLabelText(/Site URL/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Account email/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/API token/i)).toBeInTheDocument();
+  });
+
+  it('shows "Active", the linked account, and manage actions when connected', () => {
     useExternalConnection.mockImplementation((source: string) =>
-      source === 'jira'
-        ? {
-            connection: {
-              account_email: 'p.patel@acme.com',
-              last_synced_at: '2026-05-20T14:00:00Z',
-            },
-            isConnected: true,
-            isLoading: false,
-          }
-        : NOT_CONNECTED,
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
     );
     renderPage();
-    const jira = document.getElementById('source-jira') as HTMLElement;
-    const card = within(jira);
+    const card = within(document.getElementById('source-jira') as HTMLElement);
     expect(card.getByText('Active')).toBeInTheDocument();
     expect(card.getByText(/Linked as p\.patel@acme\.com/i)).toBeInTheDocument();
+    // "Manage" collapses inline (ADR-0313): Sync now + Disconnect on the card.
+    expect(card.getByRole('button', { name: /Sync now/i })).toBeInTheDocument();
+    expect(card.getByRole('button', { name: /^Disconnect$/i })).toBeInTheDocument();
+  });
+
+  it('triggers a sync from "Sync now"', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    fireEvent.click(card.getByRole('button', { name: /Sync now/i }));
+    expect(syncMutate).toHaveBeenCalled();
+  });
+
+  it('confirms before disconnecting', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    // Open the confirm, then cancel — no disconnect call.
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText(/Disconnect Jira\?/i)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Keep connected/i }));
+    expect(disconnectMutate).not.toHaveBeenCalled();
+    // Re-open and confirm.
+    fireEvent.click(card.getByRole('button', { name: /^Disconnect$/i }));
+    const dialog2 = await screen.findByRole('alertdialog');
+    fireEvent.click(within(dialog2).getByRole('button', { name: /^Disconnect$/i }));
+    expect(disconnectMutate).toHaveBeenCalled();
+  });
+
+  it('previews recently-pulled items on the connected card', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    useExternalItems.mockReturnValue({
+      items: [
+        {
+          id: 'i1',
+          source_key: 'jira',
+          external_id: 'RIV-482',
+          external_url: 'https://acme.atlassian.net/browse/RIV-482',
+          title: 'API gateway returns 502 under load',
+          external_status: 'In progress',
+          display_bucket: 'in_progress',
+          last_synced_at: '2026-05-20T14:00:00Z',
+        },
+      ],
+      isLoading: false,
+    });
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByText('RIV-482')).toBeInTheDocument();
+    expect(card.getByText(/API gateway returns 502/i)).toBeInTheDocument();
+    expect(
+      card.getByRole('link', { name: /Open RIV-482 in Jira/i }),
+    ).toBeInTheDocument();
   });
 
   it('fetches connection state only for available sources', () => {
