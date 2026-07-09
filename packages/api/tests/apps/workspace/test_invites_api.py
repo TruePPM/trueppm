@@ -86,6 +86,25 @@ def test_admin_cannot_invite_above_own_role(db: object) -> None:
 
 
 @pytest.mark.django_db
+def test_admin_cannot_invite_peer_at_equal_role(db: object) -> None:
+    """#1728: an Admin cannot invite a peer Admin (equal role) either.
+
+    The accept path grants the invite's role verbatim, so allowing an equal-role
+    invite would reopen the peer-Admin hole via the invite path. The invite
+    actor-ceiling uses the same ``>=`` rule as the member-role PATCH gate.
+    """
+    actor = User.objects.create_user(username="adm_eq", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=actor, role=WorkspaceRole.ADMIN
+    )
+    resp = _client(actor).post(
+        LIST_URL, {"email": "peer@x.io", "role": WorkspaceRole.ADMIN}, format="json"
+    )
+    assert resp.status_code == 403
+    assert not WorkspaceInvite.objects.filter(email="peer@x.io").exists()
+
+
+@pytest.mark.django_db
 def test_invite_for_existing_member_rejected(admin: object) -> None:
     User.objects.create_user(username="exists", email="here@x.io", password="pw")
     resp = _client(admin).post(LIST_URL, {"email": "here@x.io"}, format="json")
