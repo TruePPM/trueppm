@@ -203,6 +203,8 @@ export function ProgramSettingsPage() {
       contextOptions={contextOptions}
       contextActiveId={programId}
       navGroups={navGroups}
+      exitTo={`/programs/${programId}`}
+      exitLabel="Overview"
     >
       <SettingsSection id="general">
         <ProgramGeneralPage />

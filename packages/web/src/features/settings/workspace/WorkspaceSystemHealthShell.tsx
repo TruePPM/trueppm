@@ -93,6 +93,8 @@ export function WorkspaceSystemHealthShell() {
       ]}
       contextName="TrueScope Aerospace"
       navGroups={NAV_GROUPS}
+      exitTo="/"
+      exitLabel="Home"
     >
       <Outlet />
     </SettingsShell>

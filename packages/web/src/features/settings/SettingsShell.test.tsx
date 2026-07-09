@@ -63,6 +63,8 @@ function renderShell(initialEntries: string[] = ['/projects/p1/settings']) {
               scopeLinks={SCOPE_LINKS}
               contextName="Project Atlas"
               navGroups={NAV_GROUPS}
+              exitTo="/projects/p1/overview"
+              exitLabel="Overview"
             >
               <SettingsSection id="general">
                 <SettingsPageTitle title="General" />
@@ -77,6 +79,7 @@ function renderShell(initialEntries: string[] = ['/projects/p1/settings']) {
         />
         <Route path="/settings/health" element={<div>HEALTH_ROUTE</div>} />
         <Route path="/settings" element={<div>WORKSPACE_ROUTE</div>} />
+        <Route path="/projects/p1/overview" element={<div>OVERVIEW_ROUTE</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -277,6 +280,8 @@ describe('<SettingsShell>', () => {
                   contextOptions={options}
                   contextActiveId="p1"
                   navGroups={NAV_GROUPS}
+                  exitTo="/projects/p1/overview"
+                  exitLabel="Overview"
                 >
                   <SettingsSection id="general">
                     <SettingsPageTitle title="General" />
@@ -318,6 +323,8 @@ describe('<SettingsShell>', () => {
                   ]}
                   contextName="P1"
                   navGroups={NAV_GROUPS}
+                  exitTo="/projects/p1/overview"
+                  exitLabel="Overview"
                 >
                   <SettingsSection id="general">
                     <SettingsPageTitle title="General" />
@@ -441,6 +448,39 @@ describe('<SettingsShell>', () => {
       fireEvent.change(screen.getByLabelText('Jump to section'), { target: { value: 'health' } });
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       expect(screen.getByText('GENERAL_SECTION')).toBeInTheDocument();
+    });
+
+    // The mobile header is the only clear way out of settings on a phone — the
+    // desktop Sidebar is a hidden drawer and BottomNav self-suppresses off-project
+    // (issue 1709).
+    it('renders a "Back to {exitLabel}" exit button in the mobile header', () => {
+      renderShell();
+      const exit = screen.getByRole('button', { name: 'Back to Overview' });
+      expect(exit).toBeInTheDocument();
+      // 44px touch target (rule 5) + rule-4 focus ring.
+      expect(exit.className).toContain('min-h-[44px]');
+      expect(exit.className).toContain('focus-visible:ring-brand-primary');
+    });
+
+    it('clicking the exit button leaves settings for the entity surface', () => {
+      renderShell();
+      fireEvent.click(screen.getByRole('button', { name: 'Back to Overview' }));
+      expect(screen.getByText('OVERVIEW_ROUTE')).toBeInTheDocument();
+    });
+
+    it('clicking the exit button while dirty routes through the confirm-discard guard', () => {
+      renderShell();
+      act(() => registerSection({ dirty: true }));
+      fireEvent.click(screen.getByRole('button', { name: 'Back to Overview' }));
+      // Dirty form is guarded — the discard dialog opens, no navigation yet.
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      expect(screen.queryByText('OVERVIEW_ROUTE')).not.toBeInTheDocument();
+    });
+
+    it('does not render the exit button on desktop (rule 123 — Sidebar is the exit)', () => {
+      mockBreakpoint = 'lg';
+      renderShell();
+      expect(screen.queryByRole('button', { name: 'Back to Overview' })).not.toBeInTheDocument();
     });
   });
 
