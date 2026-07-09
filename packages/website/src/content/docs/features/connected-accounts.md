@@ -105,17 +105,29 @@ stays your source of truth.
 
 - Lists each available source (Jira today) with a short description of what it
   brings into My Work.
-- For a source you've connected, shows an **Active** state with the linked account
-  and the last sync time; otherwise the source shows as not yet connected.
+- **Connect a source** — an available source shows a **Connect** button that opens
+  a short, in-page wizard. There is **no OAuth redirect**: you enter your Jira
+  Cloud **site URL**, your **account email**, and a **read-only API token** you
+  create in Jira, then choose **what to pull** — the issues assigned to you
+  (recommended) or a specific **JQL** filter — and, optionally, limit it to named
+  **projects**. TruePPM verifies the token against Jira before storing it
+  (encrypted), so a wrong, expired, or wrong-scope token is rejected up front with
+  a clear message and **nothing is saved**.
+- **Connected state** — a connected source shows an **Active** badge, the linked
+  account and site, a cached-item count and last-sync time (or "first sync in
+  progress" until the first pull lands), and a **Recently pulled** preview of the
+  items now appearing in My Work.
+- **Manage inline** — **Sync now** triggers an immediate read-only pull;
+  **Disconnect** (with a confirmation step) removes the stored token and clears the
+  source's items from My Work. Nothing in Jira is ever modified — you can reconnect
+  at any time.
 - Enterprise sources appear here automatically when the Enterprise edition is
   installed — the OSS build shows only OSS sources.
 
-Connecting a source from this page — the guided connect and manage flow — lands in
-a follow-up (the connection API itself is already in place; see
-[Inbound Task Sync](/features/inbound-task-sync/) and ADR-0097 for the
-source-and-pull machinery). Once a source is connected, its items appear in My
-Work with a per-source freshness line and a reconnect prompt if the credential
-expires.
+The connection API behind the flow is documented under
+[Inbound Task Sync](/features/inbound-task-sync/) and ADR-0097. Once a source is
+connected, its items appear in My Work with a per-source freshness line and a
+reconnect prompt if the credential expires.
 
 ## Git-aware task links
 
@@ -242,6 +254,7 @@ the cached preview — reach the mobile client through the project sync delta.
 - **ADR-0076** — Integration Management Surface Boundary
 - **ADR-0097** — User-scoped external task sources (the OSS Jira personal pull)
 - **ADR-0291** — "Available sources" section on the Connected Accounts page
+- **ADR-0313** — Jira connect flow: PAT-based, in-page connect/manage wizard
 - **ADR-0155** — At-a-glance external-link status indicators (the schedule
   list/Gantt roll-up)
 - **ADR-0163** — OSS cloud-file URL preview connector (Drive/Dropbox/Box/OneDrive

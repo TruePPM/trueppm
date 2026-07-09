@@ -275,13 +275,15 @@ test.describe('Available sources section (#1420)', () => {
     await expect(sources.getByRole('heading', { name: 'Jira' })).toBeVisible();
     await expect(sources.getByRole('heading', { name: 'GitHub' })).toBeVisible();
 
-    // Jira is available-but-not-connected → "Coming soon" pill (gated until #1421).
-    await expect(page.locator('#source-jira').getByText('Coming soon')).toBeVisible();
-    await expect(page.locator('#source-github').getByText('Coming soon')).toBeVisible();
-
-    // The gated affordance must not be a clickable control (dead-click guard).
-    await expect(sources.getByRole('button')).toHaveCount(0);
-    await expect(sources.getByRole('link')).toHaveCount(0);
+    // Jira is available-but-not-connected → an interactive Connect button (#1421).
+    await expect(
+      page.locator('#source-jira').getByRole('button', { name: 'Connect' }),
+    ).toBeVisible();
+    // GitHub is coming_soon → non-interactive "Coming soon" pill (dead-click guard).
+    const github = page.locator('#source-github');
+    await expect(github.getByText('Coming soon')).toBeVisible();
+    await expect(github.getByRole('button')).toHaveCount(0);
+    await expect(github.getByRole('link')).toHaveCount(0);
   });
 
   test('shows an Active state with the linked account when a source is connected', async ({

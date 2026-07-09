@@ -26,7 +26,16 @@ import {
   type ExternalTaskSourceEntry,
 } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
-import { useExternalConnection } from '@/hooks/useExternalConnection';
+import { safeExternalHref } from '@/lib/safeExternalHref';
+import {
+  type ExternalWorkItem,
+  extractConnectionError,
+  useDisconnectExternalSource,
+  useExternalConnection,
+  useExternalItems,
+  useSyncExternalSource,
+} from '@/hooks/useExternalConnection';
+import { ExternalSourceConnectDialog } from './ExternalSourceConnectDialog';
 
 type DialogMode = 'connect' | 'rotate' | 'revoke';
 
@@ -485,13 +494,15 @@ function EnterpriseProviderSlots() {
 
 // ---------------------------------------------------------------------------
 // Available sources — external task sources a contributor can pull their own
-// assigned items from into My Work (#1420, ADR-0097 / ADR-0291). Distinct from
-// the credentials list above (task-link previews, ADR-0049): a different
-// registry for a different feature, sharing this one surface per ADR-0076.
+// assigned items from into My Work (#1420/#1421, ADR-0097 / ADR-0291 / ADR-0313).
+// Distinct from the credentials list above (task-link previews, ADR-0049): a
+// different registry for a different feature, sharing this one surface per ADR-0076.
 //
-// This slice is registry + live connection-state only — the connect/manage flow
-// is #1421. Until it lands, the per-source affordance is an unmistakable,
-// non-interactive "Coming soon" pill, never a dead-click button.
+// An `available` source (backend-registered, e.g. Jira) shows a Connect button
+// that opens the PAT-based connect wizard (ADR-0313 — no OAuth redirect in OSS);
+// once connected the card manages inline (Active state, Sync now, Disconnect, a
+// "recently pulled" preview). A `coming_soon` source keeps the non-interactive
+// "Coming soon" pill — a gated source must never be a dead-click button.
 // ---------------------------------------------------------------------------
 
 const TRUST_GUARANTEES = ['Read-only', 'One-way into My Work', 'Never writes back'];
@@ -545,66 +556,130 @@ function AvailableSourcesSection() {
 function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
   const available = source.status === 'available';
   // Only `available` sources have a backend connection to read; `coming_soon`
-  // sources are not fetched (there is nothing to connect yet). The hook is
+  // sources are not fetched (there is nothing to connect yet). The hooks are
   // always called (rules of hooks) but gated by `enabled`.
   const { connection, isConnected, isLoading } = useExternalConnection(
     source.provider,
     available,
   );
+  const { items } = useExternalItems(available && isConnected);
+  const [showConnect, setShowConnect] = useState(false);
+  const [showDisconnect, setShowDisconnect] = useState(false);
+
+  // The items list is cross-source; the connected card previews only this
+  // source's rows (ordered by the backend's bucket ordering).
+  const sourceItems = items.filter((it) => it.source_key === source.provider);
 
   return (
     <li
       id={`source-${source.provider}`}
       aria-busy={available && isLoading}
-      className="border border-neutral-border rounded-card bg-neutral-surface-raised p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+      className="border border-neutral-border rounded-card bg-neutral-surface-raised p-4 flex flex-col gap-3"
     >
-      <div className="flex min-w-0 gap-3">
-        <SourceMark sourceType={source.provider} label={source.name} className="mt-0.5" />
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-neutral-text-primary">
-            {source.name}
-          </h3>
-          <p className="mt-0.5 text-xs text-neutral-text-secondary">
-            {source.description}
-          </p>
-          {isConnected && connection ? (
-            <p className="mt-1 text-xs text-neutral-text-secondary">
-              Linked as {connection.account_email || 'your account'}
-              {connection.last_synced_at ? (
-                <> · synced {formatRelativeDate(connection.last_synced_at)}</>
-              ) : null}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <SourceMark sourceType={source.provider} label={source.name} className="mt-0.5" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-neutral-text-primary">
+                {source.name}
+              </h3>
+              {isConnected ? <ActivePill /> : null}
+            </div>
+            <p className="mt-0.5 text-xs text-neutral-text-secondary">
+              {source.description}
             </p>
-          ) : null}
+            {isConnected && connection ? (
+              <p className="mt-1 text-xs text-neutral-text-secondary">
+                Linked as {connection.account_email || 'your account'}
+                {connection.base_url ? <> · {connection.base_url}</> : null}
+                {connection.last_synced_at ? (
+                  <> · synced {formatRelativeDate(connection.last_synced_at)}</>
+                ) : (
+                  // A connected row with no last-sync stamp yet: the first pull
+                  // enqueued at connect time has not landed. Data-driven (not a
+                  // polling route) — ADR-0313.
+                  <> · first sync in progress…</>
+                )}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="sm:shrink-0">
+          <SourceAction
+            available={available}
+            isConnected={isConnected}
+            isLoading={isLoading}
+            source={source}
+            onConnect={() => setShowConnect(true)}
+            onDisconnect={() => setShowDisconnect(true)}
+          />
         </div>
       </div>
-      <div className="sm:shrink-0">
-        <SourceStatus available={available} isConnected={isConnected} isLoading={isLoading} />
-      </div>
+
+      {isConnected && sourceItems.length > 0 ? (
+        <RecentlyPulled items={sourceItems} sourceName={source.name} />
+      ) : null}
+
+      {showConnect ? (
+        <ExternalSourceConnectDialog
+          source={source}
+          onDismiss={() => setShowConnect(false)}
+        />
+      ) : null}
+      {showDisconnect ? (
+        <DisconnectSourceDialog
+          source={source}
+          onDismiss={() => setShowDisconnect(false)}
+        />
+      ) : null}
     </li>
   );
 }
 
+/** "Active" state chip — mirrors the credentials list's connected ConnectionPill. */
+function ActivePill() {
+  return (
+    <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-semantic-on-track">
+      <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-semantic-on-track" />
+      Active
+    </span>
+  );
+}
+
 /**
- * Passive status affordance for a source (no interactive control this slice).
+ * Right-side affordance for a source card.
  *
  * - available + loading → skeleton (never a spinner)
- * - connected → "Active" (mirrors the credentials list's ConnectionPill)
- * - otherwise → non-interactive "Coming soon" ghost pill (the #1421 seam)
- *
- * Deliberately a `<span>`, never a `<button>`/`<a>`: a gated Connect must not be
- * clickable or focusable (ADR-0291, VoC 🟡 — a dead-click is exactly the friction
- * a contributor churns on).
+ * - available + connected → Sync now + Disconnect actions (the "manage" surface,
+ *   collapsed inline per ADR-0313 rather than a separate screen)
+ * - available + not connected → Connect button (fills the #1420/ADR-0291 seam)
+ * - coming_soon → non-interactive "Coming soon" ghost pill (`<span>`, never a
+ *   `<button>`/`<a>` — a gated source must not be a dead click, ADR-0291)
  */
-function SourceStatus({
+function SourceAction({
   available,
   isConnected,
   isLoading,
+  source,
+  onConnect,
+  onDisconnect,
 }: {
   available: boolean;
   isConnected: boolean;
   isLoading: boolean;
+  source: ExternalTaskSourceEntry;
+  onConnect: () => void;
+  onDisconnect: () => void;
 }) {
-  if (available && isLoading) {
+  if (!available) {
+    return (
+      <span className="inline-flex items-center rounded-control border border-dashed border-neutral-border bg-transparent px-2 h-6 text-xs font-medium text-neutral-text-secondary">
+        Coming soon
+      </span>
+    );
+  }
+  if (isLoading) {
     return (
       <span
         aria-hidden="true"
@@ -614,16 +689,202 @@ function SourceStatus({
   }
   if (isConnected) {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-semantic-on-track">
-        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-semantic-on-track" />
-        Active
-      </span>
+      <div className="flex items-center gap-2">
+        <SyncNowButton source={source} />
+        <button
+          type="button"
+          onClick={onDisconnect}
+          className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+        >
+          Disconnect
+        </button>
+      </div>
     );
   }
   return (
-    <span className="inline-flex items-center rounded-control border border-dashed border-neutral-border bg-transparent px-2 h-6 text-xs font-medium text-neutral-text-secondary">
-      Coming soon
+    <button
+      type="button"
+      onClick={onConnect}
+      className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+    >
+      Connect
+    </button>
+  );
+}
+
+/** "Sync now" — triggers a read-only pull; surfaces a 429 cooldown inline. */
+function SyncNowButton({ source }: { source: ExternalTaskSourceEntry }) {
+  const sync = useSyncExternalSource(source.provider);
+  const [cooldown, setCooldown] = useState<string | null>(null);
+  return (
+    <span className="inline-flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        disabled={sync.isPending}
+        onClick={() => {
+          setCooldown(null);
+          sync.mutate(undefined, {
+            onError: (err) =>
+              setCooldown(
+                extractConnectionError(err, 'Could not start a sync just now — try again shortly.'),
+              ),
+          });
+        }}
+        className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+      >
+        {sync.isPending ? 'Syncing…' : 'Sync now'}
+      </button>
+      {cooldown ? (
+        <span role="status" className="text-[11px] text-neutral-text-secondary max-w-[12rem] text-right">
+          {cooldown}
+        </span>
+      ) : null}
     </span>
+  );
+}
+
+// Status pill fill by coarse bucket — mirrors ExternalWorkItemRow's tokens so a
+// pulled item's status reads identically on this card and on My Work.
+const BUCKET_PILL_CLASSES: Record<string, string> = {
+  todo: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
+  in_progress: 'bg-brand-primary/10 text-brand-primary border-brand-primary/40',
+  done: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
+};
+const BUCKET_FALLBACK = BUCKET_PILL_CLASSES.todo;
+
+/** "Recently pulled" preview of the source's cached items (appears in My Work). */
+function RecentlyPulled({
+  items,
+  sourceName,
+}: {
+  items: ExternalWorkItem[];
+  sourceName: string;
+}) {
+  // `external_url` is cached from the provider's API — guard the scheme before
+  // binding it to an href so a `javascript:`/`data:` value can't execute on click
+  // (stored XSS, #898). A non-http(s) URL renders the glyph inert.
+  const safeUrl = (url: string) => safeExternalHref(url);
+  return (
+    <div className="rounded-control border border-neutral-border bg-neutral-surface p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary mb-2">
+        Recently pulled · appears in My Work
+      </p>
+      <ul className="flex flex-col gap-1.5" aria-label={`Recently pulled ${sourceName} items`}>
+        {items.slice(0, 3).map((item) => (
+          <li key={item.id} className="flex items-center gap-3 min-w-0">
+            <span className="tppm-mono text-[11px] font-medium text-neutral-text-secondary w-16 shrink-0 truncate">
+              {item.external_id}
+            </span>
+            <span className="flex-1 truncate text-[13px] text-neutral-text-primary">
+              {item.title || item.external_id}
+            </span>
+            {item.external_status ? (
+              <span
+                className={[
+                  'inline-flex items-center rounded-control border px-2 h-6 text-[11px] font-medium shrink-0',
+                  BUCKET_PILL_CLASSES[item.display_bucket] ?? BUCKET_FALLBACK,
+                ].join(' ')}
+              >
+                {item.external_status}
+              </span>
+            ) : null}
+            {safeUrl(item.external_url) ? (
+              <a
+                href={safeUrl(item.external_url) as string}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${item.external_id} in ${sourceName}`}
+                className="inline-flex h-6 w-6 items-center justify-center text-neutral-text-secondary hover:text-brand-primary shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path
+                    d="M4.5 2.5H2.5v7h7v-2M7 2.5h2.5V5M9.5 2.5l-4 4"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </a>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Disconnect confirmation (`alertdialog`) — a destructive, owner-only action that
+ * hard-removes the credential and the source's cached items from My Work. Mirrors
+ * the credentials-list RevokeCredentialDialog pattern.
+ */
+function DisconnectSourceDialog({
+  source,
+  onDismiss,
+}: {
+  source: ExternalTaskSourceEntry;
+  onDismiss: () => void;
+}) {
+  const titleId = useId();
+  const descId = useId();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const disconnect = useDisconnectExternalSource(source.provider);
+
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onDismiss();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onDismiss]);
+
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={descId}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onDismiss();
+      }}
+    >
+      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-sm mx-4 p-5 motion-safe:animate-modal-scale-in">
+        <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-2">
+          Disconnect {source.name}?
+        </h2>
+        <p id={descId} className="text-xs text-neutral-text-secondary mb-4">
+          Your {source.name} items will be removed from My Work and the stored token
+          deleted. Nothing in {source.name} is affected — you can reconnect any time.
+        </p>
+        <div className="flex justify-end gap-2">
+          <button
+            ref={cancelRef}
+            type="button"
+            onClick={onDismiss}
+            className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+          >
+            Keep connected
+          </button>
+          <button
+            type="button"
+            disabled={disconnect.isPending}
+            onClick={() => {
+              disconnect.mutate(undefined, { onSuccess: () => onDismiss() });
+            }}
+            className="h-8 px-3 rounded-control border border-semantic-critical/50 bg-transparent text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none"
+          >
+            {disconnect.isPending ? 'Disconnecting…' : 'Disconnect'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
