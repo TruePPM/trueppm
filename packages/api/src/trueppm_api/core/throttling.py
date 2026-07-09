@@ -20,10 +20,15 @@ turned on without ever rate-limiting a k8s probe.
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 
 from rest_framework.request import Request
-from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.throttling import (
+    AnonRateThrottle,
+    SimpleRateThrottle,
+    UserRateThrottle,
+)
 
 if TYPE_CHECKING:
     # Imported for type hints only. A runtime ``from rest_framework.views import
@@ -73,6 +78,50 @@ class ProbeExemptAnonRateThrottle(AnonRateThrottle):
         if _is_probe_path(request):
             return None
         return super().get_cache_key(request, view)
+
+
+class LoginAccountRateThrottle(SimpleRateThrottle):
+    """Per-*account* login throttle, keyed on the submitted username (#1717).
+
+    Why this exists alongside the IP-keyed ``login`` throttle:
+        The stock login throttle keys only on the client IP, so it caps guesses
+        *per source address*. A distributed credential-stuffing attack against a
+        single account rotates through a botnet / proxy pool, giving the attacker
+        the full per-IP allowance from every fresh IP — the aggregate guess rate
+        against that one account is unbounded even though no single IP trips the
+        limit. This throttle closes that gap by counting failed *and* successful
+        attempts against the same normalized username regardless of source IP, so
+        an account under distributed attack is locked out after the per-account
+        rate no matter how many IPs participate. It is *stacked* with (not a
+        replacement for) the IP throttle: both must pass, so IP-local flooding and
+        cross-IP account targeting are each bounded.
+
+    Privacy: the username is lowercased/trimmed and SHA-256 hashed before it goes
+    into the cache key, so the raw email/username is never persisted in the cache
+    backend (or leaked through a cache-key dump). Hashing is sufficient here — the
+    key only needs to be stable and collision-resistant, not reversible.
+
+    This is basic brute-force hardening (table-stakes self-hosting security), not
+    an org-wide enforced lockout *policy* with admin-configurable escalation /
+    unlock workflows — that governance layer is Enterprise.
+    """
+
+    scope = "login_account"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str | None:
+        """Key the throttle on the hashed, normalized submitted username.
+
+        Returns ``None`` (skip this throttle) when no username is present so a
+        malformed request is not charged against an empty-string bucket — the IP
+        throttle still applies to those. Reading ``request.data`` here parses the
+        request body once (DRF caches it), which is safe inside ``check_throttles``.
+        """
+        username = request.data.get("username") if hasattr(request, "data") else None
+        if not username:
+            return None
+        normalized = str(username).strip().lower()
+        ident = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 class ProbeExemptUserRateThrottle(UserRateThrottle):
