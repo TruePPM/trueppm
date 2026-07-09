@@ -22,6 +22,7 @@ from xml.etree.ElementTree import Element
 # the XXE / billion-laughs vector on this untrusted-file parse (mirrors the MS
 # Project parser, #771). A prospect's export is untrusted input.
 from defusedxml.ElementTree import fromstring as _safe_fromstring
+from django.conf import settings
 
 from trueppm_api.apps.msproject.dataclasses import (
     PredecessorLinkData,
@@ -146,6 +147,18 @@ def parse_jira_xml(content: bytes) -> ProjectData:
         raise JiraImportError("Jira XML export has no <channel> element.")
 
     items = channel.findall("item")
+
+    # Row-count cap (#1721): the upload SIZE is bounded but the issue count is
+    # not — a large export would build one Task object per issue and bulk-create
+    # the lot through the shared importer, a worker-memory / transaction-time
+    # DoS within the byte cap. Reject outright before building anything.
+    max_rows = getattr(settings, "JIRA_IMPORT_MAX_ROWS", 20_000)
+    if len(items) > max_rows:
+        raise JiraImportError(
+            f"Jira export has too many issues ({len(items)}); the import limit is "
+            f"{max_rows}. Split the export and import in batches."
+        )
+
     warnings: list[str] = []
 
     # Pass 1: collect issues in document order and assign a stable synthetic uid
