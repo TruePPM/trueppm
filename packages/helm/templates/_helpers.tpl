@@ -149,6 +149,36 @@ password is never rendered into the Deployment manifest in plaintext.
 {{- end -}}
 
 {{/*
+Bundled-datastore dev/demo posture env (#1716). Auto-enables the app's
+unencrypted-DB boot-guard escape hatch (TRUEPPM_ALLOW_UNENCRYPTED_DB) — but ONLY
+for the exact dev/demo shape: the bundled PostgreSQL is in use AND a NetworkPolicy
+is enforcing that only the API/worker pods can reach it.
+
+Why this is needed: the chart-built bundled DATABASE_URL (trueppm.databaseUrl)
+carries no sslmode — the bundled Postgres speaks plaintext on the pod network — so
+settings.prod's #1550 boot guard would otherwise crash-loop a default
+`helm install`. The safe reconciliation is to grant the escape hatch precisely
+when the network layer already isolates that plaintext hop, NOT to train operators
+to disable the check by hand.
+
+Why it fails closed everywhere else:
+  - External DB (postgresql.enabled=false): emits nothing, so the operator's
+    DATABASE_URL must still carry sslmode=require — the #1550 guard stays live.
+  - NetworkPolicy disabled: emits nothing, so a bundled plaintext DB on a flat pod
+    network fails the guard, forcing transport security to be a deliberate choice.
+
+Operator precedence: if .Values.env.TRUEPPM_ALLOW_UNENCRYPTED_DB is set, it is
+rendered by trueppm.envVars and this helper stays silent, so the operator's value
+wins and no duplicate env key is emitted.
+*/}}
+{{- define "trueppm.datastoreSecurityEnv" -}}
+{{- if and .Values.postgresql.enabled .Values.networkPolicy.enabled (not (hasKey .Values.env "TRUEPPM_ALLOW_UNENCRYPTED_DB")) }}
+- name: TRUEPPM_ALLOW_UNENCRYPTED_DB
+  value: "true"
+{{- end }}
+{{- end -}}
+
+{{/*
 Resolve the PostgreSQL password (generate-if-unset), memoized.
 
 Single source of truth = the chart-owned connection Secret. Resolution order:

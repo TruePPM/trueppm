@@ -146,6 +146,48 @@ def test_prod_boots_on_unencrypted_db_when_opted_in() -> None:
 
 
 # ---------------------------------------------------------------------------
+# #1716: the Helm chart's two DATABASE_URL paths must stay consistent with this
+# boot guard WITHOUT training operators to disable the encryption check.
+#
+#   - Bundled dev/demo datastore + NetworkPolicy enforced: the chart's built
+#     DATABASE_URL is plaintext (no sslmode) but the pod network isolates the
+#     hop, so the chart AUTO-sets TRUEPPM_ALLOW_UNENCRYPTED_DB=true. Boot must
+#     succeed — no manual toggle, no crash-loop.
+#   - External/managed DB (postgresql.enabled=false): the chart emits NO auto
+#     flag, so the operator's DATABASE_URL must still carry sslmode=require. A
+#     plaintext external URL must still fail closed.
+#
+# These two tests pin the settings-side contract the chart depends on; the chart
+# side (which env each path renders) is verified by `helm template` in the Helm
+# package's own checks.
+# ---------------------------------------------------------------------------
+
+
+def test_bundled_datastore_posture_boots_on_plaintext_db() -> None:
+    """Bundled DB + NetworkPolicy: chart auto-sets the flag, so a plaintext
+    DATABASE_URL boots cleanly (#1716)."""
+    prod = _load_prod(
+        backend=_S3,
+        allow_local=False,
+        database_url=_DB_URL_PLAINTEXT,
+        allow_unencrypted_db=True,  # what the chart injects for the bundled+NP shape
+    )
+    assert prod.DEBUG is False
+
+
+def test_external_db_posture_still_requires_sslmode() -> None:
+    """External/managed DB: chart emits NO auto flag, so a plaintext external
+    DATABASE_URL must still fail the boot guard (#1716)."""
+    with pytest.raises(RuntimeError, match="sslmode=require"):
+        _load_prod(
+            backend=_S3,
+            allow_local=False,
+            database_url=_DB_URL_PLAINTEXT,
+            allow_unencrypted_db=False,  # external path: chart injects nothing
+        )
+
+
+# ---------------------------------------------------------------------------
 # #1354: the install artifact (.env.example) must keep operators clear of the
 # import-time boot guards. A fresh copy that omits a required key walks the
 # operator straight into a crash-loop, so these assert the artifact documents

@@ -21,8 +21,34 @@ service:
   type: ClusterIP
   port: 8000
 
+# Chart-managed Ingress + edge TLS (#1714). Off by default: the ingress class,
+# hostnames, and certificate source are cluster-specific, so a default-on ingress
+# would render a broken object on first install. Enable it and fill hosts/tls to
+# expose the API over HTTPS. The Service stays ClusterIP; the Ingress is the sole
+# externally-facing object and the TLS termination point.
 ingress:
   enabled: false
+  # IngressClass to bind (e.g. "nginx", "traefik"). Empty uses the cluster's
+  # default IngressClass, if one is marked default.
+  className: ""
+  # Controller / cert-manager annotations. Example for cert-manager:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  annotations: {}
+  # One or more virtual hosts. Each host lists the paths routed to the API
+  # Service. pathType defaults to Prefix when omitted.
+  hosts:
+    - host: trueppm.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  # TLS termination. Each entry names a Kubernetes TLS Secret and the host(s) it
+  # covers. With cert-manager the named Secret is provisioned automatically from
+  # the issuer annotation above. LEAVE EMPTY only for a dev/demo cluster — an
+  # empty list renders an HTTP-only Ingress, which must never front production.
+  tls: []
+  #  - secretName: trueppm-tls
+  #    hosts:
+  #      - trueppm.example.com
 
 postgresql:
   enabled: true
@@ -53,13 +79,23 @@ valkey:
     enabled: true
     password: ""
 
-# NetworkPolicy is opt-in. When enabled, the chart restricts ingress to the
-# bundled PostgreSQL and Valkey pods so that ONLY the API and Celery worker pods
-# (matched by their selector labels) can reach the database and cache. Off by
-# default because some clusters lack a CNI that enforces NetworkPolicy and a
-# silently-unenforced policy is worse than an explicit opt-in.
+# NetworkPolicy — ON by default (#1715). The bundled PostgreSQL and Valkey pods
+# speak PLAINTEXT on the pod network (no in-transit TLS), so on a flat network any
+# pod in the cluster could open 5432/6379 and read/write the datastore. When
+# enabled the chart restricts ingress to the datastores so ONLY the API and Celery
+# worker pods (matched by selector labels) can reach them, and applies a
+# default-deny EGRESS posture to the datastore pods (they never legitimately dial
+# out). This is the enforced default for the bundled dev/demo datastores.
+#
+# REQUIRES a CNI that enforces NetworkPolicy (Calico, Cilium, Antrea, Weave, …).
+# On a cluster whose CNI does NOT enforce policy these objects are accepted but
+# silently unenforced — the datastore is then reachable on the flat pod network.
+# If your cluster lacks a policy-enforcing CNI, do NOT rely on the bundled
+# datastores for anything sensitive; use managed external datastores with TLS
+# (values-prod.yaml) instead. Set enabled=false only if you have an equivalent
+# network control (e.g. a service mesh) enforcing the same isolation.
 networkPolicy:
-  enabled: false
+  enabled: true
 
 # Pod-level and container-level security hardening applied to the API and Celery
 # worker pods. Defaults follow the restricted Pod Security Standard.

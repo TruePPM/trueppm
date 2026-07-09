@@ -58,6 +58,7 @@ spec:
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -74,6 +75,7 @@ spec:
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- if .Values.admin.email }}
@@ -102,6 +104,7 @@ spec:
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             {{- include "trueppm.observabilityEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}

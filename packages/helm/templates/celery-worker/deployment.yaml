@@ -45,6 +45,7 @@ spec:
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
             {{- include "trueppm.connectionEnv" . | nindent 12 }}
+            {{- include "trueppm.datastoreSecurityEnv" . | nindent 12 }}
             {{- include "trueppm.observabilityEnv" . | nindent 12 }}
           volumeMounts:
             - name: tmp

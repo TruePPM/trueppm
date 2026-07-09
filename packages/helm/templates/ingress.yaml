@@ -1,0 +1,55 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+Chart-managed Ingress and the TLS termination point for the release (#1714).
+
+Off by default (values.yaml) because the correct ingress class, hostname, and
+certificate source are cluster-specific — a chart that guessed them would render
+a broken object on first install. Turn it on and supply hosts/tls to expose the
+API over HTTPS at the edge. The Service stays ClusterIP; this Ingress is the only
+object that fronts it externally.
+
+TLS: list one or more entries under `ingress.tls`, each naming a Kubernetes TLS
+Secret (`secretName`) and the host(s) it covers. With cert-manager, add the
+issuer annotation under `ingress.annotations` and cert-manager provisions the
+named Secret automatically. Leaving `ingress.tls` empty renders an HTTP-only
+Ingress — acceptable only for a dev/demo cluster, never production.
+
+Note the app-side companion to edge TLS: settings.prod sets
+SECURE_PROXY_SSL_HEADER and honors X-Forwarded-Proto, and the k8s probe paths
+(/api/v1/health/, /api/v1/edition/) are exempt from the optional HTTP→HTTPS
+redirect so liveness/readiness keep working over the in-cluster plain-HTTP hop.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "trueppm.fullname" . }}
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "trueppm.fullname" $ }}-api
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}
