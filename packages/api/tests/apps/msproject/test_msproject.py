@@ -2030,3 +2030,52 @@ class TestImportRedispatchIdempotency:
         assert req.status == ImportRequestStatus.DISPATCHED
         assert req.file_content_b64 == b64
         assert Task.objects.filter(project=project).count() == 0
+
+
+def test_parser_derives_status_from_raw_percent_complete() -> None:
+    """#1768: MS Project has no status column, so the parser derives TaskData.status
+    from the raw PercentComplete (0-100) — keyed on the raw value so it is
+    independent of the 0-1-vs-0-100 storage question (#1759)."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    xml = _build_sample_xml(
+        tasks=[
+            {"UID": "1", "Name": "Done", "PercentComplete": "100", "Start": "2026-01-10T08:00:00"},
+            {"UID": "2", "Name": "Half", "PercentComplete": "50", "Start": "2026-01-10T08:00:00"},
+            {"UID": "3", "Name": "Fresh", "PercentComplete": "0", "Start": "2026-01-10T08:00:00"},
+        ]
+    )
+    by_name = {t.name: t for t in parse_xml(xml).tasks}
+    assert by_name["Done"].status == TaskStatus.COMPLETE.value
+    assert by_name["Half"].status == TaskStatus.IN_PROGRESS.value
+    # 0% still lands NOT_STARTED (None → importer default).
+    assert by_name["Fresh"].status is None
+
+
+def test_parser_status_is_none_when_no_start() -> None:
+    """A .mpp can encode percent>0 on an unstarted (no-start) task; the importer
+    clamps percent to 0 (ADR-0057 Q5), so the parser must NOT derive IN_PROGRESS —
+    status and progress can never disagree (#1768)."""
+    xml = _build_sample_xml(
+        tasks=[{"UID": "1", "Name": "Ghost", "PercentComplete": "90"}],  # no Start
+    )
+    ghost = parse_xml(xml).tasks[0]
+    assert ghost.status is None
+
+
+@pytest.mark.django_db
+def test_import_persists_derived_status_end_to_end(project: Project) -> None:
+    """End-to-end (parse_xml → import_project): a 100%-done MS Project task lands as
+    COMPLETE, not NOT_STARTED, so the forecast is not inflated (#1768)."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    xml = _build_sample_xml(
+        tasks=[
+            {"UID": "1", "Name": "Done", "PercentComplete": "100", "Start": "2026-01-10T08:00:00"},
+            {"UID": "2", "Name": "Fresh", "PercentComplete": "0", "Start": "2026-01-10T08:00:00"},
+        ]
+    )
+    import_project(str(project.pk), parse_xml(xml))
+    by_name = {t.name: t for t in Task.objects.filter(project=project, is_deleted=False)}
+    assert by_name["Done"].status == TaskStatus.COMPLETE
+    assert by_name["Fresh"].status == TaskStatus.NOT_STARTED

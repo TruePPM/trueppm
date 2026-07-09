@@ -37,7 +37,7 @@ def import_project(
     from django.conf import settings
     from django.db.models import F
 
-    from trueppm_api.apps.projects.models import Dependency, Project, Task
+    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskStatus
     from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
     # Chunk every bulk_create (#1721) so a large import is not emitted as one
@@ -160,17 +160,32 @@ def import_project(
             est_status = "accepted" if ml is not None else None
         if ml is not None:
             summary["tasks_with_three_point_estimates"] += 1
+        # #1768: carry the source status onto Task.status so completed / in-flight
+        # work does not re-import as NOT_STARTED (which the scheduler treats as
+        # unstarted future work, inflating every forecast). Both importers populate
+        # td.status upstream — the Jira parser from the issue status name, the MS
+        # Project parser from the raw PercentComplete gated on start — so this path
+        # is agnostic to the percent storage scale (#1759). Fall back to the model
+        # default when the source supplied no usable status.
+        task_status = td.status or TaskStatus.NOT_STARTED.value
+        # Clamp percent to 0 when no start date — preserves the progress-anchor
+        # invariant that bulk_create bypasses (ADR-0057 Q5). A .mpp file can encode
+        # PercentComplete > 0 on an *unstarted* task; importing that value would
+        # create a task with ghost progress and no schedule anchor. A task whose
+        # status is terminal (REVIEW/COMPLETE) is not "unstarted" — its progress is
+        # real completion, not ghost — so it keeps its percent even with no start
+        # (the Jira path, which carries no dates), otherwise a COMPLETE issue would
+        # persist at 0% and read as unstarted future work (#1768).
+        _terminal = task_status in (TaskStatus.REVIEW.value, TaskStatus.COMPLETE.value)
+        effective_percent = td.percent_complete if (td.start or _terminal) else 0
         task = Task(
             project_id=project_id,
             name=td.name,
             wbs_path=wbs_path if wbs_path else None,
             duration=td.duration_days,
             is_milestone=td.is_milestone,
-            # Clamp to 0 when no start date — preserves the progress-anchor invariant
-            # that bulk_create bypasses (ADR-0057 Q5). A .mpp file can encode
-            # PercentComplete > 0 on an unstarted task; importing that value would
-            # create a task with ghost progress and no schedule anchor.
-            percent_complete=td.percent_complete if td.start else 0,
+            status=task_status,
+            percent_complete=effective_percent,
             notes=td.notes,
             planned_start=td.start if td.start else None,
             optimistic_duration=opt,

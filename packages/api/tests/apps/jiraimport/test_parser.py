@@ -128,3 +128,20 @@ def test_seconds_to_days_edge_cases_default_to_one_day(name: str) -> None:
     data = parse_jira_xml(EDGE_CASE_EXPORT)
     task = next(t for t in data.tasks if t.name == name)
     assert task.duration_days == 1
+
+
+def test_maps_issue_status_onto_task_status() -> None:
+    """#1768: the parser maps the Jira <status> name onto TaskData.status so
+    completed/in-flight issues do not re-import as NOT_STARTED."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    from .fixtures import STATUS_EXPORT
+
+    data = parse_jira_xml(STATUS_EXPORT)
+    by_name = {t.name: t for t in data.tasks}
+    assert by_name["Shipped work"].status == TaskStatus.COMPLETE.value
+    assert by_name["Active work"].status == TaskStatus.IN_PROGRESS.value
+    assert by_name["Not yet started"].status == TaskStatus.NOT_STARTED.value
+    # Unrecognized and missing statuses map to None (importer applies NOT_STARTED).
+    assert by_name["Unknown status"].status is None
+    assert by_name["No status element"].status is None

@@ -161,6 +161,10 @@ def parse_xml(xml_content: bytes) -> ProjectData:
 
     Handles both namespaced (Project 2003+) and non-namespaced XML.
     """
+    # Local import (models must be app-ready): TaskStatus is used only to derive
+    # each task's status from its raw PercentComplete (#1768).
+    from trueppm_api.apps.projects.models import TaskStatus
+
     # Parse with defusedxml (#771): it forbids entity expansion and external-
     # entity resolution by default, defending against billion-laughs / XXE on the
     # user-uploaded file. The 10 MB upload cap in MsProjectImportView bounds size
@@ -333,6 +337,23 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 )
                 opt_days = ml_days = pess_days = None
 
+            # Finite-guard + clamp to [0, 100] (#1720): MS Project PercentComplete
+            # is 0-100. nan/inf/1e999 (and any out-of-range figure) is rejected/
+            # clamped before it reaches progress + EVM math.
+            raw_percent = _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
+            # Derive status from the RAW file percent (0-100), gated on whether the
+            # task has a start (#1768). Keyed on the raw value so it is independent
+            # of how percent is stored downstream (the 0-1-vs-0-100 question, #1759).
+            # A task with no start has its percent clamped to 0 by the importer
+            # (ADR-0057 Q5), so it must stay NOT_STARTED — leave status None (the
+            # importer's default) rather than IN_PROGRESS, so status and progress
+            # can never disagree.
+            td_status: str | None = None
+            if start_str:
+                if raw_percent >= 100.0:
+                    td_status = TaskStatus.COMPLETE.value
+                elif raw_percent > 0.0:
+                    td_status = TaskStatus.IN_PROGRESS.value
             td = TaskData(
                 uid=uid,
                 name=name,
@@ -346,11 +367,10 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 # a percent), so we keep the value on that scale here. An earlier
                 # /100 divided it into a 0-1 fraction, which the importer then wrote
                 # straight into the 0-100 field — a 75% task landed as 0.75%.
-                # nan/inf/1e999 (and any out-of-range figure) is rejected/clamped
-                # before it reaches the bulk_create'd FloatField.
-                percent_complete=(
-                    _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
-                ),
+                # raw_percent is the same finite-clamped 0-100 value derived above
+                # for status inference, so reuse it rather than re-running the guard.
+                percent_complete=raw_percent,
+                status=td_status,
                 notes=notes,
                 start=start_str[:10] if start_str else None,
                 optimistic_duration_days=opt_days,

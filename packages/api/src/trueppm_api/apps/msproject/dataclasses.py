@@ -18,6 +18,12 @@ class TaskData:
     percent_complete: float = 0.0
     notes: str = ""
     start: str | None = None  # ISO date string (YYYY-MM-DD)
+    # Canonical TaskStatus *value* string (e.g. "complete"), or None when the
+    # source did not supply an explicit status. The Jira parser maps the issue's
+    # status name onto this field; the MS Project importer derives it from the
+    # clamped percent-complete when None (#1768). Keeping the interchange value a
+    # plain string keeps this dataclass free of a Django-model import.
+    status: str | None = None
     # Three-point / PERT estimate fields (#798, ADR-0093). Working days,
     # nullable, all-or-none: the importer sets all three to None unless the
     # source file supplied all three for a leaf (non-summary, non-milestone)

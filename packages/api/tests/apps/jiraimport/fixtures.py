@@ -161,3 +161,44 @@ EDGE_CASE_EXPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 </rss>
 """
+
+
+# Statuses across the board columns plus one unrecognized status. Exercises the
+# #1768 status-name → TaskStatus mapping. No issuelinks — status mapping is the
+# only thing under test.
+STATUS_EXPORT = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="0.92">
+<channel>
+  <title>Acme JIRA</title>
+  <item>
+    <title>[PROJ-1] Shipped work</title>
+    <key id="10001">PROJ-1</key>
+    <summary>Shipped work</summary>
+    <status id="10002">Done</status>
+  </item>
+  <item>
+    <title>[PROJ-2] Active work</title>
+    <key id="10002">PROJ-2</key>
+    <summary>Active work</summary>
+    <status id="10001">In Progress</status>
+  </item>
+  <item>
+    <title>[PROJ-3] Not yet started</title>
+    <key id="10003">PROJ-3</key>
+    <summary>Not yet started</summary>
+    <status id="10000">To Do</status>
+  </item>
+  <item>
+    <title>[PROJ-4] Unknown status</title>
+    <key id="10004">PROJ-4</key>
+    <summary>Unknown status</summary>
+    <status id="10099">Frozen</status>
+  </item>
+  <item>
+    <title>[PROJ-5] No status element</title>
+    <key id="10005">PROJ-5</key>
+    <summary>No status element</summary>
+  </item>
+</channel>
+</rss>
+"""
