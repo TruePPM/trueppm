@@ -49,11 +49,15 @@ The ticket is valid for 30 seconds and is consumed on first use — request a fr
 one before every connection, including each reconnect. It carries authentication
 only; the server still enforces project membership and role before accepting.
 
-:::caution[Deprecated: `?token=<access_token>`]
-Passing the raw access token as `?token=` still works for one release as a
-deprecated fallback (the server logs a deprecation warning for each such
-connection) and will be removed in a future release. Migrate clients to the
-ticket flow above.
+:::caution[Deprecated and off by default: `?token=<access_token>`]
+Passing the raw access token as `?token=` is a deprecated fallback that is now
+**disabled by default** — a raw JWT in the URL leaks into proxy and server access
+logs, so the ticket flow above is the only path that reaches production. An
+operator who still has clients on the old path can re-enable it for one last
+release by setting `TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED=true`; the server logs a
+deprecation warning for each such connection. With the flag off, a `?token=`
+handshake is treated as no credential and closed with `4001`. The fallback is
+removed entirely next release. Migrate clients to the ticket flow above.
 :::
 
 ## Close codes

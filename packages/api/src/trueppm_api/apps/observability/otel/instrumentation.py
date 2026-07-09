@@ -136,6 +136,45 @@ def instrument(
     logger.info("OpenTelemetry auto-instrumentation installed (%d libraries)", len(_installed))
 
 
+#: Value substituted for the credential-bearing WebSocket handshake query string.
+_WS_REDACTED_QUERY = "REDACTED"
+
+
+def _redact_ws_credential_span(span: Any, scope: dict[str, Any]) -> None:
+    """Strip the handshake credential from a WebSocket server span (#1723).
+
+    ``OpenTelemetryMiddleware`` records the raw request query string into the
+    span's URL/target attributes (``collect_request_attributes`` in
+    ``opentelemetry.instrumentation.asgi``). For a WS upgrade that query string
+    *is* the credential — ``?ticket=`` and the legacy ``?token=<jwt>`` — so
+    exporting those attributes ships a live, replayable credential to anyone with
+    read access to the trace store, re-opening the credential-in-URL leak (#818)
+    that the ADR-0141 ticket scheme closed.
+
+    This ``server_request_hook`` fires after attribute collection but before the
+    span is exported, so overwriting the offending attributes redacts them from
+    every exporter. It replaces the dedicated ``url.query`` attribute outright and
+    truncates the path/URL attributes (``http.target``, ``http.url``, ``url.full``
+    — shaped ``<path-or-url>?<query>``) at the ``?``. Wired onto the
+    websocket-branch middleware only, so HTTP request spans are untouched.
+    """
+    if span is None or not span.is_recording():
+        return
+    # Nothing to redact when the handshake carried no query string.
+    if not scope.get("query_string"):
+        return
+    # span.attributes is the live BoundedAttributes mapping; snapshot before we
+    # mutate it via set_attribute (which overwrites in place).
+    for key, value in list((span.attributes or {}).items()):
+        if not isinstance(value, str):
+            continue
+        lkey = key.lower()
+        if lkey.endswith("query"):
+            span.set_attribute(key, _WS_REDACTED_QUERY)
+        elif lkey.endswith(("target", "url", "full")) and "?" in value:
+            span.set_attribute(key, value.split("?", 1)[0])
+
+
 def wrap_asgi_app(app: Any) -> Any:
     """Wrap the ASGI ``application`` for WebSocket spans, or return it unchanged.
 
@@ -149,6 +188,10 @@ def wrap_asgi_app(app: Any) -> Any:
     .asgi`` import happens only past the gate, and the original app is returned
     unchanged so a default deployment adds no ASGI wrapper.
 
+    The middleware is wired with :func:`_redact_ws_credential_span` as its
+    ``server_request_hook`` so the WS handshake credential never reaches an
+    exporter (#1723).
+
     Args:
         app: The ASGI application (typically the WebSocket ``URLRouter``).
 
@@ -160,7 +203,7 @@ def wrap_asgi_app(app: Any) -> Any:
     try:
         from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
 
-        return OpenTelemetryMiddleware(app)
+        return OpenTelemetryMiddleware(app, server_request_hook=_redact_ws_credential_span)
     except Exception:
         logger.exception("OpenTelemetry ASGI wrap failed; continuing without WebSocket spans")
         return app

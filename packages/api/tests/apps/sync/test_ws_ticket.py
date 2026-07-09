@@ -6,6 +6,7 @@ Covers the REST mint endpoint, the issue/consume single-use semantics, and
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -135,11 +136,30 @@ async def test_authenticate_scope_spent_ticket_rejected() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_authenticate_scope_token_fallback(user: object) -> None:
+async def test_authenticate_scope_token_fallback_when_enabled(user: object, settings: Any) -> None:
+    """With the opt-in flag on, ?token= still resolves (last-release fallback)."""
+    settings.TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED = True
     with patch.object(ws_auth, "authenticate_token", new=AsyncMock(return_value=user)):
         result = await ws_auth.authenticate_scope(_scope("token=jwt"))
     assert result.via == "token"
     assert result.user is user
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_authenticate_scope_token_ignored_by_default(user: object, settings: Any) -> None:
+    """Default (#1723): ?token= is not consulted — no raw JWT can enter the URL path.
+
+    A client presenting only ?token= is treated as unauthenticated (via=None),
+    which the consumer closes as 4001. authenticate_token must never be called.
+    """
+    settings.TRUEPPM_WS_LEGACY_TOKEN_AUTH_ENABLED = False
+    token = AsyncMock(return_value=user)
+    with patch.object(ws_auth, "authenticate_token", new=token):
+        result = await ws_auth.authenticate_scope(_scope("token=jwt"))
+    assert result.user is None
+    assert result.via is None
+    token.assert_not_awaited()
 
 
 @pytest.mark.asyncio
