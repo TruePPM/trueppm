@@ -398,6 +398,55 @@ describe('exportSchedulePdf — row-aware vertical pagination (issue 1694)', () 
   });
 });
 
+describe('exportSchedulePdf — selectable text layer (issue 1687)', () => {
+  function stubRect(el: HTMLElement, box: [number, number, number, number]) {
+    const [left, top, width, height] = box;
+    el.getBoundingClientRect = () =>
+      ({
+        left,
+        top,
+        right: left + width,
+        bottom: top + height,
+        width,
+        height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+
+  /** A print node carrying one opt-in `data-print-text` run with a measured box. */
+  function textNode(): HTMLElement {
+    const node = document.createElement('div');
+    const row = document.createElement('div');
+    row.dataset.printText = 'row';
+    row.textContent = '1.2 Design Foundations';
+    stubRect(row, [10, 10, 200, 20]);
+    node.appendChild(row);
+    return node;
+  }
+
+  it('stamps invisible selectable text over the raster on the single-page path', async () => {
+    stubImage(800, 400);
+    const result = await exportSchedulePdf(textNode(), { fileName: 'apollo_schedule.pdf' });
+
+    expect(result.pageCount).toBe(1);
+    expect(text).toHaveBeenCalledWith(
+      '1.2 Design Foundations',
+      expect.any(Number),
+      expect.any(Number),
+      expect.objectContaining({ renderingMode: 'invisible', baseline: 'top' }),
+    );
+    expect(save).toHaveBeenCalledWith('apollo_schedule.pdf');
+  });
+
+  it('does not stamp any text for a surface with no opt-in markers', async () => {
+    stubImage(800, 400);
+    await exportSchedulePdf(document.createElement('div'), { fileName: 'plain.pdf' });
+    expect(text).not.toHaveBeenCalled();
+  });
+});
+
 describe('scheduledPdfFileName', () => {
   it('slugifies the project name and appends the ISO day', () => {
     expect(scheduledPdfFileName('Apollo Program!', '2026-06-30T10:00:00Z')).toBe(
