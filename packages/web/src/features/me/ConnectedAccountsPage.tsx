@@ -21,6 +21,12 @@ import {
 } from '@/hooks/useIntegrationCredentials';
 import { registry } from '@/lib/widget-registry';
 import { docsUrl } from '@/lib/docsUrl';
+import {
+  EXTERNAL_TASK_SOURCES,
+  type ExternalTaskSourceEntry,
+} from '@/features/integrations/registry';
+import { SourceMark } from '@/features/integrations/SourceMark';
+import { useExternalConnection } from '@/hooks/useExternalConnection';
 
 type DialogMode = 'connect' | 'rotate' | 'revoke';
 
@@ -130,6 +136,8 @@ export function ConnectedAccountsPage() {
         </a>
         .
       </p>
+
+      <AvailableSourcesSection />
 
       {dialog?.mode === 'connect' || dialog?.mode === 'rotate' ? (
         <ConnectCredentialDialog
@@ -472,6 +480,150 @@ function EnterpriseProviderSlots() {
         return <Comp key={reg.id} />;
       })}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Available sources — external task sources a contributor can pull their own
+// assigned items from into My Work (#1420, ADR-0097 / ADR-0291). Distinct from
+// the credentials list above (task-link previews, ADR-0049): a different
+// registry for a different feature, sharing this one surface per ADR-0076.
+//
+// This slice is registry + live connection-state only — the connect/manage flow
+// is #1421. Until it lands, the per-source affordance is an unmistakable,
+// non-interactive "Coming soon" pill, never a dead-click button.
+// ---------------------------------------------------------------------------
+
+const TRUST_GUARANTEES = ['Read-only', 'One-way into My Work', 'Never writes back'];
+
+function AvailableSourcesSection() {
+  return (
+    <section
+      aria-labelledby="available-sources-heading"
+      className="flex flex-col gap-4 border-t border-neutral-border pt-6"
+    >
+      <header>
+        <h2
+          id="available-sources-heading"
+          className="text-lg font-semibold text-neutral-text-primary"
+        >
+          Available sources
+        </h2>
+        <p className="mt-1 text-sm text-neutral-text-secondary">
+          Pull the work assigned to you in other tools into My Work. Connections
+          are personal to you, read-only, and one-way — TruePPM never writes back.
+        </p>
+        <div
+          role="group"
+          aria-label="Trust guarantees: read-only, one-way into My Work, never writes back"
+          className="mt-3 flex flex-wrap gap-2"
+        >
+          {TRUST_GUARANTEES.map((label) => (
+            <span
+              key={label}
+              aria-hidden="true"
+              // text-primary (not -secondary) keeps the trust promise above WCAG
+              // AA on surface-sunken (4.36:1 → ~12:1) and reads it more prominently
+              // — this badge row *is* the section's core reassurance (rule 241).
+              className="inline-flex items-center rounded-control border border-neutral-border bg-neutral-surface-sunken px-2 h-6 text-xs font-medium text-neutral-text-primary"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      </header>
+
+      <ul className="flex flex-col gap-3" aria-label="External task sources">
+        {EXTERNAL_TASK_SOURCES.map((source) => (
+          <SourceCard key={source.provider} source={source} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
+  const available = source.status === 'available';
+  // Only `available` sources have a backend connection to read; `coming_soon`
+  // sources are not fetched (there is nothing to connect yet). The hook is
+  // always called (rules of hooks) but gated by `enabled`.
+  const { connection, isConnected, isLoading } = useExternalConnection(
+    source.provider,
+    available,
+  );
+
+  return (
+    <li
+      id={`source-${source.provider}`}
+      aria-busy={available && isLoading}
+      className="border border-neutral-border rounded-card bg-neutral-surface-raised p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+    >
+      <div className="flex min-w-0 gap-3">
+        <SourceMark sourceType={source.provider} label={source.name} className="mt-0.5" />
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-neutral-text-primary">
+            {source.name}
+          </h3>
+          <p className="mt-0.5 text-xs text-neutral-text-secondary">
+            {source.description}
+          </p>
+          {isConnected && connection ? (
+            <p className="mt-1 text-xs text-neutral-text-secondary">
+              Linked as {connection.account_email || 'your account'}
+              {connection.last_synced_at ? (
+                <> · synced {formatRelativeDate(connection.last_synced_at)}</>
+              ) : null}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="sm:shrink-0">
+        <SourceStatus available={available} isConnected={isConnected} isLoading={isLoading} />
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Passive status affordance for a source (no interactive control this slice).
+ *
+ * - available + loading → skeleton (never a spinner)
+ * - connected → "Active" (mirrors the credentials list's ConnectionPill)
+ * - otherwise → non-interactive "Coming soon" ghost pill (the #1421 seam)
+ *
+ * Deliberately a `<span>`, never a `<button>`/`<a>`: a gated Connect must not be
+ * clickable or focusable (ADR-0291, VoC 🟡 — a dead-click is exactly the friction
+ * a contributor churns on).
+ */
+function SourceStatus({
+  available,
+  isConnected,
+  isLoading,
+}: {
+  available: boolean;
+  isConnected: boolean;
+  isLoading: boolean;
+}) {
+  if (available && isLoading) {
+    return (
+      <span
+        aria-hidden="true"
+        className="inline-block w-20 h-6 rounded-control bg-neutral-surface-sunken motion-safe:animate-pulse"
+      />
+    );
+  }
+  if (isConnected) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-semantic-on-track">
+        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-semantic-on-track" />
+        Active
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center rounded-control border border-dashed border-neutral-border bg-transparent px-2 h-6 text-xs font-medium text-neutral-text-secondary">
+      Coming soon
+    </span>
   );
 }
 

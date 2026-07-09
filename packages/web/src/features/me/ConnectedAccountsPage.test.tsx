@@ -29,6 +29,30 @@ vi.mock('@/hooks/useIntegrationCredentials', () => ({
   }),
 }));
 
+// The "Available sources" section (#1420) reads each source's connection state
+// through this hook. Mock it so the credentials-section tests render
+// deterministically (not-connected → "Coming soon") without touching apiClient;
+// the dedicated section tests below drive it per-state.
+interface ConnReturn {
+  connection: {
+    account_email: string;
+    last_synced_at: string | null;
+  } | null;
+  isConnected: boolean;
+  isLoading: boolean;
+}
+const useExternalConnection = vi.fn<(source: string, enabled?: boolean) => ConnReturn>();
+vi.mock('@/hooks/useExternalConnection', () => ({
+  useExternalConnection: (source: string, enabled?: boolean) =>
+    useExternalConnection(source, enabled),
+}));
+
+const NOT_CONNECTED: ConnReturn = {
+  connection: null,
+  isConnected: false,
+  isLoading: false,
+};
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -81,6 +105,8 @@ const EMPTY_LIST = [
 beforeEach(() => {
   upsertMutate.mockReset();
   revokeMutate.mockReset();
+  useExternalConnection.mockReset();
+  useExternalConnection.mockReturnValue(NOT_CONNECTED);
 });
 
 describe('ConnectedAccountsPage', () => {
@@ -117,10 +143,14 @@ describe('ConnectedAccountsPage', () => {
       refetch: vi.fn(),
     });
     renderPage();
-    // One heading per provider.
-    expect(screen.getByRole('heading', { name: /GitLab/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Generic/i })).toBeInTheDocument();
+    // One heading per provider — scoped to the credentials list so the
+    // "Available sources" section's own GitHub card doesn't collide (#1420).
+    const credentials = within(
+      screen.getByRole('list', { name: 'Integration providers' }),
+    );
+    expect(credentials.getByRole('heading', { name: /GitLab/i })).toBeInTheDocument();
+    expect(credentials.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
+    expect(credentials.getByRole('heading', { name: /Generic/i })).toBeInTheDocument();
     // Empty-state hint is visible when no providers are connected.
     expect(screen.getByText(/Why connect an account/i)).toBeInTheDocument();
     // Generic provider shows the "no credential needed" copy and no Connect button.
@@ -230,5 +260,89 @@ describe('ConnectedAccountsPage', () => {
     expect(container.querySelector('#provider-gitlab')).not.toBeNull();
     expect(container.querySelector('#provider-github')).not.toBeNull();
     expect(container.querySelector('#provider-generic')).not.toBeNull();
+  });
+});
+
+describe('ConnectedAccountsPage — Available sources (#1420)', () => {
+  beforeEach(() => {
+    useIntegrationCredentials.mockReturnValue({
+      credentials: EMPTY_LIST,
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+  });
+
+  it('renders the section, trust badges, and a card per registry source', () => {
+    renderPage();
+    expect(
+      screen.getByRole('region', { name: /Available sources/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('group', { name: /Trust guarantees/i }),
+    ).toBeInTheDocument();
+    const sources = within(
+      screen.getByRole('list', { name: 'External task sources' }),
+    );
+    expect(sources.getByRole('heading', { name: /Jira/i })).toBeInTheDocument();
+    expect(sources.getByRole('heading', { name: /GitHub/i })).toBeInTheDocument();
+  });
+
+  it('shows a non-interactive "Coming soon" pill and no clickable control', () => {
+    useExternalConnection.mockReturnValue(NOT_CONNECTED);
+    renderPage();
+    const list = within(
+      screen.getByRole('list', { name: 'External task sources' }),
+    );
+    // jira (available, not connected) + github (coming_soon) → both "Coming soon".
+    expect(list.getAllByText(/Coming soon/i).length).toBeGreaterThanOrEqual(2);
+    // The gated affordance must never be a button or link (dead-click guard).
+    expect(list.queryByRole('button')).toBeNull();
+    expect(list.queryByRole('link')).toBeNull();
+  });
+
+  it('shows "Active" with the linked account when a source is connected', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? {
+            connection: {
+              account_email: 'p.patel@acme.com',
+              last_synced_at: '2026-05-20T14:00:00Z',
+            },
+            isConnected: true,
+            isLoading: false,
+          }
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const jira = document.getElementById('source-jira') as HTMLElement;
+    const card = within(jira);
+    expect(card.getByText('Active')).toBeInTheDocument();
+    expect(card.getByText(/Linked as p\.patel@acme\.com/i)).toBeInTheDocument();
+  });
+
+  it('fetches connection state only for available sources', () => {
+    renderPage();
+    // jira is available → fetch enabled; github is coming_soon → not fetched.
+    expect(useExternalConnection).toHaveBeenCalledWith('jira', true);
+    expect(useExternalConnection).toHaveBeenCalledWith('github', false);
+  });
+
+  it('renders a skeleton (not a status pill) while an available source loads', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira'
+        ? { connection: null, isConnected: false, isLoading: true }
+        : NOT_CONNECTED,
+    );
+    renderPage();
+    const jira = within(document.getElementById('source-jira') as HTMLElement);
+    expect(jira.queryByText('Active')).toBeNull();
+    expect(jira.queryByText(/Coming soon/i)).toBeNull();
+  });
+
+  it('exposes a hash anchor target per source', () => {
+    renderPage();
+    expect(document.getElementById('source-jira')).not.toBeNull();
+    expect(document.getElementById('source-github')).not.toBeNull();
   });
 });
