@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ProjectMembership } from '@/api/types';
+import { AvatarInitials } from '@/components/AvatarInitials';
 import { ROLE_OWNER } from '@/lib/roles';
 import { RolePicker } from './RolePicker';
 
@@ -79,13 +80,7 @@ export function MemberRow({
   return (
     <li className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-surface-raised transition-colors">
       {/* Avatar */}
-      <div
-        aria-hidden="true"
-        className="w-8 h-8 shrink-0 rounded-full bg-brand-primary/10 text-brand-primary
-          text-xs font-semibold flex items-center justify-center"
-      >
-        {initials}
-      </div>
+      <AvatarInitials initials={initials} size="lg" />
 
       {/* Identity */}
       <div className="flex-1 min-w-0">
