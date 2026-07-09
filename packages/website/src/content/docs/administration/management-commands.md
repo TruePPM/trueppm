@@ -50,6 +50,29 @@ random token (or the dev `demo` default) is printed.
 The command is **idempotent** — re-running clears any prior "Platform Migration"
 project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.
 
+## `create_demo_share_link`
+
+Mints (or pins) the public read-only **schedule share link** used by the hosted
+demo (`try.trueppm.dev`) and prints its URL. The demo dogfoods the product's own
+tokenized, read-only share link (#283 / #1486) rather than a bespoke read-only
+mode — no login, no write path, near-zero abuse surface. Run it after
+`seed_demo_project`; the [demo compose stack](/getting-started/try-it/) runs both
+automatically.
+
+| Flag | Effect |
+|------|--------|
+| `--project <name>` | Demo project to share (default: `Platform Migration`) |
+| `--token <token>` | Pin a fixed raw token for a stable, reprintable URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
+| `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `https://try.trueppm.dev`) |
+
+With a pinned token the command is **idempotent and reprintable** — it upserts a
+link whose hash matches the token and prints the same stable URL on every run, so
+the demo has one deep-linkable address that survives restarts. Without a token, a
+random link is minted once; because the raw token is stored only as a hash it
+cannot be reprinted, so re-running reuses the existing link and prompts you to pin
+a token. This command never creates persona logins and never touches the
+`TRUEPPM_DEMO_PASSWORD` path.
+
 ## `seed_ga_launch_program`
 
 Builds the **"1.0 GA Launch"** hybrid sample *program* — one OSS program of four
