@@ -524,7 +524,7 @@ function AvailableSourcesSection() {
               aria-hidden="true"
               // text-primary (not -secondary) keeps the trust promise above WCAG
               // AA on surface-sunken (4.36:1 → ~12:1) and reads it more prominently
-              // — this badge row *is* the section's core reassurance (rule 240).
+              // — this badge row *is* the section's core reassurance (rule 241).
               className="inline-flex items-center rounded-control border border-neutral-border bg-neutral-surface-sunken px-2 h-6 text-xs font-medium text-neutral-text-primary"
             >
               {label}
