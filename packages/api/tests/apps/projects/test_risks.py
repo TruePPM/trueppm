@@ -1028,3 +1028,93 @@ class TestRiskLinkActivityEvents:
         )
         assert u.status_code == 200
         assert TaskActivityEvent.objects.count() == count_before
+
+
+# ---------------------------------------------------------------------------
+# Owner membership validation (#1725) — owner must be a live project member,
+# mirroring the Task.assignee guard (#684). Prevents a writer from pointing a
+# risk at an arbitrary user id and reading back their display name.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def outsider_user(db: object) -> object:
+    """A real user with no membership on the risk's project."""
+    return User.objects.create_user(username="outsider", password="pw")
+
+
+@pytest.mark.django_db
+class TestRiskOwnerMembership:
+    def test_create_with_non_member_owner_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        outsider_user: object,
+    ) -> None:
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {
+                "title": "Leaky",
+                "probability": 2,
+                "impact": 2,
+                "owner": str(outsider_user.pk),
+            },
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "owner" in r.data
+
+    def test_create_with_member_owner_allowed(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+        member_user: object,
+        member_membership: ProjectMembership,
+    ) -> None:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/risks/",
+                {
+                    "title": "Owned",
+                    "probability": 2,
+                    "impact": 2,
+                    "owner": str(member_user.pk),
+                },
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["owner"] == member_user.pk
+
+    def test_create_without_owner_allowed(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Unassigned ownership is always valid — the guard only fires when set."""
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/risks/",
+                {"title": "Unowned", "probability": 1, "impact": 1},
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["owner"] is None
+
+    def test_update_owner_to_non_member_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        risk: Risk,
+        owner_membership: ProjectMembership,
+        outsider_user: object,
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/risks/{risk.pk}/",
+            {"owner": str(outsider_user.pk)},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "owner" in r.data

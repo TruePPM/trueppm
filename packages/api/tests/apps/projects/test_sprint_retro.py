@@ -440,3 +440,90 @@ def test_unauthenticated_gets_401(project: Project) -> None:
     s = _closed_sprint(project)
     resp = APIClient().get(f"/api/v1/sprints/{s.pk}/retro/")
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Action-item assignee membership validation (#1725) — an assignee must be a
+# live member of the retro's project, mirroring the Task.assignee guard (#684).
+# The write path is this endpoint (not the read-only serializer), so the guard
+# lives in the view. Prevents leaking a non-member's username via the GET echo.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_post_rejects_non_member_action_item_assignee(
+    project: Project, member: object, stranger: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {
+            "notes": "retro",
+            "action_items": [{"text": "do a thing", "assignee": str(stranger.pk)}],
+        },
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+    # Nothing was written — the whole upsert is rejected before the atomic block.
+    assert not RetroActionItem.objects.filter(retro__sprint=s).exists()
+
+
+@pytest.mark.django_db
+def test_post_allows_member_action_item_assignee(
+    project: Project, member: object, admin_user: object
+) -> None:
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {
+            "notes": "retro",
+            "action_items": [{"text": "do a thing", "assignee": str(admin_user.pk)}],
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert len(resp.data["action_items"]) == 1
+    assert resp.data["action_items"][0]["assignee"] == admin_user.pk
+
+
+@pytest.mark.django_db
+def test_post_allows_unassigned_action_item(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"notes": "retro", "action_items": [{"text": "unassigned"}]},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["action_items"][0]["assignee"] is None
+
+
+@pytest.mark.django_db
+def test_post_rejects_malformed_assignee_id_with_400(project: Project, member: object) -> None:
+    """A non-integer assignee id is a clean 400, not a 500 at the query/save.
+
+    ``AUTH_USER_MODEL`` uses integer PKs, so the view parses assignee ids with
+    ``int(str(raw))``; a non-numeric id must surface as a 400, not a 500.
+    """
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"notes": "retro", "action_items": [{"text": "x", "assignee": "not-a-number"}]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "action_items" in resp.data
+
+
+@pytest.mark.django_db
+def test_post_rejects_out_of_range_assignee_id_with_400(project: Project, member: object) -> None:
+    """An id past the int32 PK range is a clean 400, not a Postgres DataError 500."""
+    s = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"notes": "retro", "action_items": [{"text": "x", "assignee": "999999999999"}]},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "action_items" in resp.data

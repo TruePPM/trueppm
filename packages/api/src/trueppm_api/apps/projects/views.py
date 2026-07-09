@@ -10118,6 +10118,48 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
         new_visibility = request.data.get("team_visibility")
 
+        # #1725 (security): an action-item assignee must be a live member of the
+        # retro's project. ``assignee`` is set straight from the request body
+        # below (this endpoint, not the read-only serializer, is the write path),
+        # so without this guard any writer could point an item at ANY user id and
+        # the GET response would echo back that user's real username — a
+        # display-name / user-enumeration disclosure primitive. Mirrors the
+        # Task.assignee guard (#684). ``AUTH_USER_MODEL`` uses integer PKs, so a
+        # malformed (non-integer) id is rejected with a clean 400 rather than
+        # 500-ing at the membership query or bulk_create.
+        requested_assignees: set[int] = set()
+        for entry in items_in:
+            raw = entry.get("assignee")
+            if raw in (None, ""):
+                continue
+            try:
+                parsed = int(str(raw))
+            except (ValueError, TypeError):
+                parsed = -1
+            # Reject anything outside the int32 PK range too: an out-of-range but
+            # numerically-valid id would otherwise raise a Postgres DataError (500)
+            # at the ``user_id__in`` query rather than a clean 400. No real user PK
+            # can fall outside this range.
+            if not 1 <= parsed <= 2_147_483_647:
+                return Response(
+                    {"action_items": "Each assignee id must be a valid user identifier."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            requested_assignees.add(parsed)
+        if requested_assignees:
+            member_ids = set(
+                ProjectMembership.objects.filter(
+                    project_id=sprint.project_id,
+                    user_id__in=requested_assignees,
+                    is_deleted=False,
+                ).values_list("user_id", flat=True)
+            )
+            if requested_assignees - member_ids:
+                return Response(
+                    {"action_items": "Each assignee must be a member of this project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         with transaction.atomic():
             defaults: dict[str, Any] = {"notes": notes, "created_by": caller}
             if new_visibility is not None:
