@@ -3,8 +3,8 @@ title: Timesheet
 description: A keyboard-fast weekly grid to review and submit your logged time across every project.
 ---
 
-:::note[0.4]
-The weekly timesheet ships in 0.4.
+:::note[0.5]
+The weekly timesheet ships in 0.5.
 :::
 
 **Timesheet** is where you review and submit a whole week of logged time in one place. Where the inline quick-log and the running timer capture single entries fast, the timesheet is the grid you fill gaps in and submit at the end of the week — every project and task you logged against, laid out Monday to Sunday.

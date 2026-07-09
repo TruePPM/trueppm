@@ -4,7 +4,7 @@ description: Deploy TruePPM with Docker Compose or Kubernetes Helm chart.
 ---
 
 :::caution[Pre-GA]
-TruePPM 0.2 has shipped (as the `0.2.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
+TruePPM 0.3 has shipped (as the `0.3.0-alpha.1` pre-release) and is suitable for evaluation and early-adopter deployments; the release line stays alpha through 0.3, and 0.4 is planned as the first beta. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 ## Docker Compose (recommended for evaluation)

@@ -20,7 +20,7 @@ When the PM builds a schedule, work packages become the high-level containers in
 You don't have to manually maintain two systems. Your backlog IS the schedule's leaf layer.
 
 :::tip[Feature/Epic hierarchy]
-Full epic task type with dedicated backlog and board hierarchy is on the roadmap for 0.3. Today, epics are represented as summary tasks with story children — fully functional, without the dedicated epic UI.
+Full epic task type with dedicated backlog and board hierarchy shipped in 0.3: epics have a dedicated view with child story hierarchy, and they remain WBS work packages under the hood, so an epic is still the same row the PM sees as a summary task.
 :::
 
 ## Release forecasting
@@ -102,7 +102,7 @@ This is your one-question filter — *does it tell me when the feature ships, in
 | Sprint scope change tracking (burn-up markers) | Shipped |
 | WBS-linked stories (parent work packages) | Shipped |
 
-## On the roadmap (0.3)
+## Shipped in 0.3
 
 - **Epic task type** — dedicated epic view with child story hierarchy, epic-level burn chart, release-scoped backlog, plus create / edit / delete of epics directly on the product backlog: clicking an epic opens a detail drawer to edit its name and description, and deleting an epic moves its stories to Ungrouped rather than removing them
 - **Unified sprint planning** — interactive sprint planning session with capacity vs. commitment sidebar

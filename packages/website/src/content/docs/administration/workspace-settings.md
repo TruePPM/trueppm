@@ -69,7 +69,7 @@ The Workspace logo control was added in 0.3, available since the
 `0.3.0-alpha.1` pre-release (Jun 28, 2026).
 :::
 
-The **Workspace logo** control will let an Owner or Admin upload a square logo
+The **Workspace logo** control lets an Owner or Admin upload a square logo
 that surfaces in the top bar beside the workspace name. When no logo is set, the
 top bar falls back to a letter-mark derived from the workspace name.
 

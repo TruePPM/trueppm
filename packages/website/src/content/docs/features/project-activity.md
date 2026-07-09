@@ -84,5 +84,5 @@ GET /api/v1/projects/{id}/changelog/?since=&object_type=&change_type=&user=&curs
 It returns a newest-first page plus an opaque `next_cursor`. The cursor is a stable
 keyset (safe to persist, no duplicates or gaps across pages even when writes land
 mid-scroll), which makes the endpoint a reliable substrate for a polling
-integration. See the [API reference](/api/) for the full parameter and response
+integration. See the [API reference](/api/reference/) for the full parameter and response
 contract.
