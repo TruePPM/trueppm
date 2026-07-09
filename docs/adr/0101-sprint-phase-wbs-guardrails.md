@@ -3,6 +3,18 @@
 ## Status
 Proposed
 
+> **Amended by ADR-0293 (#1755, epic #1752 Increment C).** The `phase_in_sprint`
+> rule is no longer a Warn-default, Owner-escalatable composition guardrail. Committing
+> a **phase** — a non-subtask task with at least one structural (non-subtask) child — to
+> a sprint is now an **unconditional hard block**: the API rejects it with `400` and the
+> stable code `phase_in_sprint_forbidden`, regardless of the project's
+> `ProjectGuardrailPolicy` (it is not owner-escalatable and cannot be relaxed to Warn).
+> The `phase` definition is also broadened here from the narrow WBS L1-root
+> (`wbs_path ~ ^\d+$`) heuristic below to "owns a structural child" so a mid-tree
+> summary that rolls up real children is caught too. The remaining composition rules
+> (`summary_in_sprint`, `task_outside_sprint_window`, `recurring_in_sprint`) keep the
+> Warn/Block policy mechanics described in this ADR. See ADR-0293 for the rationale.
+
 ## Context
 
 In the TruePPM data model, sprint membership and WBS hierarchy are **orthogonal**: a

@@ -177,33 +177,130 @@ def sprint(project: Project) -> Sprint:
 
 @pytest.fixture
 def summary_with_child(project: Project) -> Task:
-    """A WBS L1 root ('1') with a child ('1.1') — the root is a summary phase."""
+    """A WBS L1 root ('1') with a structural child ('1.1') — the root is a phase."""
     parent = Task.objects.create(project=project, name="Phase 1", wbs_path="1", duration=1)
     Task.objects.create(project=project, name="Child", wbs_path="1.1", duration=1)
     return parent
 
 
+@pytest.fixture
+def midtree_phase_with_child(project: Project) -> Task:
+    """A mid-tree summary ('1.1') that owns a real child ('1.1.1').
+
+    Not a WBS L1 root, so the narrow ``is_phase`` (``^\\d+$``) heuristic misses it,
+    but it is a phase-rollup under the broader structural-child definition (#1752).
+    """
+    Task.objects.create(project=project, name="Phase 1", wbs_path="1", duration=1)
+    mid = Task.objects.create(project=project, name="Sub-phase", wbs_path="1.1", duration=1)
+    Task.objects.create(project=project, name="Grandchild", wbs_path="1.1.1", duration=1)
+    return mid
+
+
+@pytest.fixture
+def leaf_with_subtasks(project: Project) -> Task:
+    """A non-root leaf ('2.1') decomposed into drawer subtasks ('2.1.1', is_subtask=True).
+
+    This is a ``summary_in_sprint`` case — a decomposition the team may legitimately
+    commit — NOT a phase (its only child is a drawer subtask, not a structural task).
+    It must be unaffected by the phase hard block (#1755). Kept off the WBS L1 root
+    ('2' would trip the ``^\\d+$`` phase heuristic and report ``phase_in_sprint``
+    instead of ``summary_in_sprint``), so the summary rule is the one exercised.
+    """
+    Task.objects.create(project=project, name="Feature", wbs_path="2", duration=1)
+    summary = Task.objects.create(project=project, name="Sub-feature", wbs_path="2.1", duration=1)
+    Task.objects.create(
+        project=project, name="Subtask", wbs_path="2.1.1", duration=1, is_subtask=True
+    )
+    return summary
+
+
 # --------------------------------------------------------------------------- #
-# Warn path — assignment succeeds with a `warnings` payload.
+# Hard block — a phase -> sprint is an unconditional 400 (ADR-0293, #1755).
+# Not owner-escalatable, not relaxable via ProjectGuardrailPolicy.
 # --------------------------------------------------------------------------- #
 
 
-def test_phase_to_sprint_warns_but_succeeds(
+def _assert_phase_forbidden(resp: object) -> None:
+    assert resp.status_code == 400
+    # Standard DRF field-error envelope on `sprint`, carrying the stable machine code.
+    assert "sprint" in resp.data
+    detail = resp.data["sprint"]
+    detail = detail[0] if isinstance(detail, list) else detail
+    assert detail.code == "phase_in_sprint_forbidden"
+    # Outcome-language copy retained (no WBS jargon).
+    assert "Phases group work" in str(detail)
+
+
+def test_phase_to_sprint_hard_blocked_without_policy(
     owner_client: APIClient, project: Project, sprint: Sprint, summary_with_child: Task
 ) -> None:
+    """The key test: a phase -> sprint is rejected EVEN WITH NO blocking policy.
+
+    Proves the block is unconditional — it does not depend on an Owner escalating
+    ``phase_in_sprint`` to BLOCK via ProjectGuardrailPolicy. No policy row exists here.
+    """
+    assert not ProjectGuardrailPolicy.objects.filter(project=project).exists()
     resp = owner_client.patch(
         f"/api/v1/tasks/{summary_with_child.id}/",
         {"sprint": str(sprint.id)},
         format="json",
     )
-    assert resp.status_code == 200
+    _assert_phase_forbidden(resp)
     summary_with_child.refresh_from_db()
-    assert str(summary_with_child.sprint_id) == str(sprint.id)
+    assert summary_with_child.sprint_id is None
+
+
+def test_phase_to_sprint_hard_blocked_even_when_policy_relaxed_to_warn(
+    owner_client: APIClient, project: Project, sprint: Sprint, summary_with_child: Task
+) -> None:
+    """An Owner cannot relax the phase block: an explicit WARN policy is ignored."""
+    ProjectGuardrailPolicy.objects.create(
+        project=project,
+        levels={"phase_in_sprint": GuardrailLevel.WARN},
+        source=GuardrailPolicySource.OWNER,
+    )
+    resp = owner_client.patch(
+        f"/api/v1/tasks/{summary_with_child.id}/",
+        {"sprint": str(sprint.id)},
+        format="json",
+    )
+    _assert_phase_forbidden(resp)
+    summary_with_child.refresh_from_db()
+    assert summary_with_child.sprint_id is None
+
+
+def test_midtree_phase_to_sprint_hard_blocked(
+    owner_client: APIClient, project: Project, sprint: Sprint, midtree_phase_with_child: Task
+) -> None:
+    """A mid-tree phase (structural child not at the WBS root) is also caught."""
+    resp = owner_client.patch(
+        f"/api/v1/tasks/{midtree_phase_with_child.id}/",
+        {"sprint": str(sprint.id)},
+        format="json",
+    )
+    _assert_phase_forbidden(resp)
+    midtree_phase_with_child.refresh_from_db()
+    assert midtree_phase_with_child.sprint_id is None
+
+
+def test_leaf_with_subtasks_summary_unaffected(
+    owner_client: APIClient, project: Project, sprint: Sprint, leaf_with_subtasks: Task
+) -> None:
+    """A leaf-with-subtasks summary keeps its old ``summary_in_sprint`` warn behavior.
+
+    Its children are drawer subtasks, not structural tasks, so it is not a phase and
+    must NOT be hard-blocked — the assignment succeeds with a warning.
+    """
+    resp = owner_client.patch(
+        f"/api/v1/tasks/{leaf_with_subtasks.id}/",
+        {"sprint": str(sprint.id)},
+        format="json",
+    )
+    assert resp.status_code == 200
+    leaf_with_subtasks.refresh_from_db()
+    assert str(leaf_with_subtasks.sprint_id) == str(sprint.id)
     rules = {w["rule"] for w in resp.data.get("warnings", [])}
-    assert "phase_in_sprint" in rules
-    # Outcome-language copy, no WBS jargon.
-    detail = next(w["detail"] for w in resp.data["warnings"] if w["rule"] == "phase_in_sprint")
-    assert "velocity" in detail or "Phases group work" in detail
+    assert "summary_in_sprint" in rules
 
 
 def test_clean_leaf_to_sprint_no_warnings(
@@ -233,45 +330,48 @@ def test_clean_leaf_to_sprint_no_warnings(
 
 
 def test_owner_escalated_block_rejects(
-    owner_client: APIClient, project: Project, sprint: Sprint, summary_with_child: Task
+    owner_client: APIClient, project: Project, sprint: Sprint, leaf_with_subtasks: Task
 ) -> None:
+    # Uses the still-escalatable `summary_in_sprint` rule (the phase case is now an
+    # unconditional hard block that ignores policy — see the hard-block tests above).
     ProjectGuardrailPolicy.objects.create(
         project=project,
-        levels={"phase_in_sprint": GuardrailLevel.BLOCK},
+        levels={"summary_in_sprint": GuardrailLevel.BLOCK},
         source=GuardrailPolicySource.OWNER,
     )
     resp = owner_client.patch(
-        f"/api/v1/tasks/{summary_with_child.id}/",
+        f"/api/v1/tasks/{leaf_with_subtasks.id}/",
         {"sprint": str(sprint.id)},
         format="json",
     )
     assert resp.status_code == 400
     assert resp.data["code"] == "guardrail_blocked"
-    assert resp.data["rule"] == "phase_in_sprint"
-    summary_with_child.refresh_from_db()
-    assert summary_with_child.sprint_id is None
+    assert resp.data["rule"] == "summary_in_sprint"
+    leaf_with_subtasks.refresh_from_db()
+    assert leaf_with_subtasks.sprint_id is None
 
 
 def test_unacknowledged_external_block_is_inert(
-    owner_client: APIClient, project: Project, sprint: Sprint, summary_with_child: Task
+    owner_client: APIClient, project: Project, sprint: Sprint, leaf_with_subtasks: Task
 ) -> None:
     # EXTERNAL composition block, not yet acknowledged -> downgraded to warn.
+    # Uses `summary_in_sprint` (escalatable); the phase case bypasses policy entirely.
     ProjectGuardrailPolicy.objects.create(
         project=project,
-        levels={"phase_in_sprint": GuardrailLevel.BLOCK},
+        levels={"summary_in_sprint": GuardrailLevel.BLOCK},
         source=GuardrailPolicySource.EXTERNAL,
         source_label="Org Policy",
         acknowledged_by_team=False,
     )
     resp = owner_client.patch(
-        f"/api/v1/tasks/{summary_with_child.id}/",
+        f"/api/v1/tasks/{leaf_with_subtasks.id}/",
         {"sprint": str(sprint.id)},
         format="json",
     )
     # Inert block -> assignment succeeds, surfaced only as a warning.
     assert resp.status_code == 200
-    summary_with_child.refresh_from_db()
-    assert str(summary_with_child.sprint_id) == str(sprint.id)
+    leaf_with_subtasks.refresh_from_db()
+    assert str(leaf_with_subtasks.sprint_id) == str(sprint.id)
 
 
 # --------------------------------------------------------------------------- #
