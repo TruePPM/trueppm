@@ -66,9 +66,11 @@ test.describe('Mobile TopBar does not clip at the right edge (#1788)', () => {
     const header = page.locator('header').first();
     await expect(header).toBeVisible();
 
-    // The user menu is the last item in the pinned right cluster — if the cluster
-    // overflows, its right edge falls past the viewport.
-    const userMenu = header.getByRole('button', { name: 'User menu' });
+    // The account chip is the last item in the pinned right cluster — if the
+    // cluster overflows, its right edge falls past the viewport. Since #1792 the
+    // chip self-identifies by the signed-in user's name ("Account — E2E User"),
+    // never a generic "User menu".
+    const userMenu = header.getByRole('button', { name: 'Account — E2E User' });
     await expect(userMenu).toBeVisible();
 
     // The header (flex-nowrap) must not overflow horizontally.

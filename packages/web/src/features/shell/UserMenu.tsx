@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { initialsForUser, labelForUser, accountAccessibleName } from '@/lib/userIdentity';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -15,9 +16,9 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 // ---------------------------------------------------------------------------
 
 interface MenuContentProps {
-  /** Avatar pixel size for the header (28px in both variants per spec). */
-  initials: string | undefined;
-  displayName: string | undefined;
+  /** Derived initials for the header avatar (never "?"; see lib/userIdentity). */
+  initials: string;
+  displayName: string;
   email: string | undefined;
   onSignOut: () => void;
   onOpenShortcuts: () => void;
@@ -56,11 +57,11 @@ function MenuContent({
           className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-white text-xs font-semibold flex items-center justify-center"
           aria-hidden="true"
         >
-          {initials ?? '?'}
+          {initials}
         </span>
         <div className="flex flex-col min-w-0">
           <span className="text-sm font-semibold text-neutral-text-primary truncate leading-tight">
-            {displayName ?? ''}
+            {displayName}
           </span>
           <span className="tppm-mono text-xs text-neutral-text-secondary truncate leading-tight">
             {email ?? ''}
@@ -170,20 +171,31 @@ function MenuContent({
 // ---------------------------------------------------------------------------
 
 interface AvatarChipProps {
-  initials: string | undefined;
+  /** Derived initials — always a real value, never "?" (see lib/userIdentity). */
+  initials: string;
+  /** Accessible name + tooltip, e.g. "Account — Kelly Hair", so the chip
+   *  self-identifies as the account home instead of a generic "User menu". */
+  accessibleName: string;
   isLoading: boolean;
   isOpen: boolean;
   onClick: () => void;
   buttonRef: RefObject<HTMLButtonElement | null>;
 }
 
-function AvatarChip({ initials, isLoading, isOpen, onClick, buttonRef }: AvatarChipProps) {
+function AvatarChip({
+  initials,
+  accessibleName,
+  isLoading,
+  isOpen,
+  onClick,
+  buttonRef,
+}: AvatarChipProps) {
   if (isLoading) {
     return (
       <button
         ref={buttonRef}
         type="button"
-        aria-label="User menu"
+        aria-label="Account"
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={onClick}
@@ -196,19 +208,18 @@ function AvatarChip({ initials, isLoading, isOpen, onClick, buttonRef }: AvatarC
     <button
       ref={buttonRef}
       type="button"
-      aria-label="User menu"
+      aria-label={accessibleName}
+      title={accessibleName}
       aria-haspopup="menu"
       aria-expanded={isOpen}
       onClick={onClick}
       className={[
         'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold',
         'focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary',
-        initials
-          ? 'bg-brand-primary text-white'
-          : 'bg-neutral-surface-raised text-neutral-text-disabled',
+        'bg-brand-primary text-white',
       ].join(' ')}
     >
-      {initials ?? '?'}
+      {initials}
     </button>
   );
 }
@@ -293,9 +304,15 @@ export function UserMenu() {
     // sheetRef is a stable ref from useFocusTrap; listed to satisfy exhaustive-deps.
   }, [isOpen, sheetRef]);
 
+  // Client-side identity fallback (display_name → username → email local-part).
+  // The chip must never degrade to a literal "?" nor a generic "User menu" — a
+  // "?" top-right reads as Help, not "your account" (#1792).
+  const avatarInitials = initialsForUser(user);
+  const accessibleName = accountAccessibleName(user);
+
   const sharedContentProps = {
-    initials: user?.initials,
-    displayName: user?.display_name,
+    initials: avatarInitials,
+    displayName: labelForUser(user),
     email: user?.email,
     onSignOut: handleSignOut,
     onOpenShortcuts: () => setShowShortcuts(true),
@@ -310,7 +327,8 @@ export function UserMenu() {
       {/* ------------------------------------------------------------------ */}
       <div className="hidden md:block relative" ref={menuRef}>
         <AvatarChip
-          initials={user?.initials}
+          initials={avatarInitials}
+          accessibleName={accessibleName}
           isLoading={isLoading}
           isOpen={isOpen}
           onClick={toggle}
@@ -333,7 +351,8 @@ export function UserMenu() {
       {/* ------------------------------------------------------------------ */}
       <div className="md:hidden">
         <AvatarChip
-          initials={user?.initials}
+          initials={avatarInitials}
+          accessibleName={accessibleName}
           isLoading={isLoading}
           isOpen={isOpen}
           onClick={toggle}

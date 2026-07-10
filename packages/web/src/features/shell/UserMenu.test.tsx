@@ -65,7 +65,7 @@ vi.mock('react-router', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 function openMenu() {
-  const chips = screen.getAllByRole('button', { name: /user menu/i });
+  const chips = screen.getAllByRole('button', { name: /account/i });
   fireEvent.click(chips[0]);
 }
 
@@ -94,8 +94,15 @@ describe('UserMenu', () => {
 
   it('renders initials "SC" in the avatar chip', () => {
     renderWithRouter(<UserMenu />);
-    const chips = screen.getAllByRole('button', { name: /user menu/i });
+    const chips = screen.getAllByRole('button', { name: /account/i });
     expect(chips[0].textContent).toBe('SC');
+  });
+
+  it('the chip self-identifies: accessible name and tooltip include the user (#1792)', () => {
+    renderWithRouter(<UserMenu />);
+    const chips = screen.getAllByRole('button', { name: 'Account — Sarah Chen' });
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips[0].getAttribute('title')).toBe('Account — Sarah Chen');
   });
 
   it('click chip → dropdown content is visible (shows display name)', () => {
@@ -158,16 +165,33 @@ describe('UserMenu', () => {
   it('loading state → avatar shows skeleton with animate-pulse (no initials text)', () => {
     mockUserResult.value = { user: undefined, isLoading: true };
     renderWithRouter(<UserMenu />);
-    const chips = screen.getAllByRole('button', { name: /user menu/i });
+    const chips = screen.getAllByRole('button', { name: /account/i });
     expect(chips[0].className).toContain('animate-pulse');
     expect(chips[0].textContent).toBe('');
   });
 
-  it('error state (isLoading false, user undefined) → "?" in avatar', () => {
+  it('error state (isLoading false, user undefined) → neutral "··", never "?" (#1792)', () => {
     mockUserResult.value = { user: undefined, isLoading: false };
     renderWithRouter(<UserMenu />);
-    const chips = screen.getAllByRole('button', { name: /user menu/i });
-    expect(chips[0].textContent).toBe('?');
+    const chips = screen.getAllByRole('button', { name: 'Account' });
+    expect(chips[0].textContent).toBe('··');
+    expect(chips[0].textContent).not.toContain('?');
+  });
+
+  it('email-only user → initials + accessible name derive from the email local-part (#1792)', () => {
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: '',
+        display_name: '',
+        initials: '',
+        email: 'kelly.hair@example.com',
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    const chips = screen.getAllByRole('button', { name: 'Account — kelly.hair' });
+    expect(chips[0].textContent).toBe('KH');
   });
 
   it('theme toggle: clicking "Dark" calls setTheme("dark")', () => {

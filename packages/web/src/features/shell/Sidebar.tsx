@@ -13,6 +13,7 @@ import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { modifierKeyLabel } from '@/lib/platform';
+import { initialsForUser, labelForUser } from '@/lib/userIdentity';
 import { registry } from '@/lib/widget-registry';
 import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
@@ -515,9 +516,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           {showFull && (
             <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
               <div className="flex items-center gap-2 px-1 pb-1.5">
-                <AvatarInitials initials={user?.initials ?? '··'} size="md" />
+                <AvatarInitials initials={initialsForUser(user)} size="md" />
                 <span className="min-w-0 truncate text-sm font-medium text-chrome-text-primary">
-                  {user?.display_name ?? user?.username ?? 'Account'}
+                  {labelForUser(user)}
                 </span>
               </div>
               <NavLink
@@ -727,7 +728,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   Signed in
                 </div>
                 <div className="mt-0.5 truncate text-sm font-medium leading-tight text-chrome-text-primary">
-                  {user?.display_name ?? user?.username ?? 'Account'}
+                  {labelForUser(user)}
                 </div>
               </div>
             )}
