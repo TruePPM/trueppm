@@ -213,9 +213,12 @@ export default defineConfig({
         {
           label: "Getting Started",
           items: [
-            { slug: "getting-started/try-it" },
+            // Installation + quickstart lead: they are the verified path today.
+            // "Try it" (hosted demo + one-command trial) is demoted until its
+            // zero-config paths go live with the 0.4 tag (#1775, #939).
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
+            { slug: "getting-started/try-it" },
             { slug: "getting-started/sample-projects" },
             { slug: "getting-started/sample-project-tour" },
             { slug: "getting-started/evaluation-guide" },

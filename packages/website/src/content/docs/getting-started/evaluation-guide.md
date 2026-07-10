@@ -18,6 +18,26 @@ screen, and check the expectation. Every sample imports as a **program already i
 flight** — its history is replayed with backdated, attributed events, so you are
 reviewing a program that has run for months, not a blank slate.
 
+## Coming in 0.4 (preview)
+
+:::note[Forward-looking — lands with the 0.4 tag]
+0.4 is TruePPM's first beta and is still **Underway** (target Jul 27 – Aug 3,
+2026) — see the [roadmap](/overview/roadmap/). The three capabilities below are
+**not shipped yet**; they land with the 0.4 tag. Everything in the checklist
+further down is verifiable **today** on 0.3 — this section is a preview of what
+the next revision of this guide will add.
+:::
+
+The 0.4 beta is the release that makes a TruePPM schedule *answerable* and
+*evaluable without an install*. Three headliners will extend this walkthrough
+when they ship:
+
+| Ships in 0.4 | What you will verify once it tags |
+|---|---|
+| **Read-only MCP server** | Point any MCP client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — critical path, sprint status, the risk register, and a **non-mutating Monte Carlo what-if** ("slip this task three days — when do we ship?"). Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never guessed by a model, never leaving your box. Read-only by design |
+| **Read-only share links** | Mint a tokenized, expiring, revocable public link to a schedule or board view — read-only, rate-limited, and disableable workspace-wide — so a schedule can travel beyond its own instance without handing over a login |
+| **Basic single sign-on (OIDC / OAuth2)** | Point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it — self-hosted, login-only, no paywall. Identity *governance* (SAML 2.0, SCIM, LDAP/AD directory sync) stays in the enterprise edition |
+
 ## Before you start
 
 Load one or more of the four bundled samples. On a fresh install the **Programs**
@@ -127,7 +147,7 @@ is the signal that the capability works.
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| Unified app-shell bar | any · any | Top bar | A single 56-px bar with identity, scrollable view tabs, and the user menu |
+| Unified app-shell bar | any · any | Top bar + left rail | One 56-px bar: a `Program › Project` location switcher on the left and a pinned utility cluster (health, sync, notifications, user menu) on the right. **View switching lives in the left navigation rail**, not in top-bar tabs |
 | Command palette | any · any | Press **⌘K** | Jump to backlog/board and search tasks inline |
 | Role-based landing | any · sign in as different roles | Post-login screen | Each role lands on the surface it lives on (a Viewer lands read-only) |
 
