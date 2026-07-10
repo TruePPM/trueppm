@@ -1,0 +1,1 @@
+Bumped Django from 5.2.15 to 5.2.16 (5.2 LTS security release) to resolve three medium-severity advisories flagged by the dependency scan: PYSEC-2026-2090, PYSEC-2026-2091, and PYSEC-2026-2092. Patch-level upgrade within the existing `>=5.2.15,<6.0` pin; no API changes.
