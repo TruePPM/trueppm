@@ -133,6 +133,22 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     await expect(rail.getByRole('group', { name: 'Track views' })).toHaveCount(0);
   });
 
+  test('the footer gear opens personal settings from the rail (#1793)', async ({ page }) => {
+    // The gear under the "Signed in" identity must lead to the user's own
+    // settings — a destination every role can reach — not the admin-gated
+    // workspace `/settings` hub (which silently redirects non-admins away).
+    await setup(page);
+    await page.goto('/me/work');
+
+    const rail = railOf(page);
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+
+    const gear = rail.getByRole('link', { name: 'Personal settings' });
+    await expect(gear).toHaveAttribute('href', '/me/settings/general');
+    await gear.click();
+    await expect(page).toHaveURL(/\/me\/settings\/general$/);
+  });
+
   test('pins a PROGRAM from the Browse switcher into the Pinned band (#1682)', async ({ page }) => {
     await setup(page);
     // usePrograms reads GET /programs/ — the base fixture leaves it empty, so
