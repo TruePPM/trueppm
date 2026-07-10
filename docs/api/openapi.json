@@ -42852,9 +42852,6 @@
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
-                    "agile_features": {
-                        "type": "boolean"
-                    },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
                     },
@@ -44926,7 +44923,9 @@
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
                     "agile_features": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether sprint/story-point chrome is surfaced — derived from methodology.\n\nOn (True) for every effective methodology except pure WATERFALL, so the flag\nfollows the current ``effective_methodology`` instead of a stored column that\ndrifts when the methodology is later changed (#1766).",
+                        "readOnly": true
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
@@ -45218,6 +45217,7 @@
                     }
                 },
                 "required": [
+                    "agile_features",
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
@@ -45489,7 +45489,9 @@
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
                     "agile_features": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "Whether sprint/story-point chrome is surfaced — derived from methodology.\n\nOn (True) for every effective methodology except pure WATERFALL, so the flag\nfollows the current ``effective_methodology`` instead of a stored column that\ndrifts when the methodology is later changed (#1766).",
+                        "readOnly": true
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
@@ -45816,6 +45818,7 @@
                     }
                 },
                 "required": [
+                    "agile_features",
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
@@ -46284,9 +46287,6 @@
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
-                    },
-                    "agile_features": {
-                        "type": "boolean"
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"

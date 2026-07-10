@@ -127,7 +127,6 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
         start_date: startDate,
         description: description.trim() || undefined,
         methodology,
-        agile_features: methodology !== 'WATERFALL',
         ...(programId ? { program: programId } : {}),
         ...(copySettingsFrom ? { copy_settings_from: copySettingsFrom } : {}),
       },

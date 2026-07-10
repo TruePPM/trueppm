@@ -114,3 +114,70 @@ def test_methodology_does_not_gate_api_access(project: Project, member: object) 
     c = _client(member)
     resp = c.get(f"/api/v1/projects/{project.pk}/sprints/")
     assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# agile_features is derived from effective_methodology, not stored (#1766).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("methodology", "expected"),
+    [
+        (Methodology.WATERFALL, False),
+        (Methodology.AGILE, True),
+        (Methodology.HYBRID, True),
+    ],
+)
+def test_agile_features_derived_from_methodology(
+    project: Project, member: object, methodology: str, expected: bool
+) -> None:
+    """The serialized flag follows the methodology preset: on for anything but WATERFALL."""
+    project.methodology = methodology
+    project.save(update_fields=["methodology"])
+    resp = _client(member).get(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["agile_features"] is expected
+
+
+@pytest.mark.django_db
+def test_agile_features_tracks_methodology_change(project: Project, scheduler: object) -> None:
+    """The #1766 drift scenario: switching methodology re-derives agile_features.
+
+    A stored boolean set once at create time stayed False after a WATERFALL → AGILE
+    switch, so the board never surfaced sprint/points fields on a now-agile project.
+    Because the flag is now computed on read, the PATCH that changes the methodology
+    is enough — no second write, no stale column.
+    """
+    c = _client(scheduler)
+    project.methodology = Methodology.WATERFALL
+    project.save(update_fields=["methodology"])
+    assert c.get(f"/api/v1/projects/{project.pk}/").data["agile_features"] is False
+
+    resp = c.patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"methodology": Methodology.AGILE},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["agile_features"] is True
+    assert c.get(f"/api/v1/projects/{project.pk}/").data["agile_features"] is True
+
+
+@pytest.mark.django_db
+def test_agile_features_is_read_only(project: Project, scheduler: object) -> None:
+    """agile_features is no longer a settable column — a client value is ignored.
+
+    The methodology is the single source of truth; a stray ``agile_features`` in the
+    request body must not create a second, drifting signal (#1766).
+    """
+    project.methodology = Methodology.WATERFALL
+    project.save(update_fields=["methodology"])
+    resp = _client(scheduler).patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"agile_features": True},  # ignored — not writable
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["agile_features"] is False  # still follows WATERFALL
