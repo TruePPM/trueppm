@@ -878,3 +878,99 @@ describe('MC histogram bucket coloring', () => {
     expect(container.querySelectorAll('rect').length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Methodology-adaptive widget gating (#1765). The Overview must not push one
+// workflow's chrome at the other methodology's single-workflow team.
+// ---------------------------------------------------------------------------
+
+describe('methodology-adaptive widget gating (#1765)', () => {
+  /** Mock every Overview endpoint, with the project detail carrying the given
+   *  effective methodology + surface visibility. */
+  function setupMethodology(
+    effective_methodology: string,
+    effective_surface_visibility: Record<string, boolean>,
+  ) {
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/projects/proj-1/')
+        return Promise.resolve({
+          data: { ...PROJECT_DETAIL, effective_methodology, effective_surface_visibility },
+        });
+      if (url.endsWith('/members/')) return Promise.resolve({ data: SELF_MEMBERSHIP_MEMBER });
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      if (url.endsWith('/sprint-forecast/'))
+        return Promise.resolve({ data: { status: 'insufficient_history' } });
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+  }
+
+  // The widgets are all visible under the pre-load HYBRID / all-visible default, so
+  // each test anchors on a widget that DISAPPEARS once the project detail settles to
+  // the target methodology — a positive "loaded" signal — before asserting the rest.
+
+  it('AGILE hides Monte Carlo + Critical path, keeps Backlog forecast', async () => {
+    // AGILE defaults monte_carlo off (ADR-0193) and hides the schedule tab (ADR-0041).
+    setupMethodology('AGILE', {
+      reporting: true,
+      time_tracking: true,
+      baselines: false,
+      monte_carlo: false,
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: /monte carlo forecast/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('region', { name: /critical path/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /backlog forecast/i })).toBeInTheDocument();
+  });
+
+  it('WATERFALL hides Backlog forecast, keeps Monte Carlo + Critical path', async () => {
+    setupMethodology('WATERFALL', {
+      reporting: true,
+      time_tracking: true,
+      baselines: true,
+      monte_carlo: true,
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: /backlog forecast/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /critical path/i })).toBeInTheDocument();
+  });
+
+  it('HYBRID shows all three cross-methodology widgets', async () => {
+    setupMethodology('HYBRID', {
+      reporting: true,
+      time_tracking: true,
+      baselines: true,
+      monte_carlo: true,
+    });
+    renderPage();
+    expect(await screen.findByRole('region', { name: /backlog forecast/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /critical path/i })).toBeInTheDocument();
+  });
+
+  it('AGILE with an admin override re-enabling monte_carlo shows Monte Carlo', async () => {
+    // Hide-only surfaces are a preference: an AGILE admin can turn Monte Carlo back on
+    // (ADR-0193), so the gate must follow effective_surface_visibility, not methodology.
+    setupMethodology('AGILE', {
+      reporting: true,
+      time_tracking: true,
+      baselines: false,
+      monte_carlo: true,
+    });
+    renderPage();
+    // Critical path is still methodology-gated (no surface key) → its removal is the
+    // signal that the AGILE detail has settled.
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: /critical path/i })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
+  });
+});
