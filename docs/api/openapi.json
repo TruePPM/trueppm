@@ -44442,6 +44442,7 @@
                     "my_role_label": {
                         "type": "string",
                         "nullable": true,
+                        "description": "Human role label in *program* context (#1794).\n\nThe shared ``Role`` enum labels are project-scoped — OWNER reads\n\"Project Admin\" and ADMIN reads \"Project Manager\", which is wrong on a\nprogram card (users read \"I'm an admin of some project\" rather than\n\"my role on this program\"). ``_PROGRAM_ROLE_LABELS`` remaps every role\nthe enum defines to its program-appropriate wording; the project-side\n``Role.label`` values are deliberately left untouched so project\nsurfaces keep reading \"Project Admin\"/\"Project Manager\".",
                         "readOnly": true
                     },
                     "project_count": {

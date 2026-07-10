@@ -1125,6 +1125,22 @@ class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
         return f"/api/v1/projects/{obj.project_id}/export/jobs/{obj.id}/download/"
 
 
+# Program-context labels for the shared ``Role`` enum (#1794). The enum labels
+# are project-scoped ("Project Admin", "Project Manager"); a program card must
+# read the role as it applies to the *program*, not to some project. Every role
+# the enum defines is mapped so a future enum value can't silently fall back to
+# a project label without a matching test failing. The project-side
+# ``Role.label`` values are intentionally left unchanged — see
+# ``access.models.Role``.
+_PROGRAM_ROLE_LABELS: dict[Role, str] = {
+    Role.VIEWER: "Viewer",
+    Role.MEMBER: "Team Member",
+    Role.SCHEDULER: "Resource Manager",
+    Role.ADMIN: "Program Manager",
+    Role.OWNER: "Program Admin",
+}
+
+
 class ProgramSerializer(serializers.ModelSerializer[Program]):
     """Read/write serializer for Program (ADR-0070).
 
@@ -1576,10 +1592,20 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         return value
 
     def get_my_role_label(self, obj: Program) -> str | None:
+        """Human role label in *program* context (#1794).
+
+        The shared ``Role`` enum labels are project-scoped — OWNER reads
+        "Project Admin" and ADMIN reads "Project Manager", which is wrong on a
+        program card (users read "I'm an admin of some project" rather than
+        "my role on this program"). ``_PROGRAM_ROLE_LABELS`` remaps every role
+        the enum defines to its program-appropriate wording; the project-side
+        ``Role.label`` values are deliberately left untouched so project
+        surfaces keep reading "Project Admin"/"Project Manager".
+        """
         role = getattr(obj, "_my_role", None)
         if role is None:
             return None
-        return Role(role).label
+        return _PROGRAM_ROLE_LABELS.get(Role(role), Role(role).label)
 
 
 class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
