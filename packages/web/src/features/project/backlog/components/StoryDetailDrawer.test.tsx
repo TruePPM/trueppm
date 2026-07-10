@@ -108,14 +108,21 @@ describe('StoryDetailDrawer (#1043)', () => {
   it('recalculates the WSJF score preview live as an input changes', async () => {
     const user = userEvent.setup();
     renderDrawer(makeStory());
+    // The drawer's mount effect focuses the Close button ~50ms after render
+    // (StoryDetailDrawer.tsx). On a loaded CI shard userEvent's inter-event
+    // scheduling can stretch past that, so the timer fires mid-type and steals
+    // focus before a keystroke lands in "Job size" — the same #1751 mount-focus
+    // race as the sibling Save-bar test, just manifesting as a wrong score
+    // instead of a missing Save button. Wait for that focus to settle first.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Close story detail' })).toHaveFocus(),
+    );
     // (8 + 5 + 5) / 4 = 4.5
     expect(screen.getByText('4.5')).toBeInTheDocument();
     const jobSize = screen.getByLabelText('Job size');
     await user.clear(jobSize);
     await user.type(jobSize, '2');
-    // (8 + 5 + 5) / 2 = 9.0 — async findBy retries past any React flush race
-    // under load (the preview re-renders synchronously, so the value is
-    // deterministic; the sync getByText raced the flush in a loaded CI shard).
+    // (8 + 5 + 5) / 2 = 9.0
     expect(await screen.findByText('9.0')).toBeInTheDocument();
   });
 
