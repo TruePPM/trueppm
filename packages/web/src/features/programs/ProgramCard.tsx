@@ -112,7 +112,8 @@ export function ProgramCard({ program }: Props) {
       </Link>
       {/* Pin toggle is a Link SIBLING (not nested — a button inside an anchor is
           invalid) positioned over the free bottom-right corner so it never
-          collides with the top-right role chip. Reveals on card hover/focus; a
+          collides with the top-right role chip. Reveals on card hover/focus on
+          desktop; always visible below `md` (touch has no hover — rule 247); a
           pinned star stays visible (amber). 44px touch target. */}
       <button
         type="button"
@@ -124,7 +125,7 @@ export function ProgramCard({ program }: Props) {
         aria-pressed={pinned}
         title={pinned ? 'Unpin' : 'Pin'}
         className="absolute bottom-1.5 right-1.5 z-10 flex h-11 w-11 items-center justify-center rounded-control
-          opacity-0 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100
+          opacity-0 max-md:opacity-100 group-hover:opacity-100 focus:opacity-100 aria-pressed:opacity-100
           hover:bg-neutral-surface-raised focus:outline-none focus:ring-2 focus:ring-brand-primary"
       >
         <svg

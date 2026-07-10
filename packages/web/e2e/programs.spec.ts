@@ -751,6 +751,26 @@ test.describe('Programs — directory filter & sort (#1796)', () => {
   });
 });
 
+test.describe('Programs — mobile touch affordances (#1802)', () => {
+  // The card pin star reveals on hover/focus on desktop, but a phone has no
+  // hover — below `md` it must be always-visible (max-md:opacity-100) so an
+  // unpinned program's pin affordance is discoverable by touch.
+  test('pin star is visible without hover below md', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/programs');
+
+    const pin = page.getByRole('button', { name: `Pin ${FIXTURE_PROGRAM.name}` });
+    await expect(pin).toBeVisible();
+    // A 44px hit target that is actually opaque on a phone (not opacity-0).
+    await expect(pin).toHaveCSS('opacity', '1');
+    const box = await pin.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+});
+
 test.describe('Programs — sidebar entry', () => {
   test('the rail lists the program in the Programs tree after creation', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });

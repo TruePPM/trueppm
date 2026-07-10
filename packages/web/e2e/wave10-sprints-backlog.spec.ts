@@ -289,6 +289,35 @@ test.describe('Wave 10 — Sprints backlog table', () => {
     await expect(drawer).toBeVisible();
   });
 
+  test('backlog table scrolls within its wrapper, not the page, at 375px (#1803)', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(BASE_URL);
+
+    const backlog = page.getByRole('region', { name: /Sprint Backlog/i });
+    await expect(backlog.getByText('Calibrate sensors')).toBeVisible();
+
+    // overflow-x-auto + min-w-max keeps the columns aligned and scrolls the table
+    // inside its own wrapper on a phone instead of cramming/clipping — the page
+    // itself must not gain a horizontal scrollbar.
+    const metrics = await backlog
+      .getByRole('table')
+      .first()
+      .evaluate((tbl) => {
+        const wrap = tbl.parentElement as HTMLElement;
+        return {
+          wrapClient: wrap.clientWidth,
+          wrapScroll: wrap.scrollWidth,
+          pageOverflow:
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+    expect(metrics.pageOverflow).toBeLessThanOrEqual(1);
+    expect(metrics.wrapScroll).toBeGreaterThanOrEqual(metrics.wrapClient);
+  });
+
   test('group toggle hides rows and re-shows on second click', async ({ page }) => {
     await setupCommon(page);
     await page.goto(BASE_URL);

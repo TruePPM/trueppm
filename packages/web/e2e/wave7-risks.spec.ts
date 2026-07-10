@@ -397,3 +397,49 @@ test.describe('Risk drawer framework fields', () => {
     await expect(page.getByText('Switch supplier').first()).toBeVisible();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mobile touch affordances (#1802 quick-edit / #1803 table overflow)
+// ---------------------------------------------------------------------------
+
+test.describe('Risk register — mobile touch affordances', () => {
+  test('row quick-edit is visible and >=44px below md (#1802)', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // The ✎ reveals on hover on desktop; on a phone it is always opaque
+    // (max-md:opacity-100) and grows to a 44px target (h-11 w-11 md:h-8 md:w-8).
+    const edit = page.getByRole('button', { name: 'Edit risk: Critical infrastructure failure' });
+    await expect(edit).toHaveCSS('opacity', '1');
+    const box = await edit.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test('the register table scrolls within its wrapper, not the page (#1803)', async ({ page }) => {
+    await setup(page);
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // min-w-max lets the table keep its intrinsic width and overflow inside the
+    // overflow-auto wrapper, so the page itself never scrolls horizontally.
+    const metrics = await page.getByRole('table').first().evaluate((tbl) => {
+      const wrap = tbl.parentElement as HTMLElement;
+      return {
+        wrapClient: wrap.clientWidth,
+        wrapScroll: wrap.scrollWidth,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      };
+    });
+    expect(metrics.pageOverflow).toBeLessThanOrEqual(1);
+    expect(metrics.wrapScroll).toBeGreaterThanOrEqual(metrics.wrapClient);
+  });
+});

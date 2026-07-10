@@ -653,7 +653,10 @@ export function RiskRegisterView() {
 
               {displayRisks.length > 0 && (
                 <div className="flex-1 overflow-auto rounded-card border border-neutral-border bg-neutral-surface">
-                  <table className="w-full text-sm border-collapse">
+                  {/* min-w-max lets the table keep its intrinsic column widths and
+                      scroll horizontally inside this wrapper on a phone, rather than
+                      squishing/clipping at 375px (rule 102a). */}
+                  <table className="w-full min-w-max text-sm border-collapse">
                     <thead className="sticky top-0 z-10">
                       <tr className="bg-neutral-surface-raised border-b border-neutral-border">
                         <th
@@ -830,7 +833,9 @@ export function RiskRegisterView() {
                               )}
                             </td>
 
-                            {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
+                            {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) on
+                                desktop; always visible and a 44px target below `md` (touch has no
+                                hover — rule 247). */}
                             <td className="px-2 text-center">
                               <button
                                 type="button"
@@ -839,8 +844,8 @@ export function RiskRegisterView() {
                                   e.stopPropagation();
                                   openRiskEdit(risk);
                                 }}
-                                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
-                            w-8 h-8 flex items-center justify-center rounded-control
+                                className="opacity-0 max-md:opacity-100 group-hover:opacity-100 focus-visible:opacity-100
+                            h-11 w-11 md:h-8 md:w-8 flex items-center justify-center rounded-control
                             text-neutral-text-secondary hover:text-neutral-text-primary
                             focus-visible:outline-none focus-visible:ring-2
                             focus-visible:ring-brand-primary focus-visible:ring-offset-1"

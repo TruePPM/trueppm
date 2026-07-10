@@ -92,10 +92,7 @@ export function SprintBacklogTable({
     }));
   }, [tasks]);
 
-  const totalPts = useMemo(
-    () => tasks.reduce((sum, t) => sum + (t.story_points ?? 0), 0),
-    [tasks],
-  );
+  const totalPts = useMemo(() => tasks.reduce((sum, t) => sum + (t.story_points ?? 0), 0), [tasks]);
 
   return (
     <section
@@ -111,10 +108,9 @@ export function SprintBacklogTable({
             {itl.singular} Backlog
           </h2>
           <p className="text-xs text-neutral-text-secondary">
-            <span className="tppm-mono text-neutral-text-primary">{tasks.length}</span>{' '}
-            task{tasks.length === 1 ? '' : 's'} · grouped by board status ·{' '}
-            <span className="tppm-mono text-neutral-text-primary">{totalPts}</span> pts
-            committed
+            <span className="tppm-mono text-neutral-text-primary">{tasks.length}</span> task
+            {tasks.length === 1 ? '' : 's'} · grouped by board status ·{' '}
+            <span className="tppm-mono text-neutral-text-primary">{totalPts}</span> pts committed
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
@@ -195,29 +191,34 @@ export function SprintBacklogTable({
           )}
         </div>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="sr-only">
-            <tr>
-              <th>ID</th>
-              <th>Task</th>
-              <th>Points</th>
-              <th>Flags</th>
-              <th>Owner</th>
-              <th>Status</th>
-              {onRemoveTask && <th>Remove</th>}
-            </tr>
-          </thead>
-          {groups.map((g) => (
-            <BacklogGroup
-              key={g.status}
-              sprintId={sprintId}
-              group={g}
-              onRemoveTask={onRemoveTask}
-              onOpenTask={onOpenTask}
-              iterationLower={itl.lower}
-            />
-          ))}
-        </table>
+        // overflow-x-auto + min-w-max keeps the columns aligned and scrolls the
+        // table within its own wrapper on a phone instead of cramming/clipping at
+        // 375px (rule 102a); no page-level horizontal overflow.
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
+            <thead className="sr-only">
+              <tr>
+                <th>ID</th>
+                <th>Task</th>
+                <th>Points</th>
+                <th>Flags</th>
+                <th>Owner</th>
+                <th>Status</th>
+                {onRemoveTask && <th>Remove</th>}
+              </tr>
+            </thead>
+            {groups.map((g) => (
+              <BacklogGroup
+                key={g.status}
+                sprintId={sprintId}
+                group={g}
+                onRemoveTask={onRemoveTask}
+                onOpenTask={onOpenTask}
+                iterationLower={itl.lower}
+              />
+            ))}
+          </table>
+        </div>
       )}
     </section>
   );
@@ -236,13 +237,7 @@ interface GroupProps {
   iterationLower: string;
 }
 
-function BacklogGroup({
-  sprintId,
-  group,
-  onRemoveTask,
-  onOpenTask,
-  iterationLower,
-}: GroupProps) {
+function BacklogGroup({ sprintId, group, onRemoveTask, onOpenTask, iterationLower }: GroupProps) {
   const key = persistKey(sprintId, group.status);
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
@@ -285,13 +280,9 @@ function BacklogGroup({
             <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary flex items-center gap-2">
               <Chevron expanded={!collapsed} />
               {group.label}
-              <span className="tppm-mono text-neutral-text-disabled">
-                {group.rows.length}
-              </span>
+              <span className="tppm-mono text-neutral-text-disabled">{group.rows.length}</span>
             </span>
-            <span className="tppm-mono text-xs text-neutral-text-secondary">
-              {subtotalPts} pts
-            </span>
+            <span className="tppm-mono text-xs text-neutral-text-secondary">{subtotalPts} pts</span>
           </button>
         </td>
       </tr>
@@ -355,7 +346,11 @@ function BacklogGroup({
                   onClick={() => onRemoveTask(t.id)}
                   title={`Remove from ${iterationLower}`}
                   aria-label={`Remove ${t.name} from ${iterationLower}`}
-                  className="opacity-0 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
+                  // Always visible below `md` (touch has no hover — rule 247); the
+                  // glyph can't resize, so a mobile-scoped transparent pseudo-element
+                  // gives it a 44px hit zone (rule 247b).
+                  className="relative opacity-0 max-md:opacity-100 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
+                    max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
                     focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
                 >
                   ×
