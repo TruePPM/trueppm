@@ -73,7 +73,7 @@ export function MoreSheet({
           isPinned ? `Unpin ${label} from navigation bar` : `Pin ${label} to navigation bar`
         }
         className={[
-          'flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control',
+          'flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-control',
           'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
           isPinned ? 'text-brand-primary' : 'text-neutral-text-disabled',
         ].join(' ')}
@@ -144,9 +144,9 @@ export function MoreSheet({
                 const { Icon } = meta;
                 return (
                   <li key={view} className="flex items-center gap-2">
-                    <span className="flex min-h-[44px] flex-1 items-center gap-3 px-1 text-sm text-neutral-text-primary">
-                      <Icon className="text-neutral-text-disabled" aria-hidden="true" />
-                      <span>{labelFor(view)}</span>
+                    <span className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 px-1 text-sm text-neutral-text-primary">
+                      <Icon className="shrink-0 text-neutral-text-disabled" aria-hidden="true" />
+                      <span className="truncate">{labelFor(view)}</span>
                     </span>
                     {pinToggle(view)}
                   </li>
@@ -177,7 +177,7 @@ export function MoreSheet({
                   onClick={onClose}
                   aria-current={isActive ? 'page' : undefined}
                   className={[
-                    'flex min-h-[44px] flex-1 items-center gap-3 rounded-control px-1 text-left text-sm',
+                    'flex min-h-[44px] min-w-0 flex-1 items-center gap-3 rounded-control px-1 text-left text-sm',
                     'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
                     isActive
                       ? 'bg-neutral-surface-sunken font-medium text-brand-primary'
@@ -185,10 +185,10 @@ export function MoreSheet({
                   ].join(' ')}
                 >
                   <Icon
-                    className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
+                    className={`shrink-0 ${isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}`}
                     aria-hidden="true"
                   />
-                  <span>{labelFor(view)}</span>
+                  <span className="truncate">{labelFor(view)}</span>
                 </NavLink>
                 {pinToggle(view)}
               </li>
