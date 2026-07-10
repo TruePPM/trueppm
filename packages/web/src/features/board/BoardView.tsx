@@ -3203,7 +3203,7 @@ export function BoardView() {
                         onClick={() => myHiddenCols.forEach((c) => expandColumn(c.status))}
                         data-testid="expand-my-hidden-columns"
                         aria-label="Expand columns containing your cards"
-                        className="min-h-[44px] sm:min-h-0 underline hover:no-underline
+                        className="min-h-[44px] md:min-h-0 underline hover:no-underline
                           text-neutral-text-secondary hover:text-brand-primary
                           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
                       >

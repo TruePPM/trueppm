@@ -539,7 +539,7 @@ function ResultRow({
         onMouseEnter={onHover}
         onClick={onPick}
         className={[
-          'w-full flex items-center gap-2 min-h-11 sm:h-9 px-2 rounded-control text-left text-[13px]',
+          'w-full flex items-center gap-2 min-h-11 md:h-9 px-2 rounded-control text-left text-[13px]',
           active ? 'bg-neutral-row-hover' : '',
         ].join(' ')}
       >

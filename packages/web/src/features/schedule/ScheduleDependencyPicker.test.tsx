@@ -130,6 +130,28 @@ describe('ScheduleDependencyPicker — single-project (no regression)', () => {
     expect(successSpy).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
+
+  // Rule 228 / WCAG 2.5.5 (#1801): each option row (the touch alternative to
+  // canvas drag-to-link, rule 230) keeps a 44px hit height on phones and only
+  // compacts to 36px at `md:`. Regression guarded: compaction keyed off `sm:`
+  // (fires at 375px) dropped the row to 36px on every phone.
+  it('option rows keep a 44px touch height, compacting only at md:', () => {
+    wrap(
+      <ScheduleDependencyPicker
+        task={makeTask()}
+        mode="predecessor"
+        projectId="p1"
+        programId={null}
+        allTasks={LOCAL_TASKS}
+        excludedIds={new Set()}
+        onClose={vi.fn()}
+      />,
+    );
+    const cls = screen.getByRole('button', { name: /Design review/ }).className;
+    expect(cls).toContain('min-h-11');
+    expect(cls).toContain('md:h-9');
+    expect(cls).not.toContain('sm:h-9');
+  });
 });
 
 describe('ScheduleDependencyPicker — cross-project (ADR-0120)', () => {
