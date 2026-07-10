@@ -3392,7 +3392,7 @@ def _create_milestone_for_sprint(
     stop two concurrent root creates racing to the same ``wbs_path`` — mirrors
     ``TaskViewSet.perform_create``. The caller already holds the sprint row lock.
     """
-    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.projects.models import DeliveryMode, Task, TaskStatus
 
     default_name = (sprint.goal or "").strip() or f"{sprint.name} milestone"
     resolved_name = ((name or "").strip() or default_name)[:255]
@@ -3406,6 +3406,9 @@ def _create_milestone_for_sprint(
         project_id=sprint.project_id,
         name=resolved_name,
         is_milestone=True,
+        # Keep the canonical milestone coupling (#1773) — this mint is a
+        # sprint-targeted milestone and the phase rollup weights on delivery_mode.
+        delivery_mode=DeliveryMode.MILESTONE,
         duration=0,
         status=TaskStatus.NOT_STARTED,
         planned_start=planned_start,
@@ -5063,6 +5066,9 @@ def _spawn_occurrence(rule: Any, template: Any, d: date, template_attachments: l
         name=template.name,
         duration=template.duration,
         is_milestone=template.is_milestone,
+        # Copy delivery_mode too so a recurring milestone stays coupled (#1773) —
+        # occurrences are non-WBS (never enter the rollup), but keep them honest.
+        delivery_mode=template.delivery_mode,
         notes=template.notes,
         color=template.color,
         status=TaskStatus.NOT_STARTED,

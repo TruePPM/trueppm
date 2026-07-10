@@ -3534,6 +3534,21 @@ class TaskViewSet(
                         ) from exc
                     if not parent.wbs_path:
                         raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
+                    # Milestone guard (#1773): a milestone is a zero-duration gate,
+                    # not a container — it must never acquire children, or the phase
+                    # rollup would try to aggregate under a node the CPM treats as a
+                    # single point. Mirrors the subtask depth-1 / phase guards below.
+                    if parent.is_milestone:
+                        raise DRFValidationError(
+                            {
+                                "parent_id": [
+                                    ErrorDetail(
+                                        "A milestone is a single point and cannot have children.",
+                                        code="child_of_milestone",
+                                    )
+                                ]
+                            }
+                        )
                     # Depth-1 enforcement (ADR-0060): subtasks are leaf nodes —
                     # no task of any kind may be created as a child of a subtask.
                     # Checked on every parent_id path, not only is_subtask=True
@@ -5875,6 +5890,16 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 )
 
             prev_sibling = siblings[task_idx - 1]
+            # Milestone guard (#1773): indenting makes prev_sibling the new parent;
+            # a milestone is a single point and cannot acquire children.
+            if prev_sibling.is_milestone:
+                return Response(
+                    {
+                        "code": "child_of_milestone",
+                        "detail": "A milestone is a single point and cannot have children.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             descendants = _get_descendants(str(project.pk), task.wbs_path, lock=True)
 
             # Count existing children of previous sibling to determine insertion position.
@@ -6136,6 +6161,16 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 if not new_parent.wbs_path:
                     return Response(
                         {"detail": "New parent has no WBS path."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Milestone guard (#1773): a milestone is a single point and cannot
+                # acquire children via reparent.
+                if new_parent.is_milestone:
+                    return Response(
+                        {
+                            "code": "child_of_milestone",
+                            "detail": "A milestone is a single point and cannot have children.",
+                        },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 # Cycle guard — new parent cannot be a descendant of the task.

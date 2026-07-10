@@ -37,7 +37,13 @@ def import_project(
     from django.conf import settings
     from django.db.models import F
 
-    from trueppm_api.apps.projects.models import Dependency, Project, Task, TaskStatus
+    from trueppm_api.apps.projects.models import (
+        DeliveryMode,
+        Dependency,
+        Project,
+        Task,
+        TaskStatus,
+    )
     from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
     # Chunk every bulk_create (#1721) so a large import is not emitted as one
@@ -195,8 +201,15 @@ def import_project(
             project_id=project_id,
             name=td.name,
             wbs_path=wbs_path if wbs_path else None,
-            duration=td.duration_days,
+            # Milestone invariant (#1773): bulk_create bypasses the TaskSerializer
+            # coupling, so enforce the canonical milestone state here — a milestone
+            # is zero-duration and carries delivery_mode='milestone' so the phase
+            # rollup weights it at 0. A source .mpp can encode a non-zero duration
+            # on a <Milestone> task; importing it raw would violate the invariant
+            # and the next PATCH would silently re-zero the duration and shift dates.
+            duration=0 if td.is_milestone else td.duration_days,
             is_milestone=td.is_milestone,
+            delivery_mode=DeliveryMode.MILESTONE if td.is_milestone else DeliveryMode.WATERFALL,
             status=task_status,
             percent_complete=effective_percent,
             notes=td.notes,

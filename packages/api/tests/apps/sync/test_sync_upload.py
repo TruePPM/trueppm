@@ -1252,3 +1252,35 @@ def test_no_base_version_keeps_last_writer_wins(admin_client: APIClient, project
     assert body["conflicts"]["tasks"] == []
     task.refresh_from_db()
     assert task.name == "My name"  # last-writer-wins, unchanged behavior
+
+
+@pytest.mark.django_db
+def test_unflagging_sprint_targeted_milestone_rejects_batch(
+    admin_client: APIClient, project: Project
+) -> None:
+    """Un-flagging a sprint-targeted milestone via sync is rejected at validate,
+    rolling back the whole batch — consistent with every other serializer
+    validation on the upload path (#1773). An offline diamond-toggle-off on a
+    milestone a live sprint still targets would otherwise silently break the
+    sprint's rollup and dangle its FK.
+    """
+    milestone = Task.objects.create(
+        project=project, name="Gate", duration=0, is_milestone=True, wbs_path="9"
+    )
+    Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+        target_milestone=milestone,
+    )
+    resp = admin_client.post(
+        _url(project),
+        _payload(updated=[{"id": str(milestone.pk), "is_milestone": False}]),
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert not SyncBatch.objects.exists()
+    milestone.refresh_from_db()
+    assert milestone.is_milestone is True  # unchanged — batch rolled back

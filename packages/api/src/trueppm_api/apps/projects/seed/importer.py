@@ -558,7 +558,9 @@ class _SeedImporter:
             sprint=sprint,
             sprint_rank=data.get("sprint_rank"),
             governance_class=data.get("governance_class", "flow"),
-            delivery_mode=data.get("delivery_mode", "waterfall"),
+            # Couple delivery_mode to the milestone flag (#1773) so seeded
+            # milestones satisfy the canonical invariant like every other path.
+            delivery_mode="milestone" if is_milestone else data.get("delivery_mode", "waterfall"),
             color=data.get("color"),
             **estimate_fields,
         )
