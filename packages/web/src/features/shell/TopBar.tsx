@@ -106,9 +106,11 @@ export function TopBar({ onHamburgerClick }: Props) {
         </svg>
       </button>
 
-      {/* Brand — mobile only (desktop carries it in the left rail). */}
+      {/* Brand — mobile only (desktop carries it in the left rail). Mark-only on a
+          phone: the full wordmark crowds the fixed right cluster off the edge
+          (#1788); the rail drawer (hamburger) still shows the full lockup. */}
       <span className="md:hidden shrink-0">
-        <Logo />
+        <Logo showWordmark={false} />
       </span>
 
       {/* Location switcher (ADR-0203, #1643) — Program › Project › Leaf. Replaces the
