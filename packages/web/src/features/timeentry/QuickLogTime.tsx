@@ -46,8 +46,10 @@ import { parseDurationToMinutes } from './durationInput';
 const TRIGGER =
   'inline-flex shrink-0 items-center gap-1 h-11 md:h-8 px-2.5 rounded-control border border-chrome-border/15 text-sm font-medium text-chrome-text-primary hover:bg-neutral-text-primary/5 focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface';
 
+// `h-11` (44px) below md meets the mobile touch-target floor (rule 5); `md:h-9`
+// keeps the compact desktop popover density (#1800).
 const INPUT =
-  'h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1';
+  'h-11 md:h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1';
 
 /** Duration presets — the design's 15m / 30m / 1h / 2h chip row. */
 const PRESETS: { label: string; minutes: number }[] = [
@@ -254,7 +256,7 @@ export function QuickLogTime() {
                     tabIndex={roving ? 0 : -1}
                     data-task-id={t.id}
                     onClick={() => setSelectedTaskId(t.id)}
-                    className={`flex w-full flex-col gap-0.5 px-2 py-1.5 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
+                    className={`flex min-h-11 md:min-h-0 w-full flex-col justify-center gap-0.5 px-2 py-1.5 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
                       selected ? 'bg-brand-primary/10' : 'hover:bg-neutral-surface-raised'
                     }`}
                   >
@@ -287,7 +289,7 @@ export function QuickLogTime() {
               type="button"
               aria-pressed={activePreset === p.minutes}
               onClick={() => selectPreset(p.minutes)}
-              className={`h-8 flex-1 rounded-control border text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
+              className={`h-11 md:h-8 flex-1 rounded-control border text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
                 activePreset === p.minutes
                   ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
                   : 'border-neutral-border text-neutral-text-primary hover:border-brand-primary/40'
@@ -304,7 +306,7 @@ export function QuickLogTime() {
             placeholder="1:30"
             aria-label="Custom duration (h:mm or minutes)"
             aria-invalid={manualInvalid}
-            className={`tppm-mono h-8 w-16 rounded-control border bg-neutral-surface px-2 text-center text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
+            className={`tppm-mono h-11 md:h-8 w-16 rounded-control border bg-neutral-surface px-2 text-center text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 ${
               manualInvalid ? 'border-semantic-critical' : 'border-neutral-border'
             }`}
           />
@@ -341,18 +343,22 @@ export function QuickLogTime() {
         />
       </label>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+      {/* Footer — below md the actions stack full-width (Log primary, bottom-most
+          and thumb-reachable) so the primary capture action can never be clipped
+          off the phone's right edge (#1800); from md up they revert to the
+          compact right-aligned popover row. */}
+      <div className="flex flex-col gap-2 pt-1 md:flex-row md:items-center md:justify-end">
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="h-9 rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+          className="h-11 w-full rounded-control border border-neutral-border px-4 text-sm font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 md:h-9 md:w-auto"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={!canLog}
-          className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-11 w-full rounded-control bg-brand-primary px-4 text-sm font-medium text-white hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:w-auto"
         >
           Log {formatLoggedMinutes(minutes)}
         </button>
