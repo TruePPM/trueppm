@@ -103,9 +103,11 @@ test.describe('v2 unified shell bar (#1204)', () => {
     await page.goto(`/projects/${PROJECT_ID}/board`);
 
     // The view nav (now in the left rail, #1643) is present, and the always-on
-    // right-cluster anchor (user menu) remains within the viewport.
+    // right-cluster anchor (account chip) remains within the viewport. The chip
+    // self-identifies by the signed-in user's name (#1792) — locatable by that
+    // accessible name, never a generic "User menu".
     await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
-    const userMenu = page.getByRole('button', { name: /user menu/i }).last();
+    const userMenu = page.getByRole('button', { name: 'Account — E2E User' }).last();
     await expect(userMenu).toBeInViewport();
   });
 });
