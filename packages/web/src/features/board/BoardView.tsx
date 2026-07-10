@@ -17,6 +17,7 @@
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
 import { WarningIcon } from '@/components/Icons';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import {
   memo,
   useState,
@@ -1549,7 +1550,7 @@ export function BoardView() {
   const canShareBoard = currentRole !== null && currentRole >= ROLE_ADMIN;
   const [shareOpen, setShareOpen] = useState(false);
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
-  const { tasks, isLoading } = useScheduleTasks();
+  const { tasks, isLoading, error } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const updateTask = useUpdateTask();
   const queryClient = useQueryClient();
@@ -2894,6 +2895,12 @@ export function BoardView() {
     },
     addTaskPhase === null,
   );
+
+  // A failed tasks fetch must read as broken, not as an empty board — an empty
+  // board and a dead request otherwise render identically (issue #1764).
+  if (error) {
+    return <QueryErrorState message="Couldn't load the board." />;
+  }
 
   if (isLoading) {
     return (

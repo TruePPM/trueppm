@@ -56,6 +56,7 @@ import {
 } from '@/components/toolbar/ToolbarOverflowMenu';
 import { ImportModal } from '@/components/import/ImportModal';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { GanttIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import type { Task } from '@/types';
@@ -1370,20 +1371,7 @@ export function ScheduleView() {
   }, [projectId, createTaskMut, focus]);
 
   if (error) {
-    return (
-      <div className="flex h-full items-center justify-center bg-neutral-surface">
-        <p className="text-sm text-semantic-critical">
-          Couldn&apos;t load tasks.{' '}
-          <button
-            type="button"
-            className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
-        </p>
-      </div>
-    );
+    return <QueryErrorState message="Couldn't load tasks." />;
   }
 
   if (isLoading || !rawTasks) {
