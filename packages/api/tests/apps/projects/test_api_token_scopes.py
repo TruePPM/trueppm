@@ -30,7 +30,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient, APIRequestFactory
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.permissions import TokenHasScope, TokenReadOnlyMethods
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
@@ -38,6 +38,7 @@ from trueppm_api.apps.projects.models import (
     SCOPE_MCP_READ,
     ApiToken,
     Calendar,
+    Program,
     Project,
     _default_api_token_scopes,
 )
@@ -148,6 +149,54 @@ def test_personal_mcp_read_token_can_get_project(project: Project, owner: Any) -
     resp = _bearer(raw).get(f"/api/v1/projects/{project.pk}/")
     assert resp.status_code == 200, resp.data
     assert str(resp.data["id"]) == str(project.pk)
+
+
+# ---------------------------------------------------------------------------
+# #1731 — the two MCP tools that were dead (always 401) because their target
+# views lacked McpReadableViewMixin. These conformance reads authenticate a
+# personal mcp:read token end-to-end so the tools cannot silently regress to 401.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_personal_mcp_read_token_can_get_sprint_forecast(project: Project, owner: Any) -> None:
+    # get_release_forecast → projects/<pk>/sprint-forecast/. Before #1731 this
+    # view lacked the mixin, so ProjectApiTokenAuthentication never ran and the
+    # tppm_ bearer 401'd. A personal mcp:read token (acting as its member owner)
+    # must now authenticate and read the (warming-up) forecast.
+    _, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ])
+    resp = _bearer(raw).get(f"/api/v1/projects/{project.pk}/sprint-forecast/")
+    assert resp.status_code == 200, resp.data
+    assert "status" in resp.data
+
+
+@pytest.mark.django_db
+def test_personal_mcp_read_token_can_list_program_backlog(owner: Any) -> None:
+    # list_program_backlog → programs/<program_pk>/backlog-items/. Same dead-tool
+    # class as above (BacklogItemViewSet lacked the mixin). The owner is a program
+    # member, so the personal mcp:read token reads the (empty) backlog, not a 401.
+    program = Program.objects.create(name="Mars Program")
+    ProgramMembership.objects.create(program=program, user=owner, role=Role.OWNER)
+    _, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ])
+    resp = _bearer(raw).get(f"/api/v1/programs/{program.pk}/backlog-items/")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_mcp_read_token_cannot_create_program_backlog_item(owner: Any) -> None:
+    # The additive mixin must not open the write branch: a mcp:read token is
+    # confined to safe methods on every action, so a POST is rejected (the
+    # TokenReadOnlyMethods guard denies it before the write RBAC gate).
+    program = Program.objects.create(name="Mars Program")
+    ProgramMembership.objects.create(program=program, user=owner, role=Role.OWNER)
+    _, raw = _mint_personal(owner, scopes=[SCOPE_MCP_READ])
+    resp = _bearer(raw).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/",
+        {"title": "Should not be created", "item_type": "STORY"},
+        format="json",
+    )
+    assert resp.status_code == 403, resp.data
 
 
 # ---------------------------------------------------------------------------

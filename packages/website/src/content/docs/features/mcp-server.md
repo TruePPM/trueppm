@@ -122,6 +122,13 @@ truncated (with a `"truncated": true` marker), and project/program results carry
 a `caller_role` field — your own authoritative role, passed straight through from
 the API.
 
+Every `list_*` tool returns an `{ "items": [...], "total_count": N }` envelope
+rather than a bare list. The API paginates at 50 rows per page, so the server
+follows the pages for you up to a 1,000-row cap; if more rows still exist than
+were returned, the envelope adds `"truncated": true` so the assistant knows it is
+looking at a partial set and should narrow the query (a filter, a smaller scope)
+rather than reason over an incomplete list.
+
 ### Projects & programs
 
 | Tool | Arguments | Returns |

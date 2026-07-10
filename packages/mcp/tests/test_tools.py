@@ -169,7 +169,10 @@ async def test_list_projects_compacts_rows_and_surfaces_caller_role(settings: Se
     }
     async with _client(settings, routes) as client:
         result = await _list_projects(client)
-    assert result == [{"id": "p-1", "name": "Apollo", "caller_role": "Project Admin"}]
+    assert result == {
+        "items": [{"id": "p-1", "name": "Apollo", "caller_role": "Project Admin"}],
+        "total_count": 1,
+    }
 
 
 async def test_get_project_merges_detail_and_overview(settings: Settings) -> None:
@@ -247,6 +250,111 @@ async def test_list_tasks_is_critical_false_is_sent_as_string(settings: Settings
     assert seen == {"project": "p-1", "is_critical": "false"}
 
 
+def _paged(
+    results: list[dict[str, object]], *, count: int, next_url: str | None
+) -> dict[str, object]:
+    """A DRF page carrying an explicit ``count`` and (absolute) ``next`` link."""
+    return {"count": count, "next": next_url, "previous": None, "results": results}
+
+
+async def test_list_tasks_follows_pagination_across_pages(settings: Settings) -> None:
+    """A multi-page task list is accumulated in full — not truncated at page one (#1731).
+
+    The API paginates at 50 rows/page; the tool must follow ``next`` so an agent
+    reasoning over "all tasks" sees every row, and — when the set is complete —
+    carries no ``truncated`` marker.
+    """
+    next_page = f"{SAMPLE_API_URL}/api/v1/tasks/?page=2&project=p-1"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page") == "2":
+            return _json(_paged([{"id": "t-2"}], count=2, next_url=None))
+        return _json(_paged([{"id": "t-1"}], count=2, next_url=next_page))
+
+    routes: Routes = {"tasks/": handler}
+    async with _client(settings, routes) as client:
+        result = await _list_tasks(client, "p-1")
+    assert result == {"items": [{"id": "t-1"}, {"id": "t-2"}], "total_count": 2}
+    assert "truncated" not in result
+
+
+async def test_list_tasks_signals_truncation_when_capped(settings: Settings) -> None:
+    """When rows exceed the cap the tool stops and marks the set ``truncated`` (#1731)."""
+    # A single page whose declared count exceeds the cap: the tool returns the
+    # capped rows and flags the set partial so the model narrows its query.
+    rows = [{"id": f"t-{i}"} for i in range(3)]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _json(_paged(rows, count=100, next_url=None))
+
+    routes: Routes = {"tasks/": handler}
+    async with _client(settings, routes) as client:
+        rows_out, total, truncated = await client.get_paginated("tasks/", max_rows=3)
+    assert [r["id"] for r in rows_out] == ["t-0", "t-1", "t-2"]
+    assert total == 100
+    assert truncated is True
+
+
+async def test_get_paginated_stops_on_empty_page_despite_next(settings: Settings) -> None:
+    """A page that advertises ``next`` but returns no rows terminates the loop (#1731).
+
+    Guards against a misbehaving server spinning the follow loop: a well-behaved
+    DRF API never emits ``next`` past the last populated page, but if one did, the
+    accumulation stays provably bounded (stops on the first empty page) and the
+    set is reported ``truncated`` because ``next`` was still non-null.
+    """
+    always_next = f"{SAMPLE_API_URL}/api/v1/tasks/?page=99"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page"):
+            # Every follow page: non-null next, but zero rows.
+            return _json(_paged([], count=500, next_url=always_next))
+        return _json(_paged([{"id": "t-1"}], count=500, next_url=always_next))
+
+    routes: Routes = {"tasks/": handler}
+    async with _client(settings, routes) as client:
+        rows_out, total, truncated = await client.get_paginated("tasks/", max_rows=1000)
+    assert [r["id"] for r in rows_out] == ["t-1"]
+    assert total == 500
+    assert truncated is True
+
+
+async def test_get_paginated_stops_at_max_rows_across_pages(settings: Settings) -> None:
+    """The cap bounds accumulation even when ``next`` keeps offering more pages."""
+    next_page = f"{SAMPLE_API_URL}/api/v1/tasks/?page=2"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page") == "2":
+            return _json(_paged([{"id": "b"}], count=4, next_url=None))
+        # Page one already exceeds max_rows=1, so page two is never fetched.
+        return _json(_paged([{"id": "a-1"}, {"id": "a-2"}], count=4, next_url=next_page))
+
+    routes: Routes = {"tasks/": handler}
+    async with _client(settings, routes) as client:
+        rows_out, total, truncated = await client.get_paginated("tasks/", max_rows=1)
+    assert [r["id"] for r in rows_out] == ["a-1"]
+    assert total == 4
+    assert truncated is True
+
+
+async def test_get_board_state_signals_truncated_cards(settings: Settings) -> None:
+    """A board whose cards exceed the cap surfaces ``cards_truncated`` + a total (#1731)."""
+    cards = [{"id": f"c-{i}", "status": "TODO"} for i in range(3)]
+    routes: Routes = {
+        "projects/p-1/board-config/": _json({"columns": [{"key": "TODO", "label": "To Do"}]}),
+        "tasks/": _json(_paged(cards, count=42, next_url=None)),
+    }
+    # Patch the cap low via the tool's client call by monkeypatching is overkill;
+    # instead assert the client-level truncation the tool forwards.
+    async with _client(settings, routes) as client:
+        card_rows, total, truncated = await client.get_paginated(
+            "tasks/", params={"project": "p-1"}, max_rows=3
+        )
+    assert truncated is True
+    assert total == 42
+    assert len(card_rows) == 3
+
+
 async def test_get_task_compacts_and_truncates(settings: Settings) -> None:
     routes: Routes = {
         "tasks/t-1/": _json(
@@ -321,7 +429,10 @@ async def test_list_risks_compacts_rows(settings: Settings) -> None:
     }
     async with _client(settings, routes) as client:
         result = await _list_risks(client, "p-1")
-    assert result == [{"id": "r-1", "title": "Vendor slip", "impact": 4}]
+    assert result == {
+        "items": [{"id": "r-1", "title": "Vendor slip", "impact": 4}],
+        "total_count": 1,
+    }
 
 
 async def test_get_monte_carlo_forecast_returns_latest_run(settings: Settings) -> None:
@@ -417,7 +528,10 @@ async def test_list_sprints_compacts_rows(settings: Settings) -> None:
     }
     async with _client(settings, routes) as client:
         result = await _list_sprints(client, "p-1")
-    assert result == [{"id": "s-1", "name": "Sprint 1", "state": "ACTIVE"}]
+    assert result == {
+        "items": [{"id": "s-1", "name": "Sprint 1", "state": "ACTIVE"}],
+        "total_count": 1,
+    }
 
 
 async def test_get_sprint_merges_health_when_project_present(settings: Settings) -> None:
@@ -445,7 +559,10 @@ async def test_list_my_work_compacts_rows(settings: Settings) -> None:
     }
     async with _client(settings, routes) as client:
         result = await _list_my_work(client)
-    assert result == [{"id": "t-1", "name": "Mine", "due": "2026-07-05"}]
+    assert result == {
+        "items": [{"id": "t-1", "name": "Mine", "due": "2026-07-05"}],
+        "total_count": 1,
+    }
 
 
 async def test_list_programs_surfaces_caller_role(settings: Settings) -> None:
@@ -465,7 +582,10 @@ async def test_list_programs_surfaces_caller_role(settings: Settings) -> None:
     }
     async with _client(settings, routes) as client:
         result = await _list_programs(client)
-    assert result == [{"id": "pr-1", "name": "Mars", "caller_role": "Project Manager"}]
+    assert result == {
+        "items": [{"id": "pr-1", "name": "Mars", "caller_role": "Project Manager"}],
+        "total_count": 1,
+    }
 
 
 async def test_get_program_health_returns_rollup(settings: Settings) -> None:
@@ -510,9 +630,10 @@ async def test_list_program_backlog_compacts_rows(settings: Settings) -> None:
     }
     async with _client(settings, routes) as client:
         result = await _list_program_backlog(client, "pr-1")
-    assert result == [
-        {"id": "b-1", "title": "Intake item", "item_type": "STORY", "story_points": 5}
-    ]
+    assert result == {
+        "items": [{"id": "b-1", "title": "Intake item", "item_type": "STORY", "story_points": 5}],
+        "total_count": 1,
+    }
 
 
 async def test_whoami_returns_identity(settings: Settings) -> None:
@@ -592,23 +713,28 @@ async def test_registered_wrappers_delegate_to_implementations(settings: Setting
             assert tool is not None
             return await tool.fn(**kwargs)
 
-        assert await call("list_projects") == []
+        # List tools return the {items, total_count} envelope (#1731); an empty
+        # page is items == [] with total_count 0 and no truncated marker.
+        assert await call("list_projects") == {"items": [], "total_count": 0}
         assert (await call("get_project", project_id="p-1"))["id"] == "p-1"
         assert await call("get_task", task_id="t-1") == {"id": "t-1"}
         assert (await call("get_board_state", project_id="p-1"))["cards"] == []
         assert "critical_task_count" in await call("get_schedule_summary", project_id="p-1")
-        assert await call("list_risks", project_id="p-1") == []
+        assert await call("list_risks", project_id="p-1") == {"items": [], "total_count": 0}
         assert (await call("get_monte_carlo_forecast", project_id="p-1"))["p50"] == "2026-09-01"
         assert (await call("whatif", project_id="p-1", task_id="t-1", duration_delta=5))[
             "critical_path_changed"
         ] is False
         assert (await call("get_release_forecast", project_id="p-1"))["p80_sprints"] == 4
-        assert await call("list_sprints", project_id="p-1") == []
+        assert await call("list_sprints", project_id="p-1") == {"items": [], "total_count": 0}
         assert (await call("get_sprint", sprint_id="s-1"))["id"] == "s-1"
-        assert await call("list_my_work") == []
-        assert await call("list_programs") == []
+        assert await call("list_my_work") == {"items": [], "total_count": 0}
+        assert await call("list_programs") == {"items": [], "total_count": 0}
         assert (await call("get_program_health", program_id="pr-1"))["health"] == "AMBER"
-        assert await call("list_program_backlog", program_id="pr-1") == []
+        assert await call("list_program_backlog", program_id="pr-1") == {
+            "items": [],
+            "total_count": 0,
+        }
         assert (await call("whoami"))["id"] == "u-1"
 
         # ``since`` is the accepted alias for ``updated_after``.

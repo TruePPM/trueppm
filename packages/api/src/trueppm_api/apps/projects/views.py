@@ -11515,7 +11515,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
         )
 
 
-class ProjectSprintForecastView(APIView):
+class ProjectSprintForecastView(McpReadableViewMixin, APIView):
     """``GET /api/v1/projects/<pk>/sprint-forecast/`` — backlog delivery forecast (#487).
 
     P50/P80 sprint counts + calendar dates for clearing the remaining committed

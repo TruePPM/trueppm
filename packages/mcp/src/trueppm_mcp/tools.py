@@ -17,6 +17,13 @@ The compact-result contract (#504):
   ``caller_role`` — the caller's own role, passed through from the API's
   authoritative ``my_role_label``, never inferred in the MCP server (ADR-0186 §F).
 
+Every ``list_*`` tool returns a ``{"items": [...], "total_count": N}`` envelope
+rather than a bare list (#1731): the API paginates at 50 rows/page, so the client
+follows ``next`` up to :data:`~trueppm_mcp.client.DEFAULT_MAX_ROWS` and, when more
+rows still exist server-side, adds ``"truncated": true`` so the model knows it is
+reasoning over a partial set rather than silently drawing conclusions from the
+first page.
+
 Each module-level ``_<tool>`` function is the testable implementation (exercised
 against ``httpx.MockTransport``); :func:`register_tools` binds a thin
 ``@server.tool()`` wrapper around each, closing over the shared client.
@@ -24,7 +31,7 @@ against ``httpx.MockTransport``); :func:`register_tools` binds a thin
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -117,15 +124,41 @@ def _project_result(item: Mapping[str, Any]) -> dict[str, Any]:
     return _compact_mapping(_with_caller_role(item))
 
 
+def _list_result(
+    rows: list[Any],
+    total_count: int,
+    truncated: bool,
+    *,
+    compact: Callable[[Mapping[str, Any]], dict[str, Any]] = _compact_mapping,
+) -> dict[str, Any]:
+    """Envelope a paginated row list with its total count and truncation signal (#1731).
+
+    Every ``list_*`` tool returns this shape so a partial read is never mistaken
+    for the whole set: ``items`` holds the compacted rows, ``total_count`` is the
+    server's authoritative total, and ``truncated`` is present (``True``) only when
+    fewer rows were returned than exist — the model then knows to narrow its query
+    rather than reason over an incomplete set. ``truncated`` follows the compaction
+    convention of omitting the falsy case, so a complete read carries just
+    ``items`` + ``total_count``.
+    """
+    out: dict[str, Any] = {
+        "items": [compact(row) for row in rows if isinstance(row, Mapping)],
+        "total_count": total_count,
+    }
+    if truncated:
+        out["truncated"] = True
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Tool implementations (testable; each takes the client explicitly)
 # ---------------------------------------------------------------------------
 
 
-async def _list_projects(client: TruePPMClient) -> list[dict[str, Any]]:
+async def _list_projects(client: TruePPMClient) -> dict[str, Any]:
     """Every project the token owner can read, each with ``caller_role``."""
-    payload = await client.get("projects/")
-    return [_project_result(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated("projects/")
+    return _list_result(rows, total, truncated, compact=_project_result)
 
 
 async def _get_project(client: TruePPMClient, project_id: str) -> dict[str, Any]:
@@ -176,7 +209,7 @@ async def _list_tasks(
     is_critical: bool | None = None,
     task_type: str | None = None,
     updated_after: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Tasks in a project, filterable and compacted."""
     params = _task_params(
         project_id,
@@ -187,8 +220,8 @@ async def _list_tasks(
         task_type=task_type,
         updated_after=updated_after,
     )
-    payload = await client.get("tasks/", params=params)
-    return [_compact_mapping(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated("tasks/", params=params)
+    return _list_result(rows, total, truncated)
 
 
 async def _get_task(client: TruePPMClient, task_id: str) -> dict[str, Any]:
@@ -200,12 +233,20 @@ async def _get_task(client: TruePPMClient, task_id: str) -> dict[str, Any]:
 async def _get_board_state(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """Board columns composed with the project's task cards (two endpoints)."""
     board_config = await client.get(f"projects/{project_id}/board-config/")
-    tasks = await client.get("tasks/", params={"project": project_id})
+    cards, total_cards, truncated = await client.get_paginated(
+        "tasks/", params={"project": project_id}
+    )
     columns = board_config.get("columns") if isinstance(board_config, Mapping) else board_config
-    return {
+    result: dict[str, Any] = {
         "columns": _compact_value(columns) if columns is not None else [],
-        "cards": [_compact_mapping(row) for row in _items(tasks)],
+        "cards": [_compact_mapping(row) for row in cards if isinstance(row, Mapping)],
     }
+    # Signal a partial card set (#1731) so the model doesn't reason over a board
+    # missing cards past the cap; omitted entirely for a complete read.
+    if truncated:
+        result["cards_truncated"] = True
+        result["total_card_count"] = total_cards
+    return result
 
 
 async def _get_schedule_summary(client: TruePPMClient, project_id: str) -> dict[str, Any]:
@@ -217,10 +258,10 @@ async def _get_schedule_summary(client: TruePPMClient, project_id: str) -> dict[
     return result
 
 
-async def _list_risks(client: TruePPMClient, project_id: str) -> list[dict[str, Any]]:
+async def _list_risks(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """The project's risk register (impact / probability / status)."""
-    payload = await client.get(f"projects/{project_id}/risks/")
-    return [_compact_mapping(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/risks/")
+    return _list_result(rows, total, truncated)
 
 
 async def _get_monte_carlo_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
@@ -280,10 +321,10 @@ async def _get_release_forecast(client: TruePPMClient, project_id: str) -> dict[
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
-async def _list_sprints(client: TruePPMClient, project_id: str) -> list[dict[str, Any]]:
+async def _list_sprints(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """The project's sprints (aggregates only — no per-person velocity)."""
-    payload = await client.get(f"projects/{project_id}/sprints/")
-    return [_compact_mapping(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated(f"projects/{project_id}/sprints/")
+    return _list_result(rows, total, truncated)
 
 
 async def _get_sprint(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
@@ -299,16 +340,16 @@ async def _get_sprint(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
     return result
 
 
-async def _list_my_work(client: TruePPMClient) -> list[dict[str, Any]]:
+async def _list_my_work(client: TruePPMClient) -> dict[str, Any]:
     """The caller's assigned tasks across every project they belong to."""
-    payload = await client.get("me/work/")
-    return [_compact_mapping(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated("me/work/")
+    return _list_result(rows, total, truncated)
 
 
-async def _list_programs(client: TruePPMClient) -> list[dict[str, Any]]:
+async def _list_programs(client: TruePPMClient) -> dict[str, Any]:
     """Every program the token owner can read, each with ``caller_role``."""
-    payload = await client.get("programs/")
-    return [_project_result(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated("programs/")
+    return _list_result(rows, total, truncated, compact=_project_result)
 
 
 async def _get_program_health(client: TruePPMClient, program_id: str) -> dict[str, Any]:
@@ -317,10 +358,10 @@ async def _get_program_health(client: TruePPMClient, program_id: str) -> dict[st
     return _compact_mapping(payload if isinstance(payload, Mapping) else {})
 
 
-async def _list_program_backlog(client: TruePPMClient, program_id: str) -> list[dict[str, Any]]:
+async def _list_program_backlog(client: TruePPMClient, program_id: str) -> dict[str, Any]:
     """The program's backlog — its intake pool of items, ranked by priority."""
-    payload = await client.get(f"programs/{program_id}/backlog-items/")
-    return [_compact_mapping(row) for row in _items(payload)]
+    rows, total, truncated = await client.get_paginated(f"programs/{program_id}/backlog-items/")
+    return _list_result(rows, total, truncated)
 
 
 async def _whoami(client: TruePPMClient) -> dict[str, Any]:
@@ -345,8 +386,12 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     """
 
     @server.tool()
-    async def list_projects() -> list[dict[str, Any]]:
-        """List every project you can read, each with your role (``caller_role``)."""
+    async def list_projects() -> dict[str, Any]:
+        """List every project you can read, each with your role (``caller_role``).
+
+        Returns an ``{items, total_count}`` envelope; ``truncated: true`` is added
+        when more projects exist than were returned (see the module docstring).
+        """
         return await _list_projects(client)
 
     @server.tool()
@@ -368,8 +413,12 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         type: str | None = None,  # mirrors the API's ?type= filter
         updated_after: str | None = None,
         since: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """List a project's tasks, optionally filtered.
+
+        Returns an ``{items, total_count}`` envelope; ``truncated: true`` is added
+        when more tasks match than were returned — narrow with a filter to see the
+        rest rather than reasoning over a partial set.
 
         Args:
             project_id: The project's UUID (required).
@@ -421,8 +470,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_schedule_summary(client, project_id)
 
     @server.tool()
-    async def list_risks(project_id: str) -> list[dict[str, Any]]:
+    async def list_risks(project_id: str) -> dict[str, Any]:
         """The project's risk register (impact, probability, status).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned).
 
         Args:
             project_id: The project's UUID.
@@ -526,8 +578,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_release_forecast(client, project_id)
 
     @server.tool()
-    async def list_sprints(project_id: str) -> list[dict[str, Any]]:
+    async def list_sprints(project_id: str) -> dict[str, Any]:
         """The project's sprints (health bands and aggregates only).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned).
 
         Args:
             project_id: The project's UUID.
@@ -544,13 +599,21 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_sprint(client, sprint_id)
 
     @server.tool()
-    async def list_my_work() -> list[dict[str, Any]]:
-        """Your assigned tasks across every project you belong to (``My Work``)."""
+    async def list_my_work() -> dict[str, Any]:
+        """Your assigned tasks across every project you belong to (``My Work``).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more rows exist than returned).
+        """
         return await _list_my_work(client)
 
     @server.tool()
-    async def list_programs() -> list[dict[str, Any]]:
-        """List every program you can read, each with your role (``caller_role``)."""
+    async def list_programs() -> dict[str, Any]:
+        """List every program you can read, each with your role (``caller_role``).
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more programs exist than returned).
+        """
         return await _list_programs(client)
 
     @server.tool()
@@ -563,13 +626,16 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         return await _get_program_health(client, program_id)
 
     @server.tool()
-    async def list_program_backlog(program_id: str) -> list[dict[str, Any]]:
+    async def list_program_backlog(program_id: str) -> dict[str, Any]:
         """A program's backlog — its intake pool of items, ranked by priority.
 
         Read-only listing of the program's backlog items: title, type, status,
         story points, priority rank, and whether each has already been pulled
         into a project task. Single-program only; cross-program portfolio intake
         is Enterprise.
+
+        Returns an ``{items, total_count}`` envelope (``truncated: true`` when
+        more items exist than returned).
 
         Args:
             program_id: The program's UUID.

@@ -28,6 +28,14 @@ AUTH_VERIFY_PATH = "auth/me/"
 #: surface as a clear error rather than hang the AI client indefinitely.
 DEFAULT_TIMEOUT = 30.0
 
+#: Cap on the number of rows a paginated read tool accumulates before it stops
+#: following ``next`` and reports the result as truncated. The API paginates at
+#: ``PAGE_SIZE`` (50) rows/page, so this follows up to ~20 pages. It bounds the
+#: LLM context a single ``list_*`` tool can spend: a well-behaved list returns in
+#: full, and a pathologically large one is capped with an explicit ``truncated``
+#: signal rather than silently cut at the first page (#1731).
+DEFAULT_MAX_ROWS = 1000
+
 
 class ApiError(RuntimeError):
     """Raised when the API returns an unexpected (non-401) error status."""
@@ -119,6 +127,79 @@ class TruePPMClient:
         if response.is_error:
             raise ApiError(f"Unexpected response from {path}: HTTP {response.status_code}.")
         return response.json()
+
+    async def get_paginated(
+        self,
+        path: str,
+        params: Mapping[str, Any] | None = None,
+        *,
+        max_rows: int = DEFAULT_MAX_ROWS,
+    ) -> tuple[list[Any], int, bool]:
+        """Follow DRF pagination, accumulating rows up to ``max_rows`` (#1731).
+
+        The list tools must not silently reason over only the first page: a DRF
+        collection returns ``{count, next, previous, results}`` at ``PAGE_SIZE``
+        (50) rows/page, so a bare ``results`` read truncates at 50 with no signal.
+        This method follows the absolute ``next`` links until it has ``max_rows``
+        rows or runs out of pages, and reports whether more rows exist server-side
+        so the caller can tell the model the set is partial.
+
+        Args:
+            path: Path relative to the ``/api/v1/`` base (e.g. ``"tasks/"``).
+            params: Query parameters for the first page. ``next`` carries its own
+                params, so following pages send none of their own.
+            max_rows: Stop accumulating once this many rows are collected.
+
+        Returns:
+            ``(rows, total_count, truncated)``:
+              * ``rows`` — the accumulated result rows, capped at ``max_rows``.
+              * ``total_count`` — the server's reported ``count`` (the true total),
+                or ``len(rows)`` for an unpaginated (bare-list) body.
+              * ``truncated`` — ``True`` when fewer rows were returned than exist
+                server-side (``next`` remained, or the cap was hit).
+
+        Raises:
+            AuthError: On HTTP 401 (see :meth:`get`).
+            ApiError: On any other error status (see :meth:`get`).
+        """
+        payload = await self.get(path, params=params)
+        # An endpoint that returns a bare JSON list is unpaginated; the whole body
+        # is the row set (still cap it defensively).
+        if isinstance(payload, list):
+            return payload[:max_rows], len(payload), len(payload) > max_rows
+        if not isinstance(payload, Mapping) or "results" not in payload:
+            return [], 0, False
+
+        rows: list[Any] = []
+        results = payload.get("results")
+        if isinstance(results, list):
+            rows.extend(results)
+        total_count = payload.get("count")
+        next_url = payload.get("next")
+        # ``next`` is an absolute URL carrying its own page/query params, so it is
+        # passed to get() as the full path with no additional params.
+        while isinstance(next_url, str) and next_url and len(rows) < max_rows:
+            page = await self.get(next_url)
+            if not isinstance(page, Mapping):
+                break
+            page_results = page.get("results")
+            if not isinstance(page_results, list) or not page_results:
+                # A well-behaved DRF page never advertises ``next`` past the last
+                # populated page. Stop on the first empty/malformed page so a
+                # misbehaving server that keeps returning a non-null ``next`` with
+                # no rows can't spin this loop — it stays provably bounded.
+                break
+            rows.extend(page_results)
+            next_url = page.get("next")
+
+        truncated = (isinstance(next_url, str) and bool(next_url)) or len(rows) > max_rows
+        rows = rows[:max_rows]
+        if not isinstance(total_count, int):
+            total_count = len(rows)
+        # A count larger than what we returned is truncation even if we exhausted
+        # ``next`` (defensive against an inconsistent count/next).
+        truncated = truncated or total_count > len(rows)
+        return rows, total_count, truncated
 
     async def aclose(self) -> None:
         """Close the underlying connection pool."""

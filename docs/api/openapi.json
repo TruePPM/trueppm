@@ -8033,7 +8033,7 @@
         "/api/v1/programs/{program_pk}/backlog-items/": {
             "get": {
                 "operationId": "v1_programs_backlog_items_list",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -8076,6 +8076,9 @@
                 ],
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8114,7 +8117,7 @@
             },
             "post": {
                 "operationId": "v1_programs_backlog_items_create",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8149,6 +8152,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -8190,7 +8196,7 @@
         "/api/v1/programs/{program_pk}/backlog-items/{id}/": {
             "get": {
                 "operationId": "v1_programs_backlog_items_retrieve",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8213,6 +8219,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -8252,7 +8261,7 @@
             },
             "put": {
                 "operationId": "v1_programs_backlog_items_update",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8296,6 +8305,9 @@
                 },
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8334,7 +8346,7 @@
             },
             "patch": {
                 "operationId": "v1_programs_backlog_items_partial_update",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8377,6 +8389,9 @@
                 },
                 "security": [
                     {
+                        "projectApiTokenAuth": []
+                    },
+                    {
                         "jwtAuth": []
                     },
                     {
@@ -8415,7 +8430,7 @@
             },
             "delete": {
                 "operationId": "v1_programs_backlog_items_destroy",
-                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``\n\n``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve\nreads to a personal ``mcp:read`` API token — it powers the MCP\n``list_program_backlog`` tool. Because this viewset overrides\n``get_permissions`` with a per-action list, the MCP token guards are appended\nfrom that wrapper (via ``mcp_token_guards()``) rather than the mixin's default\n``get_permissions``, so no branch — including the write branches — can leak a\ntoken past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.",
                 "parameters": [
                     {
                         "in": "path",
@@ -8438,6 +8453,9 @@
                     "programs"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -8515,6 +8533,9 @@
                     "required": true
                 },
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
@@ -15714,6 +15735,9 @@
                     "projects"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "jwtAuth": []
                     },
