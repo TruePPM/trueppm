@@ -63,9 +63,10 @@ for wiring it into Claude Desktop's `claude_desktop_config.json`.
 
 ## Status
 
-The read-tool surface ships in 0.4: **14 read-only tools** across projects and
-programs, tasks and My Work, schedule and risk, and sprints — each mapping to
-one existing REST endpoint and returning only what your role permits. The
+The read-tool surface ships in 0.4: **18 read-only tools** across projects and
+programs, tasks and My Work, schedule and risk (including non-mutating what-if
+and schedule derivation), and sprints — each mapping to one existing REST
+endpoint and returning only what your role permits. The
 `mcp:read` token scope that marks a token read-only at the API layer lands
 alongside; the read surface admits only owner-scoped `mcp:read` tokens, which
 must carry an expiry. Write tools are deliberately held to a later release.

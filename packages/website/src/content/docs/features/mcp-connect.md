@@ -21,29 +21,31 @@ see the [MCP server administration guide](/administration/mcp-server/).
 
 ## Step 1 — Mint a read-only token
 
-The server authenticates with a **project API token** (`tppm_<64-hex>`) — the
-same token type used for [inbound task sync](/features/inbound-task-sync/),
-scoped read-only for AI clients.
+The server authenticates with a **personal access token** (`tppm_<64-hex>`)
+carrying the **`mcp:read` scope**. The read surface accepts only owner-scoped
+(personal) tokens — a project- or program-scoped token is rejected here with a
+401 — so the credential acts as *you* and reads only what your role permits,
+never beyond it.
 
-1. Open **Project or Program → Settings → Integrations → API Tokens → Create
-   token**.
-2. Choose the **"Read-only for AI assistants"** scope (`mcp:read`). This grants
-   safe-method (`GET`) access only and is rejected at every write path, so it is
-   the correct least-privilege credential for an assistant.
+1. Open **Personal Settings → API tokens → Create token**.
+2. Choose the **"Read-only for AI assistants"** scope (`mcp:read`) and **set an
+   expiry** (required for `mcp:read`). This grants safe-method (`GET`) access
+   only and is rejected at every write path, so it is the correct least-privilege
+   credential for an assistant — and it cannot outlive its expiry.
 3. The reveal dialog shows the raw token **once** — copy it immediately. Only its
    SHA-256 digest is stored server-side, so a lost token cannot be recovered,
    only revoked and re-minted.
 
-A token is bound to a single project or a single program and can read only what
-your role on that scope permits. The reveal dialog also offers a ready-to-paste
-`claude_desktop_config.json` snippet built from the token — if you use Claude
-Desktop, that snippet is the fastest path and you can skip the manual assembly
-below.
+The token acts as you and can read only what your own role permits across the
+projects and programs you belong to. The reveal dialog also offers a
+ready-to-paste `claude_desktop_config.json` snippet built from the token — if you
+use Claude Desktop, that snippet is the fastest path and you can skip the manual
+assembly below.
 
 :::caution
 Treat the token like a password. Anyone holding it can read everything your role
-can read on that project or program. Pass it through your client's `env` block or
-a secret store — never commit it to a shared config file.
+can read. Pass it through your client's `env` block or a secret store — never
+commit it to a shared config file.
 :::
 
 ## Step 2 — Add the server to your client

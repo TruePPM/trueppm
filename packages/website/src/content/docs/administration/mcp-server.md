@@ -27,8 +27,8 @@ an Enterprise overlay and is not part of this server.
 
 `trueppm-mcp` is a thin protocol adapter. It is **not** part of the API
 deployment — it runs as a **separate process** that talks to TruePPM only over
-HTTP via the public REST API, carrying a project API token as a bearer
-credential. It never imports Django, never touches the database or the ORM, and
+HTTP via the public REST API, carrying a personal `mcp:read` access token as a
+bearer credential. It never imports Django, never touches the database or the ORM, and
 holds no privileged path: your role-based permissions are enforced exactly once,
 at the API layer, identically for this server and the web client.
 
@@ -112,6 +112,18 @@ never exposes the server on a public interface. Bind to `0.0.0.0` **only** behin
 a reverse proxy that terminates TLS and controls access; the server itself speaks
 plain HTTP and holds a live credential, so it must never face the public internet
 directly.
+
+:::caution[The HTTP/SSE transport has no client-side authentication]
+The network transports authenticate the server *to TruePPM* (with your token),
+but they do **not** authenticate clients *to the server*: the MCP session itself
+carries no credential, so anyone who can reach the listening port acts as the
+token owner and reads everything your role permits. Keep the transport
+loopback-only (`127.0.0.1`), or sit it behind an authenticated ingress (a reverse
+proxy that terminates TLS and enforces access control). Never bind `0.0.0.0`
+without that front door. Transport-level session auth is tracked for a later
+release ([#604](https://gitlab.com/trueppm/trueppm/-/issues/604)); until then this
+is a deployment responsibility.
+:::
 
 ## Docker
 
