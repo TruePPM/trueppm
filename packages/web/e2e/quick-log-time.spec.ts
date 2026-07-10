@@ -213,6 +213,19 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
     // The scrim is the tell that the mobile surface is the shared BottomSheet.
     await expect(page.getByTestId('bottom-sheet-scrim')).toBeVisible();
 
+    // #1800: the sheet form must not overflow horizontally — the trailing
+    // custom-duration input and the primary "Log" button were clipped off the
+    // right edge. Assert no horizontal scroll on the sheet and that the primary
+    // action sits fully within the viewport (its right edge ≤ 390px).
+    const overflow = await dialog.evaluate(
+      (el) => (el as HTMLElement).scrollWidth - (el as HTMLElement).clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+    const logBtn = dialog.getByRole('button', { name: /^Log / });
+    const box = await logBtn.boundingBox();
+    expect(box).not.toBeNull();
+    expect((box!.x + box!.width)).toBeLessThanOrEqual(390 + 1);
+
     await dialog.getByRole('button', { name: '30m' }).click();
     await dialog.getByRole('button', { name: 'Log 30m' }).click();
 
