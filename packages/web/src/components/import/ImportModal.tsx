@@ -1,24 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { isAxiosError } from 'axios';
 import {
   MS_PROJECT_ACCEPT,
   MS_PROJECT_MAX_UPLOAD_MB,
   useImportMsProject,
 } from '@/hooks/useMsProjectImportExport';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ImportDropzone } from './ImportDropzone';
 
 interface Props {
   /** Active project; the modal is gated on a non-null id by the caller. */
   projectId: string | null;
   onClose: () => void;
-}
-
-function getFocusable(container: HTMLElement): HTMLElement[] {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  );
 }
 
 /** Pull the server's `detail` message out of a failed request, if present. */
@@ -45,45 +38,21 @@ export function ImportModal({ projectId, onClose }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [rejectMsg, setRejectMsg] = useState<string | null>(null);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<Element | null>(null);
-
   const importMut = useImportMsProject(projectId);
 
-  // Capture trigger before the modal opens; restore focus on unmount.
-  useEffect(() => {
-    triggerRef.current = document.activeElement;
-    dialogRef.current?.focus();
-    return () => {
-      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
-    };
-  }, []);
-
-  // Escape closes; Tab/Shift+Tab cycles within the dialog.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = getFocusable(dialogRef.current);
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  // The modal stays open while its body swaps phase (picking → uploading →
+  // success/error), unmounting whichever control held focus. Passing the phase
+  // as `focusKey` re-seats focus inside the dialog on each swap so Tab can't
+  // escape to the background page (#1776). The uploading phase has no focusable
+  // content — focus falls back to the dialog container (tabIndex={-1}).
+  const phase = importMut.isSuccess
+    ? 'success'
+    : importMut.isError
+      ? 'error'
+      : importMut.isPending
+        ? 'uploading'
+        : 'picking';
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, phase);
 
   const isMpp = file?.name.toLowerCase().endsWith('.mpp') ?? false;
 

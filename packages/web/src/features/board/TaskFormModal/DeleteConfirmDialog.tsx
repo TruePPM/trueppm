@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 
 export interface DeleteConfirmDialogProps {
   /** Task name shown in the prompt. */
@@ -14,7 +14,14 @@ export interface DeleteConfirmDialogProps {
  * `role="alertdialog"` because the action is destructive (WCAG/ARIA APG).
  *
  * Default focus is on **Cancel**, not Delete — destructive actions never
- * autofocus the destructive button.
+ * autofocus the destructive button (Cancel is the first focusable, so the
+ * trap's default seat lands on it).
+ *
+ * Owns its own focus trap (WCAG 2.4.3 / 2.1.2, #1776): the parent
+ * TaskFormModal yields its trap while this alertdialog is open, so without a
+ * trap here Tab escaped into the background form. `useFocusTrap` also routes
+ * Escape to `onCancel` and restores focus to the trigger (the form's Delete
+ * button) on close — matching the sibling ConfirmDiscardDialog.
  */
 export function DeleteConfirmDialog({
   taskName,
@@ -22,30 +29,17 @@ export function DeleteConfirmDialog({
   onCancel,
   onConfirm,
 }: DeleteConfirmDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    }
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
 
   return (
     <div
+      ref={trapRef}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="delete-task-confirm-title"
       aria-describedby="delete-task-confirm-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      tabIndex={-1}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -62,7 +56,6 @@ export function DeleteConfirmDialog({
         </p>
         <div className="flex justify-end gap-2">
           <button
-            ref={cancelRef}
             type="button"
             onClick={onCancel}
             disabled={isPending}

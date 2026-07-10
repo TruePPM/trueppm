@@ -23,6 +23,7 @@ import {
   type RefObject,
 } from 'react';
 import type { Task, TaskLink } from '@/types';
+import { useDragStore } from '@/stores/dragStore';
 import type { GanttEngine } from './engine';
 import { dateToLeft, dateToRight } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
@@ -148,6 +149,8 @@ export function ScheduleAriaOverlay({
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
   const gridRef = useRef<HTMLDivElement>(null);
+  // Task id whose gridcell should receive DOM focus once it is rendered.
+  const pendingFocusRef = useRef<string | null>(null);
 
   // Track scroll from engine events (rule 55: always unsubscribe)
   useEffect(() => {
@@ -191,42 +194,92 @@ export function ScheduleAriaOverlay({
   const firstRow = Math.max(0, Math.floor(minY / ROW_HEIGHT));
   const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / ROW_HEIGHT));
 
-  // Roving tabindex keyboard handler (rule 68)
+  // After keyboard navigation re-renders the roving tab stop, move DOM focus
+  // to it. Without this the next keydown still fires on the *previous* cell
+  // (whose task index it carries), so navigation stalled after a single step.
+  // No dependency array: after a far jump (Home/End) the target row only
+  // mounts once the container's scroll event updates the virtualized window,
+  // a later render this effect must also observe.
+  useEffect(() => {
+    const id = pendingFocusRef.current;
+    if (!id) return;
+    const cell = gridRef.current?.querySelector<HTMLElement>(
+      `[role="gridcell"][data-task-id="${id}"]`,
+    );
+    if (cell) {
+      pendingFocusRef.current = null;
+      cell.focus();
+    }
+  });
+
+  // Roving tabindex keyboard handler (rule 68). Row navigation is vertical
+  // only: each row exposes a single gridcell (the bar), so ArrowLeft/Right
+  // have no sibling cell to move to and are deliberately left unhandled —
+  // they are the nudge keys once a keyboard reschedule is active
+  // (useKeyboardReschedule, document-level).
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>, taskId: string) => {
+      // While a keyboard reschedule is active the document-level handler owns
+      // the keys (Left/Right nudge, Enter confirm, Escape cancel) — the grid
+      // must not move its roving focus or re-select mid-reschedule.
+      if (useDragStore.getState().isKeyboardMode) return;
+
+      const moveTo = (target: Task | undefined) => {
+        if (!target) return;
+        setFocusedTaskId(target.id);
+        // Announce the reschedule convention for reschedulable rows; stay
+        // silent on summary/complete rows to avoid spamming (#1031).
+        setLiveMessage(rescheduleHint(target) ?? '');
+        pendingFocusRef.current = target.id;
+        // Bring the row into the virtualized window (Home/End can jump far
+        // outside it) and the bar into horizontal view.
+        const container = containerRef.current;
+        if (container) {
+          const rowTop = tasks.indexOf(target) * ROW_HEIGHT;
+          const viewH = container.clientHeight - HEADER_HEIGHT;
+          if (rowTop < container.scrollTop) container.scrollTop = rowTop;
+          else if (rowTop + ROW_HEIGHT > container.scrollTop + viewH)
+            container.scrollTop = rowTop + ROW_HEIGHT - viewH;
+        }
+        if (engine) engine.scrollToDate(target.start);
+      };
+
       const idx = tasks.findIndex((t) => t.id === taskId);
       switch (e.key) {
-        case 'ArrowDown': {
+        case 'ArrowDown':
           e.preventDefault();
-          const next = tasks[idx + 1];
-          if (next) {
-            setFocusedTaskId(next.id);
-            // Announce the reschedule convention for reschedulable rows; stay
-            // silent on summary/complete rows to avoid spamming (#1031).
-            setLiveMessage(rescheduleHint(next) ?? '');
-            // Scroll into view if needed
-            if (engine) engine.scrollToDate(next.start);
-          }
+          moveTo(tasks[idx + 1]);
           break;
-        }
-        case 'ArrowUp': {
+        case 'ArrowUp':
           e.preventDefault();
-          const prev = tasks[idx - 1];
-          if (prev) {
-            setFocusedTaskId(prev.id);
-            setLiveMessage(rescheduleHint(prev) ?? '');
-            if (engine) engine.scrollToDate(prev.start);
-          }
+          moveTo(tasks[idx - 1]);
           break;
-        }
+        // role="grid" keyboard contract (#1776): Home/End jump to the first/
+        // last row (single-cell rows, so "row start/end" and "grid start/end"
+        // coincide).
+        case 'Home':
+          e.preventDefault();
+          moveTo(tasks[0]);
+          break;
+        case 'End':
+          e.preventDefault();
+          moveTo(tasks[tasks.length - 1]);
+          break;
         case 'Enter':
         case ' ':
+          // Selects the task. The engine emits `selection-change`
+          // synchronously, so for Enter the document-level
+          // useKeyboardReschedule listener — which fires after this React
+          // handler in bubble order — sees the selection and starts the
+          // keyboard reschedule on this same keydown (covered by
+          // ScheduleAriaOverlay.keyboard.test.tsx; keep that interplay in
+          // mind before reordering listeners or making selection async).
           e.preventDefault();
           if (engine) engine.selectTask(taskId);
           break;
       }
     },
-    [tasks, engine],
+    [tasks, engine, containerRef],
   );
 
   const scales = engine?.scales ?? null;
@@ -245,10 +298,14 @@ export function ScheduleAriaOverlay({
         overflow: 'hidden',
       }}
     >
-      {/* Static keyboard help announced when the grid is entered (#1031). */}
+      {/* Static keyboard help announced when the grid is entered (#1031).
+          Wording must match the real key map (#1776): Left/Right are the nudge
+          keys inside a reschedule; Up/Down navigate rows. */}
       <span id="schedule-grid-help" className="sr-only">
-        Use arrow up and down to move between tasks. Press Enter on a reschedulable task to
-        reschedule it with the keyboard, then arrow keys to nudge the date and Enter to confirm.
+        Use arrow up and down to move between tasks, and Home and End to jump to the first and
+        last task. Press Enter on a reschedulable task to reschedule it with the keyboard: left
+        and right arrow keys nudge the start date, Enter confirms, Escape cancels. Press Space to
+        select a task without rescheduling.
       </span>
       {/* Polite live region — names the focused row and its reschedule hint. */}
       <span role="status" aria-live="polite" className="sr-only">
@@ -296,6 +353,7 @@ export function ScheduleAriaOverlay({
           >
             <div
               role="gridcell"
+              data-task-id={task.id}
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
               aria-describedby={depDescId}

@@ -266,6 +266,40 @@ describe('PromoteMilestoneDialog', () => {
     expect(screen.getByRole('button', { name: /Create & bind/i })).toBeDisabled();
   });
 
+  it('opens with focus seated on the first form control', () => {
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /Create new/i })).toHaveFocus();
+  });
+
+  it('re-seats focus on the form when the conflict view swaps to rebind (#1776)', async () => {
+    const sprint = makeSprint({
+      target_milestone: 'm-fat',
+      target_milestone_detail: { id: 'm-fat', name: 'FAT review', wbs_path: '1.3.1', finish: '2026-07-18' },
+    });
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={sprint} onClose={vi.fn()} />,
+    );
+    // The clicked "Rebind to another…" button unmounts with the conflict view;
+    // without a re-seat, focus would drop to <body> and Tab would escape.
+    await userEvent.click(screen.getByRole('button', { name: /Rebind to another/i }));
+    expect(screen.getByRole('button', { name: /Create new/i })).toHaveFocus();
+  });
+
+  it('keeps focus inside the dialog when a 409 race swaps the form to the conflict view (#1776)', async () => {
+    h.promoteMutate.mockImplementation(
+      (_p: unknown, opts?: { onError?: (e: unknown) => void }) =>
+        opts?.onError?.({ response: { status: 409, data: { code: 'sprint_already_bound' } } }),
+    );
+    renderWithProviders(
+      <PromoteMilestoneDialog projectId="proj-1" sprint={makeSprint()} onClose={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Create & bind/i }));
+    const dialog = await screen.findByRole('dialog', { name: /already bound to a milestone/i });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+
   it('closes on Cancel and on Escape', async () => {
     const onClose = vi.fn();
     renderWithProviders(
