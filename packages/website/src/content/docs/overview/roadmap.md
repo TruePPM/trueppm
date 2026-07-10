@@ -13,7 +13,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 
 | Surface | What landed |
 |---------|-------------|
-| Scheduling | CPM engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo P50/P80/P95, auto-reschedule on every write, WASM CPM for sub-100ms drag preview |
+| Scheduling | CPM engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo P50/P80/P95, auto-reschedule on every write, sub-100ms in-browser drag preview via a TypeScript CPM worker (calendar-approximate — fixed Mon–Fri week; the authoritative server CPM reconciles exact dates on commit). A Rust/WASM CPM engine ships as a conformance reference validated against the Python engine in CI (ADR-0015); wiring it into the browser is future work (#1777) |
 | Schedule view | Custom canvas Gantt with critical path, milestones, unscheduled gutter, drag-to-reschedule, dependency editing UX (#249), design polish parity (#248) |
 | Agile | Board / Kanban (5-column, swimlanes, WIP-overload), Sprints workspace (header + goal + milestone link + cadence + backlog + burndown + capacity + velocity + retro), multi-team Sprints lens, sprint header buttons (#299) |
 | Hybrid bridge | Velocity feedback loop (`VelocitySuggestion` model, ADR-0065) — sprint velocity suggests revised CPM durations non-destructively |
