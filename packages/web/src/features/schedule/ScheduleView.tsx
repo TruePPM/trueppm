@@ -667,19 +667,32 @@ export function ScheduleView() {
     // so the listener must bind to the new node.
   }, [effectiveViewMode]);
 
-  const handleEngineReady = useCallback((eng: GanttEngine) => {
-    setEngine(eng);
+  const handleEngineReady = useCallback(
+    (eng: GanttEngine) => {
+      setEngine(eng);
 
-    // Initial viewport: today at 25% from left (rule 81)
-    const scales = eng.scales;
-    const container = canvasScrollRef.current;
-    if (scales && container) {
-      const today = new Date().toISOString().slice(0, 10);
-      const todayX = dateToLeft(today, scales);
-      const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
-      container.scrollLeft = targetScrollLeft;
-    }
-  }, []);
+      // On a phone (#1787) the desktop "today at 25% from left" (rule 81) lands
+      // in the engine's leading pad whenever the project starts before today —
+      // the first paint is an empty week grid with the real work scrolled off to
+      // the right. Fit the whole project into the narrow viewport instead so the
+      // bars are on screen immediately. The full mobile-first surface is #1671.
+      if (isMobile) {
+        eng.fitToProject();
+        return;
+      }
+
+      // Initial viewport: today at 25% from left (rule 81)
+      const scales = eng.scales;
+      const container = canvasScrollRef.current;
+      if (scales && container) {
+        const today = new Date().toISOString().slice(0, 10);
+        const todayX = dateToLeft(today, scales);
+        const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
+        container.scrollLeft = targetScrollLeft;
+      }
+    },
+    [isMobile],
+  );
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19)
   useDragCpm({
@@ -1454,18 +1467,20 @@ export function ScheduleView() {
             + Task
           </button>
         )}
-        {/* "+ Milestone" peer button (#340) — same gate as "+ Task" */}
-        {projectId && (
+        {/* "+ Milestone" / "+ Phase" peer buttons (#340, epic #1752). On mobile
+            (#1787) three full-width create buttons + Today overflow a 375px row,
+            so the two secondary creators fold into the ··· menu ("Add milestone /
+            phase" items below) and only the primary "+ Task" stays inline. */}
+        {projectId && !isMobile && (
           <ScheduleAddMilestoneButton
             onAddMilestone={handleAddMilestone}
             disabled={readOnly}
             pending={createTaskMut.isPending}
           />
         )}
-        {/* "+ Phase" peer button (epic #1752, issue #1754) — same gate as
-            "+ Task" / "+ Milestone". Schedule/Gantt only — never appears on a
-            contributor surface (board, sprints, My Work). */}
-        {projectId && (
+        {/* Schedule/Gantt only — never appears on a contributor surface (board,
+            sprints, My Work). */}
+        {projectId && !isMobile && (
           <ScheduleAddPhaseButton
             onAddPhase={handleAddPhase}
             disabled={readOnly}
@@ -1486,10 +1501,15 @@ export function ScheduleView() {
 
         <div className="flex-1" />
 
-        {/* Project-health summary chip (#248) — standalone read-only status. */}
-        <ScheduleSummaryChip visibleTasks={visibleTasks} />
-
-        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+        {/* Project-health summary chip (#248) — standalone read-only status.
+            Hidden on mobile (#1787) so the create actions + Today fit the row
+            without overflowing/clipping; the full mobile surface is #1671. */}
+        {!isMobile && (
+          <>
+            <ScheduleSummaryChip visibleTasks={visibleTasks} />
+            <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+          </>
+        )}
 
         {/* Grid↔Timeline layout toggle (issue 1221) — standalone: Grid keeps the
             WBS table beside the timeline, Timeline hides it for a full-width canvas.
@@ -1498,7 +1518,8 @@ export function ScheduleView() {
 
         {/* Show cluster (#1741) — the Display popover is the single home for the
             four view/render filters plus (in Grid mode) column visibility, at every
-            width. Filters never migrate to the ··· overflow (web rule 243). */}
+            width, including mobile (icon-only). Filters never migrate to the ···
+            overflow (web rule 243). */}
         <ScheduleDisplayMenu
           showCpOnly={showCpOnly}
           setShowCpOnly={setShowCpOnly}
@@ -1542,8 +1563,14 @@ export function ScheduleView() {
           >
             Today
           </button>
-          <ZoomControl onFit={() => engine?.fitToProject()} />
-          <QuarterModeControl />
+          {/* Zoom + fiscal-quarter toggle collapse on mobile (#1787) — the bounded
+              fix keeps only Today inline; touch pan/zoom is deferred to #1671. */}
+          {!isMobile && (
+            <>
+              <ZoomControl onFit={() => engine?.fitToProject()} />
+              <QuarterModeControl />
+            </>
+          )}
         </div>
 
         <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
@@ -1555,6 +1582,29 @@ export function ScheduleView() {
             triggerAriaLabel="Project actions"
             items={
               [
+                // Mobile-only (#1787): the secondary create actions live here
+                // because their inline buttons are suppressed on a phone. Gated by
+                // authoring role (readOnly viewers never see a create action).
+                ...(projectId && isMobile && !readOnly
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        id: 'add-milestone',
+                        label: 'Add milestone',
+                        // Mirror the inline buttons' in-flight guard (they disable
+                        // while a create is pending) so a phone user can't re-fire.
+                        disabled: createTaskMut.isPending,
+                        onSelect: handleAddMilestone,
+                      },
+                      {
+                        kind: 'action' as const,
+                        id: 'add-phase',
+                        label: 'Add phase',
+                        disabled: createTaskMut.isPending,
+                        onSelect: handleAddPhase,
+                      },
+                    ]
+                  : []),
                 ...(projectId && canImport
                   ? [
                       {
