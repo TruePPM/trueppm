@@ -120,7 +120,11 @@ async function setupWithTask(page: Page): Promise<void> {
   );
   // No timer running — the TimerChip stays hidden; the quick-log is the entry point.
   await page.route('**/api/v1/me/timer/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ active: false }) }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ active: false }),
+    }),
   );
 }
 
@@ -158,7 +162,9 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
     await expect(dialog).toBeVisible();
 
     // The assigned task is present and selected by default.
-    await expect(dialog.getByRole('radio', { name: /PRJ-07 Write the release notes/ })).toBeChecked();
+    await expect(
+      dialog.getByRole('radio', { name: /PRJ-07 Write the release notes/ }),
+    ).toBeChecked();
 
     // Pick 30m and log.
     await dialog.getByRole('button', { name: '30m' }).click();
@@ -169,7 +175,49 @@ test.describe('Global quick-log time popover (#1416, ADR-0185 §C)', () => {
     await expect(page.getByRole('button', { name: /Undo/ })).toBeVisible();
     await expect(dialog).toHaveCount(0);
 
-    expect(posted).toEqual({ minutes: 30, entry_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    expect(posted).toEqual({
+      minutes: 30,
+      entry_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
+  });
+
+  test('mobile: the same flow opens in a bottom sheet (#1770)', async ({ page }) => {
+    // Below md the desktop popover would overflow the viewport, so the identical
+    // form must open in the shared BottomSheet — the phone-first 15-second path.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupCatchAll(page);
+    await setupWithTask(page);
+
+    await page.route(`**/api/v1/tasks/${TASK_ID}/time-entries/`, (route) =>
+      route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'entry-qlog-m1',
+          task: TASK_ID,
+          minutes: 30,
+          entry_date: '2026-07-06',
+          note: '',
+          source: 'manual',
+          server_version: 1,
+          created_at: new Date().toISOString(),
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    await page.getByRole('button', { name: 'Log time' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Log time' });
+    await expect(dialog).toBeVisible();
+    // The scrim is the tell that the mobile surface is the shared BottomSheet.
+    await expect(page.getByTestId('bottom-sheet-scrim')).toBeVisible();
+
+    await dialog.getByRole('button', { name: '30m' }).click();
+    await dialog.getByRole('button', { name: 'Log 30m' }).click();
+
+    await expect(page.getByText('Logged 30m on PRJ-07 · Write the release notes')).toBeVisible();
+    await expect(dialog).toHaveCount(0);
   });
 
   test('a Viewer (403) sees a friendly permission message', async ({ page }) => {
