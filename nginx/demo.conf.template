@@ -1,4 +1,4 @@
-# TruePPM PUBLIC DEMO nginx config (issue #1487).
+# TruePPM PUBLIC DEMO nginx config (issue #1487, hardened #1763).
 #
 # Serves the hosted read-only demo (e.g. try.trueppm.dev). The demo is reachable
 # ONLY through the product's own tokenized, read-only share link (#283 / #1486):
@@ -6,7 +6,25 @@
 # terminates plain HTTP on :80 — front it with TLS at an upstream load balancer
 # or reverse proxy (the demo deploy runbook covers try.trueppm.dev's certificate).
 #
+# ── Public API surface is an ALLOWLIST, not a blanket proxy (#1763) ────────────
+# The demo's entire security model rests on one invariant: zero user accounts and
+# no authenticated write path (see the SECRET_KEY note in docker-compose.demo.yml,
+# which bakes a demo secret that is safe ONLY under that invariant). A blanket
+# `location /api/ { proxy_pass … }` — as production uses — would expose the full
+# authenticated API surface (auth/token, every project viewset, the Admin-only
+# share-link management endpoints, workspace SSO, the OpenAPI schema) to the
+# public internet and to any opportunistic scanner probing the top of the
+# evaluation funnel. That is a materially different posture than "one curated
+# read-only share link." So the public API surface here is restricted to exactly
+# the two anonymous, read-only share-link endpoints (`AllowAny`, GET-only,
+# throttled — projects/share_views.py) plus the liveness probe; EVERYTHING else
+# under /api/ (and the live-collaboration WebSocket, which the read-only share
+# pages never open) returns 404, so the authenticated API is simply *not there*
+# from the public internet. Regression-guarded by scripts/check-demo-nginx-allowlist.sh.
+#
 # Differences from the production template (nginx/app-http.conf.template):
+#   * the /api/ allowlist above (production proxies all of /api/ — correct there,
+#     because production is auth-gated and has real accounts);
 #   * every response carries `X-Robots-Tag: noindex, nofollow` and a
 #     `Disallow: /` robots.txt so search engines never index the demo;
 #   * a hard request-body cap and tighter timeouts (the demo is read-only);
@@ -25,7 +43,7 @@ server {
     add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
     add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
 
     # Read-only demo: small body cap, no large uploads are ever legitimate.
     client_max_body_size 1M;
@@ -46,7 +64,18 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    location /api/ {
+    # ── API allowlist (#1763) ─────────────────────────────────────────────────
+    # Only the anonymous read-only share-link projections and the liveness probe
+    # are reachable; every other /api/ route is closed (see header). Ordering
+    # note: `=` (exact) and `^~` (prefix, skips regex) both outrank the plain
+    # `/api/` prefix below, and are longer matches besides, so the allowed routes
+    # win and the catch-all only ever sees the denied remainder.
+
+    # Anonymous, read-only, throttled, GET-only share-link projections — the ONLY
+    # public data plane (projects/share_views.py: PublicScheduleShareView /
+    # PublicBoardShareView, both AllowAny). Self-contained: the share pages fetch
+    # nothing else, so no project-scoped route needs opening.
+    location ^~ /api/v1/share/ {
         proxy_pass         http://api:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;
@@ -55,16 +84,29 @@ server {
         proxy_read_timeout 30s;
     }
 
+    # Liveness probe (AllowAny) — kept reachable for an upstream LB / ingress
+    # health check. Exact match so it cannot widen the surface.
+    location = /api/v1/health/ {
+        access_log off;
+        proxy_pass         http://api:8000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # Everything else under /api/ — auth/token, every project viewset, the
+    # Admin-only share-link management routes, workspace SSO, the OpenAPI
+    # schema/docs — is intentionally NOT part of the public read-only demo.
+    location /api/ {
+        return 404;
+    }
+
+    # No live-collaboration WebSocket on the read-only demo: there are no
+    # accounts and no writes, and the share pages are a single GET with no live
+    # subscription, so the WS surface is simply absent.
     location /ws/ {
-        proxy_pass             http://api:8000;
-        proxy_http_version     1.1;
-        proxy_set_header       Upgrade           $http_upgrade;
-        proxy_set_header       Connection        $connection_upgrade;
-        proxy_set_header       Host              $host;
-        proxy_set_header       X-Real-IP         $remote_addr;
-        proxy_set_header       X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header       X-Forwarded-Proto $scheme;
-        proxy_read_timeout     3600s;
+        return 404;
     }
 
     # Django admin — loopback-only even on the demo host. To manage share links,

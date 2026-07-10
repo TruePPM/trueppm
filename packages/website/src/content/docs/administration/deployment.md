@@ -34,6 +34,39 @@ docker compose exec api cat /tmp/trueppm_admin_password
 
 **Good for:** local development, evaluation, small teams, demos.
 
+### Public read-only demo (`docker-compose.demo.yml`)
+
+`docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
+demo (the mechanism behind `try.trueppm.dev`, which goes live at the 0.4 tag) —
+not the dev stack above. It seeds the sample **without** persona logins, so the
+instance has **zero user accounts and no authenticated write path**; the only way
+in is the product's own anonymous, tokenized, read-only
+[schedule share link](/administration/sharing-and-access/).
+
+That no-accounts invariant is what makes the stack's baked demo `SECRET_KEY` safe,
+so the demo's reverse proxy (`nginx/demo.conf.template`) treats the API surface as
+an **explicit allowlist**, not a blanket proxy. Only these routes reach the API
+container from the public internet:
+
+| Public route | Why it is open |
+|---|---|
+| `GET /api/v1/share/{schedule,board}/<token>/` | The anonymous, read-only, throttled share-link projections — the demo's only data plane. |
+| `GET /api/v1/health/` | Liveness probe for an upstream load balancer / ingress. |
+| `/static/` | Django-collected static assets (admin CSS, etc.). |
+| `/admin/` | Django admin — additionally restricted to loopback; reach it via an SSH tunnel. |
+
+Every **other** `/api/` route — `auth/token` and the rest of the auth surface,
+every project viewset, the Admin-only share-link *management* endpoints, workspace
+SSO, and the OpenAPI schema/docs — returns **404**, as does the live-collaboration
+WebSocket (`/ws/`), which the read-only share pages never open. The authenticated
+API is simply *not there* from the public internet.
+
+This posture is a deliberate decision, not an accident of configuration: a CI gate
+(`scripts/check-demo-nginx-allowlist.sh`) fails the pipeline if the demo template
+ever regresses to proxying anything beyond this allowlist. Production
+(`nginx/app-http.conf.template`) intentionally proxies **all** of `/api/` — correct
+there, because production is authenticated and has real accounts.
+
 ## Kubernetes with Helm
 
 The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with bundled
