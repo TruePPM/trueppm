@@ -10,12 +10,15 @@ import subprocess
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
+from datetime import date
 
 from defusedxml.ElementTree import fromstring as _safe_fromstring
 from django.conf import settings
 
 from trueppm_api.apps.msproject.dataclasses import (
     AssignmentData,
+    CalendarData,
+    CalendarExceptionData,
     PredecessorLinkData,
     ProjectData,
     ResourceData,
@@ -41,6 +44,19 @@ _LINK_TYPE_MAP = {
     "1": "FS",
     "2": "SF",
     "3": "SS",
+}
+
+# MSPDI WeekDay/DayType (1=Sunday … 7=Saturday) -> TruePPM Calendar.working_days
+# bit (Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64). DayType 0 is the
+# legacy (2003-style) per-date exception form, handled separately.
+_DAY_TYPE_TO_BIT = {
+    "1": 64,  # Sunday
+    "2": 1,  # Monday
+    "3": 2,  # Tuesday
+    "4": 4,  # Wednesday
+    "5": 8,  # Thursday
+    "6": 16,  # Friday
+    "7": 32,  # Saturday
 }
 
 # Subprocess timeout for MPXJ (seconds).
@@ -156,6 +172,185 @@ def _parse_lag_to_days(lag_tenths_of_minutes: str) -> int:
     return tenths // 4800
 
 
+def _positive_int_or_none(raw: str) -> int | None:
+    """Parse a calendar UID reference, mapping absent/none sentinels to ``None``.
+
+    Real calendar UIDs are positive; MSPDI uses ``-1`` for "no calendar"
+    (task-level) and ``0`` never refers to a calendar.
+    """
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _time_to_minutes(raw: str) -> int | None:
+    """Parse an MSPDI time-of-day string (``HH:MM:SS``) to minutes since midnight."""
+    parts = raw.strip().split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hours, minutes = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= hours <= 24 and 0 <= minutes < 60):
+        return None
+    return hours * 60 + minutes
+
+
+def _iso_date_or_none(raw: str) -> str | None:
+    """Take the ``YYYY-MM-DD`` prefix of an MSPDI datetime, or None if malformed."""
+    candidate = raw.strip()[:10]
+    try:
+        date.fromisoformat(candidate)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _parse_calendar_exception_dates(exc_el: ET.Element, ns: str) -> tuple[str | None, str | None]:
+    """Extract the (start, end) ISO dates from an ``<Exception>`` element.
+
+    MSPDI has two encodings in the wild: the schema's ``<TimePeriod>``
+    (``FromDate``/``ToDate``, written by MS Project 2007+ and MPXJ) and the
+    ``EnteredStartDate``/``EnteredFinishDate`` pair some exporters emit instead.
+    Prefer TimePeriod, fall back to the Entered* pair.
+    """
+    period = exc_el.find(f"{ns}TimePeriod")
+    if period is not None:
+        start = period.findtext(f"{ns}FromDate") or ""
+        end = period.findtext(f"{ns}ToDate") or ""
+    else:
+        start = exc_el.findtext(f"{ns}EnteredStartDate") or ""
+        end = exc_el.findtext(f"{ns}EnteredFinishDate") or ""
+    return _iso_date_or_none(start), _iso_date_or_none(end)
+
+
+def _parse_calendars(root: ET.Element, ns: str, warnings: list[str]) -> list[CalendarData]:
+    """Parse the ``<Calendars>`` block into ``CalendarData`` rows (#1769).
+
+    Only *base* calendars are returned: MS Project requires project and task
+    calendars to be base calendars, and per-resource calendars
+    (``IsBaseCalendar=0``, one auto-generated per resource) have no TruePPM
+    equivalent — importing them would only pollute the shared calendar library.
+
+    Fidelity notes (each degradation is deliberate; see the field-coverage
+    matrix in the docs):
+
+    - The weekday mask starts from the Mon-Fri default and applies whatever
+      ``<WeekDay>`` entries the file lists. Genuine MS Project exports list all
+      seven days, fully overwriting the default; sparse third-party files only
+      shift the days they mention instead of losing the whole week.
+    - ``Calendar.hours_per_day`` is a single scalar, so per-day
+      ``<WorkingTimes>`` collapse to the most common daily total across working
+      days (ties break toward the first seen). Shift start/end times are not
+      preserved — TruePPM schedules in whole working days.
+    - Exceptions that *add* working time (``DayWorking=1``, e.g. a make-up
+      Saturday) cannot be expressed by ``CalendarException`` (non-working only)
+      and are skipped with a warning.
+    """
+    calendars: list[CalendarData] = []
+    calendars_el = root.find(f"{ns}Calendars")
+    if calendars_el is None:
+        return calendars
+
+    for cal_el in calendars_el.findall(f"{ns}Calendar"):
+        uid_str = (cal_el.findtext(f"{ns}UID") or "").strip()
+        try:
+            uid = int(uid_str)
+        except ValueError:
+            continue
+        if (cal_el.findtext(f"{ns}IsBaseCalendar") or "").strip() != "1":
+            continue
+        name = (cal_el.findtext(f"{ns}Name") or "").strip() or f"Imported calendar {uid}"
+
+        mask = 31  # Mon–Fri baseline; listed WeekDay entries override per day.
+        day_hours: list[float] = []
+        exceptions: list[CalendarExceptionData] = []
+
+        weekdays_el = cal_el.find(f"{ns}WeekDays")
+        for day_el in weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []:
+            day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
+            working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
+            if day_type == "0":
+                # Legacy (2003-style) exception: a dated WeekDay entry rather
+                # than an <Exceptions> child. Same non-working-only constraint.
+                start, end = _parse_calendar_exception_dates(day_el, ns)
+                if working:
+                    warnings.append(
+                        f"Calendar '{name}': working-time exception "
+                        f"{start or '?'} to {end or '?'} is not supported and was skipped"
+                    )
+                elif start and end:
+                    exceptions.append(CalendarExceptionData(start=start, end=end))
+                continue
+            bit = _DAY_TYPE_TO_BIT.get(day_type)
+            if bit is None:
+                continue
+            if working:
+                mask |= bit
+                total = 0.0
+                times_el = day_el.find(f"{ns}WorkingTimes")
+                for wt in times_el.findall(f"{ns}WorkingTime") if times_el is not None else []:
+                    frm = _time_to_minutes(wt.findtext(f"{ns}FromTime") or "")
+                    to = _time_to_minutes(wt.findtext(f"{ns}ToTime") or "")
+                    if frm is not None and to is not None and to > frm:
+                        total += (to - frm) / 60.0
+                if total > 0:
+                    day_hours.append(total)
+            else:
+                mask &= ~bit
+
+        if mask & 0b111_1111 == 0:
+            # Guard the model's validate_working_day_mask invariant (a mask with
+            # no working weekday would spin the engine's calendar walk); the
+            # importer writes rows without running field validators.
+            warnings.append(
+                f"Calendar '{name}': no working weekday defined; defaulted to Monday-Friday"
+            )
+            mask = 31
+
+        exceptions_el = cal_el.find(f"{ns}Exceptions")
+        for exc_el in exceptions_el.findall(f"{ns}Exception") if exceptions_el is not None else []:
+            exc_name = (exc_el.findtext(f"{ns}Name") or "").strip()
+            start, end = _parse_calendar_exception_dates(exc_el, ns)
+            working = (exc_el.findtext(f"{ns}DayWorking") or "0").strip() == "1"
+            if working:
+                warnings.append(
+                    f"Calendar '{name}': working-time exception "
+                    f"'{exc_name or (start or '?')}' is not supported and was skipped"
+                )
+                continue
+            if start is None or end is None or end < start:
+                warnings.append(
+                    f"Calendar '{name}': exception '{exc_name or '?'}' has an "
+                    f"unparseable date range and was skipped"
+                )
+                continue
+            exceptions.append(CalendarExceptionData(start=start, end=end, name=exc_name))
+
+        # Most common daily total wins (ties toward first seen): one scalar has
+        # to represent the week, and the modal day length is what duration
+        # conversion (days -> real dates) should assume.
+        hours = 8.0
+        if day_hours:
+            hours = max(day_hours, key=day_hours.count)
+            hours = max(1.0, min(hours, 24.0))
+
+        calendars.append(
+            CalendarData(
+                uid=uid,
+                name=name,
+                working_days=mask,
+                hours_per_day=hours,
+                exceptions=exceptions,
+            )
+        )
+
+    return calendars
+
+
 def parse_xml(xml_content: bytes) -> ProjectData:
     """Parse MS Project XML content into a ProjectData structure.
 
@@ -186,6 +381,8 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     _enforce_row_cap("tasks", len(root.findall(f".//{ns}Task")), max_rows)
     _enforce_row_cap("resources", len(root.findall(f".//{ns}Resource")), max_rows)
     _enforce_row_cap("dependencies", len(root.findall(f".//{ns}PredecessorLink")), max_rows)
+    _enforce_row_cap("calendars", len(root.findall(f".//{ns}Calendar")), max_rows)
+    _enforce_row_cap("calendar exceptions", len(root.findall(f".//{ns}Exception")), max_rows)
 
     def _ft(el: ET.Element, tag: str) -> str:
         child = el.find(f"{ns}{tag}")
@@ -200,7 +397,11 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     project_data = ProjectData(
         name=_ft(root, "Name"),
         start_date=_ft(root, "StartDate")[:10] if _ft(root, "StartDate") else None,
+        calendar_uid=_positive_int_or_none(_ft(root, "CalendarUID")),
     )
+
+    # --- Parse calendars (#1769) ---
+    project_data.calendars = _parse_calendars(root, ns, project_data.warnings)
 
     # --- Parse project-level ExtendedAttribute definitions (#798, ADR-0093) ---
     # Build a {role: field_id} map (e.g. {"optimistic": "188743783"}) for the
@@ -373,6 +574,7 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 status=td_status,
                 notes=notes,
                 start=start_str[:10] if start_str else None,
+                calendar_uid=_positive_int_or_none(_ft(task_el, "CalendarUID")),
                 optimistic_duration_days=opt_days,
                 most_likely_duration_days=ml_days,
                 pessimistic_duration_days=pess_days,

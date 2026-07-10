@@ -37,7 +37,14 @@ from trueppm_api.apps.msproject.parser import (
     _parse_lag_to_days,
     parse_xml,
 )
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    CalendarException,
+    Dependency,
+    Project,
+    ProjectCalendarLayer,
+    Task,
+)
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
@@ -491,7 +498,8 @@ _FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
         ("cross_project_link.xml", 3, 2, 0),
         # 5 tasks with CJK/RTL/emoji names + 1 resource, 2 deps
         ("unicode_names.xml", 5, 2, 1),
-        # 3 tasks, 1 dep, 1 resource; full Calendars block silently ignored
+        # 3 tasks, 1 dep, 1 resource; Calendars block now parsed (#1769) —
+        # calendar assertions live in TestCalendarParsing/TestCalendarImport
         ("calendar_exceptions.xml", 3, 1, 1),
     ],
 )
@@ -920,6 +928,501 @@ class TestRoundTrip:
         assignments = root.findall(f".//{ns}Assignments/{ns}Assignment")
         assert len(assignments) == 1
         assert assignments[0].findtext(f"{ns}Units") == "0.50"
+
+
+# ---------------------------------------------------------------------------
+# Calendar import/export (#1769)
+# ---------------------------------------------------------------------------
+
+# Mon/Tue/Wed/Thu bits of the Calendar.working_days bitmask (a 4×10 week).
+_MON_THU_MASK = 1 | 2 | 4 | 8
+
+
+def _weekday_xml(day_type: int, working: bool, from_time: str = "", to_time: str = "") -> str:
+    times = (
+        f"<WorkingTimes><WorkingTime><FromTime>{from_time}</FromTime>"
+        f"<ToTime>{to_time}</ToTime></WorkingTime></WorkingTimes>"
+        if working and from_time
+        else ""
+    )
+    return (
+        f"<WeekDay><DayType>{day_type}</DayType>"
+        f"<DayWorking>{'1' if working else '0'}</DayWorking>{times}</WeekDay>"
+    )
+
+
+def _calendar_project_xml(
+    *,
+    project_calendar_uid: str | None = "1",
+    task_calendar_uid: str | None = None,
+    calendars_xml: str | None = None,
+    extra_tasks_xml: str = "",
+) -> bytes:
+    """MSPDI doc whose default calendar is a 4×10 week (Mon-Thu, 10 h) + 2 holidays."""
+    if calendars_xml is None:
+        weekdays = (
+            _weekday_xml(1, False)
+            + "".join(_weekday_xml(d, True, "07:00:00", "17:00:00") for d in (2, 3, 4, 5))
+            + _weekday_xml(6, False)
+            + _weekday_xml(7, False)
+        )
+        calendars_xml = f"""
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Four Tens</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+      <WeekDays>{weekdays}</WeekDays>
+      <Exceptions>
+        <Exception>
+          <TimePeriod>
+            <FromDate>2026-07-03T00:00:00</FromDate>
+            <ToDate>2026-07-03T23:59:00</ToDate>
+          </TimePeriod>
+          <Name>Independence Day (observed)</Name>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredStartDate>2026-11-26T00:00:00</EnteredStartDate>
+          <EnteredFinishDate>2026-11-27T23:59:00</EnteredFinishDate>
+          <Name>Thanksgiving</Name>
+          <DayWorking>0</DayWorking>
+        </Exception>
+      </Exceptions>
+    </Calendar>
+  </Calendars>"""
+    proj_cal = f"<CalendarUID>{project_calendar_uid}</CalendarUID>" if project_calendar_uid else ""
+    task_cal = f"<CalendarUID>{task_calendar_uid}</CalendarUID>" if task_calendar_uid else ""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <Name>Calendar Project</Name>
+  <StartDate>2026-01-05T08:00:00</StartDate>
+  {proj_cal}
+  {calendars_xml}
+  <Tasks>
+    <Task>
+      <UID>1</UID>
+      <Name>Task A</Name>
+      <Duration>PT10H0M0S</Duration>
+      <OutlineNumber>1</OutlineNumber>
+      {task_cal}
+    </Task>
+    {extra_tasks_xml}
+  </Tasks>
+</Project>
+""".encode()
+
+
+_NIGHT_SHIFT_CALENDAR_XML = """
+    <Calendar>
+      <UID>2</UID>
+      <Name>Night Shift</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+      <WeekDays>
+        <WeekDay><DayType>7</DayType><DayWorking>0</DayWorking></WeekDay>
+      </WeekDays>
+    </Calendar>"""
+
+
+class TestCalendarParsing:
+    """Parser coverage for <Calendars>, project and task CalendarUID (#1769)."""
+
+    def test_parse_non_five_by_eight_week_with_exceptions(self) -> None:
+        data = parse_xml(_calendar_project_xml())
+        assert data.calendar_uid == 1
+        assert len(data.calendars) == 1
+        cal = data.calendars[0]
+        assert cal.uid == 1
+        assert cal.name == "Four Tens"
+        assert cal.working_days == _MON_THU_MASK
+        assert cal.hours_per_day == 10.0
+        # One TimePeriod-form and one EnteredStartDate-form exception.
+        assert [(e.start, e.end, e.name) for e in cal.exceptions] == [
+            ("2026-07-03", "2026-07-03", "Independence Day (observed)"),
+            ("2026-11-26", "2026-11-27", "Thanksgiving"),
+        ]
+        assert data.warnings == []
+
+    def test_task_calendar_uid_minus_one_is_none(self) -> None:
+        data = parse_xml(_calendar_project_xml(task_calendar_uid="-1"))
+        assert data.tasks[0].calendar_uid is None
+
+    def test_task_calendar_uid_parsed(self) -> None:
+        data = parse_xml(_calendar_project_xml(task_calendar_uid="1"))
+        assert data.tasks[0].calendar_uid == 1
+
+    def test_no_calendars_block(self) -> None:
+        data = parse_xml(_build_sample_xml(tasks=[{"UID": "1", "Name": "A"}]))
+        assert data.calendars == []
+        assert data.calendar_uid is None
+
+    def test_non_base_calendars_skipped(self) -> None:
+        resource_calendar = """
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+    </Calendar>
+    <Calendar>
+      <UID>3</UID>
+      <Name>Alice</Name>
+      <IsBaseCalendar>0</IsBaseCalendar>
+      <BaseCalendarUID>1</BaseCalendarUID>
+    </Calendar>
+  </Calendars>"""
+        data = parse_xml(_calendar_project_xml(calendars_xml=resource_calendar))
+        assert [c.name for c in data.calendars] == ["Standard"]
+
+    def test_working_time_exception_skipped_with_warning(self) -> None:
+        make_up_saturday = """
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Crunch</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <Exceptions>
+        <Exception>
+          <TimePeriod>
+            <FromDate>2026-02-07T00:00:00</FromDate>
+            <ToDate>2026-02-07T23:59:00</ToDate>
+          </TimePeriod>
+          <Name>Make-up Saturday</Name>
+          <DayWorking>1</DayWorking>
+        </Exception>
+      </Exceptions>
+    </Calendar>
+  </Calendars>"""
+        data = parse_xml(_calendar_project_xml(calendars_xml=make_up_saturday))
+        assert data.calendars[0].exceptions == []
+        assert any("Make-up Saturday" in w and "not supported" in w for w in data.warnings)
+
+    def test_legacy_daytype_zero_exception_form(self) -> None:
+        legacy = """
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Legacy</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <WeekDays>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2026-12-25T00:00:00</FromDate>
+            <ToDate>2026-12-25T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+      </WeekDays>
+    </Calendar>
+  </Calendars>"""
+        data = parse_xml(_calendar_project_xml(calendars_xml=legacy))
+        assert [(e.start, e.end) for e in data.calendars[0].exceptions] == [
+            ("2026-12-25", "2026-12-25")
+        ]
+
+    def test_all_days_nonworking_falls_back_to_weekdays(self) -> None:
+        no_work = f"""
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Shutdown</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <WeekDays>{"".join(_weekday_xml(d, False) for d in range(1, 8))}</WeekDays>
+    </Calendar>
+  </Calendars>"""
+        data = parse_xml(_calendar_project_xml(calendars_xml=no_work))
+        assert data.calendars[0].working_days == 31
+        assert any("no working weekday" in w for w in data.warnings)
+
+    def test_calendar_exceptions_fixture_parses(self) -> None:
+        content = (_FIXTURES_DIR / "calendar_exceptions.xml").read_bytes()
+        data = parse_xml(content)
+        assert len(data.calendars) == 1
+        cal = data.calendars[0]
+        assert cal.name == "Company Calendar"
+        # Only Mon/Sat/Sun are listed: Mon stays working, Sat/Sun stay
+        # non-working on the Mon-Fri baseline.
+        assert cal.working_days == 31
+        # Monday 07:30-12:00 + 13:00-17:00 = 8.5 h.
+        assert cal.hours_per_day == 8.5
+        assert [(e.start, e.name) for e in cal.exceptions] == [
+            ("2026-04-03", "Good Friday"),
+            ("2026-04-06", "Easter Monday"),
+        ]
+
+
+@pytest.mark.django_db
+class TestCalendarImport:
+    """Importer wiring of the file calendar onto Project.calendar (#1769)."""
+
+    @pytest.fixture
+    def project_no_calendar(self, db: object) -> Project:
+        return Project.objects.create(name="No Cal Project", start_date=date(2026, 1, 5))
+
+    def test_applies_calendar_when_project_has_none(self, project_no_calendar: Project) -> None:
+        summary = import_project(str(project_no_calendar.pk), parse_xml(_calendar_project_xml()))
+        assert summary["calendar_applied"] is True
+        assert summary["calendar_created"] is True
+        assert summary["calendar_name"] == "Four Tens"
+        project_no_calendar.refresh_from_db()
+        cal = project_no_calendar.calendar
+        assert cal is not None
+        assert cal.working_days == _MON_THU_MASK
+        assert cal.hours_per_day == 10.0
+        exceptions = list(cal.exceptions.order_by("exc_start"))
+        assert [(e.exc_start, e.exc_end, e.description) for e in exceptions] == [
+            (date(2026, 7, 3), date(2026, 7, 3), "Independence Day (observed)"),
+            (date(2026, 11, 26), date(2026, 11, 27), "Thanksgiving"),
+        ]
+
+    def test_wipe_existing_overwrites_project_calendar(self, project: Project) -> None:
+        """Create-from-import treats the file's calendar as authoritative."""
+        summary = import_project(
+            str(project.pk), parse_xml(_calendar_project_xml()), wipe_existing=True
+        )
+        assert summary["calendar_applied"] is True
+        project.refresh_from_db()
+        assert project.calendar is not None
+        assert project.calendar.name == "Four Tens"
+
+    def test_into_existing_keeps_configured_calendar_and_warns(self, project: Project) -> None:
+        """Additive import must not clobber a PM-configured project calendar."""
+        original_calendar_id = project.calendar_id
+        summary = import_project(str(project.pk), parse_xml(_calendar_project_xml()))
+        assert summary["calendar_applied"] is False
+        project.refresh_from_db()
+        assert project.calendar_id == original_calendar_id
+        assert any("differs" in w and "was kept" in w for w in summary["warnings"])
+
+    def test_into_existing_equivalent_calendar_no_warning(self, project: Project) -> None:
+        """The ubiquitous vanilla Standard calendar must not spam warnings."""
+        vanilla = """
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <WeekDays>
+        <WeekDay><DayType>1</DayType><DayWorking>0</DayWorking></WeekDay>
+        <WeekDay><DayType>7</DayType><DayWorking>0</DayWorking></WeekDay>
+      </WeekDays>
+    </Calendar>
+  </Calendars>"""
+        summary = import_project(
+            str(project.pk), parse_xml(_calendar_project_xml(calendars_xml=vanilla))
+        )
+        assert summary["calendar_applied"] is False
+        assert not any("calendar" in w.lower() for w in summary["warnings"])
+
+    def test_reuses_semantically_identical_library_calendar(
+        self, project_no_calendar: Project, calendar: Calendar
+    ) -> None:
+        """A same-name, same-semantics library row is reused, not duplicated."""
+        vanilla = """
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <WeekDays>
+        <WeekDay><DayType>1</DayType><DayWorking>0</DayWorking></WeekDay>
+        <WeekDay><DayType>7</DayType><DayWorking>0</DayWorking></WeekDay>
+      </WeekDays>
+    </Calendar>
+  </Calendars>"""
+        before = Calendar.objects.count()
+        summary = import_project(
+            str(project_no_calendar.pk), parse_xml(_calendar_project_xml(calendars_xml=vanilla))
+        )
+        assert summary["calendar_applied"] is True
+        assert summary["calendar_matched"] is True
+        assert summary["calendar_created"] is False
+        assert Calendar.objects.count() == before
+        project_no_calendar.refresh_from_db()
+        assert project_no_calendar.calendar_id == calendar.pk
+
+    def test_same_name_different_semantics_creates_new_row(
+        self, project_no_calendar: Project, calendar: Calendar
+    ) -> None:
+        """Name-only matches must not attach someone else's holidays."""
+        four_tens_named_standard = _calendar_project_xml().replace(
+            b"<Name>Four Tens</Name>", b"<Name>Standard</Name>"
+        )
+        summary = import_project(str(project_no_calendar.pk), parse_xml(four_tens_named_standard))
+        assert summary["calendar_created"] is True
+        project_no_calendar.refresh_from_db()
+        assert project_no_calendar.calendar_id != calendar.pk
+        assert project_no_calendar.calendar.working_days == _MON_THU_MASK
+
+    def test_per_task_calendar_references_warn_once_per_calendar(
+        self, project_no_calendar: Project
+    ) -> None:
+        extra_tasks = """
+    <Task>
+      <UID>2</UID>
+      <Name>Task B</Name>
+      <OutlineNumber>2</OutlineNumber>
+      <CalendarUID>2</CalendarUID>
+    </Task>
+    <Task>
+      <UID>3</UID>
+      <Name>Task C</Name>
+      <OutlineNumber>3</OutlineNumber>
+      <CalendarUID>2</CalendarUID>
+    </Task>"""
+        two_calendars = f"""
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Standard</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+    </Calendar>
+    {_NIGHT_SHIFT_CALENDAR_XML}
+  </Calendars>"""
+        xml = _calendar_project_xml(calendars_xml=two_calendars, extra_tasks_xml=extra_tasks)
+        summary = import_project(str(project_no_calendar.pk), parse_xml(xml))
+        task_cal_warnings = [w for w in summary["warnings"] if "per-task" in w]
+        assert len(task_cal_warnings) == 1
+        assert "2 task(s)" in task_cal_warnings[0]
+        assert "Night Shift" in task_cal_warnings[0]
+
+    def test_missing_project_uid_single_base_calendar_used(
+        self, project_no_calendar: Project
+    ) -> None:
+        summary = import_project(
+            str(project_no_calendar.pk),
+            parse_xml(_calendar_project_xml(project_calendar_uid=None)),
+        )
+        assert summary["calendar_applied"] is True
+        project_no_calendar.refresh_from_db()
+        assert project_no_calendar.calendar is not None
+
+    def test_unknown_project_calendar_uid_warns(self, project_no_calendar: Project) -> None:
+        summary = import_project(
+            str(project_no_calendar.pk),
+            parse_xml(_calendar_project_xml(project_calendar_uid="9")),
+        )
+        assert summary["calendar_applied"] is False
+        assert any("UID 9" in w for w in summary["warnings"])
+        project_no_calendar.refresh_from_db()
+        assert project_no_calendar.calendar is None
+
+    def test_file_without_calendars_leaves_project_untouched(
+        self, project_no_calendar: Project
+    ) -> None:
+        before = Calendar.objects.count()
+        summary = import_project(
+            str(project_no_calendar.pk),
+            parse_xml(_build_sample_xml(tasks=[{"UID": "1", "Name": "A"}])),
+        )
+        assert summary["calendar_applied"] is False
+        assert Calendar.objects.count() == before
+        project_no_calendar.refresh_from_db()
+        assert project_no_calendar.calendar is None
+
+
+@pytest.mark.django_db
+class TestCalendarExport:
+    """Exporter emission of <Calendars> and CalendarUID (#1769)."""
+
+    def _export_root(self, project: Project) -> ET.Element:
+        return ET.fromstring(export_project_xml(str(project.pk)))
+
+    def test_export_emits_calendar_and_uid(self, db: object) -> None:
+        cal = Calendar.objects.create(
+            name="Four Tens", working_days=_MON_THU_MASK, hours_per_day=10.0
+        )
+        CalendarException.objects.create(
+            calendar=cal,
+            exc_start=date(2026, 7, 3),
+            exc_end=date(2026, 7, 3),
+            description="Independence Day (observed)",
+        )
+        project = Project.objects.create(
+            name="Cal Export", start_date=date(2026, 1, 5), calendar=cal
+        )
+        root = self._export_root(project)
+        ns = f"{{{_NS}}}"
+        assert root.findtext(f"{ns}CalendarUID") == "1"
+        cal_el = root.find(f"{ns}Calendars/{ns}Calendar")
+        assert cal_el is not None
+        assert cal_el.findtext(f"{ns}Name") == "Four Tens"
+        assert cal_el.findtext(f"{ns}IsBaseCalendar") == "1"
+        days = {d.findtext(f"{ns}DayType"): d for d in cal_el.findall(f"{ns}WeekDays/{ns}WeekDay")}
+        assert set(days) == {"1", "2", "3", "4", "5", "6", "7"}
+        assert days["2"].findtext(f"{ns}DayWorking") == "1"  # Monday
+        assert days["6"].findtext(f"{ns}DayWorking") == "0"  # Friday
+        assert days["1"].findtext(f"{ns}DayWorking") == "0"  # Sunday
+        # 10 h synthesized as one continuous shift from 08:00.
+        wt = days["2"].find(f"{ns}WorkingTimes/{ns}WorkingTime")
+        assert wt is not None
+        assert wt.findtext(f"{ns}FromTime") == "08:00:00"
+        assert wt.findtext(f"{ns}ToTime") == "18:00:00"
+        exc_el = cal_el.find(f"{ns}Exceptions/{ns}Exception")
+        assert exc_el is not None
+        assert exc_el.findtext(f"{ns}TimePeriod/{ns}FromDate") == "2026-07-03T00:00:00"
+        assert exc_el.findtext(f"{ns}TimePeriod/{ns}ToDate") == "2026-07-03T23:59:00"
+        assert exc_el.findtext(f"{ns}Name") == "Independence Day (observed)"
+        assert exc_el.findtext(f"{ns}DayWorking") == "0"
+
+    def test_export_without_calendar_omits_block(self, db: object) -> None:
+        project = Project.objects.create(name="No Cal", start_date=date(2026, 1, 5))
+        root = self._export_root(project)
+        ns = f"{{{_NS}}}"
+        assert root.find(f"{ns}Calendars") is None
+        assert root.findtext(f"{ns}CalendarUID") is None
+
+    def test_export_merges_overlay_layers(self, project: Project) -> None:
+        """Overlay layers fold into the single exported calendar (mask AND,
+        exceptions union) so the file schedules on the mask TruePPM computed."""
+        overlay = Calendar.objects.create(
+            name="No Fridays", working_days=31 & ~16, hours_per_day=8.0
+        )
+        CalendarException.objects.create(
+            calendar=overlay,
+            exc_start=date(2026, 12, 24),
+            exc_end=date(2026, 12, 31),
+            description="Winter shutdown",
+        )
+        ProjectCalendarLayer.objects.create(project=project, calendar=overlay)
+        root = self._export_root(project)
+        ns = f"{{{_NS}}}"
+        cal_el = root.find(f"{ns}Calendars/{ns}Calendar")
+        assert cal_el is not None
+        # Base name wins; Friday is non-working after the AND fold.
+        assert cal_el.findtext(f"{ns}Name") == "Standard"
+        days = {
+            d.findtext(f"{ns}DayType"): d.findtext(f"{ns}DayWorking")
+            for d in cal_el.findall(f"{ns}WeekDays/{ns}WeekDay")
+        }
+        assert days["6"] == "0"  # Friday folded out by the overlay
+        assert days["2"] == "1"  # Monday still working
+        exc_names = [
+            e.findtext(f"{ns}Name") for e in cal_el.findall(f"{ns}Exceptions/{ns}Exception")
+        ]
+        assert exc_names == ["Winter shutdown"]
+
+
+@pytest.mark.django_db
+class TestCalendarRoundTrip:
+    def test_import_then_export_preserves_calendar(self, db: object) -> None:
+        project = Project.objects.create(name="RT", start_date=date(2026, 1, 5))
+        import_project(str(project.pk), parse_xml(_calendar_project_xml()))
+
+        exported = parse_xml(export_project_xml(str(project.pk)))
+        assert exported.calendar_uid == 1
+        assert len(exported.calendars) == 1
+        cal = exported.calendars[0]
+        assert cal.name == "Four Tens"
+        assert cal.working_days == _MON_THU_MASK
+        assert cal.hours_per_day == 10.0
+        assert [(e.start, e.end, e.name) for e in cal.exceptions] == [
+            ("2026-07-03", "2026-07-03", "Independence Day (observed)"),
+            ("2026-11-26", "2026-11-27", "Thanksgiving"),
+        ]
 
 
 # ---------------------------------------------------------------------------

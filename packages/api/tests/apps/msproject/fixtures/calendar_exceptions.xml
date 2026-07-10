@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Project xmlns="http://schemas.microsoft.com/project">
   <!-- Calendar-exceptions fixture: non-standard working hours and holiday exceptions.
-       Purpose: verify that the Calendars section and CalendarUID references are
-       silently ignored while tasks/deps/resources still parse correctly. -->
+       Purpose: verify that the Calendars section parses into CalendarData (#1769)
+       while tasks/deps/resources still parse correctly. -->
   <Name>Custom Calendar Project</Name>
   <StartDate>2026-03-01T08:00:00</StartDate>
 
-  <!-- Full calendar block with non-standard hours and exceptions — all ignored by parser -->
+  <!-- Full calendar block with non-standard hours and holiday exceptions -->
   <Calendars>
     <Calendar>
       <UID>1</UID>
@@ -67,7 +67,7 @@
       <Name>Custom Calendar Project</Name>
       <Duration>PT24H0M0S</Duration>
       <OutlineLevel>0</OutlineLevel>
-      <!-- Tasks reference the custom calendar — ignored by parser -->
+      <!-- Tasks reference the custom calendar (the project calendar, UID 1) -->
       <CalendarUID>1</CalendarUID>
     </Task>
 
