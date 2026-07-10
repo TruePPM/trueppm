@@ -150,7 +150,7 @@ describe('Sidebar rail — Tier 1 "You"', () => {
     expect(screen.getAllByText('Anika K.').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: /My Work, 3 due today/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Timesheet' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Inbox' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
   });
 });
 

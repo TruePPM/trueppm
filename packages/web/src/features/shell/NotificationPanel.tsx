@@ -91,14 +91,14 @@ export function NotificationPanel({ onClose }: Props) {
     <aside
       role="dialog"
       aria-modal="false"
-      aria-label="My mentions"
+      aria-label="Notifications"
       className="absolute top-full right-0 mt-2 z-50 w-[380px] lg:w-[420px]
         max-h-[80vh] flex flex-col
         bg-neutral-surface border border-neutral-border rounded-card"
     >
       {/* Header */}
       <div className="flex items-center gap-2 p-3 border-b border-neutral-border">
-        <h2 className="text-sm font-semibold text-neutral-text-primary">My mentions</h2>
+        <h2 className="text-sm font-semibold text-neutral-text-primary">Notifications</h2>
         <div className="ml-auto flex items-center gap-1">
           <button
             ref={firstFocusRef}

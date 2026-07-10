@@ -30,13 +30,13 @@ const PROGRAM_VIEW_LABEL: Record<string, string> = {
 /**
  * Off-project/off-program global route (first path segment) → leaf label. The
  * switcher collapses to this single "you are here" word when there is no project
- * or program in context (My Work, Inbox, the listing pages). Falls back to a
+ * or program in context (My Work, Notifications, the listing pages). Falls back to a
  * capitalized segment for any route not enumerated here.
  */
 const GLOBAL_ROUTE_LABEL: Record<string, string> = {
   me: 'My Work',
-  inbox: 'Inbox',
-  notifications: 'Inbox',
+  inbox: 'Notifications',
+  notifications: 'Notifications',
   programs: 'Programs',
   projects: 'Projects',
   resources: 'Resources',

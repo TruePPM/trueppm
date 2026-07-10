@@ -60,7 +60,7 @@ function Tab({ projectId, view, label, Icon, currentView }: TabProps) {
  * unchanged (rule 108): links are still `/projects/:id/:view`.
  *
  * Project-scoped: returns null off a project route (the `useProjectId()` null path,
- * which also covers My Work / Inbox / Portfolio / Program / workspace settings —
+ * which also covers My Work / Notifications / Portfolio / Program / workspace settings —
  * `ProgramTabs` owns program routes per ADR-0095) and on project settings routes
  * (the SettingsShell carries its own chrome — rule 123 / ADR-0128 §C).
  */

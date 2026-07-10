@@ -910,7 +910,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     const bell = page.getByRole('button', { name: /Notifications, 1 unread/ });
     await bell.click();
 
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
     await expect(panel.getByText('Sarah Chen', { exact: false })).toBeVisible();
     await expect(panel.getByText(/load calcs/)).toBeVisible();
@@ -926,7 +926,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
 
     const bell = page.getByRole('button', { name: /Notifications, 1 unread/ });
     await bell.click();
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
 
     // The row's inner clickable is the mentioner + subject button. Filter
@@ -957,7 +957,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
 
     // The event row renders its own subject + body, not a mention string.
@@ -978,7 +978,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /^Notifications$/ }).click();
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
     // Default filter is "Unread"; the empty-state copy below.
     await expect(panel.getByText(/Caught up/i)).toBeVisible();
@@ -993,7 +993,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 2 unread/ }).click();
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
 
     // Both rows show under the default (All-category) view.
@@ -1020,7 +1020,7 @@ test.describe('Task collaboration — notification panel (#311)', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /Notifications, 1 unread/ }).click();
-    const panel = page.getByRole('dialog', { name: 'My mentions' });
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
     await expect(panel).toBeVisible();
     await expect(panel.getByText(/load calcs/)).toBeVisible();
 

@@ -180,10 +180,10 @@ export function useCommandItems(enabled = true): CommandItem[] {
       { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: go('/me/work') },
       {
         id: 'jump:inbox',
-        label: 'Inbox',
+        label: 'Notifications',
         group: 'jump',
         tag: 'View',
-        keywords: 'notifications',
+        keywords: 'notifications inbox',
         run: go('/me/notifications'),
       },
       { id: 'jump:programs', label: 'Programs', group: 'jump', tag: 'View', run: go('/programs') },
