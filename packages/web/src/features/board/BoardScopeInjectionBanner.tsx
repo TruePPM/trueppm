@@ -122,7 +122,7 @@ export function BoardScopeInjectionBanner({
         onClick={dismiss}
         aria-label="Dismiss scope-injection notice"
         className="shrink-0 inline-flex items-center justify-center
-          min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:h-6 sm:w-6
+          min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 md:h-6 md:w-6
           text-neutral-text-secondary hover:text-neutral-text-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
       >

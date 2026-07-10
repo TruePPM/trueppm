@@ -147,6 +147,29 @@ describe('BoardScopeInjectionBanner', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  // Rule 228 / WCAG 2.5.5 (#1801): the dismiss × keeps a 44px touch target on
+  // phones, compacting to 24px only at `md:`. Regression guarded: compaction
+  // keyed off `sm:` (fires at 375px) shrank the target to 24px.
+  it('the dismiss control keeps a 44px touch target, compacting only at md:', () => {
+    render(
+      <BoardScopeInjectionBanner
+        tasks={[
+          task({
+            id: 't1',
+            sprintScopeChanges: [
+              { subtaskName: 'a', itemName: 'a', addedByName: 'PM', addedAt: '2026-01-02', goalImpact: false },
+            ],
+          }),
+        ]}
+      />,
+    );
+    const cls = screen.getByLabelText(/dismiss/i).className;
+    expect(cls).toContain('min-h-[44px]');
+    expect(cls).toContain('min-w-[44px]');
+    expect(cls).toContain('md:min-h-0');
+    expect(cls).not.toContain('sm:min-h-0');
+  });
+
   it('dismisses for the session and stays dismissed across re-mount with same counts', () => {
     const tasks = [
       task({
