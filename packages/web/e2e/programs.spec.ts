@@ -650,6 +650,107 @@ test.describe('Programs — ungrouped projects (#697, ADR-0171)', () => {
   });
 });
 
+test.describe('Programs — directory filter & sort (#1796)', () => {
+  // A small directory of programs with distinct names, methodologies, health, and
+  // updated_at so filter, methodology facet, and each sort key are observable.
+  const DIRECTORY = [
+    {
+      ...FIXTURE_PROGRAM,
+      id: 'dir-apollo',
+      name: 'Apollo Migration',
+      description: 'billing platform rebuild',
+      methodology: 'WATERFALL',
+      health: 'ON_TRACK',
+      updated_at: '2026-03-01T00:00:00Z',
+    },
+    {
+      ...FIXTURE_PROGRAM,
+      id: 'dir-zephyr',
+      name: 'Zephyr Mobile',
+      description: 'field app',
+      methodology: 'AGILE',
+      health: 'CRITICAL',
+      updated_at: '2026-06-01T00:00:00Z',
+    },
+    {
+      ...FIXTURE_PROGRAM,
+      id: 'dir-meridian',
+      name: 'Meridian Data',
+      description: 'warehouse',
+      methodology: 'HYBRID',
+      health: 'AT_RISK',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+  ];
+
+  async function gotoDirectory(page: Page) {
+    await setup(page, { existingPrograms: DIRECTORY as unknown as (typeof FIXTURE_PROGRAM)[] });
+    await page.goto('/programs');
+    // Page-rendered signal: the grid resolved before we touch the toolbar chrome.
+    await expect(page.getByRole('link', { name: /Apollo Migration/i })).toBeVisible();
+  }
+
+  function cardNames(page: Page) {
+    return page.getByRole('list', { name: 'Programs' }).getByRole('heading', { level: 2 });
+  }
+
+  test('golden path: filter narrows cards; sort changes and persists across reload', async ({
+    page,
+  }) => {
+    await gotoDirectory(page);
+
+    // Default sort is "Recently active" (updated_at desc): Zephyr → Apollo → Meridian.
+    await expect(cardNames(page)).toHaveText([
+      'Zephyr Mobile',
+      'Apollo Migration',
+      'Meridian Data',
+    ]);
+
+    // Filter narrows as you type.
+    await page.getByRole('searchbox', { name: /Filter programs by name/i }).fill('merid');
+    await expect(cardNames(page)).toHaveText(['Meridian Data']);
+    await page.getByRole('button', { name: 'Clear filter' }).click();
+    await expect(cardNames(page)).toHaveCount(3);
+
+    // Sort by name A→Z is visible in the ordering.
+    await page.getByRole('combobox', { name: /Sort/i }).selectOption('name');
+    await expect(cardNames(page)).toHaveText([
+      'Apollo Migration',
+      'Meridian Data',
+      'Zephyr Mobile',
+    ]);
+
+    // The choice persists per-browser across a reload.
+    await page.reload();
+    await expect(page.getByRole('combobox', { name: /Sort/i })).toHaveValue('name');
+    await expect(cardNames(page)).toHaveText([
+      'Apollo Migration',
+      'Meridian Data',
+      'Zephyr Mobile',
+    ]);
+  });
+
+  test('empty-filter-result state appears when no program matches', async ({ page }) => {
+    await gotoDirectory(page);
+    await page
+      .getByRole('searchbox', { name: /Filter programs by name/i })
+      .fill('nonexistent-program');
+    await expect(page.getByText(/No programs match your filter/i)).toBeVisible();
+    // Recovering via the empty-state action restores the full directory.
+    await page.getByRole('status').getByRole('button', { name: /Clear filter/i }).click();
+    await expect(cardNames(page)).toHaveCount(3);
+  });
+
+  test('methodology facet narrows the directory', async ({ page }) => {
+    await gotoDirectory(page);
+    await page
+      .getByRole('radiogroup', { name: 'Filter by methodology' })
+      .getByRole('radio', { name: 'Agile' })
+      .click();
+    await expect(cardNames(page)).toHaveText(['Zephyr Mobile']);
+  });
+});
+
 test.describe('Programs — sidebar entry', () => {
   test('the rail lists the program in the Programs tree after creation', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
