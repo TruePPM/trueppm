@@ -465,6 +465,7 @@ class Command(BaseCommand):
                 early_finish=ms_date,
                 wbs_path=f"M.{ms_idx}",
                 is_milestone=True,
+                delivery_mode="milestone",  # canonical milestone coupling (#1773)
                 status="NOT_STARTED",
             )
         return out

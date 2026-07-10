@@ -40,6 +40,7 @@ from trueppm_api.apps.msproject.parser import (
 from trueppm_api.apps.projects.models import (
     Calendar,
     CalendarException,
+    DeliveryMode,
     Dependency,
     Project,
     ProjectCalendarLayer,
@@ -712,6 +713,23 @@ class TestImporter:
         import_project(str(project.pk), data)
         t = Task.objects.get(project=project, name="Kickoff")
         assert t.is_milestone is True
+        # #1773: bulk_create bypasses the serializer coupling, so the importer
+        # itself must write the canonical coupled milestone state.
+        assert t.delivery_mode == DeliveryMode.MILESTONE
+        assert t.duration == 0
+
+    def test_import_milestone_with_nonzero_source_duration_is_clamped(
+        self, project: Project
+    ) -> None:
+        # A malformed .mpp can flag a milestone yet carry a non-zero duration;
+        # the importer must clamp it rather than persist an invariant violation
+        # the next PATCH would silently re-zero (#1773).
+        data = ProjectData(tasks=[TaskData(uid=1, name="Gate", is_milestone=True, duration_days=3)])
+        import_project(str(project.pk), data)
+        t = Task.objects.get(project=project, name="Gate")
+        assert t.is_milestone is True
+        assert t.delivery_mode == DeliveryMode.MILESTONE
+        assert t.duration == 0
 
     def test_import_missing_predecessor_warning(self, project: Project) -> None:
         data = ProjectData(

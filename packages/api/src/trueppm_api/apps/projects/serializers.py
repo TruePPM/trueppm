@@ -49,6 +49,7 @@ from trueppm_api.apps.projects.models import (
     CommentReaction,
     CrossProjectSlipConflict,
     CustomFieldType,
+    DeliveryMode,
     Dependency,
     DurationChangePercentPolicy,
     DurationChangeSource,
@@ -2288,16 +2289,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         """Enforce the milestone invariant and progress-anchor gate.
 
-        Milestone invariant: is_milestone=True implies duration=0. Milestones
-        are single-point gates (permits, inspections, sprint reviews, contract
-        dates). A milestone with a non-zero duration produces a Gantt row whose
-        Start and Finish render different dates, which contradicts the diamond
-        marker and the "—" duration display. This invariant is enforced here so
-        the contradiction can never reach the database from the API.
+        Milestone invariant (#1773): the three encodings of "this is a milestone"
+        are coupled into one canonical state — ``is_milestone`` is True **iff**
+        ``delivery_mode='milestone'`` **iff** ``duration=0``. Milestones are
+        single-point gates (permits, inspections, sprint reviews, contract dates).
+        Whichever signal the caller sends is authoritative; the others are synced
+        to match (sending ``is_milestone`` and ``delivery_mode`` with conflicting
+        values is rejected). This coupling is enforced here so the DB can never
+        hold a half-milestone that the rollup SQL (keys on ``delivery_mode``) and
+        the CPM/sprint code (key on ``is_milestone``) would disagree about.
 
         On partial updates the resulting state is computed from instance + attrs
         so toggling is_milestone=True without sending duration still zeroes it,
         and editing duration on an existing milestone gets clamped back to zero.
+        Un-flagging a milestone that a live sprint still targets is rejected.
 
         Sprint cross-project ownership: the sprint assigned to a task must
         belong to the same project as the task. Validated at the serializer
@@ -2323,11 +2328,79 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 {"project": "A task cannot be moved to another project."}
             )
 
-        is_milestone = attrs.get("is_milestone")
-        if is_milestone is None and self.instance is not None:
-            is_milestone = self.instance.is_milestone
+        # Milestone signal coupling (#1773): ``is_milestone`` and
+        # ``delivery_mode='milestone'`` are two encodings of the same fact, but
+        # they were independently writable, so a task could carry one without the
+        # other — and different consumers key off different signals (the rollup
+        # SQL weights on ``delivery_mode``; sprint targeting and CPM key on
+        # ``is_milestone``). Reconcile them here so the DB can only hold the
+        # coupled state: is_milestone ⟺ delivery_mode='milestone' ⟺ duration=0.
+        # Whichever signal the caller sent is authoritative and the other is
+        # synced to match; sending both with conflicting values is rejected.
+        im_sent = "is_milestone" in attrs
+        dm_sent = "delivery_mode" in attrs
+        cur_dm = (
+            self.instance.delivery_mode if self.instance is not None else DeliveryMode.WATERFALL
+        )
+        if im_sent and dm_sent:
+            if bool(attrs["is_milestone"]) != (attrs["delivery_mode"] == DeliveryMode.MILESTONE):
+                raise serializers.ValidationError(
+                    {
+                        "is_milestone": serializers.ErrorDetail(
+                            "is_milestone and delivery_mode='milestone' must agree — "
+                            "a milestone is a task with delivery_mode 'milestone'.",
+                            code="milestone_signal_conflict",
+                        )
+                    }
+                )
+        elif im_sent:
+            # is_milestone drives delivery_mode.
+            if attrs["is_milestone"]:
+                attrs["delivery_mode"] = DeliveryMode.MILESTONE
+            elif cur_dm == DeliveryMode.MILESTONE:
+                # Un-milestoning: fall back to the model-default delivery mode
+                # rather than leaving a stale 'milestone' mode behind.
+                attrs["delivery_mode"] = DeliveryMode.WATERFALL
+        elif dm_sent:
+            # delivery_mode drives is_milestone.
+            attrs["is_milestone"] = attrs["delivery_mode"] == DeliveryMode.MILESTONE
+
+        # Duration invariant: a milestone is a zero-duration gate. Enforced for
+        # the effective (post-coupling) milestone state, on create and on the
+        # merged instance+attrs state for partial updates. Reused below to skip
+        # the planned_finish → working-day duration derivation for milestones.
+        is_milestone = attrs.get(
+            "is_milestone",
+            self.instance.is_milestone if self.instance is not None else False,
+        )
         if is_milestone:
             attrs["duration"] = 0
+
+        # Block un-flagging a milestone that a live sprint still targets (#1773):
+        # ``Sprint.target_milestone`` requires its task be a milestone (enforced at
+        # bind time), and its rollup filters on ``is_milestone=True`` — silently
+        # dropping the flag would leave a dangling FK and make the sprint's
+        # milestone rollup vanish. Mirror the percent-lock probe/error-code style.
+        if (
+            self.instance is not None
+            and self.instance.is_milestone
+            and attrs.get("is_milestone") is False
+        ):
+            from trueppm_api.apps.projects.models import Sprint
+
+            has_live_targeting_sprint = Sprint.objects.filter(
+                target_milestone_id=self.instance.pk, is_deleted=False
+            ).exists()
+            if has_live_targeting_sprint:
+                raise serializers.ValidationError(
+                    {
+                        "is_milestone": serializers.ErrorDetail(
+                            "This milestone is targeted by an active sprint — unlink or "
+                            "close the sprint before removing its milestone flag.",
+                            code="milestone_targeted_by_sprint",
+                        )
+                    }
+                )
 
         # #951: resolve a target finish date into a working-day duration. The web
         # Gantt resize sends ``planned_finish`` (the date the user dropped the

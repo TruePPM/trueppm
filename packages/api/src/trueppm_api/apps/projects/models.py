@@ -1792,10 +1792,16 @@ class Task(VersionedModel):
     is_critical = models.BooleanField(null=True, blank=True)
 
     # Explicit milestone flag — set by the PM or preserved from MS Project / P6 import.
-    # Duration=0 is a common convention for milestones but is not the canonical signal:
-    # MS Project carries a separate <Milestone> flag, P6 uses task_type=TT_Mile, and a
-    # PM may mark a 1-day gate meeting as a milestone without zeroing its duration.
-    # The CPM engine operates on duration only and ignores this field.
+    # Canonical milestone invariant (#1773): a milestone is the coupled state
+    # ``is_milestone=True`` ⟺ ``delivery_mode='milestone'`` ⟺ ``duration=0``.
+    # External formats disagree on the signal (MS Project carries a separate
+    # <Milestone> flag, P6 uses task_type=TT_Mile), so every write path — the
+    # TaskSerializer plus the ORM-direct mints (MSP importer, sprint-to-milestone
+    # promotion, recurring-occurrence spawn, template/seed importer) — normalizes
+    # to this coupled state rather than trusting a single field. The CPM engine
+    # reads ``duration`` only
+    # (which the coupling forces to 0), and the phase rollup weights on
+    # ``delivery_mode`` (which the coupling forces to 'milestone').
     is_milestone = models.BooleanField(default=False)
 
     # Actual execution dates — auto-set on status transition to IN_PROGRESS /
