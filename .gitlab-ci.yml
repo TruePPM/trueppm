@@ -585,6 +585,28 @@ docs:version-accuracy:
     - bash scripts/check-version-status.sh
     - bash scripts/check-version-status.sh --self-test
 
+security:demo-nginx-allowlist:
+  extends: .fast-job
+  # Public-demo nginx allowlist gate (#1763). The hosted read-only demo
+  # (try.trueppm.dev / docker-compose.demo.yml) bakes a fixed SECRET_KEY that is
+  # safe ONLY because the demo has zero accounts and no authenticated write path —
+  # access is exclusively the anonymous, tokenized, read-only share link. A
+  # blanket `location /api/ { proxy_pass … }` on the demo's nginx template (the
+  # production posture) would expose the full authenticated API to the public
+  # internet, breaking that invariant. This gate fails the pipeline if
+  # nginx/demo.conf.template ever regresses to proxying anything beyond the vetted
+  # allowlist (share endpoints, liveness probe, static, loopback admin). ~1s.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash grep sed
+  script:
+    - bash scripts/check-demo-nginx-allowlist.sh
+    - bash scripts/check-demo-nginx-allowlist.sh --self-test
+
 ci:build-api-image:
   # Rebuild and push the custom ci-api image used by the .api / .api-no-db
   # job templates. Pre-bakes libpq-dev + gcc + all dev-dep wheels so the
