@@ -637,3 +637,28 @@ test.describe('Board view', () => {
     await expect(page.getByText('-3d float')).toBeVisible();
   });
 });
+
+// #1764: a failed tasks fetch previously rendered as an empty board —
+// indistinguishable from a project that genuinely has no tasks. The board now
+// surfaces a retry banner, matching Grid and Schedule.
+test.describe('Board view — fetch error', () => {
+  test('renders a retry banner (not an empty board) when the tasks fetch fails', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Override the tasks GET to 500 (registered after setup so it wins).
+    await page.route('**/api/v1/tasks/**', (route) => {
+      if (route.request().method() === 'GET') {
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{}' });
+      }
+      return route.fallback();
+    });
+    await page.goto(`${BASE_URL}/board`);
+
+    const alert = page.getByRole('alert');
+    await expect(alert).toContainText("Couldn't load the board.", { timeout: 10_000 });
+    await expect(alert.getByRole('button', { name: 'Retry' })).toBeVisible();
+    // Not silently rendered as an empty/ready board.
+    await expect(page.getByText('Alpha Phase')).toHaveCount(0);
+  });
+});

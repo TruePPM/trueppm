@@ -139,6 +139,51 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByText('78%')).toBeInTheDocument();
   });
 
+  // #1764: a failed fetch on Overview used to hang on the KPI skeleton (health
+  // row) or render empty (lower sections) — indistinguishable from loading /
+  // "nothing here yet". Each surface now shows a retry banner instead.
+  it('shows a retry banner (not a perpetual skeleton) when the health fetch fails', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      const header = headerHookResponse(url);
+      if (header) return Promise.resolve(header);
+      if (url.endsWith('/overview/')) return Promise.reject(new Error('500'));
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    const health = await screen.findByRole('region', { name: /project health/i });
+    await waitFor(() => {
+      // Inline (widget-level) errors announce politely via role="status".
+      expect(within(health).getByRole('status')).toHaveTextContent(
+        /Couldn't load project health\./,
+      );
+    });
+    expect(within(health).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('shows a retry banner in the attention section when its fetch fails', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      const header = headerHookResponse(url);
+      if (header) return Promise.resolve(header);
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.reject(new Error('500'));
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    const attention = await screen.findByRole('region', { name: /attention items/i });
+    await waitFor(() => {
+      expect(within(attention).getByRole('status')).toHaveTextContent(
+        /Couldn't load attention items\./,
+      );
+    });
+  });
+
   it('renders plain-language leads, not EVM jargon (#1192)', async () => {
     renderPage();
     // Schedule health leads with its band word + a plain "On schedule" subtitle…

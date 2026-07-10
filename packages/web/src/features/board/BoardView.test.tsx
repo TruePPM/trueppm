@@ -73,6 +73,7 @@ import type { FlowMetrics } from '@/hooks/useSprints';
 
 let mockTasks: Task[] | null = FIXTURE_TASKS;
 let mockIsLoading = false;
+let mockError: Error | null = null;
 let mockColumns: { status: TaskStatus; label: string; visible: boolean; wipLimit?: number }[] = [
   { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
   { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
@@ -92,7 +93,7 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: () => ({ tasks: mockTasks, isLoading: mockIsLoading }),
+  useScheduleTasks: () => ({ tasks: mockTasks, isLoading: mockIsLoading, error: mockError }),
 }));
 
 vi.mock('@/hooks/useBoardTasks', () => ({
@@ -280,6 +281,7 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
 function resetMocks() {
   mockTasks = FIXTURE_TASKS;
   mockIsLoading = false;
+  mockError = null;
   mockColumns = [
     { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
     { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
@@ -404,6 +406,19 @@ describe('BoardView', () => {
     mockTasks = []; // not null, not loading — but no tasks
     renderBoard();
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
+  });
+
+  it('renders an error banner (not an empty board) when the tasks fetch fails', () => {
+    // A failed fetch previously rendered identically to an empty board (#1764).
+    mockError = new Error('boom');
+    mockTasks = null;
+    renderBoard();
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/Couldn't load the board\./);
+    expect(within(alert).getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    // Not confused with the empty or loading states.
+    expect(screen.queryByText(/No tasks yet/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading board…')).not.toBeInTheDocument();
   });
 
   it('renders the empty state when only summary tasks exist (no leaves)', () => {

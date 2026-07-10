@@ -8,6 +8,7 @@ import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import { apiClient } from '@/api/client';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import type { PaginatedResponse, ProjectHealth } from '@/api/types';
 import type { MonteCarloResult } from '@/types';
 import { UpdateStatusDialog } from '@/features/project/UpdateStatusDialog';
@@ -938,10 +939,30 @@ function buildOverviewMetrics(
 export function ProjectOverviewPage() {
   const projectId = useProjectId();
 
-  const { data: overview, isLoading: overviewLoading } = useProjectOverview(projectId);
-  const { data: attention, isLoading: attentionLoading } = useProjectAttention(projectId);
-  const { data: myTasks, isLoading: myTasksLoading } = useMyTasks(projectId);
-  const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
+  const {
+    data: overview,
+    isLoading: overviewLoading,
+    isError: overviewError,
+    refetch: refetchOverview,
+  } = useProjectOverview(projectId);
+  const {
+    data: attention,
+    isLoading: attentionLoading,
+    isError: attentionError,
+    refetch: refetchAttention,
+  } = useProjectAttention(projectId);
+  const {
+    data: myTasks,
+    isLoading: myTasksLoading,
+    isError: myTasksError,
+    refetch: refetchMyTasks,
+  } = useMyTasks(projectId);
+  const {
+    data: cpTasks,
+    isLoading: cpTasksLoading,
+    isError: cpTasksError,
+    refetch: refetchCpTasks,
+  } = useCriticalPathTasks(projectId);
   const { data: mcData } = useMonteCarloResult(projectId);
 
   // Methodology-adaptive rendering (#1765). The Overview is the landing page, so a
@@ -994,7 +1015,17 @@ export function ProjectOverviewPage() {
           a PM needs to act on is always at the top-left. Visual order ===
           DOM order: the data is sorted and rendered in that order, never CSS
           `order`, so screen-reader order matches the visual priority. */}
-      {overviewLoading ? (
+      {overviewError ? (
+        // Without this the health row hangs on KpiSkeleton forever on a failed
+        // fetch — indistinguishable from a slow load (issue #1764).
+        <section aria-label="Project health">
+          <QueryErrorState
+            variant="inline"
+            message="Couldn't load project health."
+            onRetry={() => void refetchOverview()}
+          />
+        </section>
+      ) : overviewLoading ? (
         <section aria-label="Project health">
           <KpiSkeleton />
         </section>
@@ -1078,7 +1109,13 @@ export function ProjectOverviewPage() {
           <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
             Needs attention
           </h2>
-          {attentionLoading ? (
+          {attentionError ? (
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load attention items."
+              onRetry={() => void refetchAttention()}
+            />
+          ) : attentionLoading ? (
             <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <AttentionPanel items={attention ?? []} />
@@ -1090,7 +1127,13 @@ export function ProjectOverviewPage() {
           <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
             My tasks this week
           </h2>
-          {myTasksLoading ? (
+          {myTasksError ? (
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load your tasks."
+              onRetry={() => void refetchMyTasks()}
+            />
+          ) : myTasksLoading ? (
             <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <MyTasksPanel tasks={myTasks ?? []} />
@@ -1104,7 +1147,13 @@ export function ProjectOverviewPage() {
           <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
             Critical path
           </h2>
-          {cpTasksLoading ? (
+          {cpTasksError ? (
+            <QueryErrorState
+              variant="inline"
+              message="Couldn't load the critical path."
+              onRetry={() => void refetchCpTasks()}
+            />
+          ) : cpTasksLoading ? (
             <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
           ) : (
             <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { useProject } from '@/hooks/useProject';
 import { useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
@@ -256,20 +257,7 @@ export function GridView() {
   };
 
   if (error) {
-    return (
-      <div className="flex h-full items-center justify-center bg-neutral-surface">
-        <p className="text-sm text-semantic-critical">
-          Couldn&apos;t load tasks.{' '}
-          <button
-            type="button"
-            className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
-        </p>
-      </div>
-    );
+    return <QueryErrorState message="Couldn't load tasks." />;
   }
 
   if (isLoading || !tasks) {

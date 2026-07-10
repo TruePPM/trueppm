@@ -288,17 +288,27 @@ test.describe('Project overview page', () => {
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
   });
 
-  test('error state — overview API 500 does not crash the page', async ({ page }) => {
+  test('error state — overview API 500 shows a retry banner, not fabricated metrics', async ({
+    page,
+  }) => {
     // Intercept to return 500 for this test only (page already loaded; navigate fresh)
     await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
     );
     await page.reload();
-    // Page should still render — the secondary "More metrics" strip is always
-    // present even when overview data is empty (#1191).
-    await expect(page.getByRole('region', { name: /more metrics/i })).toBeVisible({
-      timeout: 10_000,
+    // #1764: a failed health fetch must read as broken, not silently render the
+    // KPI strips off empty data (which is indistinguishable from a real project
+    // with no progress). The health region shows a retry banner instead.
+    // Gate on a "page rendered" signal first — a section whose fetch succeeded —
+    // so the health assertion isn't racing the SPA's first-load compile.
+    await expect(page.getByRole('region', { name: /attention items/i })).toBeVisible({
+      timeout: 15_000,
     });
+    const health = page.getByRole('region', { name: /project health/i });
+    await expect(health.getByRole('status')).toContainText("Couldn't load project health.");
+    await expect(health.getByRole('button', { name: 'Retry' })).toBeVisible();
+    // The fabricated "More metrics" strip is gone — that was the swallowed-error bug.
+    await expect(page.getByRole('region', { name: /more metrics/i })).toHaveCount(0);
   });
 
   test('project header shows health badge and project name', async ({ page }) => {
