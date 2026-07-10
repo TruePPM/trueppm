@@ -138,12 +138,14 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { edition } = useEdition();
   const projectId = useProjectId();
 
-  // One deterministic destination for the gear (#1738): an identical control must
-  // never branch where it lands by role. It always opens the settings hub;
-  // `RequireAdminSettings` redirects a non-admin on to their reachable scope
-  // (RBAC gates the sections *inside* the hub, not the gear's target). See ADR-0030.
-  const settingsTo = '/settings';
-  const settingsLabel = 'Settings';
+  // The gear under the signed-in identity opens the user's *personal* settings
+  // (#1793), which every role can reach. It deliberately does not target the
+  // workspace `/settings` hub: `RequireAdminSettings` redirects non-admins away
+  // from it, so the gear would silently lead nowhere for them. Workspace settings
+  // stay reachable from the admin nav. One deterministic destination for all
+  // roles (#1738) — the gear never branches where it lands.
+  const settingsTo = '/me/settings/general';
+  const settingsLabel = 'Personal settings';
 
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewProgram, setShowNewProgram] = useState(false);

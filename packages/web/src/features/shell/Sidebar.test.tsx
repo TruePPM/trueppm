@@ -155,16 +155,17 @@ describe('Sidebar rail — Tier 1 "You"', () => {
 });
 
 describe('Sidebar footer — identity + settings gear', () => {
-  it('routes the gear to the settings hub deterministically, even for a non-admin (#1738)', () => {
-    // The gear must NOT branch to /me/settings/notifications by role — an
-    // identical control never changes destination. It always opens the hub;
-    // RequireAdminSettings redirects a non-admin on to their reachable scope.
+  it('routes the gear to personal settings — a real destination for a non-admin (#1793)', () => {
+    // The gear under the identity opens the user's own settings, which every
+    // role can reach. It must NOT target the workspace `/settings` hub, from
+    // which RequireAdminSettings redirects non-admins away (silent dead end).
+    // The destination is the same for all roles (#1738) — it never branches.
     mockUseCurrentUser.mockReturnValue({
       user: { ...DEFAULT_USER.user, can_access_admin_settings: false },
     });
     renderRail();
-    const gear = screen.getByRole('link', { name: 'Settings' });
-    expect(gear).toHaveAttribute('href', '/settings');
+    const gear = screen.getByRole('link', { name: 'Personal settings' });
+    expect(gear).toHaveAttribute('href', '/me/settings/general');
   });
 
   it('shows identity as a name-only "Signed in" label, not a tappable avatar (#1737)', () => {
