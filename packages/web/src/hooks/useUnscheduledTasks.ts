@@ -22,8 +22,17 @@ import type { Task } from '@/types';
  *     BACKLOG → To Do promotion silently disappears from the gutter as soon
  *     as CPM runs.
  *   - not a summary task — summaries roll up from children.
- *   - not assigned to a sprint — sprint membership is itself a scheduling
- *     commitment; the sprint is the container.
+ *   - either no sprint, OR sprint-assigned but still `BACKLOG` (#1790). A
+ *     sprint-assigned NOT_STARTED task is committed to its sprint and floors
+ *     to the sprint window via the ADR-0168 CPM floor, so it renders as a real
+ *     bar and is *not* unscheduled. But a sprint-assigned BACKLOG task is
+ *     excluded from CPM entirely (uncommitted work must never drive the
+ *     critical path) → it has no `early_start`, so it drew nothing (or, on
+ *     older data, a phantom day-0 glyph) and fell through this gutter. It
+ *     belongs here, grouped under its target sprint and read-only (the gutter
+ *     renders it via the `planned` variant — no drag-to-schedule, since dating
+ *     a sprint-committed backlog item from the timeline would violate sprint
+ *     sovereignty; scheduling happens through sprint planning / the board).
  */
 export function useUnscheduledTasks(tasks: Task[]): Task[] {
   return useMemo(
@@ -33,7 +42,7 @@ export function useUnscheduledTasks(tasks: Task[]): Task[] {
           (t.status === 'NOT_STARTED' || t.status === 'BACKLOG') &&
           !t.plannedStart &&
           !t.isSummary &&
-          !t.sprintId,
+          (!t.sprintId || t.status === 'BACKLOG'),
       ),
     [tasks],
   );

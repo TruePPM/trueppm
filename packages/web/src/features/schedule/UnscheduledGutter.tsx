@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Task } from '@/types';
+import type { ApiSprint, Task } from '@/types';
 import type { GanttScaleData } from './engine';
 import { leftToDate } from './engine';
 import { usePromoteTask } from '@/hooks/useTaskMutations';
@@ -21,6 +21,9 @@ interface UnscheduledGutterProps {
   canvasScrollRef: React.RefObject<HTMLDivElement | null>;
   /** Left offset of the task list panel — gutter header aligns with timeline area. */
   taskListWidth: number;
+  /** Project sprints (#1790) — used to group sprint-assigned backlog under its
+   *  target sprint with an honest window/state header. */
+  sprints?: ApiSprint[];
 }
 
 interface DragState {
@@ -58,6 +61,7 @@ export function UnscheduledGutter({
   scaleData,
   canvasScrollRef,
   taskListWidth,
+  sprints,
 }: UnscheduledGutterProps) {
   const itl = useIterationLabel();
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -82,16 +86,41 @@ export function UnscheduledGutter({
     try { localStorage.setItem(COLLAPSED_KEY, String(val)); } catch { /* ignore */ }
   }, []);
 
-  // Partition into the two sections (rule 132). The header count is the sum.
-  const { todoTasks, backlogTasks } = useMemo(() => {
+  // Partition into sections (rule 132, extended #1790). The header count is the
+  // sum. No-sprint work keeps the draggable To Do / Backlog sections; sprint-
+  // assigned backlog (predicate guarantees status BACKLOG) is grouped read-only
+  // under its target sprint, ordered by the sprint's start date.
+  const { todoTasks, backlogTasks, sprintGroups } = useMemo(() => {
+    const sprintById = new Map<string, ApiSprint>();
+    for (const s of sprints ?? []) sprintById.set(s.id, s);
+
     const todo: Task[] = [];
     const backlog: Task[] = [];
+    const bySprint = new Map<string, Task[]>();
     for (const t of tasks) {
-      if (t.status === 'BACKLOG') backlog.push(t);
-      else todo.push(t);
+      if (t.sprintId) {
+        const arr = bySprint.get(t.sprintId) ?? [];
+        arr.push(t);
+        bySprint.set(t.sprintId, arr);
+      } else if (t.status === 'BACKLOG') {
+        backlog.push(t);
+      } else {
+        todo.push(t);
+      }
     }
-    return { todoTasks: todo, backlogTasks: backlog };
-  }, [tasks]);
+
+    const groups = [...bySprint.entries()]
+      .map(([sprintId, groupTasks]) => ({
+        sprintId,
+        sprint: sprintById.get(sprintId) ?? null,
+        tasks: groupTasks,
+      }))
+      .sort((a, b) =>
+        (a.sprint?.start_date ?? '￿').localeCompare(b.sprint?.start_date ?? '￿'),
+      );
+
+    return { todoTasks: todo, backlogTasks: backlog, sprintGroups: groups };
+  }, [tasks, sprints]);
 
   const [drag, setDrag] = useState<DragState | null>(null);
   const promoteMutation = usePromoteTask();
@@ -344,6 +373,54 @@ export function UnscheduledGutter({
                 ))
               )}
             </section>
+
+            {/* Sprint-assigned backlog (#1790) — one read-only group per target
+                sprint. These are uncommitted (CPM-excluded) so they carry no
+                timeline bar and cannot be dated from here; the honest header
+                states the sprint window without implying a committed date. */}
+            {sprintGroups.map((group) => {
+              const s = group.sprint;
+              const planned = s?.state === 'PLANNED';
+              const stateWord = s
+                ? s.state.charAt(0) + s.state.slice(1).toLowerCase()
+                : '';
+              const name = s?.name ?? 'Sprint';
+              const window = s
+                ? `${formatShortDate(s.start_date)} – ${formatShortDate(s.finish_date)}`
+                : '';
+              const subnote = planned
+                ? 'pending team plan — not scheduled'
+                : 'not yet started — not scheduled';
+              const n = group.tasks.length;
+              return (
+                <section
+                  key={group.sprintId}
+                  role="group"
+                  aria-label={`Targeted for ${name}, ${stateWord.toLowerCase()}, read-only, ${n} ${n === 1 ? 'task' : 'tasks'}`}
+                  className="border-t border-neutral-border"
+                >
+                  <div className="sticky top-0 z-10 bg-neutral-surface-sunken px-4 py-1.5">
+                    <div className="flex items-baseline gap-2">
+                      <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+                        Targeted: {name}
+                        {stateWord && ` · ${stateWord}`}
+                      </h3>
+                      {window && (
+                        <span className="tppm-mono text-xs text-neutral-text-secondary">
+                          {window}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs italic text-neutral-text-secondary">
+                      {subnote}
+                    </span>
+                  </div>
+                  {group.tasks.map((task) => (
+                    <UnscheduledTaskRow key={task.id} task={task} variant="planned" />
+                  ))}
+                </section>
+              );
+            })}
           </div>
         )}
 

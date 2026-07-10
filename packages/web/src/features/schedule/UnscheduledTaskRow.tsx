@@ -2,18 +2,21 @@ import React, { useState, useRef, useCallback, useId, useLayoutEffect } from 're
 import { createPortal } from 'react-dom';
 import type { Task, TaskReadiness } from '@/types';
 
-export type UnscheduledRowVariant = 'todo' | 'backlog';
+export type UnscheduledRowVariant = 'todo' | 'backlog' | 'planned';
 
 interface UnscheduledTaskRowProps {
   task: Task;
   /** `todo` (NOT_STARTED, default) or `backlog` (status === 'BACKLOG'). The
    *  backlog variant carries a dashed left edge + readiness label and routes
    *  its `···` menu to the shared ScheduleTaskDialog instead of an inline form
-   *  (#318). */
+   *  (#318). `planned` (#1790) is a sprint-assigned backlog item shown under
+   *  its target sprint: fully read-only — no drag, no ··· menu — because dating
+   *  a sprint-committed item from the Schedule would violate sprint sovereignty
+   *  (scheduling happens through sprint planning / the board). */
   variant?: UnscheduledRowVariant;
-  onDragStart: (task: Task, pointerId: number, x: number, y: number) => void;
+  onDragStart?: (task: Task, pointerId: number, x: number, y: number) => void;
   /** To Do path — inline "set planned start" form (existing behavior). */
-  onSetDate: (task: Task, date: string) => void;
+  onSetDate?: (task: Task, date: string) => void;
   /** Backlog path — open the shared ScheduleTaskDialog. The row passes its own
    *  `···` button as the trigger so focus can be returned on close. */
   onScheduleRequest?: (task: Task, trigger: HTMLElement) => void;
@@ -99,7 +102,7 @@ export function UnscheduledTaskRow({
     if (Math.sqrt(dx * dx + dy * dy) >= 4) {
       dragStarted.current = true;
       rowRef.current?.releasePointerCapture(pointerId.current);
-      onDragStart(task, pointerId.current, e.clientX, e.clientY);
+      onDragStart?.(task, pointerId.current, e.clientX, e.clientY);
     }
   }, [task, onDragStart]);
 
@@ -161,11 +164,44 @@ export function UnscheduledTaskRow({
   const handleDateSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (dateInput) {
-      onSetDate(task, dateInput);
+      onSetDate?.(task, dateInput);
       setMenuOpen(false);
       setDateInput('');
     }
   }, [dateInput, task, onSetDate]);
+
+  // `planned` variant (#1790): a sprint-assigned backlog item shown under its
+  // target sprint. Read-only by contract — no drag handle, no ··· menu, no
+  // grab cursor — so the Schedule can never be used to date sprint-committed
+  // work (sprint sovereignty). It states its own non-committal nature: dashed
+  // left edge + a muted "planned" label, story points where present.
+  if (variant === 'planned') {
+    return (
+      <div
+        className="relative flex items-center gap-3 px-4 h-9 border-b border-neutral-border/40
+          border-l-2 border-dashed border-neutral-border select-none"
+      >
+        <span className="tppm-mono text-xs text-neutral-text-secondary w-14 truncate shrink-0">
+          {task.wbs || '—'}
+        </span>
+        <span className="text-sm flex-1 truncate min-w-0 text-neutral-text-secondary">
+          {task.name}
+        </span>
+        {typeof task.storyPoints === 'number' && (
+          <span className="tppm-mono text-xs text-neutral-text-secondary shrink-0">
+            {task.storyPoints} pts
+          </span>
+        )}
+        <span
+          className="inline-flex items-center rounded-chip uppercase tracking-wider font-semibold shrink-0 px-1.5
+            border border-dashed border-neutral-border text-neutral-text-disabled"
+          style={{ height: 16, fontSize: '10px', letterSpacing: '0.06em' }}
+        >
+          planned
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div

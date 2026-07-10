@@ -85,6 +85,9 @@ describe('useUnscheduledTasks', () => {
   });
 
   it('excludes NOT_STARTED tasks already assigned to a sprint', () => {
+    // A sprint-assigned NOT_STARTED task is committed to its sprint and floors
+    // to the sprint window via the ADR-0168 CPM floor, so it renders as a real
+    // bar on the timeline — it is not "unscheduled".
     const tasks = [
       t({ id: 'free', status: 'NOT_STARTED', plannedStart: null, sprintId: null }),
       t({
@@ -96,6 +99,28 @@ describe('useUnscheduledTasks', () => {
     ];
     const { result } = renderHook(() => useUnscheduledTasks(tasks));
     expect(result.current.map((x) => x.id)).toEqual(['free']);
+  });
+
+  it('includes BACKLOG tasks assigned to a sprint (#1790)', () => {
+    // A sprint-assigned BACKLOG task is excluded from CPM entirely (uncommitted
+    // work must never drive the critical path), so it has no early_start and,
+    // pre-fix, stranded at the project origin. It belongs in the gutter under
+    // its target sprint (read-only). Its sprint-assigned NOT_STARTED sibling,
+    // which floors to the sprint window, must stay OUT of the gutter.
+    const tasks = [
+      t({ id: 'sprint-backlog', status: 'BACKLOG', plannedStart: null, sprintId: 'sprint-3' }),
+      t({ id: 'sprint-todo', status: 'NOT_STARTED', plannedStart: null, sprintId: 'sprint-3' }),
+    ];
+    const { result } = renderHook(() => useUnscheduledTasks(tasks));
+    expect(result.current.map((x) => x.id)).toEqual(['sprint-backlog']);
+  });
+
+  it('excludes sprint-assigned BACKLOG once the PM commits a planned start', () => {
+    const tasks = [
+      t({ id: 'sb', status: 'BACKLOG', plannedStart: '2026-04-06', sprintId: 'sprint-3' }),
+    ];
+    const { result } = renderHook(() => useUnscheduledTasks(tasks));
+    expect(result.current).toHaveLength(0);
   });
 
   it('excludes summary tasks even when otherwise eligible', () => {

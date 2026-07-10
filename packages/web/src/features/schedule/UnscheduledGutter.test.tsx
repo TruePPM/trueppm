@@ -13,7 +13,7 @@ import { renderWithProviders as render } from '@/test/utils';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRef, type ReactElement } from 'react';
-import type { Task } from '@/types';
+import type { ApiSprint, Task } from '@/types';
 import { UnscheduledGutter } from './UnscheduledGutter';
 
 vi.mock('@/api/client', () => ({
@@ -41,7 +41,17 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-function renderGutter(tasks: Task[]): ReturnType<typeof render> {
+function makeSprint(overrides: Partial<ApiSprint> & { id: string }): ApiSprint {
+  return {
+    name: 'Sprint',
+    state: 'PLANNED',
+    start_date: '2026-07-17',
+    finish_date: '2026-07-30',
+    ...overrides,
+  } as unknown as ApiSprint;
+}
+
+function renderGutter(tasks: Task[], sprints?: ApiSprint[]): ReturnType<typeof render> {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -54,6 +64,7 @@ function renderGutter(tasks: Task[]): ReturnType<typeof render> {
         scaleData={null}
         canvasScrollRef={canvasScrollRef}
         taskListWidth={200}
+        sprints={sprints}
       />
     </QueryClientProvider>
   );
@@ -128,5 +139,61 @@ describe('UnscheduledGutter — two-section tray', () => {
       makeTask({ id: 'a', name: 'Wire login', status: 'NOT_STARTED' }),
     ]);
     expect(container.querySelector('.border-dashed')).toBeNull();
+  });
+});
+
+describe('UnscheduledGutter — sprint-assigned backlog groups (#1790)', () => {
+  it('groups sprint-assigned backlog under its target sprint with an honest header', () => {
+    renderGutter(
+      [makeTask({ id: 'sb', name: 'Contact dedupe', status: 'BACKLOG', sprintId: 's3', storyPoints: 5 })],
+      [makeSprint({ id: 's3', name: 'Build Sprint 3', state: 'PLANNED' })],
+    );
+
+    const group = screen.getByRole('group', {
+      name: /Targeted for Build Sprint 3, planned, read-only, 1 task/i,
+    });
+    expect(within(group).getByText('Contact dedupe')).toBeInTheDocument();
+    // Honest, non-committal sub-note — never implies a committed date.
+    expect(within(group).getByText('pending team plan — not scheduled')).toBeInTheDocument();
+    // Story points surface the sprint-planning vocabulary.
+    expect(within(group).getByText('5 pts')).toBeInTheDocument();
+  });
+
+  it('renders sprint-assigned backlog rows READ-ONLY — no actions menu, muted "planned" label', () => {
+    renderGutter(
+      [makeTask({ id: 'sb', name: 'Contact dedupe', status: 'BACKLOG', sprintId: 's3' })],
+      [makeSprint({ id: 's3', name: 'Build Sprint 3' })],
+    );
+
+    const group = screen.getByRole('group', { name: /Targeted for Build Sprint 3/i });
+    // The ··· "Actions for …" scheduling menu must not exist — dating a
+    // sprint-committed item from the Schedule would violate sprint sovereignty.
+    expect(within(group).queryByRole('button', { name: /Actions for/i })).toBeNull();
+    expect(within(group).getByText('planned')).toBeInTheDocument();
+  });
+
+  it('keeps sprint-assigned backlog OUT of the no-sprint Backlog section', () => {
+    renderGutter(
+      [
+        makeTask({ id: 'nb', name: 'No-sprint idea', status: 'BACKLOG', sprintId: null }),
+        makeTask({ id: 'sb', name: 'Sprint idea', status: 'BACKLOG', sprintId: 's3' }),
+      ],
+      [makeSprint({ id: 's3', name: 'Build Sprint 3' })],
+    );
+
+    const backlogSection = screen.getByRole('group', { name: /Backlog, 1 item/i });
+    expect(within(backlogSection).getByText('No-sprint idea')).toBeInTheDocument();
+    expect(within(backlogSection).queryByText('Sprint idea')).not.toBeInTheDocument();
+    // Header count is the sum across all sections (1 no-sprint + 1 sprint-assigned).
+    expect(screen.getByText('(2)')).toBeInTheDocument();
+  });
+
+  it('labels an ACTIVE target sprint honestly (not "pending team plan")', () => {
+    renderGutter(
+      [makeTask({ id: 'sb', name: 'Stretch item', status: 'BACKLOG', sprintId: 's2' })],
+      [makeSprint({ id: 's2', name: 'Build Sprint 2', state: 'ACTIVE' })],
+    );
+    const group = screen.getByRole('group', { name: /Targeted for Build Sprint 2, active, read-only/i });
+    expect(within(group).getByText('not yet started — not scheduled')).toBeInTheDocument();
   });
 });
