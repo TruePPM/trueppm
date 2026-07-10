@@ -220,6 +220,90 @@ class TestTaskReorderView:
         assert r.status_code == 400
 
 
+@pytest.mark.django_db
+class TestTaskReorderPermission:
+    """Reorder rewrites wbs_path for every sibling, so — like indent/outdent/
+    reparent (#1771) — it requires per-task edit authority on each sibling, not
+    merely any-Member IsProjectMemberWrite. A Member who cannot edit a colleague's
+    task must not be able to renumber it by reordering the level it lives in.
+    """
+
+    URL = "/api/v1/projects/{pk}/tasks/reorder/"
+
+    def url(self, project: Project) -> str:
+        return self.URL.format(pk=project.pk)
+
+    @pytest.fixture
+    def member(self, project: Project) -> object:
+        User = get_user_model()
+        u = User.objects.create_user(username="reorder_member", password="pw")
+        ProjectMembership.objects.create(project=project, user=u, role=Role.MEMBER)
+        return u
+
+    @pytest.fixture
+    def member_client(self, member: object) -> APIClient:
+        c = APIClient()
+        c.force_authenticate(user=member)
+        return c
+
+    def test_member_cannot_reorder_level_with_unowned_task(
+        self, member_client: APIClient, project: Project, member: object
+    ) -> None:
+        """A level containing a colleague's task is off-limits — the complete-set
+        reorder would renumber a task the Member cannot edit."""
+        t1 = Task.objects.create(
+            project=project, name="Mine", duration=1, wbs_path="1", assignee=member
+        )
+        t2 = Task.objects.create(project=project, name="Theirs", duration=1, wbs_path="2")
+        r = member_client.post(
+            self.url(project),
+            {"parent_path": "", "ordered_ids": [str(t2.pk), str(t1.pk)]},
+            format="json",
+        )
+        assert r.status_code == 403
+        # No wbs_path was rewritten.
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        assert (t1.wbs_path, t2.wbs_path) == ("1", "2")
+
+    def test_member_can_reorder_own_assigned_level(
+        self, member_client: APIClient, project: Project, member: object
+    ) -> None:
+        """Field-edit parity: a Member may reorder a level whose tasks are all
+        assigned to them."""
+        t1 = Task.objects.create(
+            project=project, name="A", duration=1, wbs_path="1", assignee=member
+        )
+        t2 = Task.objects.create(
+            project=project, name="B", duration=1, wbs_path="2", assignee=member
+        )
+        r = member_client.post(
+            self.url(project),
+            {"parent_path": "", "ordered_ids": [str(t2.pk), str(t1.pk)]},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+        t1.refresh_from_db()
+        t2.refresh_from_db()
+        assert (t2.wbs_path, t1.wbs_path) == ("1", "2")
+
+    def test_owner_can_reorder_any_level(
+        self,
+        client: APIClient,
+        project: Project,
+        membership: ProjectMembership,
+    ) -> None:
+        """Regression guard: the Owner/Admin path is unaffected by the tightened gate."""
+        t1 = Task.objects.create(project=project, name="A", duration=1, wbs_path="1")
+        t2 = Task.objects.create(project=project, name="B", duration=1, wbs_path="2")
+        r = client.post(
+            self.url(project),
+            {"parent_path": "", "ordered_ids": [str(t2.pk), str(t1.pk)]},
+            format="json",
+        )
+        assert r.status_code == 200, r.data
+
+
 # ---------------------------------------------------------------------------
 # TaskBulkView
 # ---------------------------------------------------------------------------
