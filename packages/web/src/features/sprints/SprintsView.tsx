@@ -47,6 +47,9 @@ import { RetroHandoffBanner } from './RetroHandoffBanner';
 import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
+import { EmptyState } from '@/components/EmptyState';
+import { Button } from '@/components/Button';
+import { SprintIcon } from '@/components/Icons';
 import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
@@ -577,7 +580,22 @@ export function SprintsView() {
       <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
         <div className="px-6 flex flex-col gap-4">
         {isLoading && (
-          <p className="text-sm text-neutral-text-secondary">Loading {itl.lowerPlural}…</p>
+          <div
+            role="status"
+            aria-label={`Loading ${itl.lowerPlural}…`}
+            className="flex flex-col gap-4"
+          >
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                aria-hidden="true"
+                className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
+              >
+                <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
+                <div className="mt-3 h-24 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken" />
+              </div>
+            ))}
+          </div>
         )}
 
         {error && (
@@ -587,17 +605,20 @@ export function SprintsView() {
         )}
 
         {!isLoading && !error && sprints.length === 0 && (
-          <div
-            role="status"
-            className="rounded-card border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
-          >
-            <p className="text-sm font-medium text-neutral-text-primary">
-              No {itl.lowerPlural} yet
-            </p>
-            <p className="mt-1 text-xs text-neutral-text-secondary">
-              Plan your first {itl.lower} to start tracking velocity and burn.
-            </p>
-          </div>
+          <EmptyState
+            className="rounded-card border border-neutral-border bg-neutral-surface-raised"
+            icon={SprintIcon}
+            title={`No ${itl.lowerPlural} yet`}
+            // The CTA below carries a distinct label ("Plan a sprint") so this
+            // orientation copy stays the single "Plan your first {sprint}" match
+            // and never render-depends on the viewer's permission to plan.
+            description={`Plan your first ${itl.lower} to start tracking velocity and burn.`}
+            action={
+              canManageScope ? (
+                <Button onClick={handlePlanNext}>Plan a {itl.lower}</Button>
+              ) : undefined
+            }
+          />
         )}
 
         {!isLoading && !error && selectedSprint && (

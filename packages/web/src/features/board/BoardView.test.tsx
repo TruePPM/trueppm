@@ -396,7 +396,7 @@ describe('BoardView', () => {
     mockIsLoading = true;
     mockTasks = null;
     renderBoard();
-    expect(screen.getByText('Loading board…')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Loading board…' })).toBeInTheDocument();
     // The toolbar / lanes do not render in the loading branch — the More⋯
     // overflow that owns "Show WIP limits" is therefore not present.
     expect(screen.queryByRole('button', { name: 'More board controls' })).not.toBeInTheDocument();

@@ -51,6 +51,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
+import { ListIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -577,7 +579,17 @@ function DesktopGroomingView() {
   }, [data]);
 
   if (isLoading) {
-    return <div className="p-6 text-sm text-neutral-text-secondary">Loading backlog…</div>;
+    return (
+      <div role="status" aria-label="Loading backlog…" className="flex flex-col gap-2 p-6">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            aria-hidden="true"
+            className="h-11 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken"
+          />
+        ))}
+      </div>
+    );
   }
   if (isError || !data) {
     return (
@@ -933,10 +945,11 @@ function DesktopGroomingView() {
 
           <div className="px-4 pt-2">
             {allEmpty && (
-              <div className="p-8 text-center text-sm text-neutral-text-secondary">
-                No stories yet. Pull items from the program backlog or add a story below to start
-                grooming.
-              </div>
+              <EmptyState
+                icon={ListIcon}
+                title="No stories yet"
+                description="Pull items from the program backlog, or add a story below to start grooming."
+              />
             )}
 
             {/* No-results state when a filter is active but nothing matches (issue 1044).

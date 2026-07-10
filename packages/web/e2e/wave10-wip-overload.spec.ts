@@ -168,8 +168,13 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
     await setupCommon(page);
     await page.goto(BASE_URL);
     // Wait for the board to leave its loading state — TanStack Query needs
-    // a tick after the route mocks resolve before the columns paint.
-    await expect(page.getByText(/Loading board/i)).toHaveCount(0, { timeout: 15_000 });
+    // a tick after the route mocks resolve before the columns paint. The
+    // loading skeleton is a role="status" node named "Loading board…" with no
+    // visible text, so gate on that node detaching (getByText would read
+    // count-0 before the board even mounts and resolve vacuously).
+    await expect(page.getByRole('status', { name: /Loading board/i })).toHaveCount(0, {
+      timeout: 15_000,
+    });
     // IN_PROGRESS has 2 leaves and wip_limit=1 → over-limit chip.
     await expect(page.getByLabel(/2 of 1 WIP limit, over limit/i)).toBeVisible();
     await expect(page.getByText(/2\/1 — over WIP limit/i)).toBeVisible();

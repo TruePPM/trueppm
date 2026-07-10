@@ -1499,10 +1499,10 @@ function MobileBoard({
               </div>
               {cards.length === 0 ? (
                 <div
-                  className="flex items-center justify-center py-10 text-sm text-neutral-text-disabled"
+                  className="flex items-center justify-center py-10 text-center text-sm text-neutral-text-disabled"
                   role="status"
                 >
-                  Nothing here yet.
+                  Nothing here yet — drag a card in.
                 </div>
               ) : (
                 cards.map((task) => (
@@ -2903,9 +2903,27 @@ export function BoardView() {
   }
 
   if (isLoading) {
+    // Column-ghost skeleton — mirror the four-lane board shape the sibling
+    // surfaces (Grid/My Work/Overview) skeleton with, so the board no longer
+    // flashes a bare "Loading…" line while the other views ghost. The accessible
+    // name stays "Loading board…" so the E2E wait-for-paint gate still resolves.
     return (
-      <div className="flex items-center justify-center h-full text-neutral-text-secondary text-sm">
-        Loading board…
+      <div
+        role="status"
+        aria-label="Loading board…"
+        className="flex h-full gap-4 overflow-hidden p-4"
+      >
+        {[0, 1, 2, 3].map((col) => (
+          <div key={col} aria-hidden="true" className="flex w-72 flex-shrink-0 flex-col gap-3">
+            <div className="h-5 w-32 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
+            {[0, 1, 2].map((card) => (
+              <div
+                key={card}
+                className="h-20 motion-safe:animate-pulse rounded-card border border-neutral-border bg-neutral-surface-sunken"
+              />
+            ))}
+          </div>
+        ))}
       </div>
     );
   }

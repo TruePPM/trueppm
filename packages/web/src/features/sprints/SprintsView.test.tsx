@@ -107,7 +107,7 @@ describe('SprintsView', () => {
       error: null,
     });
     renderWithRouter(<SprintsView />);
-    expect(screen.getByText(/Loading sprints/i)).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: /Loading sprints/i })).toBeInTheDocument();
   });
 
   it('renders error state', () => {

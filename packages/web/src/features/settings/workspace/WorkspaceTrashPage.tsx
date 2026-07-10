@@ -11,7 +11,9 @@ import {
   WbsIcon,
   SettingsIcon,
   WarningIcon,
+  InboxIcon,
 } from '@/components/Icons';
+import { EmptyState } from '@/components/EmptyState';
 import { SettingsShell, SettingsPageTitle, type SettingsNavGroup } from '../SettingsShell';
 
 /**
@@ -210,12 +212,12 @@ export function WorkspaceTrashPage() {
             </button>
           </div>
         ) : !projects || projects.length === 0 ? (
-          <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-8 text-center">
-            <p className="text-[14px] font-semibold text-neutral-text-primary">Trash is empty</p>
-            <p className="mt-1 text-[12px] text-neutral-text-secondary">
-              Deleted projects appear here and stay recoverable during the retention window.
-            </p>
-          </div>
+          <EmptyState
+            className="rounded-card border border-neutral-border bg-neutral-surface-raised"
+            icon={InboxIcon}
+            title="Trash is empty"
+            description="Deleted projects appear here and stay recoverable during the retention window."
+          />
         ) : (
           projects.map((project) => {
             const isRestoringThis = restore.isPending && restore.variables === project.id;

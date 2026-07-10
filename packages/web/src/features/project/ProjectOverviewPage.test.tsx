@@ -865,8 +865,8 @@ describe('Attention severity dot branches', () => {
   });
 });
 
-describe('MC histogram bucket coloring', () => {
-  it('colors buckets by P50/P80 percentile region', async () => {
+describe('MC histogram (shared MonteCarloHistogram, #1774)', () => {
+  it('renders neutral distribution bars with semantic percentile rule lines (rule 19)', async () => {
     const mc = {
       p50: '2026-06-01',
       p80: '2026-06-15',
@@ -874,9 +874,9 @@ describe('MC histogram bucket coloring', () => {
       runs: 500,
       distribution: [],
       histogram_buckets: [
-        { date: '2026-05-15', count: 5 }, // ≤ P50 → green
-        { date: '2026-06-10', count: 9 }, // P50-P80 → amber
-        { date: '2026-06-20', count: 3 }, // > P80 → red
+        { date: '2026-05-15', count: 5 },
+        { date: '2026-06-10', count: 9 },
+        { date: '2026-06-20', count: 3 },
       ],
     };
     mockedGet.mockImplementation((url: string) => {
@@ -893,10 +893,21 @@ describe('MC histogram bucket coloring', () => {
     });
     const rects = container.querySelectorAll('rect');
     expect(rects.length).toBe(3);
-    const fills = Array.from(rects).map((r) => r.getAttribute('fill'));
-    expect(fills).toContain('#4ade80');
-    expect(fills).toContain('#f59e0b');
-    expect(fills).toContain('#b91c1c');
+    // Distribution shape is neutral — no semantic color, no hardcoded hex (rule 19).
+    rects.forEach((r) => {
+      expect(r.getAttribute('class')).toContain('fill-neutral-text-disabled');
+      expect(r.getAttribute('fill')).toBeNull();
+    });
+    expect(container.innerHTML).not.toContain('#4ade80');
+    expect(container.innerHTML).not.toContain('#f59e0b');
+    expect(container.innerHTML).not.toContain('#b91c1c');
+    // Semantic color is reserved for the P50/P80/P95 vertical rule lines.
+    const lineClasses = Array.from(container.querySelectorAll('line')).map(
+      (l) => l.getAttribute('class') ?? '',
+    );
+    expect(lineClasses.some((c) => c.includes('stroke-semantic-on-track'))).toBe(true);
+    expect(lineClasses.some((c) => c.includes('stroke-semantic-at-risk'))).toBe(true);
+    expect(lineClasses.some((c) => c.includes('stroke-semantic-critical'))).toBe(true);
   });
 
   it('renders no svg when histogram_buckets is empty', async () => {
