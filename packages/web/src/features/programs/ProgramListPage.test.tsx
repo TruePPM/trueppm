@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -94,6 +95,7 @@ describe('ProgramListPage', () => {
   beforeEach(() => {
     // Default: no ungrouped projects, so the section self-hides.
     useUngroupedProjects.mockReturnValue({ data: [], isLoading: false, error: null });
+    localStorage.clear();
   });
 
   it('renders hero empty state when no programs', () => {
@@ -195,5 +197,63 @@ describe('ProgramListPage', () => {
     expect(screen.getByRole('heading', { name: /Ungrouped projects/i })).toBeInTheDocument();
     expect(screen.getByText('1 need a home')).toBeInTheDocument();
     expect(screen.getByText('Neptune Cryo Rig')).toBeInTheDocument();
+  });
+
+  describe('filter / sort toolbar (#1796)', () => {
+    const THREE = [
+      makeProgram({ id: 'a', name: 'Alpha', methodology: 'WATERFALL' }),
+      makeProgram({ id: 'b', name: 'Bravo', methodology: 'AGILE' }),
+      makeProgram({ id: 'c', name: 'Charlie', methodology: 'HYBRID' }),
+    ];
+
+    it('narrows the cards as the filter is typed', async () => {
+      const user = userEvent.setup();
+      usePrograms.mockReturnValue({ data: THREE, isLoading: false, error: null });
+      renderPage();
+
+      const grid = screen.getByRole('list', { name: 'Programs' });
+      expect(within(grid).getAllByRole('listitem')).toHaveLength(3);
+
+      await user.type(screen.getByRole('searchbox', { name: /Filter programs by name/i }), 'brav');
+      // The filter commit is debounced — wait for the grid to narrow.
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole('list', { name: 'Programs' })).getAllByRole('listitem'),
+        ).toHaveLength(1),
+      );
+      expect(screen.getByText('Bravo')).toBeInTheDocument();
+      expect(screen.queryByText('Alpha')).not.toBeInTheDocument();
+    });
+
+    it('shows the empty-filter-result state with a Clear filter action', async () => {
+      const user = userEvent.setup();
+      usePrograms.mockReturnValue({ data: THREE, isLoading: false, error: null });
+      renderPage();
+
+      await user.type(
+        screen.getByRole('searchbox', { name: /Filter programs by name/i }),
+        'nonexistent',
+      );
+      expect(await screen.findByText(/No programs match your filter/i)).toBeInTheDocument();
+
+      // Scope to the empty-state status region — the search box also exposes a
+      // "Clear filter" affordance while a query is active.
+      const emptyState = screen.getByRole('status');
+      await user.click(within(emptyState).getByRole('button', { name: /Clear filter/i }));
+      expect(screen.getByRole('list', { name: 'Programs' })).toBeInTheDocument();
+      expect(screen.getByText('Alpha')).toBeInTheDocument();
+    });
+
+    it('persists the sort choice to localStorage', async () => {
+      const user = userEvent.setup();
+      usePrograms.mockReturnValue({ data: THREE, isLoading: false, error: null });
+      renderPage();
+
+      await user.selectOptions(
+        screen.getByRole('combobox', { name: /Sort/i }),
+        'Health (worst first)',
+      );
+      expect(localStorage.getItem('trueppm.programs.sort')).toBe('health');
+    });
   });
 });

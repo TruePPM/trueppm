@@ -20,6 +20,33 @@ multiple programs under PMO oversight, cross-program health rollups, approval
 workflows — is part of the Enterprise edition.
 :::
 
+## Scanning the programs directory
+
+:::note[Search and sort land in 0.4 (beta)]
+Inline search, a methodology filter, and a sort control for the **/programs**
+directory are planned for **TruePPM 0.4**, the first beta. On earlier releases
+the directory renders as a plain card grid.
+:::
+
+The **/programs** page lists every program you belong to as a card grid. Once
+the directory grows past a handful of programs, three header controls will help
+you find the right one without scrolling the whole wall:
+
+- **Filter** — type in the search box to narrow the cards by program name, code,
+  or description as you type. A counter shows how many of your programs match.
+- **Methodology** — narrow to Waterfall, Agile, or Hybrid programs.
+- **Sort** — order the cards by **Recently active** (the default), **Name (A–Z)**,
+  or **Health (worst first)**. Your choice is remembered in your browser, so the
+  directory opens the same way next time.
+
+Pinned programs always float to the top of the grid, ahead of the chosen sort —
+the header notes this so the order never reads as arbitrary. Pin or unpin a
+program from the star in the corner of its card. When a filter matches nothing,
+the directory shows a short empty state with a one-click way to clear the filter.
+
+For jumping straight to a program from anywhere in the app, use the ⌘K command
+palette — the directory controls are for scanning this page specifically.
+
 ## When to use a program
 
 A PM with three to six related projects benefits from a program when:
