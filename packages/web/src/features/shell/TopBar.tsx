@@ -138,8 +138,9 @@ export function TopBar({ onHamburgerClick }: Props) {
         <TimerChip />
 
         {/* Global quick-log time popover (issue 1416, ADR-0185 §C) — log effort
-            from anywhere: task picker + duration presets, no timer needed. Desktop
-            precursor to the 0.4 mobile 15-second capture; hidden below md. */}
+            from anywhere: task picker + duration presets, no timer needed. Anchored
+            popover from md up; below md the same form opens in a bottom sheet
+            (#1770), so the 15-second capture path exists on phones too. */}
         <QuickLogTime />
 
         {/* Context-aware "+ New" (ADR-0131) — self-gates by route + RBAC. */}

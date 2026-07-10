@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { MyWorkTask } from '@/hooks/useMyWork';
 import { QuickLogTime } from './QuickLogTime';
 
@@ -10,7 +10,9 @@ const mutateMock = vi.hoisted(() => vi.fn());
 const useCreateTimeEntryMock = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useCreateTimeEntry', () => ({ useCreateTimeEntry: useCreateTimeEntryMock }));
 
-function makeTask(partial: Partial<MyWorkTask> & Pick<MyWorkTask, 'id' | 'short_id' | 'name'>): MyWorkTask {
+function makeTask(
+  partial: Partial<MyWorkTask> & Pick<MyWorkTask, 'id' | 'short_id' | 'name'>,
+): MyWorkTask {
   return {
     project_id: 'p1',
     project_name: 'Riverside',
@@ -186,5 +188,69 @@ describe('QuickLogTime', () => {
     useMyWorkMock.mockReturnValue({ data: { pages: [[]] } });
     expect(() => openPopover()).not.toThrow();
     expect(screen.getByText(/No assigned tasks to log against/)).toBeInTheDocument();
+  });
+});
+
+// Below md the same form must render in the shared BottomSheet, not the anchored
+// popover, so a phone-first contributor gets the 15-second capture path (#1770).
+describe('QuickLogTime (mobile bottom sheet)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setTasks(TASKS);
+    useCreateTimeEntryMock.mockReturnValue({ mutate: mutateMock, isPending: false });
+    // Report "below md": no `(min-width: …)` query matches → useBreakpoint()==='sm'.
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the form in a bottom sheet (scrim present), not the anchored popover', () => {
+    render(<QuickLogTime />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Log time' }));
+    // The scrim is the tell that this is the shared BottomSheet surface.
+    expect(screen.getByTestId('bottom-sheet-scrim')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Log time' })).toBeInTheDocument();
+  });
+
+  it('logs the selected task + duration from the sheet', () => {
+    render(<QuickLogTime />);
+    fireEvent.click(screen.getByRole('button', { name: 'Log time' }));
+    fireEvent.click(screen.getByRole('radio', { name: /RIV-2 Framing/ }));
+    fireEvent.click(screen.getByRole('button', { name: '2h' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Log 2h 00m' }));
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'task-b', minutes: 120 }),
+    );
+  });
+
+  it('keeps Arrow-key roving selection working under the sheet (form-scoped focus lookup)', () => {
+    render(<QuickLogTime />);
+    fireEvent.click(screen.getByRole('button', { name: 'Log time' }));
+    const group = screen.getByRole('radiogroup', { name: 'Select a task' });
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+    expect(screen.getByRole('radio', { name: /RIV-2 Framing/ })).toBeChecked();
+  });
+
+  it('restores focus to the trigger when the sheet closes (WCAG 2.4.3)', () => {
+    render(<QuickLogTime />);
+    const trigger = screen.getByRole('button', { name: 'Log time' });
+    fireEvent.click(trigger);
+    // Log to close the sheet — the BottomSheet does not restore focus itself, so
+    // the component must return focus to the trigger to match the desktop path.
+    fireEvent.click(screen.getByRole('button', { name: /^Log \d/ }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(trigger).toHaveFocus();
   });
 });

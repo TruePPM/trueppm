@@ -509,7 +509,7 @@ function BoardCardImpl({
           setMoveOpen(false);
         }}
         className="relative before:absolute before:inset-[-10px] before:content-[''] w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-secondary
-          hover:bg-neutral-surface-raised opacity-0 group-hover:opacity-100
+          hover:bg-neutral-surface-raised opacity-0 group-hover:opacity-100 max-md:opacity-100
           focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1"
         aria-label={`Actions for ${task.name}`}
@@ -1053,7 +1053,12 @@ function BoardCardImpl({
                       : 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track',
                 ].join(' ')}
               >
-                {floatDays < 0 && <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />}
+                {floatDays < 0 && (
+                  <WarningIcon
+                    className="inline-block h-3 w-3 align-[-0.125em]"
+                    aria-hidden="true"
+                  />
+                )}
                 <span className="tppm-mono">{floatDays}d float</span>
               </span>
             </div>

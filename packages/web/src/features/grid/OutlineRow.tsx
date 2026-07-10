@@ -127,9 +127,10 @@ export function OutlineRow({
           {...listeners}
           aria-hidden="true"
           className={`
-            w-4 h-4 flex items-center justify-center flex-shrink-0
+            relative w-4 h-4 flex items-center justify-center flex-shrink-0
             cursor-grab active:cursor-grabbing text-neutral-text-secondary
-            opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity
+            opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 max-md:opacity-100 transition-opacity
+            max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[14px]
             ${task.isSummary ? 'invisible' : ''}
           `}
         >

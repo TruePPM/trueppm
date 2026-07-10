@@ -86,6 +86,52 @@ export function MoreSheet({
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose} titleId={headingId} size="auto">
       <div className="flex flex-col px-4 pb-[env(safe-area-inset-bottom)]">
+        {/* Personal destination — My Work is the cross-project `/me/work` route,
+            not a project view, so it never enters the rail's view vocabulary
+            (`selectMobileNav` composes only project-scoped views). Pinning it to
+            the top of the sheet keeps the phone's primary personal destination
+            two taps away (More → My Work) instead of stranded behind a nav-drawer
+            scroll (#1770). The desktop rail carries it in its Tier-1 "You" band. */}
+        <h2 className="px-1 py-2 text-sm font-semibold text-neutral-text-primary">You</h2>
+        <ul>
+          <li className="flex items-center gap-2">
+            <NavLink
+              to="/me/work"
+              replace
+              onClick={onClose}
+              className={({ isActive }) =>
+                [
+                  'flex min-h-[44px] flex-1 items-center gap-3 rounded-control px-1 text-left text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
+                  isActive
+                    ? 'bg-neutral-surface-sunken font-medium text-brand-primary'
+                    : 'text-neutral-text-primary',
+                ].join(' ')
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 14 14"
+                    fill="currentColor"
+                    aria-hidden="true"
+                    className={
+                      isActive
+                        ? 'shrink-0 text-brand-primary'
+                        : 'shrink-0 text-neutral-text-disabled'
+                    }
+                  >
+                    <path d="M2 3h10v2H2V3zm0 3h10v2H2V6zm0 3h6v2H2V9z" />
+                  </svg>
+                  <span>My Work</span>
+                </>
+              )}
+            </NavLink>
+          </li>
+        </ul>
+
         {barViews.length > 0 && (
           <>
             <h2 className="px-1 py-2 text-sm font-semibold text-neutral-text-primary">
