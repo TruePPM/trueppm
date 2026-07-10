@@ -104,7 +104,7 @@ function youRowClass(active: boolean): string {
  * The v2 left rail (ADR-0126) restructured into three role-scoped tiers (issue 1642):
  *
  *   1. **You** — a framed card: identity + the personal destinations (My Work,
- *      Timesheet, Inbox) that used to live in the flat "Personal" group.
+ *      Timesheet, Notifications) that used to live in the flat "Personal" group.
  *   2. **This project** — the active project's methodology-adaptive grouped views,
  *      rendered from the SAME composition the TopBar `ViewTabs` uses
  *      (`useGroupedProjectViews`) so the two can never drift; off a project this
@@ -566,7 +566,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               </NavLink>
               <NavLink
                 to="/me/notifications"
-                aria-label="Inbox"
+                aria-label="Notifications"
                 onClick={closeDrawer}
                 className={({ isActive }) => youRowClass(isActive)}
               >
@@ -580,7 +580,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 >
                   <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
                 </svg>
-                <span className="min-w-0 truncate">Inbox</span>
+                <span className="min-w-0 truncate">Notifications</span>
               </NavLink>
             </div>
           )}

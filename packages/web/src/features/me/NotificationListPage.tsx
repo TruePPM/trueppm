@@ -31,9 +31,9 @@ export function NotificationListPage() {
   );
 
   return (
-    <main aria-label="My mentions" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
+    <main aria-label="Notifications" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
       <header className="flex items-center gap-2 flex-wrap">
-        <h1 className="text-lg font-semibold text-neutral-text-primary">My mentions</h1>
+        <h1 className="text-lg font-semibold text-neutral-text-primary">Notifications</h1>
         <button
           type="button"
           onClick={() =>

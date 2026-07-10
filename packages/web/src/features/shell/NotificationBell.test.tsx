@@ -67,7 +67,7 @@ describe('NotificationBell', () => {
     const button = screen.getByRole('button', { name: /Notifications/ });
     fireEvent.click(button);
     expect(button.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('dialog', { name: 'My mentions' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: 'Notifications' })).toBeTruthy();
     expect(navigateMock).not.toHaveBeenCalled();
   });
 

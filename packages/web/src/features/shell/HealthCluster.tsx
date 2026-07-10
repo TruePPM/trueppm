@@ -488,7 +488,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
 
   // Project-scoped chrome; suppressed on project settings routes (rule 123 — the
   // SettingsShell carries its own chrome). The `useProjectId()` null path already
-  // covers My Work / Inbox / Portfolio / Program / workspace settings.
+  // covers My Work / Notifications / Portfolio / Program / workspace settings.
   if (!projectId || onSettingsRoute) return null;
 
   // Default to HYBRID (richest cluster) until the project loads — mirrors ViewTabs.
