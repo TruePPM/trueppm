@@ -76,6 +76,7 @@ def import_seed(
     owner: Any,
     create_users: bool = False,
     is_sample: bool = False,
+    persona_password: str | None = None,
 ) -> Program:
     """Validate and import a seed document, returning the created ``Program``.
 
@@ -92,12 +93,25 @@ def import_seed(
             generic ``import_seed`` path) imported resources are created fresh so
             a seed can never bind a pre-existing global resource — and the real
             user it may carry — into the importer's program (#1004).
+        persona_password: when set (and ``is_sample``), newly-created persona
+            accounts are given this as a usable login password so an evaluator can
+            actually sign in as each persona (#1760). ``None`` (the default) leaves
+            created personas with an unusable password, as before. Only the
+            server-curated sample path passes this; the caller is responsible for
+            never letting a fixed weak value reach a public instance (see the
+            ``load_sample_project --with-personas`` DEBUG/env gate, mirroring #1350).
 
     Raises:
         SeedValidationError: if the payload fails validation; nothing is written.
     """
     validate_seed(payload)
-    importer = _SeedImporter(payload, owner=owner, create_users=create_users, is_sample=is_sample)
+    importer = _SeedImporter(
+        payload,
+        owner=owner,
+        create_users=create_users,
+        is_sample=is_sample,
+        persona_password=persona_password,
+    )
     with transaction.atomic():
         program = importer.run()
     return program
@@ -113,11 +127,13 @@ class _SeedImporter:
         owner: Any,
         create_users: bool,
         is_sample: bool = False,
+        persona_password: str | None = None,
     ) -> None:
         self.payload = payload
         self.owner = owner
         self.create_users = create_users
         self.is_sample = is_sample
+        self.persona_password = persona_password
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
@@ -308,10 +324,17 @@ class _SeedImporter:
             username = account["username"]
             user = User.objects.filter(username=username).first()
             if user is None and self.create_users:
+                # ``password`` is only non-None on the server-curated sample path
+                # when the operator opted into loginable personas via
+                # ``--with-personas`` (#1760); ``None`` yields an unusable password
+                # (create_user's default), so no dormant weak login is ever minted
+                # implicitly. Applied only to accounts this import *creates* — a
+                # pre-existing ``user`` is never re-passworded.
                 user = User.objects.create_user(
                     username=username,
                     email=account.get("email", ""),
                     first_name=account.get("display_name", "").split(" ")[0],
+                    password=self.persona_password if self.is_sample else None,
                 )
             # #1057: on the generic import path (create_users=False, the REST
             # default) a seed's accounts[].username is attacker-controlled and may

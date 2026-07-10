@@ -93,13 +93,43 @@ class UnknownSampleError(ValueError):
     """Raised when a sample key is not in the registry."""
 
 
-def load_sample(key: str, *, owner: Any, create_users: bool = True) -> Program:
+def sample_accounts(key: str) -> list[dict[str, Any]]:
+    """Return a sample fixture's ``accounts[]`` entries (username, display_name, …).
+
+    Lets ``load_sample_project --with-personas`` print the real, sample-namespaced
+    persona usernames (e.g. ``atlas-alex``) an evaluator must actually sign in as —
+    the gap that made the evaluation guide's "Sign in as Alex" instructions dead-end
+    (#1760).
+
+    Raises:
+        UnknownSampleError: if ``key`` is not registered.
+    """
+    sample = SAMPLES.get(key)
+    if sample is None:
+        raise UnknownSampleError(f"Unknown sample {key!r}. Known: {sorted(SAMPLES)}")
+    payload: dict[str, Any] = json.loads(sample.path.read_text(encoding="utf-8"))
+    accounts: list[dict[str, Any]] = payload.get("accounts", [])
+    return accounts
+
+
+def load_sample(
+    key: str,
+    *,
+    owner: Any,
+    create_users: bool = True,
+    persona_password: str | None = None,
+) -> Program:
     """Import a bundled sample and mark its projects as sample data.
 
     ``create_users`` defaults True: a sample references its demo personas, and
     loading the demo is an explicit owner/admin action, so the persona accounts
-    are created (with unusable passwords) to make the board render fully. This
-    differs from the generic import endpoint, which never mints logins.
+    are created to make the board render fully. This differs from the generic
+    import endpoint, which never mints logins.
+
+    ``persona_password`` (default ``None``) leaves those created personas with an
+    unusable password. When set — only via ``load_sample_project --with-personas``,
+    which gates the value behind DEBUG/env (#1760, mirroring #1350) — the created
+    personas become loginable so an evaluator can sign in as each one.
 
     Raises:
         UnknownSampleError: if ``key`` is not registered.
@@ -116,7 +146,13 @@ def load_sample(key: str, *, owner: Any, create_users: bool = True) -> Program:
         # teardown) and selects the demo importer semantics: shared-persona
         # resource reuse and the sample-safe idempotency guard in
         # _replace_existing.
-        program = import_seed(payload, owner=owner, create_users=create_users, is_sample=True)
+        program = import_seed(
+            payload,
+            owner=owner,
+            create_users=create_users,
+            is_sample=True,
+            persona_password=persona_password,
+        )
     return program
 
 
