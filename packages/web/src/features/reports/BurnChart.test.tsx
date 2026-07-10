@@ -246,16 +246,31 @@ describe('BurnChart — project context', () => {
 // to the .dark token swap. A hardcoded rgba(0,0,0,…) / #hex value renders as
 // invisible black-on-navy in dark mode (WCAG 1.4.11) — the black-on-blue
 // anti-pattern of issue 1638 (the grid stroke was the first instance).
+//
+// The channel-triple DS-v2 tokens (`--neutral-border: 230 225 214`) must be
+// wrapped in `rgb(var(--…))` for an SVG fill/stroke and carry NO `--color-`
+// prefix — the dead `var(--color-neutral-border)` form silently fell back to
+// black and made the whole chart illegible in dark mode (issue 1791).
 describe('BurnChart — chart color tokens are mode-aware', () => {
-  it('exposes only var(--…) tokens, never a hardcoded black rgba', () => {
+  it('exposes only CSS custom-property tokens, never a hardcoded black rgba', () => {
     for (const [key, value] of Object.entries(CHART_COLORS)) {
-      expect(value, `${key} must be a CSS custom property`).toMatch(/^var\(--/);
+      expect(value, `${key} must be a CSS custom property`).toMatch(/var\(--/);
       expect(value, `${key} must not hardcode black`).not.toMatch(/rgba?\(\s*0\s*,\s*0\s*,\s*0/);
     }
   });
 
-  it('resolves the grid stroke to the mode-aware neutral-border token', () => {
-    expect(CHART_COLORS.grid).toBe('var(--color-neutral-border)');
+  it('never references the non-existent --color- prefix (the issue 1791 dead-token bug)', () => {
+    for (const [key, value] of Object.entries(CHART_COLORS)) {
+      expect(value, `${key} must not use the dead --color- prefix`).not.toMatch(/var\(--color-/);
+    }
+  });
+
+  it('wraps channel-triple tokens in rgb(var(--…)) so the SVG fill is a valid color', () => {
+    // A bare `var(--neutral-border)` resolves to the invalid "230 225 214".
+    expect(CHART_COLORS.grid).toBe('rgb(var(--neutral-border))');
+    expect(CHART_COLORS.axisTick).toBe('rgb(var(--neutral-text-secondary))');
+    expect(CHART_COLORS.today).toBe('rgb(var(--semantic-critical))');
+    expect(CHART_COLORS.actual).toBe('rgb(var(--brand-primary))');
   });
 });
 

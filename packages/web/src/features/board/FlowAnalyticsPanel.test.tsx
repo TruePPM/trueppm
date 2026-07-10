@@ -101,6 +101,18 @@ describe('FlowAnalyticsPanel', () => {
     expect(screen.getByTestId('cycle-lead-strip')).toBeTruthy();
   });
 
+  it('paints chart fills with rgb(var(--…)) tokens, never the dead --color- prefix (issue 1791)', () => {
+    // The dead `var(--color-…)` refs fell back to SVG-default black — illegible on
+    // the dark navy surface. The correct wrapped form must reach the rendered SVG.
+    setMetrics(POPULATED);
+    renderWithProviders(<FlowAnalyticsPanel projectId="p1" />);
+    expand();
+    const charts = screen.getByTestId('flow-analytics-charts');
+    const markup = charts.innerHTML;
+    expect(markup).toContain('rgb(var(--');
+    expect(markup).not.toContain('var(--color-');
+  });
+
   it('renders a content-free wall when flow metrics are suppressed (ADR-0104)', () => {
     setMetrics({ ...POPULATED, flow_metrics_suppressed: true });
     renderWithProviders(<FlowAnalyticsPanel projectId="p1" />);

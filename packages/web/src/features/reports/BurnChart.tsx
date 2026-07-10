@@ -28,21 +28,35 @@ import {
 // Chart color tokens — resolved at render time from CSS custom properties so
 // they work in both light and dark mode. Tailwind classes cannot reach inside
 // Recharts SVG, so we use inline `style` props (rule 10).
+//
+// The Design-System v2 tokens are bare RGB channel triples
+// (`--neutral-border: 230 225 214`) meant for Tailwind's `rgb(var(--x)/<alpha>)`
+// composition, so an SVG `fill`/`stroke` must wrap them in `rgb(var(--…))` — a
+// bare `var(--neutral-border)` resolves to the invalid `230 225 214`. And the
+// token names carry NO `--color-` prefix (that prefix is a Tailwind v4 `@theme`
+// convention we don't use). Referencing `var(--color-neutral-border)` was both
+// wrong-named and unwrapped, so every token silently fell back to SVG-default
+// black — illegible on the dark navy chart surface (issue 1791). The correct
+// `rgb(var(--…))` form matches the schedule PDF export (schedulePrintTheme.ts).
 // ---------------------------------------------------------------------------
 export const CHART_COLORS = {
-  actual: 'var(--color-brand-primary)',
-  ideal: 'var(--color-neutral-text-disabled)',
-  scope: 'var(--color-teal-400, #1D9E75)',
-  completed: 'var(--color-semantic-on-track)',
-  scopeAdd: 'var(--color-semantic-at-risk)',
-  scopeRem: 'var(--color-semantic-critical)',
-  today: 'var(--color-semantic-critical)',
+  actual: 'rgb(var(--brand-primary))',
+  ideal: 'rgb(var(--neutral-text-disabled))',
+  // Total-scope line — a neutral informational reference; `--info` is a distinct,
+  // mode-aware blue that reads apart from the sage actual line and the green
+  // completed area (unlike the old dead `--color-teal-400`, which only rendered
+  // via its hex fallback and sat too close to the on-track green).
+  scope: 'var(--info)',
+  completed: 'rgb(var(--semantic-on-track))',
+  scopeAdd: 'rgb(var(--semantic-at-risk))',
+  scopeRem: 'rgb(var(--semantic-critical))',
+  today: 'rgb(var(--semantic-critical))',
   // Mode-aware so the gridlines adapt to the .dark token swap. A hardcoded
   // rgba(0,0,0,…) wash renders as invisible black-on-navy in dark mode (WCAG
   // 1.4.11); the neutral-border token is the same grid stroke FlowAnalyticsPanel
   // uses (issue 1638).
-  grid: 'var(--color-neutral-border)',
-  axisTick: 'var(--color-neutral-text-secondary)',
+  grid: 'rgb(var(--neutral-border))',
+  axisTick: 'rgb(var(--neutral-text-secondary))',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -562,7 +576,7 @@ export function BurnChart({
       y={variant === 'burndown' || variant === 'combined' ? 0 : 0}
       r={5}
       fill={c.delta > 0 ? CHART_COLORS.scopeAdd : CHART_COLORS.scopeRem}
-      stroke="var(--color-neutral-surface)"
+      stroke="rgb(var(--neutral-surface))"
       strokeWidth={2}
       aria-label={`Scope change ${c.date}: ${c.delta > 0 ? '+' : ''}${c.delta} ${effectiveMetric}`}
     />

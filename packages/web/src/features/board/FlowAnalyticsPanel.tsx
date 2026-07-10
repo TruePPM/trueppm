@@ -51,17 +51,21 @@ interface Props {
   boardCadence?: BoardCadence;
 }
 
+// DS-v2 tokens are bare RGB channel triples, so an SVG fill/stroke must wrap them
+// in `rgb(var(--…))` and carry NO `--color-` prefix — a bare or `--color-`-prefixed
+// ref resolves to nothing and the chart falls back to black-on-navy (issue 1791,
+// the BurnChart bug this panel mirrors per web-rule 176).
 /** CFD bands in board order; rendered downstream-first so Complete sits at the base. */
 const CFD_BANDS: { key: keyof CfdCounts; label: string; color: string }[] = [
-  { key: 'BACKLOG', label: 'Backlog', color: 'var(--color-neutral-border)' },
-  { key: 'NOT_STARTED', label: 'To Do', color: 'var(--color-neutral-text-disabled)' },
-  { key: 'IN_PROGRESS', label: 'In Progress', color: 'var(--color-brand-primary)' },
-  { key: 'REVIEW', label: 'Review', color: 'var(--color-semantic-at-risk)' },
-  { key: 'COMPLETE', label: 'Complete', color: 'var(--color-semantic-on-track)' },
+  { key: 'BACKLOG', label: 'Backlog', color: 'rgb(var(--neutral-border))' },
+  { key: 'NOT_STARTED', label: 'To Do', color: 'rgb(var(--neutral-text-disabled))' },
+  { key: 'IN_PROGRESS', label: 'In Progress', color: 'rgb(var(--brand-primary))' },
+  { key: 'REVIEW', label: 'Review', color: 'rgb(var(--semantic-at-risk))' },
+  { key: 'COMPLETE', label: 'Complete', color: 'rgb(var(--semantic-on-track))' },
 ];
 
 const AXIS_TICK = {
-  fill: 'var(--color-neutral-text-secondary)',
+  fill: 'rgb(var(--neutral-text-secondary))',
   fontSize: 11,
 } as const;
 
@@ -393,7 +397,7 @@ function CumulativeFlowChart({ cfd }: { cfd: FlowMetrics['cfd'] }) {
     <ChartFrame title="Cumulative flow" summary={summary} footer={<CfdLegend />}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--color-neutral-border)" />
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
           <XAxis dataKey="date" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={28} tickLine={false} axisLine={false} />
           <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip labelFormatter={(d) => formatShortDate(String(d))} />
@@ -424,14 +428,14 @@ function ThroughputChart({ throughput }: { throughput: FlowMetrics['throughput']
     <ChartFrame title="Throughput / week" summary={summary}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={throughput} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--color-neutral-border)" />
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgb(var(--neutral-border))" />
           <XAxis dataKey="week_start" tick={AXIS_TICK} tickFormatter={formatShortDate} minTickGap={20} tickLine={false} axisLine={false} />
           <YAxis tick={AXIS_TICK} width={28} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip labelFormatter={(d) => `Week of ${formatShortDate(String(d))}`} />
           <Bar
             dataKey="completed_count"
             name="Completed"
-            fill="var(--color-semantic-on-track)"
+            fill="rgb(var(--semantic-on-track))"
             isAnimationActive={false}
           />
         </BarChart>
