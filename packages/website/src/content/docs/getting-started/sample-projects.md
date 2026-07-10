@@ -95,10 +95,12 @@ Migration, which gates the public-launch milestone — and the **Monte Carlo**
 modal: several risks are schedule-driving, so toggling a high
 probability × impact risk visibly shifts the P80.
 
-**Personas:** the program-level story — a program manager (and Sarah, the PM, on
-the waterfall project) running related agile, waterfall, and hybrid projects at
-once, with Alex's sprints on Platform Core feeding Jordan's release forecast and
-Sarah's CPM plan on Migration Tooling. This is the bridge demo at program scale.
+**Personas:** the program-level story — Alex Rivera (Owner, program manager)
+running related agile, waterfall, and hybrid projects at once, with Jordan Blake
+(Product Owner) owning Platform Core's sprints and release forecast, Sam Okafor
+(Scheduler) driving the Migration Tooling CPM plan, and Priya Nair (Engineering
+Lead) spanning the build. Ada Boyega (Viewer) is the executive sponsor watching
+read-only. This is the bridge demo at program scale.
 
 #### Aurora Mobile App — agile-only
 
@@ -109,10 +111,11 @@ lightweight 4-risk register.
 **Look at first:** the burndown of the closed sprints and the velocity chart —
 this is the pure-scrum tour, with no CPM or estimates to distract.
 
-**Personas:** the agile team — Alex (Scrum Master) running the sprint lifecycle,
-Jordan (Product Owner) owning the backlog and the velocity-based release
-forecast, and Priya (team member) working the board. No PM and no schedule:
-this is the surface those three live on.
+**Personas:** the agile team — Sam Okafor (Scrum Master) running the sprint
+lifecycle, Priya Nair (Owner and Product Owner) owning the backlog and the
+velocity-based release forecast, and the engineers — Mei Tanaka, Diego Santos,
+and Nadia Hassan — working the board. No PM and no schedule: this is the surface
+those roles live on.
 
 #### Bayside Civic Center — waterfall-only
 
@@ -123,10 +126,11 @@ weather, inspections).
 
 **Look at first:** the critical path and the baseline-vs-actual slip.
 
-**Personas:** Sarah (the construction PM) — a single waterfall project, CPM with
-all four dependency types, a baseline to defend, and a risk register. This is her
-home turf: no sprints, no backlog, just the schedule and what moves when a task
-slips.
+**Personas:** Sam Okafor (Owner, the construction PM) — a single waterfall
+project, CPM with all four dependency types, a baseline to defend, and a risk
+register, with Raj Mehta (Scheduler) holding the plan and Diego Santos (Site
+Superintendent) on the ground. This is Sam's home turf: no sprints, no backlog,
+just the schedule and what moves when a task slips.
 
 #### Helios CRM Replacement — hybrid-small
 
@@ -136,8 +140,9 @@ risk with a captured impact.
 
 **Look at first:** how the finished plan hands off to the live build sprints.
 
-**Personas:** the hybrid bridge — Sarah's completed waterfall planning phase
-handing off across a cross-phase dependency to Alex and Jordan's agile build
+**Personas:** the hybrid bridge — Ivan Petrov (Solutions Architect) and Raj
+Mehta (Scheduler) carrying the completed waterfall planning phase across a
+cross-phase dependency into Jordan Blake's (Owner and Product Owner) agile build
 sprints. The entry-level story for a PM and an agile team sharing one plan
 without maintaining two representations of the same work.
 
