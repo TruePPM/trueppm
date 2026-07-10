@@ -17,16 +17,24 @@ describe('PresenceAvatarStack', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('renders up to three avatars with initials', () => {
+  it('renders up to two avatars with initials (design §02 cap, #1804)', () => {
     render(<PresenceAvatarStack users={USERS.slice(0, 3)} />);
     expect(screen.getByText('AS')).toBeInTheDocument();
     expect(screen.getByText('BJ')).toBeInTheDocument();
-    expect(screen.getByText('CL')).toBeInTheDocument();
+    // Third viewer folds into the "+N" overflow instead of a third circle.
+    expect(screen.queryByText('CL')).not.toBeInTheDocument();
+    expect(screen.getByText('+1')).toBeInTheDocument();
   });
 
-  it('shows overflow count when more than three users are present', () => {
+  it('shows overflow count when more than two users are present', () => {
     render(<PresenceAvatarStack users={USERS} />);
-    expect(screen.getByText('+2')).toBeInTheDocument();
+    expect(screen.getByText('+3')).toBeInTheDocument();
+  });
+
+  it('renders 24px circles via the canonical AvatarInitials treatment (#1705, #1804)', () => {
+    const { container } = render(<PresenceAvatarStack users={USERS.slice(0, 2)} />);
+    const circles = container.querySelectorAll('span.h-6.w-6.rounded-full');
+    expect(circles).toHaveLength(2);
   });
 
   it('derives initials from single-name users (first two letters)', () => {

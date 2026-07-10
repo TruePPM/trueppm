@@ -152,6 +152,20 @@ describe('UserMenu', () => {
     expect(items[0].getAttribute('href')).toBe('/me/settings/general');
   });
 
+  it('groups personal settings under a "Personal" header (design §10, #1804)', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    // Both desktop + mobile variants render in JSDOM.
+    const groups = screen.getAllByRole('group', { name: 'Personal' });
+    expect(groups.length).toBeGreaterThan(0);
+    const items = within(groups[0]).getAllByRole('menuitem');
+    expect(items.map((i) => i.textContent)).toEqual([
+      'General',
+      'Notifications',
+      'Personal access tokens',
+    ]);
+  });
+
   it('click "Sign out" → calls clearTokens() and queryClient.clear()', () => {
     renderWithRouter(<UserMenu />);
     openMenu();

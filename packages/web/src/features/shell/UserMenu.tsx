@@ -102,36 +102,48 @@ function MenuContent({
         </NavLink>
       )}
 
-      {/* General preferences — default landing screen (ADR-0129).
-          Placed directly above Notifications. */}
-      <NavLink
-        to="/me/settings/general"
-        role="menuitem"
-        onClick={onClose}
-        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
-      >
-        General
-      </NavLink>
+      {/* Personal settings group (design §10 interim step, #1804): a visible
+          "Personal" header so the personal-scope settings entries read as a
+          set, distinct from the project-scoped row above. */}
+      <div role="group" aria-label="Personal">
+        <div
+          className="px-4 pt-2 pb-1 text-xs font-semibold uppercase tracking-[.06em] text-neutral-text-secondary"
+          aria-hidden="true"
+        >
+          Personal
+        </div>
 
-      {/* Notifications row */}
-      <NavLink
-        to="/me/settings/notifications"
-        role="menuitem"
-        onClick={onClose}
-        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
-      >
-        Notifications
-      </NavLink>
+        {/* General preferences — default landing screen (ADR-0129).
+            Placed directly above Notifications. */}
+        <NavLink
+          to="/me/settings/general"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          General
+        </NavLink>
 
-      {/* Personal access tokens row (issue 648) */}
-      <NavLink
-        to="/me/settings/api-tokens"
-        role="menuitem"
-        onClick={onClose}
-        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
-      >
-        Personal access tokens
-      </NavLink>
+        {/* Notifications row */}
+        <NavLink
+          to="/me/settings/notifications"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Notifications
+        </NavLink>
+
+        {/* Personal access tokens row (issue 648) */}
+        <NavLink
+          to="/me/settings/api-tokens"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Personal access tokens
+        </NavLink>
+      </div>
 
       {/* Keyboard shortcuts row */}
       <button

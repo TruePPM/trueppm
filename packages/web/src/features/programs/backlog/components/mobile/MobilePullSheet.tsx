@@ -94,7 +94,7 @@ export function MobilePullSheet({
             <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-neutral-text-secondary">
               <li>• This item becomes Pulled</li>
               <li>• New task in {selected ? `${selected.name}'s` : 'the project'} backlog</li>
-              <li>• Title, description, tags, owner are copied over</li>
+              <li>• Title, description, story points, and type are copied over</li>
               <li>• Closing the task closes this item</li>
             </ul>
           )}

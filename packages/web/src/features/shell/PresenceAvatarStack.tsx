@@ -2,19 +2,29 @@
  * Shows up to MAX_VISIBLE avatars for online project members, then a "+N" overflow
  * count.  Avatars are plain colored circles with initials — no profile photos yet.
  *
+ * Dimensions follow the approved top-bar identity design (§02, #1804): 24 px
+ * avatars with a −9 px overlap, capped at 2 visible + "+N" — deliberately
+ * smaller and stacked so the cluster reads as ambient presence, never as a
+ * second identity chip competing with the full-size "me" avatar.
+ *
  * Design-system notes:
- *   - bg-brand-primary-light / text-brand-primary for avatars (rule 8 — no hex literals)
+ *   - Circles render via the canonical AvatarInitials treatment (#1705). Its
+ *     fill is translucent (`bg-brand-primary/15`), so each overlapping circle
+ *     sits on an opaque `bg-chrome-surface` underlay matching the cutout ring —
+ *     otherwise the overlap region double-tints and the under-avatar's initials
+ *     ghost through (rule 251).
  *   - No drop shadows (rule 1)
- *   - Focus ring follows rule 4
- *   - Touch target ≥ 44px via padding on the group container (rule 5)
+ *   - Non-interactive (role="status"), so the 44px touch-target rule 5 does
+ *     not apply.
  */
+import { AvatarInitials } from '@/components/AvatarInitials';
 import type { PresenceUser } from '@/stores/presenceStore';
 
 interface Props {
   users: PresenceUser[];
 }
 
-const MAX_VISIBLE = 3;
+const MAX_VISIBLE = 2;
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -50,18 +60,20 @@ export function PresenceAvatarStack({ users }: Props) {
           design §02). The dot is decorative (aria-hidden with the avatar); the
           "viewing" state is already named in the group aria-label + title. Green
           matches the StatusBar "Live" dot (rule 44). */}
-      <div className="flex -space-x-1.5">
+      <div className="flex -space-x-[9px]">
         {visible.map((u, i) => (
           <span
             key={u.user_id}
-            className="relative flex items-center justify-center w-7 h-7 rounded-full text-xs font-semibold
-              bg-brand-primary-light text-brand-primary
-              ring-2 ring-neutral-surface"
+            className="relative flex rounded-full bg-chrome-surface"
             aria-hidden="true"
           >
-            {initials(u.display_name)}
+            <AvatarInitials
+              initials={initials(u.display_name)}
+              size="sm"
+              className="ring-2 ring-chrome-surface"
+            />
             {i === visible.length - 1 && (
-              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-semantic-on-track ring-2 ring-neutral-surface" />
+              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-semantic-on-track ring-2 ring-chrome-surface" />
             )}
           </span>
         ))}
