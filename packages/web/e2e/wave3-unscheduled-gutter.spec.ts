@@ -376,6 +376,107 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByText('Set planned start')).not.toBeVisible();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint-assigned backlog — grouped, read-only (#1790)
+// ---------------------------------------------------------------------------
+
+/** A sprint-assigned BACKLOG task: excluded from CPM (no early_start), so it
+ *  strands at the project origin unless grouped into the gutter under its
+ *  target sprint. */
+const FIXTURE_SPRINT_BACKLOG_TASK = {
+  id: 'sb1',
+  wbs_path: '4',
+  name: 'Contact dedupe',
+  early_start: null,
+  early_finish: null,
+  planned_start: null,
+  duration: 3,
+  percent_complete: 0,
+  is_critical: false,
+  is_milestone: false,
+  is_summary: false,
+  parent_id: null,
+  status: 'BACKLOG',
+  story_points: 5,
+  sprint: 's3',
+  actual_start: null,
+  actual_finish: null,
+  schedule_variance_days: null,
+  baseline_start: null,
+  baseline_finish: null,
+  optimistic_duration: null,
+  most_likely_duration: null,
+  pessimistic_duration: null,
+  estimate_status: null,
+  total_float: null,
+  assignee_is_overallocated: false,
+  assignments: [],
+};
+
+const FIXTURE_PLANNED_SPRINT = {
+  id: 's3',
+  server_version: 1,
+  short_id: 'SP-S3',
+  short_id_display: 'SP-S3',
+  name: 'Build Sprint 3',
+  goal: '',
+  notes: '',
+  start_date: '2026-07-17',
+  finish_date: '2026-07-30',
+  state: 'PLANNED',
+  target_milestone: null,
+  target_milestone_detail: null,
+  committed_points: null,
+  completed_points: null,
+  capacity_points: 32,
+};
+
+test.describe('Unscheduled gutter — sprint-assigned backlog (#1790)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/v1/projects/*/sprints/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [FIXTURE_PLANNED_SPRINT],
+        }),
+      }),
+    );
+    await gotoSchedule(page, [...FIXTURE_API_TASKS, FIXTURE_SPRINT_BACKLOG_TASK]);
+  });
+
+  test('groups the backlog task under its target sprint with an honest, non-committal header', async ({
+    page,
+  }) => {
+    const group = page.getByRole('group', {
+      name: /Targeted for Build Sprint 3, planned, read-only/i,
+    });
+    await expect(group).toBeVisible();
+    await expect(group.getByText('Contact dedupe')).toBeVisible();
+    await expect(group.getByText('pending team plan — not scheduled')).toBeVisible();
+  });
+
+  test('the backlog row is READ-ONLY — no scheduling actions menu', async ({ page }) => {
+    // The ··· "Actions for …" menu (drag/date scheduling) must not exist for a
+    // sprint-committed backlog item — sprint sovereignty.
+    await expect(page.getByRole('button', { name: 'Actions for Contact dedupe' })).toHaveCount(0);
+    const group = page.getByRole('group', { name: /Targeted for Build Sprint 3/i });
+    // exact:true so the lowercase "planned" label doesn't also match the
+    // "· Planned" state word in the group header (Playwright text is substring
+    // + case-insensitive by default).
+    await expect(group.getByText('planned', { exact: true })).toBeVisible();
+  });
+});
+
+test.describe('Unscheduled gutter — promote sends PATCH (#213)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
 
   test('submitting a date sends PATCH with planned_start', async ({ page }) => {
     // Intercept the PATCH and record the request body

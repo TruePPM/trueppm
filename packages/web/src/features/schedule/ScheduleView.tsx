@@ -1751,6 +1751,7 @@ export function ScheduleView() {
           scaleData={scheduleScales}
           canvasScrollRef={canvasScrollRef}
           taskListWidth={panelWidth}
+          sprints={sprints}
         />
       )}
 
