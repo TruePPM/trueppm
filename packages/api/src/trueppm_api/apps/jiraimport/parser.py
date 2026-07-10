@@ -29,6 +29,45 @@ from trueppm_api.apps.msproject.dataclasses import (
     ProjectData,
     TaskData,
 )
+from trueppm_api.apps.projects.models import TaskStatus
+
+# Jira status *name* (lower-cased) → TaskStatus value (#1768). The reliable
+# signal is Jira's status *category* (To Do / In Progress / Done), but the basic
+# ``Export → XML`` only carries the status name, so we map the common Jira / Jira
+# Agile status names onto TruePPM's board columns — mirroring the status-map
+# concept in ``projects.inbound_sync.DEFAULT_STATUS_MAP``. An unknown or missing
+# status maps to None, and the importer falls back to NOT_STARTED — but a known
+# "Done"/"In Progress" is no longer silently dropped as unstarted future work.
+_STATUS_MAP: dict[str, str] = {
+    "backlog": TaskStatus.BACKLOG.value,
+    "to do": TaskStatus.NOT_STARTED.value,
+    "todo": TaskStatus.NOT_STARTED.value,
+    "open": TaskStatus.NOT_STARTED.value,
+    "reopened": TaskStatus.NOT_STARTED.value,
+    "selected for development": TaskStatus.NOT_STARTED.value,
+    "in progress": TaskStatus.IN_PROGRESS.value,
+    "in development": TaskStatus.IN_PROGRESS.value,
+    "in review": TaskStatus.REVIEW.value,
+    "review": TaskStatus.REVIEW.value,
+    "in test": TaskStatus.REVIEW.value,
+    "done": TaskStatus.COMPLETE.value,
+    "closed": TaskStatus.COMPLETE.value,
+    "resolved": TaskStatus.COMPLETE.value,
+    "complete": TaskStatus.COMPLETE.value,
+}
+
+
+def _map_status(item: Element) -> str | None:
+    """Map a Jira ``<item>``'s ``<status>`` name onto a TaskStatus value.
+
+    Returns None when the export carries no status or an unrecognized one, in
+    which case the importer applies its NOT_STARTED default.
+    """
+    raw = (item.findtext("status") or "").strip().lower()
+    if not raw:
+        return None
+    return _STATUS_MAP.get(raw)
+
 
 # Jira stores the original estimate in seconds; convert on an 8-hour working
 # day (v1 fixes this — a per-instance working-day length is a later concern).
@@ -208,6 +247,16 @@ def parse_jira_xml(content: bytes) -> ProjectData:
             PredecessorLinkData(predecessor_uid=pred_uid, dep_type="FS", lag_days=0)
             for pred_uid in sorted(predecessors_by_successor.get(key, []))
         ]
+        mapped_status = _map_status(item)
+        # A terminal status (Done/Closed → COMPLETE, or Review) means the work is
+        # 100% delivered, but the basic Jira XML export carries no percent field, so
+        # bulk_create would persist COMPLETE at 0% — an incoherent card and a task
+        # the Monte Carlo completion check still treats as unstarted. Set the
+        # fraction the FloatField stores (1.0 == 100%, matching the MS Project
+        # parser's raw/100; the 0-100 storage correction is tracked as #1759).
+        percent = (
+            1.0 if mapped_status in (TaskStatus.COMPLETE.value, TaskStatus.REVIEW.value) else 0.0
+        )
         tasks.append(
             TaskData(
                 uid=key_to_uid[key],
@@ -217,6 +266,10 @@ def parse_jira_xml(content: bytes) -> ProjectData:
                 # parent hierarchy is deferred (ADR-0259 out-of-scope).
                 outline_number=str(index + 1),
                 outline_level=0,
+                # #1768: carry the source status so completed/in-flight issues do
+                # not re-import as NOT_STARTED and inflate the forecast.
+                status=mapped_status,
+                percent_complete=percent,
                 predecessor_links=predecessor_links,
             )
         )

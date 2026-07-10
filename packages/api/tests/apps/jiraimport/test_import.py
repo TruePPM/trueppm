@@ -238,3 +238,26 @@ class TestJiraImportRequestStr:
             project=project, filename="export.xml", file_content_b64=""
         )
         assert str(req) == f"JiraImportRequest({project.pk}, export.xml, pending)"
+
+
+@pytest.mark.django_db
+def test_jira_import_persists_mapped_status(project: Project) -> None:
+    """#1768: end-to-end, imported Jira issues carry their source status onto
+    Task.status instead of all landing as NOT_STARTED."""
+    from trueppm_api.apps.projects.models import TaskStatus
+
+    from .fixtures import STATUS_EXPORT
+
+    data = parse_jira_xml(STATUS_EXPORT)
+    import_project(str(project.pk), data)
+    by_name = {t.name: t for t in Task.objects.filter(project=project, is_deleted=False)}
+    assert by_name["Shipped work"].status == TaskStatus.COMPLETE
+    assert by_name["Active work"].status == TaskStatus.IN_PROGRESS
+    assert by_name["Not yet started"].status == TaskStatus.NOT_STARTED
+    # Unknown / missing status falls back to the model default.
+    assert by_name["Unknown status"].status == TaskStatus.NOT_STARTED
+    assert by_name["No status element"].status == TaskStatus.NOT_STARTED
+    # A COMPLETE issue is 100% delivered (1.0 fraction), not the 0% bulk_create
+    # would otherwise persist; non-terminal statuses stay 0%.
+    assert by_name["Shipped work"].percent_complete == 1.0
+    assert by_name["Active work"].percent_complete == 0.0
