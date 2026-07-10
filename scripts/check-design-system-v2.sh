@@ -47,7 +47,7 @@ SHELL_SRC="packages/web/src/features/shell"
 # BASELINE_HEX counts hex literals in a COLOR context only (see hex_count and the
 # header). It dropped from 1195 to 129 when the count stopped miscounting `#NNNN`
 # issue references as colors — the 129 are the real hardcoded color literals.
-BASELINE_HEX=129
+BASELINE_HEX=124
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the

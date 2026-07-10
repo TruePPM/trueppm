@@ -50,7 +50,7 @@ describe('ProductBacklogPage layout swap (issue 1044)', () => {
     bp.value = 'lg';
     renderPage();
     expect(screen.queryByTestId('mobile-grooming')).not.toBeInTheDocument();
-    // Desktop branch mounted — its loading state is the cheap, deterministic marker.
-    expect(screen.getByText('Loading backlog…')).toBeInTheDocument();
+    // Desktop branch mounted — its loading skeleton is the cheap, deterministic marker.
+    expect(screen.getByRole('status', { name: 'Loading backlog…' })).toBeInTheDocument();
   });
 });

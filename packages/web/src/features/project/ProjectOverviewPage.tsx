@@ -20,6 +20,7 @@ import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
+import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
 import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
 import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 import { BlockedRollupPanel } from '@/features/blocker/BlockedRollupPanel';
@@ -636,40 +637,6 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
   const { data: mc, isLoading } = useMonteCarloResult(projectId);
   const runMutation = useRunMonteCarlo(projectId);
 
-  const svgWidth = 150;
-  const svgHeight = 40;
-
-  const renderHistogram = (result: MonteCarloResult) => {
-    const buckets = result.buckets;
-    if (buckets.length === 0) return null;
-    const maxCount = Math.max(...buckets.map((b) => b.count), 1);
-    const barWidth = svgWidth / buckets.length;
-
-    return (
-      <svg width={svgWidth} height={svgHeight} aria-hidden="true" className="flex-shrink-0">
-        {buckets.map((bucket, i) => {
-          const barH = (bucket.count / maxCount) * svgHeight;
-          const y = svgHeight - barH;
-          // Color by percentile region: ≤P50 green, P50–P80 amber, >P80 red
-          let fill = '#4ade80';
-          if (bucket.weekStart > result.p80) fill = '#b91c1c';
-          else if (bucket.weekStart > result.p50) fill = '#f59e0b';
-          return (
-            <rect
-              key={i}
-              x={i * barWidth}
-              y={y}
-              width={barWidth - 1}
-              height={barH}
-              fill={fill}
-              opacity={0.5}
-            />
-          );
-        })}
-      </svg>
-    );
-  };
-
   // Persistent rerun affordance — outline secondary, never the primary CTA
   // (Janet's persona prefers a quiet button on Overview, #335).
   const rerunButton = (
@@ -697,7 +664,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       ) : mc ? (
         <div className="flex flex-col gap-3 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised">
           <div className="flex items-end gap-4 flex-wrap">
-            {renderHistogram(mc)}
+            <MonteCarloHistogram result={mc} />
             <div className="flex flex-col gap-1">
               <p className="text-xs text-neutral-text-secondary">
                 8 in 10 simulations finish by{' '}

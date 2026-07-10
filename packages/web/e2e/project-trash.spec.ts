@@ -97,7 +97,7 @@ test.describe('Workspace Trash (#1113)', () => {
     await page.goto('/settings/trash');
 
     // Gate on the page-rendered signal before interacting with the row.
-    await expect(page.getByRole('heading', { name: 'Trash' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
     await expect(page.getByText('Downtown Retrofit')).toBeVisible();
     await expect(page.getByText(/Deleted by Bob Martin/)).toBeVisible();
     await expect(page.getByText(/auto-deletes in 27 days/)).toBeVisible();
@@ -119,7 +119,7 @@ test.describe('Workspace Trash (#1113)', () => {
     );
 
     await page.goto('/settings/trash');
-    await expect(page.getByRole('heading', { name: 'Trash' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Trash', exact: true })).toBeVisible();
     await expect(page.getByText('Trash is empty')).toBeVisible();
   });
 });
