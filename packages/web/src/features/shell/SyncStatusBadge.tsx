@@ -134,9 +134,13 @@ export function SyncStatusBadge() {
         ].join(' ')}
       >
         <StateIcon icon={style.icon} colorClass={style.iconColor} />
-        {/* Label hidden on the narrowest widths; the icon+color keeps the state
-            legible and the button stays a ≥44px touch target via h-11. */}
-        <span className="hidden sm:inline">{label}</span>
+        {/* Label hidden below md (phones): the fixed-width right cluster can't
+            compress (TopBar rule 174), so on a phone the word would push the tail
+            of the cluster (bell, user menu) off the right edge (#1788). The icon +
+            color keep the state legible, the aria-label + sr-only status carry the
+            full word for assistive tech, and the button stays a ≥44px touch target
+            via h-11. The word returns at md+ where there is room. */}
+        <span className="hidden md:inline">{label}</span>
       </button>
 
       {open && (

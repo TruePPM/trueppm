@@ -106,9 +106,11 @@ export function TopBar({ onHamburgerClick }: Props) {
         </svg>
       </button>
 
-      {/* Brand — mobile only (desktop carries it in the left rail). */}
+      {/* Brand — mobile only (desktop carries it in the left rail). Mark-only on a
+          phone: the full wordmark crowds the fixed right cluster off the edge
+          (#1788); the rail drawer (hamburger) still shows the full lockup. */}
       <span className="md:hidden shrink-0">
-        <Logo />
+        <Logo showWordmark={false} />
       </span>
 
       {/* Location switcher (ADR-0203, #1643) — Program › Project › Leaf. Replaces the
@@ -125,8 +127,10 @@ export function TopBar({ onHamburgerClick }: Props) {
         <ProgramTabs />
       </ShellNavScroller>
 
-      {/* Right cluster — pinned, never compresses. */}
-      <div className="ml-auto flex shrink-0 items-center gap-3">
+      {/* Right cluster — pinned, never compresses. Tighter gap below md so the
+          phone-surfaced controls (#1770 quick-log, +New, sync, bell, user) fit a
+          375px width without clipping (#1788); full gap-3 rhythm returns at md+. */}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-3">
         {/* v2 health status chip + popover (ADR-0128, #1644) — project routes only;
             one all-width chip (dot + worst-state word + neutral P80) opening a
             role="dialog" health popover. Stays pinned, never behind a tab scroll. */}

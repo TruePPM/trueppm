@@ -567,9 +567,13 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         <span aria-hidden="true" className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`} />
         <span className={chip.wordClass}>{chip.word}</span>
         {forecastSeg && forecastSeg.p80 != null && (
-          // P80 value stays neutral even inside an amber/red chip (rule 172); may
-          // drop on very narrow phones, but the dot + word are always visible.
-          <span className="hidden sm:inline-flex items-center gap-1">
+          // P80 value stays neutral even inside an amber/red chip (rule 172).
+          // Held to md+ (tablet and up, #1562): on a phone the fixed-width right
+          // cluster can't compress (TopBar rule 174), so the extra "P80 {date}"
+          // width pushed the sync badge and everything after it off the right edge
+          // (#1788). The dot + state word are always visible; the forecast lives in
+          // the popover on phones.
+          <span className="hidden md:inline-flex items-center gap-1">
             <span className="text-neutral-text-secondary">P80</span>
             <span className="tppm-mono text-neutral-text-primary">
               {formatForecastDate(forecastSeg.p80)}
@@ -578,7 +582,7 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         )}
         {forecastSeg && forecastSeg.p80 == null && (
           <span
-            className="hidden sm:inline-flex items-center gap-1 text-neutral-text-disabled"
+            className="hidden md:inline-flex items-center gap-1 text-neutral-text-disabled"
             title="Run the scheduler"
           >
             <span>P80</span>
