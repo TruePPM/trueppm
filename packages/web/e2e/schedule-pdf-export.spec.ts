@@ -181,22 +181,21 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(page.getByRole('dialog', { name: 'Export schedule' })).toBeVisible();
   });
 
-  test('Export is hidden at the mobile breakpoint (sm)', async ({ page }) => {
+  test('Export is hidden at the mobile breakpoint (below md)', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     await setup(page);
     await page.goto(BASE_URL);
 
-    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
-    await expect(toolbar).toBeVisible({ timeout: 10_000 });
-
-    // No standalone button, and the ⋯ Actions menu carries no export entry at sm —
-    // a deck-style export is a desk task (the filters live in the Display popover,
-    // not here, per web rule 243).
-    await expect(toolbar.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
-    await toolbar.getByRole('button', { name: 'Project actions' }).click();
-    const menu = page.getByRole('menu', { name: 'Project actions' });
-    await expect(menu).toBeVisible();
-    await expect(menu.getByRole('menuitem', { name: /Export schedule as PDF/ })).toHaveCount(0);
+    // Below md the desktop Gantt toolbar is suppressed entirely — the dedicated
+    // mobile Schedule surface owns the region (#1671, ADR-0348). Gate on that
+    // surface having mounted (a WBS row button), then assert neither the
+    // Schedule toolbar nor any export affordance exists: export is a desk task.
+    await expect(page.getByRole('button', { name: /^Design,/ })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('toolbar', { name: 'Schedule toolbar' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Project actions' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Export schedule as PDF' })).toHaveCount(0);
   });
 
   test('Export menu item is disabled when the schedule is empty (lg)', async ({ page }) => {
