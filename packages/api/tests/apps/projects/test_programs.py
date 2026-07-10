@@ -92,7 +92,38 @@ def test_create_program_auto_assigns_creator_as_owner(owner: object) -> None:
     assert membership.role == Role.OWNER
     # Response includes the annotated my_role.
     assert resp.data["my_role"] == Role.OWNER
-    assert resp.data["my_role_label"] == "Project Admin"
+    # Program context: OWNER reads "Program Admin", not the project-scoped
+    # "Project Admin" label (#1794).
+    assert resp.data["my_role_label"] == "Program Admin"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("role", "expected_label"),
+    [
+        (Role.VIEWER, "Viewer"),
+        (Role.MEMBER, "Team Member"),
+        (Role.SCHEDULER, "Resource Manager"),
+        (Role.ADMIN, "Program Manager"),
+        (Role.OWNER, "Program Admin"),
+    ],
+)
+def test_my_role_label_uses_program_context_labels(
+    owner: object, other_user: object, role: int, expected_label: str
+) -> None:
+    """my_role_label reads in program context for every role (#1794).
+
+    OWNER/ADMIN must not leak the project-scoped "Project Admin"/"Project
+    Manager" labels onto a program card; the neutral roles keep their wording.
+    """
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=role)
+
+    resp = _client(other_user).get(f"/api/v1/programs/{program.id}/")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["my_role"] == role
+    assert resp.data["my_role_label"] == expected_label
 
 
 @pytest.mark.django_db
