@@ -5741,6 +5741,15 @@ class TaskReorderView(IdempotencyMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # A reorder rewrites wbs_path for every task in the level, so — like
+        # indent/outdent/reparent (#1771) — it requires per-task edit authority
+        # on each sibling, not merely IsProjectMemberWrite. Without this a Member
+        # who cannot rename a colleague's task could still renumber it by
+        # reordering the level it lives in. Reorder is complete-set validated, so
+        # gating every supplied sibling matches the invariant exactly.
+        for task in siblings_by_id.values():
+            _require_wbs_restructure_permission(request, task)
+
         updated: list[dict[str, Any]] = []
 
         with transaction.atomic():
