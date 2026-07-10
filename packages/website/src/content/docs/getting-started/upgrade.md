@@ -15,9 +15,18 @@ description: How to upgrade TruePPM — Docker Compose, single-server, and Helm 
    ```
 3. **Note your current version** before starting.
    ```bash
-   docker inspect ghcr.io/trueppm/api:latest --format '{{.Config.Labels}}'
+   docker inspect registry.gitlab.com/trueppm/trueppm/api:latest --format '{{.Config.Labels}}'
    # Or: helm list -n trueppm
    ```
+
+:::note[Where images come from]
+Release images publish to the **GitLab Container Registry**
+(`registry.gitlab.com/trueppm/trueppm/{api,web}`) today. GHCR mirrors
+(`ghcr.io/trueppm/…`) and public OCI chart publication are planned with the 0.4
+beta supply-chain work (#939); until GHCR is live, the `oci://ghcr.io/trueppm/…`
+paths below apply once you have configured GHCR, otherwise upgrade from the chart
+source (see [Installation](/getting-started/installation/#helm--kubernetes)).
+:::
 
 ---
 

@@ -105,7 +105,7 @@ Not sure it's a fit? The [evaluation guide](https://docs.trueppm.com/getting-sta
 | **Board (Kanban)** | ✅ Working | Phase-grid plus rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP limits. |
 | **Sprints** | ✅ Working | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
 | **Forecast UI** | ✅ Working | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
-| **Helm chart** | ✅ Working | Kubernetes deployment with bundled first-party PostgreSQL and Valkey subcharts (official images; Valkey is the BSD-licensed Redis fork). Published to GHCR. |
+| **Helm chart** | ✅ Working | Kubernetes deployment with bundled first-party PostgreSQL and Valkey subcharts (official images; Valkey is the BSD-licensed Redis fork). Install from the chart source today; public OCI (GHCR) publication is planned (#939). |
 
 **New in 0.3** (the agile-team release): a first-class sprint container — goal, capacity, burndown, and state-aware planning, not just a board with date columns; auto-computed velocity with a forecast *range*; sprint sovereignty (mid-sprint scope changes are deliberate and audited, and velocity stays a team metric rather than a management gauge); the bridge demo (promote a sprint commitment to a schedule milestone and watch velocity re-forecast the critical-path finish); an epic-and-story hierarchy with a new Product Owner role; and the v2 interface refresh — a unified app-shell bar with a ⌘K command palette, methodology-adaptive view tabs, and role-based landing pages.
 
@@ -123,12 +123,18 @@ chmod +x init-prod.sh
 
 ### Helm / Kubernetes
 
+Install from the chart source today (public OCI publication to GHCR is planned — #939):
+
 ```bash
-helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
-  --version 0.2.0 \
+git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
+helm dependency update packages/helm
+helm install trueppm packages/helm \
   --namespace trueppm --create-namespace \
   -f my-values.yaml
 ```
+
+Once the chart is published to a public OCI registry, the same install will work with
+`helm install trueppm oci://ghcr.io/trueppm/charts/trueppm --version <version>`.
 
 See the [full installation guide](https://docs.trueppm.com/getting-started/installation/) for prerequisites and values configuration.
 
@@ -225,7 +231,7 @@ trueppm-suite/
 │   └── website/        # Astro Starlight documentation site
 ├── docs/            # Architecture Decision Records (source of record)
 ├── docker-compose.yml       # development stack
-└── docker-compose.prod.yml  # production stack (GHCR images + TLS)
+└── docker-compose.prod.yml  # production stack (release images + TLS)
 ```
 
 ## Development
@@ -243,12 +249,18 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 ## Published artifacts
 
-| Artifact | Registry |
-|----------|----------|
+Release tags publish Docker images to the **GitLab Container Registry** today. GHCR
+mirrors (`ghcr.io/trueppm/{api,web,charts}`) are planned as part of the 0.4 beta
+supply-chain work (#939); the release pipeline pushes to GHCR only once optional
+`GHCR_USER` / `GHCR_TOKEN` credentials are configured. Until then, pull from the
+GitLab registry or build the Helm chart from source.
+
+| Artifact | Where it publishes today |
+|----------|--------------------------|
 | `trueppm-scheduler` | [PyPI](https://pypi.org/project/trueppm-scheduler/) |
-| `ghcr.io/trueppm/api` | [GHCR](https://ghcr.io/trueppm/api) |
-| `ghcr.io/trueppm/web` | [GHCR](https://ghcr.io/trueppm/web) |
-| Helm chart | `oci://ghcr.io/trueppm/charts/trueppm` |
+| API image | `registry.gitlab.com/trueppm/trueppm/api` (GitLab Container Registry) |
+| Web image | `registry.gitlab.com/trueppm/trueppm/web` (GitLab Container Registry) |
+| Helm chart | install from source (`packages/helm`) — public OCI (`oci://ghcr.io/trueppm/charts/trueppm`) planned with GHCR (#939) |
 
 ## Maintainer
 
