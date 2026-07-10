@@ -108,10 +108,10 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(screen.queryByText(/workspace/i)).not.toBeInTheDocument();
   });
 
-  it('renders hamburger + user menu', () => {
+  it('renders hamburger + account menu', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('button', { name: /open sidebar/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /user menu/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('button', { name: /account/i }).length).toBeGreaterThan(0);
   });
 
   it('calls onHamburgerClick when the hamburger is clicked', async () => {
