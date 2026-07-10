@@ -137,6 +137,38 @@ test.describe('Mobile BottomNav reachability (#1464)', () => {
     });
   });
 
+  test('More sheet rows do not clip their trailing pin toggle at the screen edge (#1789)', async ({
+    page,
+  }) => {
+    await setup(page, 'HYBRID');
+    const sheet = await openMore(page);
+    await expect(sheet).toBeVisible();
+
+    const sheetBox = await sheet.boundingBox();
+    expect(sheetBox).not.toBeNull();
+    if (!sheetBox) return;
+
+    // The sheet must not overflow horizontally — a row wider than the sheet is
+    // exactly the failure mode (long label with no min-w-0 pushes the toggle
+    // past the padded edge, and overflow-y-auto clips it).
+    const overflow = await sheet.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    // Every pin/unpin toggle must sit fully inside the sheet, not clipped.
+    const toggles = sheet.getByRole('button', { name: /(Pin|Unpin) .* navigation bar/i });
+    const count = await toggles.count();
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < count; i += 1) {
+      const box = await toggles.nth(i).boundingBox();
+      expect(box).not.toBeNull();
+      if (!box) continue;
+      expect(box.x).toBeGreaterThanOrEqual(sheetBox.x - 0.5);
+      expect(box.x + box.width).toBeLessThanOrEqual(sheetBox.x + sheetBox.width + 0.5);
+      // 44px minimum touch target survives the shrink-0 guard (web-rule 5).
+      expect(box.width).toBeGreaterThanOrEqual(43.5);
+    }
+  });
+
   test('More sheet closes on Escape and restores focus to the trigger', async ({ page }) => {
     await setup(page, 'HYBRID');
     const sheet = await openMore(page);
