@@ -43,17 +43,17 @@ A 19-task, 4-phase "ERP System Rollout" project. **Primary purpose:** verifies t
 importer cleanly ignores modern elements that TruePPM does not (yet) use, while
 correctly parsing tasks, dependencies, resources, and assignments.
 
-Additional elements present (all silently skipped by the importer):
+Additional elements present (silently skipped by the importer unless noted):
 
 | Element | Notes |
 |---|---|
 | `<GUID>` / `<LastSaved>` | Project-level metadata |
-| `<Calendars>` | Full working-time calendar block |
+| `<Calendars>` | Full working-time calendar block — parsed since #1769 |
 | `<ExtendedAttributes>` | Custom field definitions (RAG Status, Risk Score) |
 | `<OutlineCodes>` | Workstream code definition |
 | `<WBS>` on each task | Modern WBS field (redundant with OutlineNumber) |
 | `<LagFormat>` on links | Per-link lag unit hint |
-| `<CalendarUID>` on tasks/resources | Calendar assignment |
+| `<CalendarUID>` on tasks/resources | Calendar assignment (`-1` = none in this fixture; a non-project task calendar would warn since #1769) |
 | `<EmailAddress>` / `<NTAccount>` on resources | Directory fields |
 | `<ExtendedAttribute>` values on tasks | Inline custom field values |
 
@@ -155,4 +155,4 @@ Each has a corresponding `@pytest.mark.parametrize` case in `test_msproject.py::
 | `recurring_task.xml` | 6 | 1 | 0 | `<Recurring>1</Recurring>` container + 3 occurrences (flattened) |
 | `cross_project_link.xml` | 3 | 2 | 0 | External `PredecessorUID` not in local task list |
 | `unicode_names.xml` | 5 | 2 | 1 | CJK, RTL Arabic, emoji, XML-significant chars |
-| `calendar_exceptions.xml` | 3 | 1 | 1 | Full `<Calendars>` block with exceptions (silently ignored) |
+| `calendar_exceptions.xml` | 3 | 1 | 1 | Full `<Calendars>` block with exceptions (parsed since #1769) |

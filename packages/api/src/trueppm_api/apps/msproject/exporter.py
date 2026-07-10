@@ -27,6 +27,19 @@ _DEP_TYPE_TO_LINK_TYPE = {
     "SS": "3",
 }
 
+# MSPDI WeekDay/DayType (1=Sunday … 7=Saturday) paired with the TruePPM
+# Calendar.working_days bit (Mon=1 … Sun=64), in MSPDI emission order.
+# Keep in lockstep with parser._DAY_TYPE_TO_BIT.
+_DAY_TYPES_AND_BITS = (
+    ("1", 64),  # Sunday
+    ("2", 1),  # Monday
+    ("3", 2),  # Tuesday
+    ("4", 4),  # Wednesday
+    ("5", 8),  # Thursday
+    ("6", 16),  # Friday
+    ("7", 32),  # Saturday
+)
+
 
 def export_project_xml(project_id: str) -> bytes:
     """Export a TruePPM project to MS Project XML format.
@@ -36,8 +49,14 @@ def export_project_xml(project_id: str) -> bytes:
     """
     from trueppm_api.apps.projects.models import Dependency, Project, Task
     from trueppm_api.apps.resources.models import Resource, TaskResource
+    from trueppm_api.apps.scheduling.calendars import resolve_applied_calendars
 
-    project = Project.objects.get(pk=project_id)
+    # calendar__exceptions + calendar_layers__calendar__exceptions: the calendar
+    # emission below walks every applied calendar's exceptions (#1769).
+    project = Project.objects.prefetch_related(
+        "calendar__exceptions", "calendar_layers__calendar__exceptions"
+    ).get(pk=project_id)
+    applied_calendars = resolve_applied_calendars(project)
     tasks = list(
         Task.objects.filter(project_id=project_id, is_deleted=False).order_by("wbs_path", "name")
     )
@@ -73,6 +92,12 @@ def export_project_xml(project_id: str) -> bytes:
 
     _sub_text(root, "Name", project.name)
     _sub_text(root, "StartDate", _format_date(project.start_date))
+    if applied_calendars:
+        # The merged working calendar is always emitted as UID 1 (see
+        # _add_calendars_block). Header element order follows the MSPDI schema:
+        # CalendarUID sits among the project properties, before
+        # ExtendedAttributes and Calendars.
+        _sub_text(root, "CalendarUID", "1")
 
     # --- Project-level ExtendedAttribute definitions (#798, ADR-0093) ---
     # Emit the four PERT slots only when at least one non-summary, non-milestone
@@ -94,6 +119,13 @@ def export_project_xml(project_id: str) -> bytes:
     ]
     if pert_tasks:
         _add_pert_extended_attribute_defs(root)
+
+    # --- Calendars (#1769) ---
+    # Emitted between ExtendedAttributes and Tasks, matching the MSPDI element
+    # order. Omitted entirely when the project has no applied calendar (the
+    # engine's implicit Mon-Fri/8h default), which MS Project also defaults to.
+    if applied_calendars:
+        _add_calendars_block(root, applied_calendars)
 
     # --- Tasks ---
     tasks_el = ET.SubElement(root, f"{{{_NS}}}Tasks")
@@ -214,6 +246,73 @@ def _days_to_duration(days: int) -> str:
     """Convert working days to MS Project ISO 8601 duration."""
     hours = days * 8
     return f"PT{hours}H0M0S"
+
+
+def _minutes_to_time(minutes: int) -> str:
+    """Format minutes-since-midnight as an MSPDI time-of-day (``HH:MM:00``)."""
+    return f"{minutes // 60:02d}:{minutes % 60:02d}:00"
+
+
+def _add_calendars_block(root: ET.Element, applied_calendars: list[Any]) -> None:
+    """Emit ``<Calendars>`` with one base calendar folding every applied layer (#1769).
+
+    MSPDI has no equivalent of TruePPM's composable calendar layers (#906,
+    ADR-0251), so the export flattens them exactly the way the CPM pass composes
+    them: weekday masks AND-ed, exception ranges unioned, ``hours_per_day`` and
+    name from the base (first) calendar. The exported file then schedules on the
+    same non-working mask TruePPM computed, at the cost of the layer structure.
+
+    TruePPM stores only a daily hour total, not shift times, so each working day
+    is synthesized as a single continuous shift starting at 08:00 (falling back
+    to midnight when the total would run past midnight). The caller must invoke
+    this before the ``<Tasks>`` block is appended — ``ET.SubElement`` appends at
+    call time, so call ordering is the positional guarantee (same contract as
+    ``_add_pert_extended_attribute_defs``).
+    """
+    base = applied_calendars[0]
+    mask = base.working_days
+    # First writer wins on a duplicate range so the base calendar's description
+    # (not an overlay's) labels the exception.
+    merged_exceptions: dict[tuple[Any, Any], str] = {}
+    for cal in applied_calendars:
+        mask &= cal.working_days
+        for exc in cal.exceptions.all():
+            merged_exceptions.setdefault((exc.exc_start, exc.exc_end), exc.description)
+
+    cals_el = ET.SubElement(root, f"{{{_NS}}}Calendars")
+    cal_el = ET.SubElement(cals_el, f"{{{_NS}}}Calendar")
+    _sub_text(cal_el, "UID", "1")
+    _sub_text(cal_el, "Name", base.name)
+    _sub_text(cal_el, "IsBaseCalendar", "1")
+    _sub_text(cal_el, "BaseCalendarUID", "-1")
+
+    start_minute = 8 * 60
+    shift_minutes = max(0, min(round(base.hours_per_day * 60), 24 * 60))
+    if start_minute + shift_minutes > 24 * 60:
+        start_minute = 0
+
+    weekdays_el = ET.SubElement(cal_el, f"{{{_NS}}}WeekDays")
+    for day_type, bit in _DAY_TYPES_AND_BITS:
+        day_el = ET.SubElement(weekdays_el, f"{{{_NS}}}WeekDay")
+        _sub_text(day_el, "DayType", day_type)
+        working = bool(mask & bit)
+        _sub_text(day_el, "DayWorking", "1" if working else "0")
+        if working and shift_minutes > 0:
+            times_el = ET.SubElement(day_el, f"{{{_NS}}}WorkingTimes")
+            wt_el = ET.SubElement(times_el, f"{{{_NS}}}WorkingTime")
+            _sub_text(wt_el, "FromTime", _minutes_to_time(start_minute))
+            _sub_text(wt_el, "ToTime", _minutes_to_time(start_minute + shift_minutes))
+
+    if merged_exceptions:
+        excs_el = ET.SubElement(cal_el, f"{{{_NS}}}Exceptions")
+        for (exc_start, exc_end), description in sorted(merged_exceptions.items()):
+            exc_el = ET.SubElement(excs_el, f"{{{_NS}}}Exception")
+            period_el = ET.SubElement(exc_el, f"{{{_NS}}}TimePeriod")
+            _sub_text(period_el, "FromDate", f"{exc_start.isoformat()}T00:00:00")
+            _sub_text(period_el, "ToDate", f"{exc_end.isoformat()}T23:59:00")
+            if description:
+                _sub_text(exc_el, "Name", description)
+            _sub_text(exc_el, "DayWorking", "0")
 
 
 def _add_summary_task(tasks_el: ET.Element, project: object) -> None:

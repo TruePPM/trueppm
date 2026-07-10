@@ -182,7 +182,8 @@ curl -H "Authorization: Bearer $JWT" \
 | `<MinutesPerDay>` | — | ⬜ Ignored |
 | `<MinutesPerWeek>` | — | ⬜ Ignored |
 | `<DaysPerMonth>` | — | ⬜ Ignored |
-| `<Calendars>` | — | ⬜ Ignored |
+| `<Calendars>` | `Calendar` / `CalendarException` | ✅ Mapped | Base calendars only. See [Working calendars](#working-calendars). |
+| `<CalendarUID>` | `Project.calendar` | ✅ Mapped | Selects which base calendar the project is scheduled on. |
 | `<ExtendedAttributes>` (PERT only) | three-point estimate mapping | ✅ Partial | Recognizes the four PERT `Duration1`–`Duration4` definitions; other custom-field families are ignored. See [Three-point / PERT estimates](#three-point--pert-estimates). |
 | `<OutlineCodes>` | — | ⬜ Ignored |
 
@@ -207,7 +208,7 @@ curl -H "Authorization: Bearer $JWT" \
 | `<Finish>` | — | ⬜ Ignored | Derived from `start + duration` after CPM |
 | `<WBS>` | — | ⬜ Ignored | Modern WBS field; `OutlineNumber` is used instead |
 | `<GUID>` | — | ⬜ Ignored | |
-| `<CalendarUID>` | — | ⬜ Ignored | |
+| `<CalendarUID>` | — | 🟡 Partial | TruePPM has no per-task calendars. A task referencing a calendar other than the project calendar imports with a warning and is scheduled on the project calendar. |
 | `<LagFormat>` | — | ⬜ Ignored | Lag always interpreted as tenths-of-minutes |
 | `<ExtendedAttribute>` `Duration1` | `Task.optimistic_duration` | ✅ Mapped | PERT Optimistic; FieldID `188743783`. See [Three-point / PERT estimates](#three-point--pert-estimates). |
 | `<ExtendedAttribute>` `Duration2` | `Task.most_likely_duration` | ✅ Mapped | PERT Most Likely; FieldID `188743784`. |
@@ -225,7 +226,7 @@ curl -H "Authorization: Bearer $JWT" \
 | `<GUID>` | — | ⬜ Ignored |
 | `<EmailAddress>` | — | ⬜ Ignored |
 | `<NTAccount>` | — | ⬜ Ignored |
-| `<CalendarUID>` | — | ⬜ Ignored |
+| `<CalendarUID>` | — | ⬜ Ignored | Resource calendars (`IsBaseCalendar=0`) have no TruePPM equivalent |
 
 ### Assignment fields
 
@@ -257,6 +258,21 @@ MS Project XML stores duration as ISO 8601 strings. TruePPM converts to whole wo
 | `3` | `SS` | Start-to-Start |
 
 Unrecognized type values default to `FS`.
+
+## Working calendars
+
+The file's `<Calendars>` block round-trips with TruePPM's working calendars, so a plan built on holidays or a non-5×8 week (4×10s, etc.) keeps its dates after import instead of being rescheduled on the default Monday–Friday / 8-hour calendar.
+
+**On import**, the base calendar selected by the project-level `<CalendarUID>` (or the file's only base calendar, when the header omits the UID) becomes the project's working calendar:
+
+- **Weekdays** — each `<WeekDay>` entry maps onto the `Calendar.working_days` mask. Files that list all seven days (as MS Project itself writes) map exactly; sparse files only adjust the days they mention, starting from the Monday–Friday default.
+- **Hours per day** — TruePPM stores a single daily hour total, not shift times. Per-day `<WorkingTimes>` collapse to the most common daily total across working days. Shift start/end times are not preserved.
+- **Exceptions** — non-working `<Exception>` ranges (holidays, shutdowns) become `CalendarException` rows, names included. Both the `<TimePeriod>` and `EnteredStartDate`/`EnteredFinishDate` encodings are read, as is the legacy `DayType=0` form. Exceptions that *add* working time (`DayWorking=1`, e.g. a make-up Saturday) cannot be represented and are skipped with a warning.
+- **Library reuse** — the calendar row is reused from the shared calendar library when an existing calendar has the same name *and* identical semantics (mask, hours, exception ranges); otherwise a new row is created. Repeated imports converge on one row.
+- **Overwrite policy** — create-from-import treats the file's calendar as authoritative. Import-into-existing keeps a project's already-configured calendar and warns when the file's calendar differs (imported dates may shift in that case).
+- **Degraded**: per-task calendars (task `<CalendarUID>`) — TruePPM schedules every task on the project calendar and warns once per referenced calendar. Per-resource calendars (`IsBaseCalendar=0`) are not imported.
+
+**On export**, the project's applied calendars are emitted as a single base calendar (`UID` 1) referenced by the project-level `<CalendarUID>`. [Composable calendar layers](/features/calendars/) have no MSPDI equivalent, so they are folded the same way the scheduler composes them — weekday masks AND-ed, exception ranges unioned — and each working day is written as one continuous shift starting at 08:00. The exported file schedules on the same non-working mask TruePPM computed.
 
 ## Three-point / PERT estimates
 
@@ -298,6 +314,10 @@ The import summary includes a `warnings` list for non-fatal issues:
 | No tasks found in the file | `"No tasks found in MS Project file"` |
 | PERT slot has a contradicting alias | `"Project ExtendedAttribute FieldID {fid} has non-standard alias '{alias}'; three-point estimate ({role}) skipped"` |
 | Task has partial three-point data | `"Task '{name}': partial three-point estimate (missing {fields}), all three values skipped"` |
+| Tasks reference a non-project calendar | `"{n} task(s) reference calendar '{name}' (UID {uid}); TruePPM has no per-task calendars — they are scheduled on the project calendar"` |
+| Calendar exception adds working time | `"Calendar '{name}': working-time exception '{exception}' is not supported and was skipped"` |
+| File calendar conflicts with the project's configured calendar | `"File calendar '{name}' differs from the project's configured calendar '{name}'; the project calendar was kept — imported dates may shift"` |
+| Project `CalendarUID` not found among base calendars | `"Project calendar UID {uid} not found among the file's base calendars; project calendar left unchanged"` |
 
 The import summary also includes two counts you can use to confirm three-point coverage at a glance:
 
@@ -312,6 +332,8 @@ TruePPM exports projects to MS Project XML 2003+ format. All tasks, dependencies
 
 Resources: `UID`, `ID`, `Name`, `MaxUnits`.
 Assignments: `UID`, `TaskUID`, `ResourceUID`, `Units`.
+
+When the project has a working calendar applied, the export also writes the project-level `CalendarUID` and a `<Calendars>` block with the folded calendar — weekdays, working times, and exceptions (see [Working calendars](#working-calendars)).
 
 ## Configuration
 

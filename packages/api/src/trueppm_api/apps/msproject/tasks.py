@@ -151,7 +151,11 @@ def import_msproject(
 
         tracker.set_result(summary)
 
-        if summary["tasks_created"] > 0:
+        # calendar_applied alone also needs a recalc (#1769): an into-existing
+        # import of a calendar-bearing file can change the project calendar even
+        # when the file contributed no tasks, and the existing tasks' dates must
+        # be recomputed on the new working mask.
+        if summary["tasks_created"] > 0 or summary.get("calendar_applied"):
             # Use the outbox service rather than a direct .delay() call so that
             # a broker outage at import-completion time does not silently drop
             # the recalculation.  The Celery task context has no ambient
@@ -160,6 +164,7 @@ def import_msproject(
 
             enqueue_recalculate(project_id)
 
+        if summary["tasks_created"] > 0:
             # #1359: a bulk import restructures the WBS, but clients had no signal
             # until the async CPM pass eventually landed — a multi-second window of
             # a stale, empty-looking task list. Emit tasks_restructured (the event
@@ -183,7 +188,10 @@ def import_msproject(
         # import's atomic() above, and this runs just after it commits (no ambient
         # transaction remains → the callback fires immediately), so peers re-fetch
         # the moved boundary only once the import is durable, never on a rollback.
-        if summary.get("project_start_shifted"):
+        # calendar_applied rides the same broadcast (#1769): Project.calendar is
+        # project-record state (settings UI, sync clients), which cpm_complete
+        # does not invalidate.
+        if summary.get("project_start_shifted") or summary.get("calendar_applied"):
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
             transaction.on_commit(

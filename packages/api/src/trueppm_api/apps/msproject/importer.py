@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from trueppm_api.apps.msproject.dataclasses import ProjectData, TaskData
+from trueppm_api.apps.msproject.dataclasses import CalendarData, ProjectData, TaskData
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,13 @@ def import_project(
         # supplied a subset.
         "tasks_with_three_point_estimates": 0,
         "tasks_skipped_partial_three_point": 0,
+        # Calendar mapping (#1769). ``calendar_applied`` is True when the file's
+        # calendar was wired as Project.calendar (created or matched);
+        # ``calendar_created``/``calendar_matched`` say which path produced it.
+        "calendar_applied": False,
+        "calendar_name": None,
+        "calendar_created": False,
+        "calendar_matched": False,
         "project_start_date": data.start_date,
         # #873/#867: set True when an imported task predated the project start and
         # the start was pulled back. The import task broadcasts project_updated so
@@ -85,6 +92,12 @@ def import_project(
         # only a partial prior attempt could leave rows. Dependency/TaskResource
         # cascade off Task, so deleting tasks clears the prior attempt.
         Task.objects.filter(project_id=project_id).delete()
+
+    # --- Step 0: Apply the file's calendar (#1769) ---
+    # Runs before the no-tasks early return: the calendar is header-level plan
+    # data (like name/start_date) and applies even to a file with no tasks.
+    _update(8, "Applying project calendar...")
+    _apply_calendar(project_id, data, summary, overwrite=wipe_existing, batch_size=batch_size)
 
     if not data.tasks:
         summary["warnings"].append("No tasks found in file")
@@ -300,6 +313,160 @@ def import_project(
 
     _update(90, "Import complete, triggering schedule recalculation...")
     return summary
+
+
+def _apply_calendar(
+    project_id: str,
+    data: ProjectData,
+    summary: dict[str, Any],
+    *,
+    overwrite: bool,
+    batch_size: int,
+) -> None:
+    """Wire the file's project calendar onto ``Project.calendar`` (#1769).
+
+    Resolution: the project-level ``<CalendarUID>`` picks the calendar; when the
+    header omits it and the file has exactly one base calendar, that calendar is
+    unambiguous and used. The row is reused from the shared calendar library
+    only on an exact semantic match (see ``_match_or_create_calendar``),
+    otherwise created together with its ``CalendarException`` rows.
+
+    Overwrite policy mirrors ``_apply_header_to_project``: create-from-import
+    (``overwrite=True``) treats the file as authoritative; import-into-existing
+    keeps a PM-configured project calendar and only warns when the file's
+    calendar differs semantically (silently "conflicting" on the ubiquitous
+    vanilla Standard calendar would be pure noise).
+
+    TruePPM has no per-task calendars, so task-level ``CalendarUID`` references
+    to any *other* calendar degrade to one aggregated warning per calendar.
+    """
+    from trueppm_api.apps.projects.models import Project
+
+    if not data.calendars:
+        return
+
+    by_uid = {c.uid: c for c in data.calendars}
+    cal_data = by_uid.get(data.calendar_uid) if data.calendar_uid is not None else None
+    if cal_data is None:
+        if data.calendar_uid is not None:
+            summary["warnings"].append(
+                f"Project calendar UID {data.calendar_uid} not found among the "
+                f"file's base calendars; project calendar left unchanged"
+            )
+        elif len(data.calendars) == 1:
+            cal_data = data.calendars[0]
+        else:
+            summary["warnings"].append(
+                f"File defines {len(data.calendars)} base calendars but no "
+                f"project CalendarUID; project calendar left unchanged"
+            )
+
+    # Aggregate per-task calendar references we cannot honor: one warning per
+    # distinct calendar, not per task (a 500-task plan on a shared task calendar
+    # must not produce 500 warnings).
+    project_cal_uid = cal_data.uid if cal_data is not None else data.calendar_uid
+    task_cal_counts: dict[int, int] = {}
+    for td in data.tasks:
+        if td.calendar_uid is not None and td.calendar_uid != project_cal_uid:
+            task_cal_counts[td.calendar_uid] = task_cal_counts.get(td.calendar_uid, 0) + 1
+    for uid, count in sorted(task_cal_counts.items()):
+        ref = by_uid.get(uid)
+        label = f"'{ref.name}' (UID {uid})" if ref is not None else f"UID {uid}"
+        summary["warnings"].append(
+            f"{count} task(s) reference calendar {label}; TruePPM has no "
+            f"per-task calendars — they are scheduled on the project calendar"
+        )
+
+    if cal_data is None:
+        return
+
+    project = (
+        Project.objects.select_related("calendar")
+        .prefetch_related("calendar__exceptions")
+        .get(pk=project_id)
+    )
+    if project.calendar_id is not None and not overwrite:
+        if project.calendar is not None and not _calendar_matches(project.calendar, cal_data):
+            summary["warnings"].append(
+                f"File calendar '{cal_data.name}' differs from the project's "
+                f"configured calendar '{project.calendar.name}'; the project "
+                f"calendar was kept — imported dates may shift"
+            )
+        return
+
+    calendar = _match_or_create_calendar(cal_data, summary, batch_size=batch_size)
+    if project.calendar_id != calendar.pk:
+        project.calendar = calendar
+        # save() rather than .update() so server_version bumps and sync clients
+        # observe the calendar change — same pattern as
+        # shift_project_start_if_needed on the start-date pull-back.
+        project.save(update_fields=["calendar"])
+    summary["calendar_applied"] = True
+    summary["calendar_name"] = calendar.name
+
+
+def _match_or_create_calendar(
+    cal_data: CalendarData, summary: dict[str, Any], *, batch_size: int
+) -> Any:
+    """Return a library ``Calendar`` row for the parsed calendar, reusing on exact match.
+
+    Reuse requires the same (case-insensitive) name AND identical semantics —
+    mask, hours per day, and exception ranges. A name-only match (every MS
+    Project file ships a "Standard") could silently attach another team's
+    holidays to this project; a semantics-only match under a different name
+    would confuse the calendar library UI. Repeated imports of the same file
+    therefore converge on one row instead of accreting duplicates.
+    """
+    from datetime import date as _date
+
+    from trueppm_api.apps.projects.models import Calendar, CalendarException
+
+    candidates = Calendar.objects.filter(
+        name__iexact=cal_data.name, is_deleted=False
+    ).prefetch_related("exceptions")
+    for candidate in candidates:
+        if _calendar_matches(candidate, cal_data):
+            summary["calendar_matched"] = True
+            return candidate
+
+    calendar = Calendar.objects.create(
+        name=cal_data.name[:255],
+        working_days=cal_data.working_days,
+        hours_per_day=cal_data.hours_per_day,
+    )
+    if cal_data.exceptions:
+        CalendarException.objects.bulk_create(
+            [
+                CalendarException(
+                    calendar=calendar,
+                    exc_start=_date.fromisoformat(exc.start),
+                    exc_end=_date.fromisoformat(exc.end),
+                    description=exc.name[:255],
+                )
+                for exc in cal_data.exceptions
+            ],
+            batch_size=batch_size,
+        )
+    summary["calendar_created"] = True
+    return calendar
+
+
+def _calendar_matches(calendar: Any, cal_data: CalendarData) -> bool:
+    """True when a ``Calendar`` row is semantically identical to parsed data.
+
+    Compares the CPM inputs only — mask, hours per day, and exception date
+    ranges. Exception descriptions and timezone are metadata that cannot shift
+    a schedule, so they don't block reuse.
+    """
+    if calendar.working_days != cal_data.working_days:
+        return False
+    if abs(calendar.hours_per_day - cal_data.hours_per_day) > 1e-6:
+        return False
+    existing = {
+        (exc.exc_start.isoformat(), exc.exc_end.isoformat()) for exc in calendar.exceptions.all()
+    }
+    parsed = {(exc.start, exc.end) for exc in cal_data.exceptions}
+    return existing == parsed
 
 
 def _build_wbs_paths(tasks: list[TaskData]) -> list[str]:
