@@ -150,10 +150,10 @@
           "wbs_path": "1.1",
           "name": "Mobilize site",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
+          "percent_complete": 100.0,
           "duration": 4,
           "planned_start": "A-90",
           "estimate": {
@@ -166,10 +166,10 @@
           "wbs_path": "1.2",
           "name": "Clear & grade",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "percent_complete": 100.0,
           "duration": 6,
           "planned_start": "A-82",
           "estimate": {
@@ -182,10 +182,10 @@
           "wbs_path": "1.3",
           "name": "Temporary utilities",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
+          "percent_complete": 100.0,
           "duration": 3,
           "planned_start": "A-70",
           "estimate": {
@@ -198,10 +198,10 @@
           "wbs_path": "1.4",
           "name": "Site survey sign-off",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
+          "percent_complete": 100.0,
           "duration": 2,
           "planned_start": "A-64",
           "estimate": {
@@ -220,10 +220,10 @@
           "wbs_path": "2.1",
           "name": "Excavate footings",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "percent_complete": 100.0,
           "duration": 5,
           "planned_start": "A-60",
           "estimate": {
@@ -236,10 +236,10 @@
           "wbs_path": "2.2",
           "name": "Rebar & formwork",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
+          "percent_complete": 100.0,
           "duration": 6,
           "planned_start": "A-50",
           "estimate": {
@@ -252,10 +252,10 @@
           "wbs_path": "2.3",
           "name": "Pour east footing",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
+          "percent_complete": 100.0,
           "duration": 3,
           "planned_start": "A-38",
           "estimate": {
@@ -268,10 +268,10 @@
           "wbs_path": "2.4",
           "name": "Pour west footing",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
+          "percent_complete": 100.0,
           "duration": 3,
           "planned_start": "A-32",
           "estimate": {
@@ -284,10 +284,10 @@
           "wbs_path": "2.5",
           "name": "Cure & strip forms",
           "status": "COMPLETE",
-          "percent_complete": 100.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "percent_complete": 100.0,
           "duration": 4,
           "planned_start": "A-26",
           "estimate": {
@@ -306,10 +306,10 @@
           "wbs_path": "3.1",
           "name": "Steel erection",
           "status": "IN_PROGRESS",
-          "percent_complete": 35.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
+          "percent_complete": 55.0,
           "duration": 8,
           "planned_start": "A-18",
           "estimate": {
@@ -321,29 +321,27 @@
         {
           "wbs_path": "3.2",
           "name": "Floor decking",
-          "status": "IN_PROGRESS",
-          "percent_complete": 35.0,
+          "status": "NOT_STARTED",
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
-          "duration": 6,
-          "planned_start": "A-2",
+          "duration": 8,
+          "planned_start": "A+5",
           "estimate": {
-            "optimistic": 4,
-            "most_likely": 6,
-            "pessimistic": 11
+            "optimistic": 6,
+            "most_likely": 8,
+            "pessimistic": 15
           }
         },
         {
           "wbs_path": "3.3",
           "name": "Roof structure",
-          "status": "IN_PROGRESS",
-          "percent_complete": 35.0,
+          "status": "NOT_STARTED",
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 7,
-          "planned_start": "A+10",
+          "planned_start": "A+17",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -353,13 +351,12 @@
         {
           "wbs_path": "3.4",
           "name": "Framing inspection",
-          "status": "IN_PROGRESS",
-          "percent_complete": 35.0,
+          "status": "NOT_STARTED",
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 2,
-          "planned_start": "A+24",
+          "planned_start": "A+31",
           "estimate": {
             "optimistic": 1,
             "most_likely": 2,
@@ -376,12 +373,11 @@
           "wbs_path": "4.1",
           "name": "Rough-in electrical",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 7,
-          "planned_start": "A+28",
+          "planned_start": "A+35",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -392,12 +388,11 @@
           "wbs_path": "4.2",
           "name": "Rough-in plumbing",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 6,
-          "planned_start": "A+42",
+          "planned_start": "A+49",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -408,12 +403,11 @@
           "wbs_path": "4.3",
           "name": "HVAC ductwork",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 8,
-          "planned_start": "A+54",
+          "planned_start": "A+61",
           "estimate": {
             "optimistic": 6,
             "most_likely": 8,
@@ -424,12 +418,11 @@
           "wbs_path": "4.4",
           "name": "MEP equipment delivery",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 5,
-          "planned_start": "A+70",
+          "planned_start": "A+77",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -440,12 +433,11 @@
           "wbs_path": "4.5",
           "name": "MEP inspection",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
           "duration": 3,
-          "planned_start": "A+80",
+          "planned_start": "A+87",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -462,12 +454,11 @@
           "wbs_path": "5.1",
           "name": "Drywall & paint",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 8,
-          "planned_start": "A+86",
+          "planned_start": "A+93",
           "estimate": {
             "optimistic": 6,
             "most_likely": 8,
@@ -478,12 +469,11 @@
           "wbs_path": "5.2",
           "name": "Flooring",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
           "duration": 6,
-          "planned_start": "A+102",
+          "planned_start": "A+109",
           "estimate": {
             "optimistic": 4,
             "most_likely": 6,
@@ -494,12 +484,11 @@
           "wbs_path": "5.3",
           "name": "Fixtures & casework",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
           "duration": 5,
-          "planned_start": "A+114",
+          "planned_start": "A+121",
           "estimate": {
             "optimistic": 4,
             "most_likely": 5,
@@ -510,22 +499,21 @@
           "wbs_path": "5.4",
           "name": "Commissioning start",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "milestone",
           "assignee": "tom",
-          "is_milestone": true
+          "is_milestone": true,
+          "planned_start": "A+131"
         },
         {
           "wbs_path": "5.5",
           "name": "Final inspection & handover",
           "status": "NOT_STARTED",
-          "percent_complete": 0.0,
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
           "duration": 3,
-          "planned_start": "A+126",
+          "planned_start": "A+133",
           "estimate": {
             "optimistic": 2,
             "most_likely": 3,
@@ -585,8 +573,8 @@
         {
           "predecessor": "2.3",
           "successor": "2.5",
-          "dep_type": "FF",
-          "lag": 0
+          "dep_type": "FS",
+          "lag": 7
         },
         {
           "predecessor": "2.4",
@@ -628,7 +616,7 @@
           "predecessor": "3.4",
           "successor": "4.1",
           "dep_type": "FS",
-          "lag": 0
+          "lag": -3
         },
         {
           "predecessor": "3.4",
@@ -701,6 +689,7 @@
         {
           "name": "Contract baseline",
           "is_active": true,
+          "captured_at": "A-88",
           "tasks": [
             {
               "task": "1.1",
@@ -1144,6 +1133,20 @@
       "to": "RESOLVED"
     },
     {
+      "at": "A-18T08:00",
+      "action": "task.comment",
+      "target": "task:bayside:3.1",
+      "actor": "diego",
+      "body": "Crane is rigged and the first column line is bolted — steel erection is underway."
+    },
+    {
+      "at": "A-18T08:30",
+      "action": "task.status",
+      "target": "task:bayside:3.1",
+      "actor": "diego",
+      "to": "IN_PROGRESS"
+    },
+    {
       "at": "A-16T09:00",
       "action": "task.comment",
       "target": "task:bayside:3.1",
@@ -1155,6 +1158,45 @@
       "action": "risk.status",
       "target": "risk:design-change",
       "actor": "diego",
+      "to": "MITIGATING"
+    },
+    {
+      "at": "A-13T09:00",
+      "action": "task.comment",
+      "target": "task:bayside:3.2",
+      "actor": "diego",
+      "body": "Mezzanine change adds deck framing at grid C — re-estimating floor decking before we sequence the crews."
+    },
+    {
+      "at": "A-13T09:30",
+      "action": "task.estimate",
+      "target": "task:bayside:3.2",
+      "actor": "diego",
+      "estimate": {
+        "optimistic": 6,
+        "most_likely": 8,
+        "pessimistic": 15
+      }
+    },
+    {
+      "at": "A-3T07:30",
+      "action": "task.comment",
+      "target": "task:bayside:3.1",
+      "actor": "tom",
+      "body": "Final steel delivery hit the laydown yard this morning — crane picks resume at first light."
+    },
+    {
+      "at": "A-2T14:00",
+      "action": "task.comment",
+      "target": "task:bayside:3.4",
+      "actor": "omar",
+      "body": "Framing inspection is on the municipal calendar; electrical rough-in mobilizes three days ahead of the certificate."
+    },
+    {
+      "at": "A-1T11:00",
+      "action": "risk.status",
+      "target": "risk:weather",
+      "actor": "sam",
       "to": "MITIGATING"
     }
   ]
