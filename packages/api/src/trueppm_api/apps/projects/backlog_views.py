@@ -30,6 +30,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramEditor,
     IsProgramMember,
     IsProgramNotClosed,
+    McpReadableViewMixin,
     _membership_role,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
@@ -48,6 +49,7 @@ from trueppm_api.apps.projects.serializers import BacklogItemSerializer, TaskSer
 
 
 class BacklogItemViewSet(
+    McpReadableViewMixin,
     IdempotencyMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
@@ -60,11 +62,25 @@ class BacklogItemViewSet(
 
     URL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``
          ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``
+
+    ``McpReadableViewMixin`` (ADR-0186 §E) additively exposes the list/retrieve
+    reads to a personal ``mcp:read`` API token — it powers the MCP
+    ``list_program_backlog`` tool. Because this viewset overrides
+    ``get_permissions`` with a per-action list, the MCP token guards are appended
+    from that wrapper (via ``mcp_token_guards()``) rather than the mixin's default
+    ``get_permissions``, so no branch — including the write branches — can leak a
+    token past ``TokenReadOnlyMethods`` / ``TokenHasScope`` / ``TokenIsOwnerScoped``.
     """
 
     serializer_class = BacklogItemSerializer
 
     def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards around the
+        # action-specific RBAC list so a mcp:read token is confined to safe
+        # methods on every action (no write-branch leak); human auth passes both.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         # create / update / partial_update / destroy / pull all require program
