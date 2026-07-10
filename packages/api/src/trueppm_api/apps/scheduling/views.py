@@ -541,6 +541,7 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
+    mcp_compute_heavy = True  # part of the F4 compute-heavy MCP tool set (#1808)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -664,6 +665,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     ``run_monte_carlo`` / latest / history forecast endpoints.
     """
 
+    mcp_compute_heavy = True  # two CPM passes + two Monte Carlo runs per call (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "monte_carlo_whatif"

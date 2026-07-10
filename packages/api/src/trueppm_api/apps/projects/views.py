@@ -11459,6 +11459,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
     sink so both endpoints inherit it.
     """
 
+    mcp_compute_heavy = True  # computed-on-read forecast (velocity Monte Carlo) (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(responses=ProjectForecastSerializer)
@@ -11527,6 +11528,7 @@ class ProjectSprintForecastView(McpReadableViewMixin, APIView):
     inside the service; the view only owns the privacy gate.
     """
 
+    mcp_compute_heavy = True  # computed-on-read backlog delivery forecast (#1808 F4)
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(responses=SprintForecastSerializer)

@@ -939,6 +939,20 @@ REST_FRAMEWORK = {
         # human (or an MCP agent) exploring a handful of "what if I slip this task"
         # scenarios while blunting a scripted resource-exhaustion flood.
         "monte_carlo_whatif": "6/min",
+        # MCP read surface per-token rate limits (#1808 finding F4). These bound
+        # token-authenticated reads on any McpReadableViewMixin view ONLY — human
+        # JWT/Session traffic on the same views is unaffected (the throttles'
+        # get_cache_key returns None for non-token callers, so DRF skips them; see
+        # apps/access/throttles.py). "mcp_read" is the baseline cap every
+        # MCP-readable view applies per token; "mcp_read_compute" is the tighter
+        # bucket the four compute-heavy tools (whatif, monte-carlo/latest, forecast,
+        # sprint-forecast) STACK on top, since each triggers a CPM + Monte Carlo
+        # recompute per call and a read-only token loop must not burn arbitrary CPU.
+        # Env-tunable so an operator can widen the budget for a trusted agent fleet
+        # or tighten it under load. OSS ships basic per-token limits; per-agent
+        # budgets and anomaly auto-suspend are Phase 4 / Enterprise.
+        "mcp_read": env("TRUEPPM_THROTTLE_MCP_READ_RATE", default="120/min"),
+        "mcp_read_compute": env("TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE", default="12/min"),
         # Public board share-link endpoints (#283, ADR-0245). "share_mint" bounds
         # how fast one Admin account can spray share links; "share_access" bounds
         # scraping/abuse of the unauthenticated public board endpoint (the 256-bit
