@@ -33,17 +33,21 @@ function UngroupedRow({
         )}
       </span>
 
-      <span className="tppm-mono w-12 shrink-0 text-xs text-neutral-text-secondary" aria-label="Percent complete">
-        {project.percentComplete === null ? '—' : `${Math.round(project.percentComplete)}%`}
+      {/* Inline self-describing labels: the visible copy carries the unit so
+          sighted users read the same meaning SR users do — no aria-only label. */}
+      <span className="shrink-0 text-xs text-neutral-text-secondary">
+        {project.percentComplete === null
+          ? 'Progress unknown'
+          : `${Math.round(project.percentComplete)}% complete`}
       </span>
 
-      <span className="w-24 shrink-0 text-xs text-neutral-text-secondary">
+      <span className="shrink-0 text-xs text-neutral-text-secondary">
         {project.memberCount === null
-          ? '—'
+          ? 'Members unknown'
           : `${project.memberCount} member${project.memberCount === 1 ? '' : 's'}`}
       </span>
 
-      <span className="shrink-0 text-xs text-neutral-text-disabled">standalone</span>
+      <span className="shrink-0 text-xs text-neutral-text-disabled">Standalone project</span>
 
       <button
         type="button"
@@ -76,14 +80,16 @@ export function UngroupedProjectsSection() {
 
   return (
     <section aria-labelledby="ungrouped-heading" className="mt-8">
-      <div className="mb-3 flex flex-wrap items-center gap-2 border-t border-neutral-border pt-4">
-        <h2 id="ungrouped-heading" className="text-sm font-semibold text-neutral-text-primary">
-          Ungrouped projects
-        </h2>
-        <span className="rounded-chip border border-semantic-at-risk/80 bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
-          {projects.length} need a home
-        </span>
-        <p className="w-full text-xs text-neutral-text-secondary sm:ml-auto sm:w-auto">
+      <div className="mb-3 border-t border-neutral-border pt-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 id="ungrouped-heading" className="text-sm font-semibold text-neutral-text-primary">
+            Ungrouped projects
+          </h2>
+          <span className="rounded-chip border border-semantic-at-risk/80 bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk">
+            {projects.length} need a home
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-neutral-text-secondary">
           These don&rsquo;t belong to a program. Add them to one or leave standalone.
         </p>
       </div>

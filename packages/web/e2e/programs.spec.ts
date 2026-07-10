@@ -594,7 +594,7 @@ test.describe('Programs — ungrouped projects (#697, ADR-0171)', () => {
     const row = page.getByRole('listitem').filter({ hasText: 'Neptune Cryo Rig' });
     await expect(row).toBeVisible();
     await expect(row.getByText('NEP', { exact: true })).toBeVisible();
-    await expect(row.getByText('38%')).toBeVisible();
+    await expect(row.getByText('38% complete')).toBeVisible();
     await expect(row.getByText('4 members')).toBeVisible();
   });
 

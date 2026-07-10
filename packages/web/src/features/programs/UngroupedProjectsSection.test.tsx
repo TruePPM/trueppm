@@ -59,20 +59,21 @@ describe('UngroupedProjectsSection', () => {
     expect(screen.getByText('2 need a home')).toBeInTheDocument();
     expect(screen.getByText('Neptune Cryo Rig')).toBeInTheDocument();
     expect(screen.getByText('NEP')).toBeInTheDocument();
-    expect(screen.getByText('38%')).toBeInTheDocument();
+    // Values are visibly self-describing — the unit is in the copy, not aria-only.
+    expect(screen.getByText('38% complete')).toBeInTheDocument();
     expect(screen.getByText('4 members')).toBeInTheDocument();
     // Health conveyed as text, not color alone (rule 6).
     expect(screen.getAllByText(/On track\./).length).toBeGreaterThan(0);
   });
 
-  it('shows em-dashes when aggregates are null and singular "member"', () => {
+  it('labels unknown aggregates and uses singular "member"', () => {
     useUngroupedProjects.mockReturnValue({
       data: [makeProject({ percentComplete: null, memberCount: 1 })],
       isLoading: false,
       error: null,
     });
     render(<UngroupedProjectsSection />);
-    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getByText('Progress unknown')).toBeInTheDocument();
     expect(screen.getByText('1 member')).toBeInTheDocument();
   });
 
