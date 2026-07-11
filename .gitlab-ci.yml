@@ -1353,7 +1353,7 @@ scheduler:bench:
   artifacts:
     paths:
       - packages/scheduler/bench-output.txt
-    expire_in: 90 days
+    expire_in: 30 days
 
 scheduler:notebooks:
   # Execute all scheduler notebooks to catch code drift and broken examples.
@@ -2110,6 +2110,7 @@ pages:
   artifacts:
     paths:
       - public/
+    expire_in: 7 days
 
 # ---------------------------------------------------------------------------
 # SECURITY — CVE scans + license audit. MR + main only.
