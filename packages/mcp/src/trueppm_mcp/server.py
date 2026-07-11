@@ -21,7 +21,10 @@ SERVER_NAME = "trueppm"
 #: Server-level instructions shown to the model so it understands the surface.
 SERVER_INSTRUCTIONS = (
     "Read-only access to a self-hosted TruePPM instance: query the live schedule, "
-    "tasks, board, risks, sprints, and My Work. Every answer is computed "
+    "tasks, board, risks, sprints, programs, and My Work. Includes a non-mutating "
+    "what-if (perturb one task's duration and recompute CPM + Monte Carlo in "
+    "memory, persisting nothing) and schedule derivation (the server-computed "
+    "*why* behind a CPM value or Monte Carlo percentile). Every answer is computed "
     "server-side by TruePPM's own engine under your existing role-based "
     "permissions. Read-only by design — no tool can modify data."
 )

@@ -12,6 +12,10 @@
 # Run (HTTP, port 8000):
 #   docker run --rm -p 8000:8000 -e TRUEPPM_API_URL=... -e TRUEPPM_API_TOKEN=... \
 #     trueppm-mcp --transport http --host 0.0.0.0 --port 8000
+#   WARNING: the HTTP/SSE transport has no client-side auth — anyone who can reach
+#   the published port acts as the token owner. Only publish it behind an
+#   authenticated, TLS-terminating ingress; otherwise keep it loopback-only. See
+#   administration/mcp-server.md ("Security posture").
 
 # ---------------------------------------------------------------------------
 # Stage 1: builder — install the package into an isolated virtualenv

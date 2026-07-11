@@ -29,7 +29,7 @@
         },
         {
           "name": "TRUEPPM_API_TOKEN",
-          "description": "A project or program API token (tppm_<64-hex>) with the mcp:read scope, minted from Settings -> Integrations -> API Tokens.",
+          "description": "A personal access token (tppm_<64-hex>) with the mcp:read scope and a required expiry, minted from Personal Settings -> API tokens. Project- or program-scoped tokens are rejected by the read surface.",
           "isRequired": true,
           "isSecret": true,
           "format": "string"
