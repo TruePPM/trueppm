@@ -1,0 +1,41 @@
+{
+  "project_id": "p-completed-successor-no-backward-constraint",
+  "project_start": "2026-01-05",
+  "project_finish": "2026-01-30",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-09",
+      "late_start": "2026-01-26",
+      "late_finish": "2026-01-30",
+      "total_float": 1296000.0,
+      "free_float": 1296000.0,
+      "is_critical": false
+    },
+    {
+      "id": "B",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-09",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-09",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    },
+    {
+      "id": "C",
+      "early_start": "2026-01-05",
+      "early_finish": "2026-01-30",
+      "late_start": "2026-01-05",
+      "late_finish": "2026-01-30",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "B",
+    "C"
+  ]
+}

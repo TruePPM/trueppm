@@ -910,15 +910,32 @@ def _backward_pass(
 
         duration_days = _effective_duration_days(task)
 
-        # Collect LF and LS constraints from all successor dependencies.
-        lf_constraints: list[date] = [project_finish]
+        # Collect LF and LS constraints from all successor dependencies. The
+        # project-finish seed floors this task's late finish at the project end,
+        # but snapped to *this node's own* last workable day: ``project_finish``
+        # is ``max(early_finish)`` across all tasks and can land on a day this
+        # node cannot work — a completed task's weekend ``actual_finish`` (single
+        # calendar) or a max EF contributed by a 7-day-calendar task (per-task
+        # calendars, ADR-0120). Seeding the raw value would overstate this task's
+        # float by ≥1 and propagate the error upstream through backward-pass
+        # edges (#1820). With one project calendar and no out-of-sequence weekend
+        # actuals, ``project_finish`` is itself a working day and this is a no-op.
+        lf_constraints: list[date] = [_prev_working_day(project_finish, node_cal)]
         ls_constraints: list[date] = []
 
         for succ_id in g.successors(node_id):
             succ = task_map[succ_id]
+            # A completed successor is out of network logic (ADR-0136): the
+            # forward pass lays it at its actuals, possibly out of sequence, and
+            # it carries zero float. It therefore imposes no backward constraint
+            # on a still-live predecessor. Including it would clamp this task's
+            # late dates to the done successor's actuals — reporting false-zero
+            # float and polluting the critical path (#1819).
+            if _is_complete(succ):
+                continue
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
-            # Successors are visited first in reverse topo order, so these are always set.
+            # Live successors are visited first in reverse topo order, so these are always set.
             assert succ.late_start is not None and succ.late_finish is not None
 
             if dep.dep_type == DependencyType.FS:
@@ -1024,6 +1041,12 @@ def _compute_floats(
         ff_days = tf_days
         for succ_id in g.successors(node_id):
             succ = task_map[succ_id]
+            # Mirror the backward pass: a completed successor imposes no live
+            # constraint (it is out of network logic, ADR-0136), so it cannot
+            # bound this task's slip. Including it would report false-zero free
+            # float on the live predecessor (#1819).
+            if _is_complete(succ):
+                continue
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
             # The constraint is consumed on the successor's calendar (mirrors the

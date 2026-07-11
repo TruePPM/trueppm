@@ -111,6 +111,65 @@ class TestFaithfulness:
                 else:
                     assert len(binding) == 1, (t.id, q, len(binding))
 
+    def test_faithful_with_completed_out_of_sequence_successor(self) -> None:
+        """The derivation replay must agree with the engine when a completed,
+        out-of-sequence successor drops out of the backward pass and free-float
+        computation (#1819) — otherwise the "why" explanation would cite a done
+        task as the binding late-date/free-float constraint that the engine no
+        longer applies."""
+        project = make_project(
+            [
+                task("A", "Live predecessor", 5),
+                task(
+                    "B",
+                    "Done out of sequence",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 6),
+                    percent_complete=100.0,
+                ),
+                task("C", "Long parallel driver", 20),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        result = schedule(project)
+        by_id = {t.id: t for t in result.tasks}
+        for q in DATE_QUANTITIES:
+            d = derive_value(project, "A", q, result=result)
+            engine_value = getattr(by_id["A"], q.value)
+            assert d.value == engine_value.isoformat(), q
+            if d.binding is not None and d.binding.imposed_date is not None:
+                assert d.binding.imposed_date == engine_value, q
+        # No derivation term may reference the completed successor B.
+        for q in (Quantity.LATE_FINISH, Quantity.LATE_START, Quantity.FREE_FLOAT):
+            d = derive_value(project, "A", q, result=result)
+            assert all(c.source_task_id != "B" for c in d.contributions), q
+
+    def test_faithful_with_weekend_project_finish(self) -> None:
+        """When project_finish lands on a weekend (a completed task's Sunday
+        actual finish), the derivation's project-finish anchor must show the same
+        snapped date the engine floors at (#1820)."""
+        project = make_project(
+            [
+                task(
+                    "W",
+                    "Done Sunday finish",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 8),  # Sunday
+                    percent_complete=100.0,
+                ),
+                task("M", "Live Mon-Fri task", 5),
+            ],
+        )
+        result = schedule(project)
+        m = next(t for t in result.tasks if t.id == "M")
+        d = derive_value(project, "M", Quantity.LATE_FINISH, result=result)
+        assert d.value == m.late_finish.isoformat()
+        assert m.late_finish == date(2026, 3, 6)  # snapped to Friday
+        anchor = next(c for c in d.contributions if c.kind == "project_finish")
+        assert anchor.imposed_date == date(2026, 3, 6)
+
 
 # ---------------------------------------------------------------------------
 # Forward pass — early dates
