@@ -11,7 +11,7 @@ The api container runs `create_admin` automatically on startup (both in `docker 
 
 1. Checks whether any superuser already exists. If yes, it exits silently — re-deploys never overwrite a production password.
 2. Generates a URL-safe random password (16 bytes of entropy, about 22 characters), or honors `DJANGO_SUPERUSER_PASSWORD` if set.
-3. Creates the superuser with email `admin@trueppm.dev` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email).
+3. Creates the superuser with email `admin@trueppm.com` (or `DJANGO_SUPERUSER_EMAIL` if set), username `admin` (or the local part of the email).
 4. Writes the password to `/tmp/trueppm_admin_password` with mode `0o600`.
 
 ## Retrieve the first-run password

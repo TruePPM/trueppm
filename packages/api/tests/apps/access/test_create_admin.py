@@ -25,7 +25,7 @@ def test_creates_superuser_on_first_run(tmp_path: Path) -> None:
         out = StringIO()
         call_command("create_admin", stdout=out)
 
-    user = User.objects.get(email="admin@trueppm.dev")
+    user = User.objects.get(email="admin@trueppm.com")
     assert user.is_staff
     assert user.is_superuser
     assert user.username == "admin"
@@ -67,14 +67,14 @@ def test_explicit_email_and_username(tmp_path: Path, monkeypatch: pytest.MonkeyP
 def test_username_defaults_to_email_local_part(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", "kelly@trueppm.dev")
+    monkeypatch.setenv("DJANGO_SUPERUSER_EMAIL", "kelly@trueppm.com")
     monkeypatch.delenv("DJANGO_SUPERUSER_USERNAME", raising=False)
     pw_file = str(tmp_path / "admin_password")
 
     with patch(_CMD, pw_file):
         call_command("create_admin")
 
-    assert User.objects.get(email="kelly@trueppm.dev").username == "kelly"
+    assert User.objects.get(email="kelly@trueppm.com").username == "kelly"
 
 
 @pytest.mark.django_db
@@ -86,7 +86,7 @@ def test_explicit_password_is_used(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     with patch(_CMD, pw_file):
         call_command("create_admin")
 
-    user = User.objects.get(email="admin@trueppm.dev")
+    user = User.objects.get(email="admin@trueppm.com")
     assert user.check_password("explicit-password-123")
 
 
@@ -125,4 +125,4 @@ def test_password_printed_to_stdout_when_file_write_fails(tmp_path: Path) -> Non
     # On failure path the password appears in stdout, NOT the REDACTED placeholder.
     assert "REDACTED" not in output
     # Admin user was still created despite the file write failure.
-    assert User.objects.filter(email="admin@trueppm.dev", is_superuser=True).exists()
+    assert User.objects.filter(email="admin@trueppm.com", is_superuser=True).exists()

@@ -16,7 +16,7 @@ passed to ``logger.*`` which would forward it to log aggregators.
 Environment variables
 ---------------------
 ``DJANGO_SUPERUSER_EMAIL``
-    Admin email address (default: ``admin@trueppm.dev``).
+    Admin email address (default: ``admin@trueppm.com``).
 ``DJANGO_SUPERUSER_USERNAME``
     Admin username; defaults to the local part of the email.
 ``DJANGO_SUPERUSER_PASSWORD``
@@ -68,7 +68,7 @@ class Command(BaseCommand):
             self.stdout.write("Admin user already exists — skipping bootstrap.")
             return
 
-        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@trueppm.dev").strip()
+        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@trueppm.com").strip()
         username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip() or email.split("@")[0]
         password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(
             16

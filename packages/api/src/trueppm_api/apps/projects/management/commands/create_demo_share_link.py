@@ -1,6 +1,6 @@
 """Mint (or pin) the public read-only demo share link (issue #1487).
 
-The public demo (``try.trueppm.dev``) dogfoods the product's own tokenized,
+The public demo (``try.trueppm.com``) dogfoods the product's own tokenized,
 read-only share link (#283, extended to schedules by #1486) rather than a
 bespoke read-only mode: no login, no write path, near-zero abuse surface. This
 command binds a ``SCHEDULE`` :class:`~trueppm_api.apps.projects.models.ShareLink`
@@ -44,7 +44,7 @@ DEMO_LABEL = "Public read-only demo (#1487)"
 
 TOKEN_ENV = "TRUEPPM_DEMO_SHARE_TOKEN"
 BASE_URL_ENV = "TRUEPPM_DEMO_BASE_URL"
-DEFAULT_BASE_URL = "https://try.trueppm.dev"
+DEFAULT_BASE_URL = "https://try.trueppm.com"
 
 
 class Command(BaseCommand):

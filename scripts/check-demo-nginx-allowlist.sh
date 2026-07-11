@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Public-demo nginx allowlist gate (#1763).
 #
-# The hosted read-only demo (try.trueppm.dev, docker-compose.demo.yml) bakes a
+# The hosted read-only demo (try.trueppm.com, docker-compose.demo.yml) bakes a
 # fixed SECRET_KEY that is safe ONLY because the demo has zero user accounts and
 # no authenticated write path — access is exclusively the anonymous, read-only,
 # tokenized share link (#283/#1486). A blanket `location /api/ { proxy_pass … }`

@@ -37,7 +37,7 @@ docker compose exec api cat /tmp/trueppm_admin_password
 ### Public read-only demo (`docker-compose.demo.yml`)
 
 `docker-compose.demo.yml` is a **separate, hardened** stack for a public hosted
-demo (the mechanism behind `try.trueppm.dev`, which goes live at the 0.4 tag) —
+demo (the mechanism behind `try.trueppm.com`, which goes live at the 0.4 tag) —
 not the dev stack above. It seeds the sample **without** persona logins, so the
 instance has **zero user accounts and no authenticated write path**; the only way
 in is the product's own anonymous, tokenized, read-only

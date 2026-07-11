@@ -1,10 +1,10 @@
 # TruePPM PUBLIC DEMO nginx config (issue #1487, hardened #1763).
 #
-# Serves the hosted read-only demo (e.g. try.trueppm.dev). The demo is reachable
+# Serves the hosted read-only demo (e.g. try.trueppm.com). The demo is reachable
 # ONLY through the product's own tokenized, read-only share link (#283 / #1486):
 # there is no login, no write path, and near-zero abuse surface. This config
 # terminates plain HTTP on :80 — front it with TLS at an upstream load balancer
-# or reverse proxy (the demo deploy runbook covers try.trueppm.dev's certificate).
+# or reverse proxy (the demo deploy runbook covers try.trueppm.com's certificate).
 #
 # ── Public API surface is an ALLOWLIST, not a blanket proxy (#1763) ────────────
 # The demo's entire security model rests on one invariant: zero user accounts and

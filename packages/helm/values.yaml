@@ -341,5 +341,5 @@ admin:
   # Path inside the container where the one-time password is written.
   # Must match the emptyDir mountPath in the deployment template.
   passwordFile: /run/trueppm/admin_password
-  # Admin email address (defaults to admin@trueppm.dev if not set).
+  # Admin email address (defaults to admin@trueppm.com if not set).
   email: ""
