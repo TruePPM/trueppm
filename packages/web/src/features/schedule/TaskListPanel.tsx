@@ -6,6 +6,7 @@ import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
+import type { PhasePlannedBadge } from './plannedByPhase';
 
 /** Derive WBS nesting level from the dot-separated wbs string (e.g. '1.2.3' → level 3) */
 function wbsLevel(wbs: string): number {
@@ -175,9 +176,15 @@ interface Props {
   autoEditTaskId?: string | null;
   /** The row matching `autoEditTaskId` calls this once it has started editing. */
   onAutoEditConsumed?: () => void;
+  /**
+   * Per-phase "N planned" badge model (#1798) — keyed by summary task id. A
+   * phase row whose subtree holds sprint-assigned backlog renders the muted
+   * badge; a phase with no such work is simply absent from the map.
+   */
+  plannedByPhase?: Map<string, PhasePlannedBadge>;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById, phaseInWaitingIds, onAddPhaseFirstChild, autoEditTaskId, onAutoEditConsumed }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById, phaseInWaitingIds, onAddPhaseFirstChild, autoEditTaskId, onAutoEditConsumed, plannedByPhase }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -280,6 +287,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   onAddPhaseFirstChild={onAddPhaseFirstChild}
                   startInlineEditOnMount={autoEditTaskId === task.id}
                   onAutoEditConsumed={onAutoEditConsumed}
+                  plannedBadge={plannedByPhase?.get(task.id)}
                 />
               </div>
             );

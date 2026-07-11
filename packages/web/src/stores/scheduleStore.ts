@@ -94,6 +94,14 @@ interface GanttState {
   /** Grid↔Timeline layout mode (issue 1221) — `grid` shows the WBS table beside the
    *  timeline; `timeline` hides it for a full-width canvas. Persisted. */
   viewMode: ScheduleViewMode;
+  /**
+   * Cross-component bridge (#1798): a request to expand the Unscheduled tray and
+   * scroll a target sprint's group into view. The "N planned" badge on a phase
+   * row sets it; `UnscheduledGutter` consumes it (the gutter owns its collapsed
+   * state, so a store hop is the way to drive it from the task list). The
+   * `nonce` lets the same `sprintId` re-trigger the reveal on a repeat click.
+   */
+  revealGutterSprint: { sprintId: string | null; nonce: number } | null;
   /** Set the continuous zoom; clamps and re-derives `zoomLevel` (#351). */
   setPxPerDay: (px: number) => void;
   /**
@@ -107,6 +115,8 @@ interface GanttState {
   setScheduleActionToast: (toast: ScheduleActionToast | null) => void;
   setQuarterMode: (mode: QuarterMode) => void;
   setViewMode: (mode: ScheduleViewMode) => void;
+  /** Request the Unscheduled tray to reveal (and scroll to) a sprint group (#1798). */
+  requestRevealGutterSprint: (sprintId: string | null) => void;
 }
 
 export const useScheduleStore = create<GanttState>()((set) => ({
@@ -120,6 +130,7 @@ export const useScheduleStore = create<GanttState>()((set) => ({
   scheduleActionToast: null,
   quarterMode: readQuarterMode(),
   viewMode: readViewMode(),
+  revealGutterSprint: null,
   setPxPerDay: (px) => {
     const pxPerDay = clampPxPerDay(px);
     set({ pxPerDay, zoomLevel: deriveTier(pxPerDay) });
@@ -146,4 +157,8 @@ export const useScheduleStore = create<GanttState>()((set) => ({
     }
     set({ viewMode });
   },
+  requestRevealGutterSprint: (sprintId) =>
+    set((s) => ({
+      revealGutterSprint: { sprintId, nonce: (s.revealGutterSprint?.nonce ?? 0) + 1 },
+    })),
 }));

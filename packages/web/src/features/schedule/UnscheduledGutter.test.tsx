@@ -8,13 +8,14 @@
  *  - per-section role="status" empty rows (never hide one while the other fills)
  *  - backlog chips carry the dashed left edge + readiness label variant
  */
-import { screen, within } from '@testing-library/react';
+import { screen, within, waitFor } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRef, type ReactElement } from 'react';
 import type { ApiSprint, Task } from '@/types';
 import { UnscheduledGutter } from './UnscheduledGutter';
+import { useScheduleStore } from '@/stores/scheduleStore';
 
 vi.mock('@/api/client', () => ({
   apiClient: { patch: vi.fn().mockResolvedValue({ data: {} }) },
@@ -195,5 +196,39 @@ describe('UnscheduledGutter — sprint-assigned backlog groups (#1790)', () => {
     );
     const group = screen.getByRole('group', { name: /Targeted for Build Sprint 2, active, read-only/i });
     expect(within(group).getByText('not yet started — not scheduled')).toBeInTheDocument();
+  });
+
+  it('tags each sprint group with data-sprint-group for the reveal bridge (#1798)', () => {
+    const { container } = renderGutter(
+      [makeTask({ id: 'sb', name: 'Stretch item', status: 'BACKLOG', sprintId: 's2' })],
+      [makeSprint({ id: 's2', name: 'Build Sprint 2', state: 'PLANNED' })],
+    );
+    expect(container.querySelector('[data-sprint-group="s2"]')).toBeTruthy();
+  });
+});
+
+describe('UnscheduledGutter — reveal bridge (#1798)', () => {
+  beforeEach(() => {
+    useScheduleStore.setState({ revealGutterSprint: null });
+  });
+
+  it('expands the collapsed tray and scrolls the requested sprint group into view', async () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    // Persist a collapsed tray, then request the reveal.
+    localStorage.setItem('trueppm.gantt.unscheduledGutter.collapsed', 'true');
+
+    renderGutter(
+      [makeTask({ id: 'sb', name: 'Stretch item', status: 'BACKLOG', sprintId: 's2' })],
+      [makeSprint({ id: 's2', name: 'Build Sprint 2', state: 'PLANNED' })],
+    );
+    // Collapsed: the group is not rendered yet.
+    expect(screen.queryByText('Stretch item')).toBeNull();
+
+    useScheduleStore.getState().requestRevealGutterSprint('s2');
+
+    // The tray expands (group renders) and the group is scrolled into view.
+    expect(await screen.findByText('Stretch item')).toBeInTheDocument();
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
   });
 });

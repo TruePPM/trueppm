@@ -50,6 +50,7 @@ import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
 import { MobileSchedule } from './mobile/MobileSchedule';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
+import { computePlannedByPhase, type PhasePlannedBadge } from './plannedByPhase';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
   ToolbarOverflowMenu,
@@ -416,6 +417,28 @@ export function ScheduleView() {
   }, [allTasks.length]);
 
   const unscheduledTasks = useUnscheduledTasks(allTasks);
+
+  // "N planned" phase badges (#1798). Attribute the sprint-assigned backlog
+  // subset of the unscheduled set to its ancestor phase rows, then resolve
+  // sprint ids to display names ordered to match the gutter's group ordering
+  // (earliest-starting sprint first, so the badge's click target is the topmost
+  // group). A phase with no such work is absent from the map → no badge.
+  const plannedByPhase = useMemo(() => {
+    const planned = unscheduledTasks.filter((t) => t.sprintId);
+    const raw = computePlannedByPhase(planned, allTasks);
+    const startOf = (id: string) => sprints.find((s) => s.id === id)?.start_date ?? '￿';
+    const nameOf = (id: string) => sprintsById.get(id)?.name ?? 'Sprint';
+    const out = new Map<string, PhasePlannedBadge>();
+    for (const [phaseId, info] of raw) {
+      const ordered = [...info.sprintIds].sort((a, b) => startOf(a).localeCompare(startOf(b)));
+      out.set(phaseId, {
+        count: info.count,
+        primarySprintId: ordered[0] ?? null,
+        sprintNames: ordered.map(nameOf),
+      });
+    }
+    return out;
+  }, [unscheduledTasks, allTasks, sprints, sprintsById]);
 
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
@@ -1698,6 +1721,7 @@ export function ScheduleView() {
                   onAddPhaseFirstChild={handleAddPhaseFirstChild}
                   autoEditTaskId={pendingAutoEditId}
                   onAutoEditConsumed={() => setPendingAutoEditId(null)}
+                  plannedByPhase={plannedByPhase}
                 />
                 {/* Panel splitter — drag to resize task list width */}
                 <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />

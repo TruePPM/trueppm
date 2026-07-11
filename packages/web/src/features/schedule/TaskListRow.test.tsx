@@ -608,3 +608,72 @@ describe('TaskListRow — phase-in-waiting ghost affordance (issue #1754)', () =
     expect(onAddPhaseFirstChild).toHaveBeenCalledWith(base.id);
   });
 });
+
+describe('TaskListRow — "N planned" badge (#1798)', () => {
+  const summary: Task = { ...base, id: 'phase1', isSummary: true, name: 'Design Phase' };
+
+  beforeEach(() => {
+    useScheduleStore.setState({ revealGutterSprint: null });
+  });
+
+  it('renders the badge on a phase row when the subtree holds planned work', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={summary}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        plannedBadge={{ count: 3, primarySprintId: 's1', sprintNames: ['Sprint 4'] }}
+      />,
+    );
+    const badge = screen.getByTestId('planned-badge');
+    expect(badge).toHaveTextContent('3 planned');
+    // Single sprint → the honest "not a committed date" tooltip.
+    expect(badge).toHaveAttribute('title', 'Planned for Sprint 4 — not a committed date');
+  });
+
+  it('does not render on a leaf task even if a badge is passed', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={base}
+        level={2}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        plannedBadge={{ count: 2, primarySprintId: 's1', sprintNames: ['Sprint 4'] }}
+      />,
+    );
+    expect(screen.queryByTestId('planned-badge')).toBeNull();
+  });
+
+  it('does not render when the count is zero', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={summary}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        plannedBadge={{ count: 0, primarySprintId: null, sprintNames: [] }}
+      />,
+    );
+    expect(screen.queryByTestId('planned-badge')).toBeNull();
+  });
+
+  it('clicking requests the gutter reveal for the primary sprint', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(
+      <TaskListRow
+        task={summary}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+        plannedBadge={{ count: 3, primarySprintId: 's1', sprintNames: ['Sprint 4'] }}
+      />,
+    );
+    await user.click(screen.getByTestId('planned-badge'));
+    expect(useScheduleStore.getState().revealGutterSprint?.sprintId).toBe('s1');
+  });
+});
