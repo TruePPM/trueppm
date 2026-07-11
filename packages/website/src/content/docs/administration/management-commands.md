@@ -141,6 +141,13 @@ These exist for specific operational situations and are not part of routine use:
   the API without Beat. Pass `--dry-run` to report the current snapshot count without
   deleting. The windows come from the `FORECAST_SNAPSHOT_RETENTION` setting — see
   [Outbox & Record Retention → Forecast snapshots](/administration/retention/#forecast-snapshots).
+- **`audit_verify`** — verifies the integrity of the append-only, hash-chained
+  [agent-action audit log](/administration/mcp-server/#agent-action-audit-log). It walks
+  the chain in `sequence` order, recomputes each row's `record_hash` from its predecessor,
+  and exits non-zero on the first break (a tampered field, a deleted/reordered row, or a
+  broken link); an intact or empty chain exits `0`. Pass `--quiet` to suppress the summary
+  on success — handy for a cron/CI integrity check. It only reads, so it is always safe to
+  run.
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
 - **`flushexpiredtokens`** — deletes expired `OutstandingToken`/`BlacklistedToken`

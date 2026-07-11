@@ -76,6 +76,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.profiles",
     "trueppm_api.apps.timetracking",
     "trueppm_api.apps.sso",
+    "trueppm_api.apps.agents",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -1416,5 +1417,13 @@ SPECTACULAR_SETTINGS = {
         # already-published WorkspaceExportJobStatusEnum name so no component is
         # removed; the project export field simply reuses that stable component.
         "WorkspaceExportJobStatusEnum": "trueppm_api.apps.workspace.models.ExportJobStatus",
+        # ADR-0112 RC1 (#1805): the AgentAction read serializer exposes verdict,
+        # refusal_reason, and actor_kind choice sets. "verdict"/"refusal_reason" are
+        # generic field names a future model could reuse; pin to stable model-prefixed
+        # names so drf-spectacular does not hash-disambiguate or rename them (same
+        # regression class as ScopeChangeStatus — project_drf_enum_name_collision).
+        "AgentActionVerdictEnum": "trueppm_api.apps.agents.models.AgentActionVerdict",
+        "AgentActionRefusalReasonEnum": "trueppm_api.apps.agents.models.AgentActionRefusalReason",
+        "AgentActorKindEnum": "trueppm_api.apps.agents.models.AgentActorKind",
     },
 }

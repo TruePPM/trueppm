@@ -847,6 +847,138 @@
                 }
             }
         },
+        "/api/v1/agent-actions/": {
+            "get": {
+                "operationId": "v1_agent_actions_list",
+                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict`` and ``project`` is\nsupported for the common \"show me refusals\" / \"show me this project\" queries.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "agent-actions"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedAgentActionList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List agent actions"
+            }
+        },
+        "/api/v1/agent-actions/{id}/": {
+            "get": {
+                "operationId": "v1_agent_actions_retrieve",
+                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict`` and ``project`` is\nsupported for the common \"show me refusals\" / \"show me this project\" queries.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "agent-actions"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentAction"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve agent action"
+            }
+        },
         "/api/v1/auth/logout/": {
             "post": {
                 "operationId": "v1_auth_logout_create",
@@ -36627,6 +36759,164 @@
                 "type": "string",
                 "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
             },
+            "AgentAction": {
+                "type": "object",
+                "description": "Team-facing view of one audited agent action.\n\nRead-only — ``AgentAction`` rows are append-only and never mutated through the API.\nExposes the chain fields (``sequence``, ``record_hash``) for transparency; they are\nintegrity anchors, not secrets. Never exposes token material — only the 8-char\n``actor_token_prefix``.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "schema_version": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "AGENT_ACTION_SCHEMA_VERSION at write time (part of the hashed record)."
+                    },
+                    "sequence": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Per-instance monotonic sequence (RC2). Gap-free and strictly increasing; a gap or reorder is a tamper signal."
+                    },
+                    "actor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentActorKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "actor_token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 8 hex chars of the acting token — denormalized, never the token material. Preserved after token deletion."
+                    },
+                    "principal": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The human on whose behalf the actor acted (the token owner). SET_NULL so the row survives account deletion."
+                    },
+                    "action": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Stable operation identifier (e.g. the MCP tool / view name)."
+                    },
+                    "method": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "HTTP method (GET, POST, …)."
+                    },
+                    "object_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "object_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The project in scope, when resolvable from the request."
+                    },
+                    "capability_used": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The scope/capability that authorized (or was checked for) the action, e.g. 'mcp:read'."
+                    },
+                    "verdict": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentActionVerdictEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "refusal_reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentActionRefusalReasonEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Set (identity|policy) when verdict=refused; empty otherwise.\n\n* `identity` - Identity\n* `policy` - Policy"
+                    },
+                    "engine_version": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "trueppm-scheduler version at decision time (the answer-stamp engine anchor)."
+                    },
+                    "payload_hash": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "sha256 over the canonicalized operation payload (method, path, sorted query, body shape) — the reproducibility anchor for the request."
+                    },
+                    "record_hash": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "sha256(prev_hash ‖ canonical(record)) — the chain link. Recomputed and checked by `manage.py audit_verify`."
+                    },
+                    "summary": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Human-readable, team-facing."
+                    },
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "Set explicitly at write time (NOT auto_now_add) because its exact value is part of the hashed record."
+                    }
+                },
+                "required": [
+                    "action",
+                    "actor_kind",
+                    "actor_token_prefix",
+                    "capability_used",
+                    "engine_version",
+                    "id",
+                    "method",
+                    "object_id",
+                    "object_type",
+                    "occurred_at",
+                    "payload_hash",
+                    "principal",
+                    "project",
+                    "record_hash",
+                    "refusal_reason",
+                    "schema_version",
+                    "sequence",
+                    "summary",
+                    "verdict"
+                ]
+            },
+            "AgentActionRefusalReasonEnum": {
+                "enum": [
+                    "identity",
+                    "policy"
+                ],
+                "type": "string",
+                "description": "* `identity` - Identity\n* `policy` - Policy"
+            },
+            "AgentActionVerdictEnum": {
+                "enum": [
+                    "allowed",
+                    "refused",
+                    "requires_approval"
+                ],
+                "type": "string",
+                "description": "* `allowed` - Allowed\n* `refused` - Refused\n* `requires_approval` - Requires approval"
+            },
+            "AgentActorKindEnum": {
+                "enum": [
+                    "mcp_token"
+                ],
+                "type": "string",
+                "description": "* `mcp_token` - MCP token"
+            },
             "AggregationPolicyEnum": {
                 "enum": [
                     "worst",
@@ -40671,6 +40961,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/AcceptanceCriterion"
+                        }
+                    }
+                }
+            },
+            "PaginatedAgentActionList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AgentAction"
                         }
                     }
                 }
