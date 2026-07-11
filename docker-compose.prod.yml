@@ -15,7 +15,7 @@
 #   ALLOWED_HOSTS=trueppm.example.com
 #
 # Optional .env variables:
-#   DJANGO_SUPERUSER_EMAIL=admin@example.com  (default: admin@trueppm.dev)
+#   DJANGO_SUPERUSER_EMAIL=admin@example.com  (default: admin@trueppm.com)
 #   TRUEPPM_ADMIN_PASSWORD_FILE=/run/trueppm/admin_password  (default)
 #
 # Retrieve the initial admin password after first deploy:

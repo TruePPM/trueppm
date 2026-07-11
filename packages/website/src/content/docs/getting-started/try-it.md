@@ -10,7 +10,7 @@ hybrid sample project — arrive with the **0.4 beta**. This page previews them.
 :::caution[Coming in 0.4 — not yet available]
 Both paths on this page land with the **0.4 tag**. 0.4 is currently **Underway**
 (target Jul 27 – Aug 3, 2026) — see the [roadmap](/overview/roadmap/). The hosted
-`try.trueppm.dev` instance goes live at the tag, and the `docker-compose.demo.yml`
+`try.trueppm.com` instance goes live at the tag, and the `docker-compose.demo.yml`
 trial pulls published release images that are not built until then (#939). Until
 0.4 tags, treat this page as a preview.
 
@@ -26,7 +26,7 @@ dev stack up with `docker compose up -d`, then seed a populated demo with
 Once 0.4 tags, nothing will be needed to install — you will open the hosted demo
 and click around a real, populated schedule:
 
-**→ [try.trueppm.dev](https://try.trueppm.dev)** *(live at the 0.4 tag)*
+**→ [try.trueppm.com](https://try.trueppm.com)** *(live at the 0.4 tag)*
 
 It will be served through TruePPM's own tokenized, **read-only share link** (the same
 mechanism the product gives you for [sharing a schedule or board](/administration/sharing-and-access/)).
@@ -78,11 +78,11 @@ restarts, pin a token before the first `up`:
 
 ```bash
 TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
-TRUEPPM_DEMO_BASE_URL=https://try.trueppm.dev \
+TRUEPPM_DEMO_BASE_URL=https://try.trueppm.com \
   docker compose -f docker-compose.demo.yml up
 ```
 
-The public URL is then `https://try.trueppm.dev/share/schedule/your-fixed-token`.
+The public URL is then `https://try.trueppm.com/share/schedule/your-fixed-token`.
 The [`create_demo_share_link`](/administration/management-commands/#create_demo_share_link)
 command that mints it is idempotent on the pinned token.
 
@@ -93,7 +93,7 @@ command that mints it is idempotent on the pinned token.
 | Evaluate a populated demo **today** | [Installation](/getting-started/installation/) → `seed_demo_project --with-personas` | Now (0.3) |
 | Learn the data model via the API | [Quickstart, Route B](/getting-started/quickstart/#route-b--build-a-project-via-the-api) | Now (0.3) |
 | Stand up a real instance for your team | [Installation](/getting-started/installation/) | Now (0.3) |
-| Click around a live schedule with nothing to install | [try.trueppm.dev](https://try.trueppm.dev) | Ships in 0.4 |
+| Click around a live schedule with nothing to install | [try.trueppm.com](https://try.trueppm.com) | Ships in 0.4 |
 | Run the read-only demo on your own machine | `docker compose -f docker-compose.demo.yml up` | Ships in 0.4 |
 
 ## Next steps

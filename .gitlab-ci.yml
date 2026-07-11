@@ -588,7 +588,7 @@ docs:version-accuracy:
 security:demo-nginx-allowlist:
   extends: .fast-job
   # Public-demo nginx allowlist gate (#1763). The hosted read-only demo
-  # (try.trueppm.dev / docker-compose.demo.yml) bakes a fixed SECRET_KEY that is
+  # (try.trueppm.com / docker-compose.demo.yml) bakes a fixed SECRET_KEY that is
   # safe ONLY because the demo has zero accounts and no authenticated write path —
   # access is exclusively the anonymous, tokenized, read-only share link. A
   # blanket `location /api/ { proxy_pass … }` on the demo's nginx template (the

@@ -21,7 +21,7 @@ Configured entirely through environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DJANGO_SUPERUSER_EMAIL` | `admin@trueppm.dev` | Admin email |
+| `DJANGO_SUPERUSER_EMAIL` | `admin@trueppm.com` | Admin email |
 | `DJANGO_SUPERUSER_USERNAME` | local part of the email | Admin username |
 | `DJANGO_SUPERUSER_PASSWORD` | secure random | Explicit password; if unset, a random one is generated |
 | `TRUEPPM_ADMIN_PASSWORD_FILE` | `/tmp/trueppm_admin_password` | Where the generated password is written (mode `0600`) |
@@ -53,7 +53,7 @@ project and re-seeds it from scratch, so it is safe to run repeatedly while expl
 ## `create_demo_share_link`
 
 Mints (or pins) the public read-only **schedule share link** used by the hosted
-demo (`try.trueppm.dev`) and prints its URL. The demo dogfoods the product's own
+demo (`try.trueppm.com`) and prints its URL. The demo dogfoods the product's own
 tokenized, read-only share link (#283 / #1486) rather than a bespoke read-only
 mode — no login, no write path, near-zero abuse surface. Run it after
 `seed_demo_project`; the [demo compose stack](/getting-started/try-it/) runs both
@@ -63,7 +63,7 @@ automatically.
 |------|--------|
 | `--project <name>` | Demo project to share (default: `Platform Migration`) |
 | `--token <token>` | Pin a fixed raw token for a stable, reprintable URL (falls back to the `TRUEPPM_DEMO_SHARE_TOKEN` env var). Omit to mint a random token once |
-| `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `https://try.trueppm.dev`) |
+| `--base-url <url>` | Public base URL of the demo host (falls back to `TRUEPPM_DEMO_BASE_URL`, else `https://try.trueppm.com`) |
 
 With a pinned token the command is **idempotent and reprintable** — it upserts a
 link whose hash matches the token and prints the same stable URL on every run, so

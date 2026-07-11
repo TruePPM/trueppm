@@ -23,10 +23,10 @@
 # survives restarts, pin a token before first `up`:
 #
 #     TRUEPPM_DEMO_SHARE_TOKEN=your-fixed-token \
-#     TRUEPPM_DEMO_BASE_URL=https://try.trueppm.dev \
+#     TRUEPPM_DEMO_BASE_URL=https://try.trueppm.com \
 #       docker compose -f docker-compose.demo.yml up
 #
-# The public URL is then:  https://try.trueppm.dev/share/schedule/your-fixed-token
+# The public URL is then:  https://try.trueppm.com/share/schedule/your-fixed-token
 #
 # ── Security note ─────────────────────────────────────────────────────────────
 # The SECRET_KEY / INTEGRATION_ENCRYPTION_KEY below are BAKED DEMO VALUES, safe
@@ -45,7 +45,7 @@ x-api-env: &api-env
   # write path (see header). Override with your own for any real deployment.
   SECRET_KEY: ${SECRET_KEY:-trueppm-public-demo-secret-key-read-only-no-accounts-0000}
   INTEGRATION_ENCRYPTION_KEY: ${INTEGRATION_ENCRYPTION_KEY:-bCrnaS7Vi4J94X52yHZ5V1clG-7Sn-WUhO_pIIX8qBk=}
-  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,api,try.trueppm.dev}
+  ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,api,try.trueppm.com}
   # Internal Docker network links only; TLS is terminated upstream.
   TRUEPPM_ALLOW_UNENCRYPTED_DB: "true"
   TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE: "true"
@@ -120,7 +120,7 @@ services:
              python manage.py create_demo_share_link"
     environment:
       <<: *api-env
-      TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-https://try.trueppm.dev}
+      TRUEPPM_DEMO_BASE_URL: ${TRUEPPM_DEMO_BASE_URL:-https://try.trueppm.com}
       # Optional: pin a fixed token for a stable, reprintable share URL.
       TRUEPPM_DEMO_SHARE_TOKEN: ${TRUEPPM_DEMO_SHARE_TOKEN:-}
     depends_on:
