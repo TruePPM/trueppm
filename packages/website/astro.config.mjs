@@ -200,9 +200,12 @@ export default defineConfig({
           label: "Overview",
           items: [
             { slug: "overview" },
-            { slug: "overview/roadmap" },
+            { slug: "overview/why-now" },
+            { slug: "overview/principles" },
+            { slug: "overview/computed-not-guessed" },
             { slug: "overview/sso-is-not-enterprise" },
             { slug: "overview/team-ownership-not-surveillance" },
+            { slug: "overview/roadmap" },
           ],
         },
         // --- The Story (canonical narrative — lands prospects + evaluators) ---

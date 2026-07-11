@@ -56,19 +56,11 @@ Two consequences fall out of the principle:
   signals into a cross-program view, the same per-team consent **re-applies**. Consent is
   never "once-granted, always-granted."
 
-## One of three lines we draw on purpose
+## One of the lines we draw on purpose
 
-TruePPM's positioning rests on three deliberate boundaries, each stated as a single
-sentence:
-
-- [**SSO is not an enterprise feature**](/overview/sso-is-not-enterprise/) — logging in
-  through your own identity provider is adoption table stakes, not a paid upsell.
-- **Computed, not guessed** — every date and forecast is calculated by the engine, with
-  the derivation to show for it; a language model may *ask* your schedule but never
-  *invents* your dates.
-- **Team ownership is not surveillance** — the signals a team generates about its own flow
-  belong to the team, and roll up only as forecasts, never as scoreboards.
-
-The through-line: a tool a team must adopt voluntarily has to be built for the team first.
-A signal that becomes a management weapon is a signal the team stops trusting — and an
-untrusted signal is worthless to management too.
+Team ownership is not surveillance is one of TruePPM's four
+[**guiding principles**](/overview/principles/) — alongside *computed, not guessed*,
+*adoption over gatekeeping* ([SSO is not an enterprise feature](/overview/sso-is-not-enterprise/)),
+and *your data, your infrastructure*. The through-line: a tool a team must adopt voluntarily
+has to be built for the team first. A signal that becomes a management weapon is a signal the
+team stops trusting — and an untrusted signal is worthless to management too.
