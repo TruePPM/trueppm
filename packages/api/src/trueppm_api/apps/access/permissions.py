@@ -9,6 +9,7 @@ from rest_framework import viewsets
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -1225,12 +1226,42 @@ class McpReadableViewMixin(_McpViewBase):
     ``get_permissions()`` without the mixin claiming to be a standalone view.
     """
 
+    mcp_compute_heavy: bool = False
+    """Set ``True`` on a subclass whose read triggers a CPM/Monte Carlo recompute.
+
+    Adds the tighter :class:`~trueppm_api.apps.access.throttles.McpTokenComputeThrottle`
+    bucket on top of the baseline per-token read throttle for the four compute-heavy
+    tools — ``whatif``, ``monte-carlo/latest``, ``forecast``, ``sprint-forecast``
+    (#1808 finding F4). Leave ``False`` for the cheap metadata reads.
+    """
+
     def get_authenticators(self) -> list[BaseAuthentication]:
         from trueppm_api.apps.projects.authentication import (
             ProjectApiTokenAuthentication,
         )
 
         return [ProjectApiTokenAuthentication(), *super().get_authenticators()]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        """Add per-token MCP throttles without disturbing the view's own throttles.
+
+        Token-authenticated reads on the MCP surface were unbounded (#1808 F4). The
+        baseline :class:`McpTokenReadThrottle` bounds every MCP-readable view per
+        token; compute-heavy views additionally stack
+        :class:`McpTokenComputeThrottle`. Both are no-ops for human JWT/Session
+        callers (their ``get_cache_key`` returns ``None``), so a view's existing
+        throttles and the default ``user`` throttle keep governing human traffic.
+        """
+        from trueppm_api.apps.access.throttles import (
+            McpTokenComputeThrottle,
+            McpTokenReadThrottle,
+        )
+
+        throttles = list(super().get_throttles())
+        throttles.append(McpTokenReadThrottle())
+        if self.mcp_compute_heavy:
+            throttles.append(McpTokenComputeThrottle())
+        return throttles
 
     def mcp_token_guards(self) -> list[BasePermission]:
         """Read-only MCP token guards to append to a view's RBAC permission list.

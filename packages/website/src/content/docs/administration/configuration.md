@@ -47,6 +47,8 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED` | `true` | Org-wide kill switch for [public sharing](/features/board-sharing/) — governs **both** board and schedule links. When `false`, project Admins cannot mint public links (`403`) **and** every existing public link stops resolving (`404`) instance-wide — the operator lever for locked-down environments. No data is exposed until an Admin explicitly creates a link, so the default is on. |
 | `TRUEPPM_THROTTLE_SHARE_ACCESS_RATE` | `60/min` | Rate limit for the **unauthenticated** public board endpoint (`GET /share/board/<token>/`), per client IP, in DRF `<count>/<period>` form. Bounds scraping of a leaked or widely-shared link. |
 | `TRUEPPM_THROTTLE_SHARE_MINT_RATE` | `20/min` | Rate limit for an Admin minting public board links, per account, in DRF `<count>/<period>` form. |
+| `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **API-token** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_SHARE_BOARD_MAX_CARDS` | `1000` | Maximum cards in a public board snapshot; a larger board is truncated (the viewer sees a "showing the first N cards" note). |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
@@ -137,6 +139,39 @@ the `trueppm.auth` logger, carrying the **hashed** username and client IP (never
 the raw credential). Ship this logger to your SIEM to alarm on credential-stuffing
 bursts — a spike of failures against one `username_hash` from many `client_ip`
 values is the distributed-attack signature.
+
+## MCP read-surface rate limiting
+
+The [MCP server](/features/mcp-server/) exposes a read-only view of the OSS API to
+`mcp:read` API tokens so an AI agent can query schedules, forecasts, and Monte
+Carlo results. Those token reads are rate-limited **per token** so an agent retry
+loop — or a leaked read-only token — cannot burn arbitrary server compute. Two
+throttles apply:
+
+| Variable | Default | Buckets by | Applies to |
+|----------|---------|------------|------------|
+| `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | API token | Every MCP-readable endpoint |
+| `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | API token | The four compute-heavy tools only |
+
+The four **compute-heavy** tools — what-if, latest Monte Carlo, forecast, and
+sprint-forecast — each run a CPM + Monte Carlo recompute per call, so they stack
+the tighter `mcp_read_compute` bucket **on top of** the baseline `mcp_read` one.
+A token calling one of them is bounded by whichever limit it hits first.
+
+A few behaviors are worth knowing:
+
+- **Only token traffic is throttled.** Requests authenticated by a human session
+  or JWT pass through untouched — they remain governed by the general
+  `TRUEPPM_THROTTLE_USER_RATE` limit above — so tightening these rates never slows
+  an interactive user browsing the same views.
+- **Each token has its own bucket**, keyed on the token's id. Revoking and
+  re-minting a token starts a fresh window, and two agents holding two tokens
+  neither share nor starve one budget.
+- **Exceeding a limit returns `429 Too Many Requests`** with a `Retry-After`
+  header, the same as the other scoped throttles.
+
+Both use Django REST Framework's `<count>/<period>` syntax. Widen them for a
+trusted internal agent fleet, or tighten them under load.
 
 ## MS Project import limit
 
