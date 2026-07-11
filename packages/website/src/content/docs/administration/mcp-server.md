@@ -218,8 +218,15 @@ python manage.py audit_verify
 It walks the chain in order, recomputes each hash, and reports the first break (or
 confirms the chain is intact). This is the OSS **integrity self-check** — it lets a
 team detect tampering on its own instance. External notarization, a cryptographic
-signature over the chain, retention policy, and an org-wide cross-instance trail are
-Enterprise (ADR-0112).
+signature over the chain, *enforced* retention policy, legal hold, and an org-wide
+cross-instance trail are Enterprise (ADR-0112).
+
+The log is append-only and grows without limit. To bound it, an operator can prune the
+oldest records with [`audit_prune`](/administration/management-commands/#maintenance-commands),
+which deletes a block of the oldest rows and writes a checkpoint so `audit_verify` keeps
+verifying the records that remain. Pruning is **manual and never automatic** — TruePPM
+does not delete audit history on its own; cron the command yourself if you want periodic
+rotation.
 
 Project members read their team's agent actions at `GET /api/v1/agent-actions/`,
 scoped to the projects they belong to (plus their own agent's actions). A human

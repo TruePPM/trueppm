@@ -110,9 +110,11 @@ class AgentActionChainHead(models.Model):
 class AgentAction(models.Model):
     """One append-only, hash-chained record of an MCP/agent decision (ADR-0112 RC1, #1805).
 
-    Never updated or deleted after creation — a purge would break the chain, which
-    ``audit_verify`` would then (correctly) report as a break. ``token_prefix`` and the
-    denormalized identity fields are preserved after the parent token/user is deleted
+    Never updated in place. Rows are removed only by chain-aware pruning (``audit_prune``,
+    ADR-0361), which deletes a contiguous oldest-prefix and writes an
+    ``AgentActionCheckpoint`` so ``audit_verify`` re-anchors and the surviving tail still
+    verifies; a delete *without* that checkpoint still surfaces as a break. ``token_prefix``
+    and the denormalized identity fields are preserved after the parent token/user is deleted
     (the FKs are SET_NULL) so a row stays identifiable and its hash stays valid.
     """
 
@@ -229,3 +231,58 @@ class AgentAction(models.Model):
 
     def __str__(self) -> str:
         return f"AgentAction(#{self.sequence} {self.action} {self.verdict})"
+
+
+class AgentActionCheckpoint(models.Model):
+    """Immutable re-anchor written when the oldest ``AgentAction`` rows are pruned (ADR-0361).
+
+    Chain-aware pruning (``manage.py audit_prune``) deletes a contiguous **prefix** of the
+    oldest rows. Because ``audit_verify`` recomputes each row's ``record_hash`` from its
+    predecessor's, deleting that predecessor would break verification of the first surviving
+    row. This checkpoint stores exactly what the verifier re-seeds from: the ``record_hash``
+    of the last-deleted row (the surviving tail's ``prev_hash``) and the sequence at which
+    the retained chain resumes.
+
+    One row is written per prune that actually deletes rows; ``audit_verify`` seeds from the
+    **latest** checkpoint (highest ``pruned_through_sequence``). It is append-only — an
+    integrity-continuity artifact that keeps the OSS self-check passing across a legitimate
+    prune, **not** compliance evidence. Signing, notarizing, or hash-chaining the checkpoints
+    for an external auditor is the Enterprise value-add (ADR-0112 §3, #146), not built here.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    pruned_through_sequence = models.BigIntegerField(
+        unique=True,
+        help_text="Highest AgentAction.sequence deleted by this prune; the retained chain "
+        "resumes at pruned_through_sequence + 1.",
+    )
+    pruned_through_hash = models.CharField(
+        max_length=64,
+        help_text="record_hash of the last-deleted row — the prev_hash the first surviving "
+        "row points at, and the seed audit_verify re-anchors from.",
+    )
+    first_retained_sequence = models.BigIntegerField(
+        help_text="Sequence of the lowest surviving row (pruned_through_sequence + 1); "
+        "audit_verify asserts the retained chain starts here.",
+    )
+    pruned_count = models.BigIntegerField(help_text="Number of rows deleted by this prune.")
+    pruned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_action_prunes",
+        help_text="The user who ran the prune, when known. SET_NULL so the row survives "
+        "account deletion.",
+    )
+    created_at = models.DateTimeField(help_text="When the prune ran (set at write time).")
+
+    class Meta:
+        db_table = "agents_agent_action_checkpoint"
+        ordering = ["pruned_through_sequence"]
+
+    def __str__(self) -> str:
+        return (
+            f"AgentActionCheckpoint(through={self.pruned_through_sequence}, "
+            f"count={self.pruned_count})"
+        )
