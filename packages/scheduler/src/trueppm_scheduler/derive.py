@@ -396,11 +396,21 @@ def _derive_backward(
         value = task.late_start if want_start else task.late_finish
         return (value.isoformat() if value else None, contribs)
 
+    # The project-finish anchor snaps to this node's own last workable day, exactly
+    # as engine._backward_pass seeds it (#1820) — the provenance must cite the date
+    # the engine actually floors at, not a raw weekend project_finish.
     lf_terms: list[DerivationContribution] = [
-        DerivationContribution(kind="project_finish", imposed_date=project_finish)
+        DerivationContribution(
+            kind="project_finish", imposed_date=_prev_working_day(project_finish, cal)
+        )
     ]
     ls_terms: list[DerivationContribution] = []
     for succ, dep_type, lag in succs:
+        # A completed successor is out of network logic and imposes no backward
+        # constraint (engine._backward_pass skips it, #1819); it must not appear as
+        # a derivation term or the explanation would disagree with the late dates.
+        if _is_complete(succ):
+            continue
         assert succ.late_start is not None and succ.late_finish is not None
         lag_days = lag.days
         if dep_type == DependencyType.FS:
@@ -544,6 +554,11 @@ def _derive_free_float(
     ff_days = tf_days
     binding: DerivationContribution | None = None
     for succ, dep_type, lag in succs:
+        # Skip completed successors, matching engine._compute_floats (#1819): a done
+        # task imposes no live constraint, so it is not a free-float term. With all
+        # successors complete, binding stays None and free float falls back to total.
+        if _is_complete(succ):
+            continue
         assert (
             task.early_start is not None
             and task.early_finish is not None

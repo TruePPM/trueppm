@@ -46,9 +46,15 @@ pub fn compute_floats(
         // float, which is also the value when there are no successors.
         let mut ff_days = tf_days;
         for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let succ = &tasks[edge.target().index()];
+            // Mirror the backward pass: a completed successor is out of network
+            // logic (ADR-0136) and imposes no live constraint, so it cannot bound
+            // this task's slip. Including it reports false-zero free float (#1819).
+            if succ.is_complete() {
+                continue;
+            }
             let dep = &deps[*edge.weight()];
             let lag_days = dep.lag_days();
-            let succ = &tasks[edge.target().index()];
             let succ_es = succ.early_start.unwrap();
             let succ_ef = succ.early_finish.unwrap();
             let (imposed, succ_date) = match dep.dep_type {

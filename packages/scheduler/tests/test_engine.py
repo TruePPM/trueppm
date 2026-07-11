@@ -1480,6 +1480,86 @@ class TestProgressAware:
 
 
 # ---------------------------------------------------------------------------
+# Backward pass with progress: completed successors and weekend project finish
+# ---------------------------------------------------------------------------
+
+
+class TestBackwardPassProgress:
+    """The backward pass must not let out-of-sequence actuals corrupt the late
+    dates (and therefore the critical path) of still-live tasks."""
+
+    def test_completed_successor_imposes_no_backward_constraint(self) -> None:
+        """A done, out-of-sequence successor must not clamp its live
+        predecessor's late dates — the predecessor keeps its true float and
+        stays off the critical path (#1819).
+
+        A --FS--> B where B is already complete (finished before A even starts),
+        and a long parallel task C is the real driver. The forward pass takes B
+        out of network logic (ADR-0136); the backward pass must do the same, or
+        A's LF is pulled back to B's actual start and A reports false-zero float.
+        """
+        p = make_project(
+            tasks=[
+                task("A", "A", 5),  # live, not started
+                task(
+                    "B",
+                    "B",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 6),  # done out of sequence
+                    percent_complete=100.0,
+                ),
+                task("C", "C", 20),  # long parallel driver
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+
+        # A floats freely up to the project finish (driven by C), not critical.
+        assert by_id["A"].total_float == timedelta(days=15)
+        assert by_id["A"].free_float == timedelta(days=15)
+        assert by_id["A"].is_critical is False
+        assert by_id["A"].late_finish == r.project_finish
+        assert "A" not in r.critical_path
+
+    def test_weekend_project_finish_seed_snaps_to_node_calendar(self) -> None:
+        """When project_finish lands on a non-working day (a completed task's
+        weekend actual finish), each live task's late-finish seed must floor at
+        its own last workable day — or its float is overstated and a truly
+        critical task is reported as having slack (#1820).
+
+        W is done with an actual finish on a Sunday (so project_finish is a
+        Sunday); M is a live Mon-Fri task with no successors. Seeding M's LF at
+        the raw Sunday overstates M's float by a day; snapping to the prior
+        Friday reports M as critical, which it is (slipping M pushes the finish).
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "W",
+                    "W",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 8),  # Sunday
+                    percent_complete=100.0,
+                ),
+                task("M", "M", 5),  # live Mon-Fri task
+            ],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+
+        assert r.project_finish == date(2026, 3, 8)  # Sunday
+        # M's late finish floors at its last workable day <= project finish.
+        assert by_id["M"].late_finish == date(2026, 3, 6)  # Friday
+        assert by_id["M"].total_float == timedelta(0)
+        assert by_id["M"].is_critical is True
+
+
+# ---------------------------------------------------------------------------
 # Completed tasks retain their full-duration span (ADR-0136)
 # ---------------------------------------------------------------------------
 

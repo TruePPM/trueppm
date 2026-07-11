@@ -52,14 +52,26 @@ pub fn backward_pass(
         // In-progress work's late span covers only its remaining duration.
         let duration_days = tasks[i].effective_duration_days();
 
-        let mut lf_constraints: Vec<NaiveDate> = vec![project_finish];
+        // Seed the late-finish floor at the project end snapped to this node's
+        // last workable day: project_finish is max(early_finish) and can land on
+        // a day this node cannot work (a completed task's weekend actual_finish),
+        // overstating float and propagating upstream (#1820). A no-op when
+        // project_finish is already a working day.
+        let mut lf_constraints: Vec<NaiveDate> = vec![prev_working_day(project_finish, calendar)?];
         let mut ls_constraints: Vec<NaiveDate> = Vec::new();
 
         for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
+            let succ = &tasks[edge.target().index()];
+            // A completed successor is out of network logic (ADR-0136); it
+            // imposes no backward constraint on a live predecessor. Including it
+            // would clamp this task's late dates to the done successor's actuals,
+            // reporting false-zero float and polluting the critical path (#1819).
+            if succ.is_complete() {
+                continue;
+            }
             let dep = &deps[*edge.weight()];
             let lag_days = dep.lag_days();
 
-            let succ = &tasks[edge.target().index()];
             let succ_ls = succ.late_start.unwrap();
             let succ_lf = succ.late_finish.unwrap();
 
