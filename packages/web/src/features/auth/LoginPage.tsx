@@ -246,7 +246,11 @@ export function LoginPage() {
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // Editing the email invalidates any prior SSO probe result.
+                setSsoStatus('idle');
+              }}
               disabled={isSubmitting}
               placeholder="anna.khoury@example.com"
               className="
@@ -365,11 +369,12 @@ export function LoginPage() {
             <div className="flex justify-center">
               <OSSChip />
             </div>
+            {/* No static aria-label — the visible text IS the accessible name so
+                it tracks the flow state; the live region below announces changes. */}
             <button
               type="button"
               onClick={() => void handleSso()}
               disabled={ssoBusy}
-              aria-label="Continue with SSO"
               className="
                 h-11 w-full rounded border border-neutral-border
                 bg-neutral-surface-raised text-neutral-text-primary
@@ -386,15 +391,15 @@ export function LoginPage() {
                   ? 'Redirecting you securely…'
                   : 'Continue with SSO'}
             </button>
-            {ssoStatus === 'redirecting' && (
+            {/* One polite live region covering every transient SSO state so a
+                screen-reader user hears the outcome of pressing the button. */}
+            {ssoStatus !== 'idle' && (
               <p role="status" aria-live="polite" className="text-xs text-neutral-text-secondary text-center">
-                Provider matched{ssoProvider?.issuer ? `: ${ssoProvider.issuer}` : ''} — redirecting
-                you securely…
-              </p>
-            )}
-            {ssoStatus === 'unmatched' && (
-              <p role="status" className="text-xs text-neutral-text-secondary text-center">
-                No SSO provider is set up for that email domain. Sign in with your password above.
+                {ssoStatus === 'checking' && 'Checking your identity provider…'}
+                {ssoStatus === 'redirecting' &&
+                  `Provider matched${ssoProvider?.issuer ? `: ${ssoProvider.issuer}` : ''} — redirecting you securely…`}
+                {ssoStatus === 'unmatched' &&
+                  'No SSO provider is set up for that email domain. Sign in with your password above.'}
               </p>
             )}
           </div>

@@ -78,7 +78,7 @@ function copyFor(code: string | null): ErrorCopy {
 const CheckIcon = (
   <span
     aria-hidden="true"
-    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-on-track-bg text-semantic-on-track-text text-xl"
+    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-on-track-bg text-semantic-on-track text-xl"
   >
     ✓
   </span>
@@ -87,7 +87,7 @@ const CheckIcon = (
 const WarnIcon = (
   <span
     aria-hidden="true"
-    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-critical-bg text-semantic-critical-text text-xl"
+    className="flex h-11 w-11 items-center justify-center rounded-full bg-semantic-critical-bg text-semantic-critical text-xl"
   >
     !
   </span>

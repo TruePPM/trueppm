@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkspaceSsoPage } from './WorkspaceSsoPage';
@@ -36,11 +36,12 @@ const CONFIGURED: OidcProviderConfig = {
 };
 
 let providerData: OidcProviderConfig = BLANK;
+const deleteMutate = vi.fn(() => Promise.resolve());
 
 vi.mock('@/hooks/useSso', () => ({
   useOidcProvider: () => ({ data: providerData, isLoading: false, isError: false }),
   useUpdateOidcProvider: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  useDeleteOidcProvider: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useDeleteOidcProvider: () => ({ mutateAsync: deleteMutate, isPending: false }),
   useTestOidcConnection: () => ({ mutate: vi.fn(), isPending: false, data: undefined }),
 }));
 vi.mock('../hooks/useDirtyForm', () => ({ useDirtyForm: () => undefined }));
@@ -52,6 +53,7 @@ vi.mock('@/hooks/useEdition', () => ({
 describe('WorkspaceSsoPage', () => {
   beforeEach(() => {
     providerData = BLANK;
+    deleteMutate.mockClear();
   });
 
   it('shows the empty state with a connect CTA when nothing is configured', () => {
@@ -86,6 +88,20 @@ describe('WorkspaceSsoPage', () => {
     expect(
       screen.queryByRole('switch', { name: /disable password/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('confirms via a styled dialog (not window.confirm) before disabling SSO', async () => {
+    providerData = CONFIGURED;
+    render(<WorkspaceSsoPage />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Disable SSO' }));
+    // A styled alertdialog opens; nothing is deleted until it is confirmed.
+    const dialog = screen.getByRole('alertdialog', { name: 'Disable SSO?' });
+    expect(deleteMutate).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Disable SSO' }));
+    expect(deleteMutate).toHaveBeenCalledTimes(1);
   });
 
   it('shows the default-role picker only when auto-create is on', () => {

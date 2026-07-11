@@ -30,6 +30,7 @@ import { docsUrl } from '@/lib/docsUrl';
 import { SettingsPageTitle, FieldRow, SettingsCard } from '../SettingsShell';
 import { Toggle } from '../components/Toggle';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { ConfirmDialog } from '../components/integrations/WebhooksManager';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 
 const INPUT_CLASS =
@@ -133,6 +134,8 @@ export function WorkspaceSsoPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   // Reveal the form from the empty state without saving anything yet.
   const [connecting, setConnecting] = useState(false);
+  // Styled confirm for the destructive Disable-SSO action (not window.confirm).
+  const [confirmDisable, setConfirmDisable] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -296,10 +299,10 @@ export function WorkspaceSsoPage() {
             role="alert"
             className="mb-5 rounded-card border border-semantic-critical/40 bg-semantic-critical-bg px-4 py-3"
           >
-            <p className="text-[13px] font-medium text-semantic-critical-text">
+            <p className="text-[13px] font-medium text-semantic-critical">
               Couldn&apos;t save SSO configuration
             </p>
-            <p className="mt-0.5 text-[13px] text-semantic-critical-text">{saveError}</p>
+            <p className="mt-0.5 text-[13px] text-semantic-critical">{saveError}</p>
             <p className="mt-1 text-[12px] text-neutral-text-secondary">
               Your entries are kept — fix the values and save again.
             </p>
@@ -468,10 +471,10 @@ export function WorkspaceSsoPage() {
               </button>
               <p className="text-[12px]" aria-live="polite">
                 {testResult?.ok === true && (
-                  <span className="text-semantic-on-track-text">✓ Reachable.</span>
+                  <span className="text-semantic-on-track">✓ Reachable.</span>
                 )}
                 {testResult?.ok === false && (
-                  <span className="text-semantic-critical-text">
+                  <span className="text-semantic-critical">
                     ✗ {testResult.detail || testResult.error || 'Not reachable.'}
                   </span>
                 )}
@@ -493,14 +496,8 @@ export function WorkspaceSsoPage() {
               <button
                 type="button"
                 disabled={del.isPending}
-                onClick={() => {
-                  if (!window.confirm('Disable SSO and delete this provider configuration?')) return;
-                  void del.mutateAsync().then(() => {
-                    setConnecting(false);
-                    setSaveError(null);
-                  });
-                }}
-                className="h-8 px-3 text-[13px] font-medium border border-semantic-critical/50 rounded-control text-semantic-critical-text hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:cursor-not-allowed shrink-0"
+                onClick={() => setConfirmDisable(true)}
+                className="h-8 px-3 text-[13px] font-medium border border-semantic-critical/50 rounded-control text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:cursor-not-allowed shrink-0"
               >
                 {del.isPending ? 'Disabling…' : 'Disable SSO'}
               </button>
@@ -509,6 +506,23 @@ export function WorkspaceSsoPage() {
         )}
         {dirty && <span className="sr-only">You have unsaved SSO changes.</span>}
       </div>
+
+      {confirmDisable && (
+        <ConfirmDialog
+          title="Disable SSO?"
+          body="This deletes the provider configuration. Users will fall back to password sign-in until SSO is set up again."
+          confirmLabel="Disable SSO"
+          pending={del.isPending}
+          onCancel={() => setConfirmDisable(false)}
+          onConfirm={() => {
+            void del.mutateAsync().then(() => {
+              setConnecting(false);
+              setSaveError(null);
+              setConfirmDisable(false);
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

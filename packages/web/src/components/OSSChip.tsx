@@ -12,7 +12,7 @@
 export function OSSChip({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full bg-semantic-on-track-bg px-2 py-0.5 text-[11px] font-medium text-semantic-on-track-text ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full bg-semantic-on-track-bg px-2 py-0.5 text-[11px] font-medium text-semantic-on-track ${className}`}
       title="Open-source core — no Enterprise license required"
     >
       <span aria-hidden="true">◆</span>
