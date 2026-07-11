@@ -488,3 +488,65 @@ describe('labelIndentPx', () => {
     expect(labelIndentPx(0)).toBe(LABEL_INDENT_BASE_PX);
   });
 });
+
+describe('buildSchedulePrintData — Unscheduled — Planned Work (#1799)', () => {
+  // A sprint-assigned BACKLOG task is CPM-excluded, so it has no start/finish.
+  const sprintBacklog = (id: string, sprintId: string, overrides: Partial<Task> = {}) =>
+    task(id, { status: 'BACKLOG', sprintId, start: '', finish: '', plannedStart: null, ...overrides });
+
+  const sprint = (id: string, over: Record<string, unknown> = {}) =>
+    ({
+      id,
+      name: `Sprint ${id}`,
+      state: 'PLANNED',
+      start_date: '2026-07-17',
+      finish_date: '2026-07-30',
+      ...over,
+    }) as unknown as import('@/types').ApiSprint;
+
+  it('groups sprint-assigned backlog by target sprint and carves it out of the chart rows', () => {
+    const data = build({
+      tasks: [
+        task('1', { start: '2026-04-01', finish: '2026-04-05' }), // scheduled → stays charted
+        sprintBacklog('2', 's1', { name: 'Contact dedupe' }),
+        sprintBacklog('3', 's1', { name: 'Merge rules' }),
+      ],
+      sprints: [sprint('s1', { name: 'Build Sprint 3' })],
+    });
+
+    // The two undated backlog rows are removed from the chart…
+    expect(data.rows.map((r) => r.id)).toEqual(['1']);
+    // …and surfaced in the dedicated section, grouped under their sprint.
+    expect(data.unscheduled.count).toBe(2);
+    expect(data.unscheduled.groups).toHaveLength(1);
+    const group = data.unscheduled.groups[0];
+    expect(group.sprintName).toBe('Build Sprint 3');
+    expect(group.windowLabel).toBeTruthy();
+    expect(group.tasks.map((t) => t.name)).toEqual(['Contact dedupe', 'Merge rules']);
+  });
+
+  it('puts undated no-sprint work in a trailing "No sprint" bucket', () => {
+    const data = build({
+      tasks: [sprintBacklog('2', 's1'), task('3', { status: 'BACKLOG', sprintId: null, start: '', finish: '', plannedStart: null })],
+      sprints: [sprint('s1')],
+    });
+    const keys = data.unscheduled.groups.map((g) => g.key);
+    expect(keys[keys.length - 1]).toBe('__none__');
+    expect(data.unscheduled.count).toBe(2);
+  });
+
+  it('keeps CPM-dated To Do tasks on the chart (only undated planned work is carved out)', () => {
+    const data = build({
+      // NOT_STARTED with CPM early dates → still a bar on the chart, not unscheduled.
+      tasks: [task('1', { status: 'NOT_STARTED', start: '2026-04-01', finish: '2026-04-03', plannedStart: null })],
+    });
+    expect(data.rows.map((r) => r.id)).toEqual(['1']);
+    expect(data.unscheduled.count).toBe(0);
+  });
+
+  it('reports an empty section when there is no planned-but-unscheduled work', () => {
+    const data = build({ tasks: [task('1')] });
+    expect(data.unscheduled.count).toBe(0);
+    expect(data.unscheduled.groups).toHaveLength(0);
+  });
+});

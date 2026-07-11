@@ -938,6 +938,7 @@ export function ScheduleView() {
     userName: currentUser?.display_name ?? null,
     tasks: allTasks,
     links: allLinks,
+    sprints,
     forecast: mcResult ?? null,
     getVisibleWindow,
     visibleWindowAvailable: engine?.scales != null,

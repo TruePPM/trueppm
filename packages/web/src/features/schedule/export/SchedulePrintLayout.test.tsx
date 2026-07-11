@@ -406,4 +406,47 @@ describe('SchedulePrintLayout', () => {
     expect(screen.getByText(/Driving/)).toBeInTheDocument();
     expect(screen.getByText(/Discretionary/)).toBeInTheDocument();
   });
+
+  it('renders the "Unscheduled — Planned Work" section with keep-together + text markers (#1799)', () => {
+    const printData = buildSchedulePrintData({
+      projectName: 'Apollo',
+      tasks: [
+        task('a', { wbs: '1', name: 'Design', start: '2026-04-01', finish: '2026-04-05' }),
+        task('b', {
+          wbs: '2',
+          name: 'Contact dedupe',
+          status: 'BACKLOG',
+          sprintId: 's1',
+          start: '',
+          finish: '',
+          plannedStart: null,
+        }),
+      ],
+      links: [],
+      userName: 'Jane',
+      generatedAtLabel: 'Jun 30, 2026',
+      sprints: [
+        {
+          id: 's1',
+          name: 'Build Sprint 3',
+          state: 'PLANNED',
+          start_date: '2026-07-17',
+          finish_date: '2026-07-30',
+        } as unknown as import('@/types').ApiSprint,
+      ],
+    });
+    const { container } = render(<SchedulePrintLayout data={printData} />);
+
+    // The section, its keep-together vmark, and the honest caption render.
+    const card = container.querySelector('[data-print-vmark="unscheduled"]');
+    expect(card).toBeTruthy();
+    expect(screen.getByText('Unscheduled — Planned Work')).toBeInTheDocument();
+    expect(screen.getByText(/planned, not a committed date/)).toBeInTheDocument();
+    expect(screen.getByText('Targeted: Build Sprint 3 · Planned')).toBeInTheDocument();
+    expect(screen.getByText('Contact dedupe')).toBeInTheDocument();
+    // Every string in the section is marked selectable for the PDF text layer.
+    expect(card!.querySelectorAll('[data-print-text="unscheduled"]').length).toBeGreaterThanOrEqual(2);
+    // The carved-out backlog row is NOT charted as a blank Gantt row.
+    expect(printData.rows.map((r) => r.id)).toEqual(['a']);
+  });
 });

@@ -172,7 +172,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
     ref,
   ) {
     const watermark = scheduleExportFooterWatermark();
-    const { rows, links, kpis, cpChain, masthead, footer } = data;
+    const { rows, links, kpis, cpChain, unscheduled, masthead, footer } = data;
 
     const printWidth = PRINT_WIDTH_PX[paper];
     // Hiding the owner column narrows the label gutter and yields the width to the
@@ -807,6 +807,70 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   </li>
                 ))}
               </ol>
+            </div>
+          )}
+
+          {/* Unscheduled — Planned Work (#1799): the planned-but-unscheduled tasks
+              the chart cannot place (sprint-assigned backlog + any pre-CPM undated
+              rows), grouped by target sprint. `data-print-vmark="unscheduled"` marks
+              it keep-together (a page break may fall before it, never inside —
+              ADR-0276), and `data-print-text="unscheduled"` markers make every string
+              selectable/searchable (ADR-0289). Same dashed/muted "planned, not a
+              committed date" language as the on-screen tray — no bars, no dates that
+              read as committed. */}
+          {unscheduled.count > 0 && (
+            <div
+              data-print-vmark="unscheduled"
+              className="mt-3 rounded-card border border-dashed border-neutral-border bg-neutral-surface px-3 py-2"
+            >
+              <div
+                data-print-text="unscheduled"
+                className="mb-1.5 flex items-baseline justify-between gap-2"
+              >
+                <span className="whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-neutral-text-primary">
+                  Unscheduled — Planned Work
+                </span>
+                <span className="whitespace-nowrap text-xs text-neutral-text-secondary">
+                  {unscheduled.count} {unscheduled.count === 1 ? 'item' : 'items'} · planned, not a
+                  committed date
+                </span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {unscheduled.groups.map((group) => (
+                  <div key={group.key}>
+                    <div
+                      data-print-text="unscheduled"
+                      className="mb-0.5 flex items-baseline gap-2"
+                    >
+                      <span className="text-xs font-medium text-neutral-text-primary">
+                        {group.sprintName ? `Targeted: ${group.sprintName}` : 'No sprint'}
+                        {group.stateLabel ? ` · ${group.stateLabel}` : ''}
+                      </span>
+                      {group.windowLabel && (
+                        <span className="tppm-mono text-xs text-neutral-text-secondary">
+                          {group.windowLabel}
+                        </span>
+                      )}
+                    </div>
+                    <ul className="grid grid-cols-2 gap-x-6 gap-y-0.5">
+                      {group.tasks.map((t) => (
+                        <li
+                          key={t.id}
+                          data-print-text="unscheduled"
+                          className="flex items-baseline gap-1.5 text-xs text-neutral-text-primary"
+                        >
+                          <span className="tppm-mono flex-shrink-0 text-neutral-text-secondary">
+                            {t.wbsCode}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate" title={t.name}>
+                            {t.name}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
