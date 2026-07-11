@@ -145,9 +145,23 @@ These exist for specific operational situations and are not part of routine use:
   [agent-action audit log](/administration/mcp-server/#agent-action-audit-log). It walks
   the chain in `sequence` order, recomputes each row's `record_hash` from its predecessor,
   and exits non-zero on the first break (a tampered field, a deleted/reordered row, or a
-  broken link); an intact or empty chain exits `0`. Pass `--quiet` to suppress the summary
-  on success — handy for a cron/CI integrity check. It only reads, so it is always safe to
-  run.
+  broken link); an intact or empty chain exits `0`. If the oldest rows have been pruned
+  with `audit_prune`, the walk re-anchors from the latest prune checkpoint instead of the
+  chain genesis, so the surviving records still verify. Pass `--quiet` to suppress the
+  summary on success — handy for a cron/CI integrity check. It only reads, so it is always
+  safe to run.
+- **`audit_prune`** — bounds the size of the append-only
+  [agent-action audit log](/administration/mcp-server/#agent-action-audit-log), which
+  otherwise grows without limit. It deletes a contiguous block of the **oldest** records
+  and writes an immutable checkpoint so `audit_verify` still verifies the records that
+  remain — a plain `DELETE` would break the chain. Choose exactly one window: `--before
+  <ISO-8601>`, `--keep-days <N>`, or `--keep-last <K>` (keep the newest K records). It is a
+  **dry-run by default** — it prints what would be removed and changes nothing; pass
+  `--commit` to actually delete (add `--yes` to skip the confirmation prompt). Deletion is
+  irreversible, so review the dry-run first. This is a manual, operator-initiated command:
+  TruePPM never prunes the audit log automatically, and there is no default schedule — if
+  you want periodic rotation, run it from your own cron. Enforced retention, legal hold,
+  and off-server archival are part of TruePPM Enterprise.
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI
   job. It is intended for CI and local test runs, not production.
 - **`flushexpiredtokens`** — deletes expired `OutstandingToken`/`BlacklistedToken`
