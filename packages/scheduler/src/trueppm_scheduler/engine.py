@@ -649,6 +649,13 @@ def find_cycle(
         if not isinstance(u, str) or not isinstance(v, str):
             raise InvalidScheduleInput(f"edge endpoints must be string task ids (got {e!r}).")
     if children_map is not None:
+        # Guard the container type before ``.items()`` (#1825): a non-dict argument
+        # (a list/str) would otherwise leak a bare AttributeError past the contract.
+        if not isinstance(children_map, dict):
+            raise InvalidScheduleInput(
+                f"children_map must be a dict of summary id -> child ids or None "
+                f"(got {type(children_map).__name__})."
+            )
         for sid, kids in children_map.items():
             if not isinstance(kids, list):
                 raise InvalidScheduleInput(
@@ -1056,15 +1063,31 @@ def _compute_floats(
 
 
 def _check_children_map(children_map: dict[str, list[str]]) -> None:
-    """Reject a summary entry with an empty child list (#1070).
+    """Validate a children_map's shape before it drives leaf expansion (#1070, #1825).
 
-    ``_collect_leaves`` treats a node with no children as a leaf, so an empty
-    entry made the summary id *itself* survive expansion as a leaf — while
-    ``expand_summary_dependencies`` removed it from the task list, leaving a
-    dangling edge that later failed with a generic "unknown task" ValueError
-    far from the actual mistake.
+    Rejects a summary entry with an empty child list (#1070): ``_collect_leaves``
+    treats a node with no children as a leaf, so an empty entry made the summary id
+    *itself* survive expansion as a leaf — while ``expand_summary_dependencies``
+    removed it from the task list, leaving a dangling edge that later failed with a
+    generic "unknown task" ValueError far from the actual mistake.
+
+    Also rejects a non-list child value (#1825): ``expand_summary_dependencies`` is
+    the twin of ``find_cycle`` (which already guards this at its own entry point),
+    and both funnel through here. Without the guard a non-list value leaks a bare
+    ``TypeError`` from ``reversed()`` in ``_collect_leaves`` — and, worse, a *string*
+    value silently iterates its characters as child ids, producing corrupt expanded
+    dependencies with no error at all.
     """
+    if not isinstance(children_map, dict):
+        raise InvalidScheduleInput(
+            f"children_map must be a dict of summary id -> child ids "
+            f"(got {type(children_map).__name__})."
+        )
     for sid, kids in children_map.items():
+        if not isinstance(kids, list):
+            raise InvalidScheduleInput(
+                f"children_map[{sid!r}] must be a list of child ids (got {kids!r})."
+            )
         if not kids:
             raise InvalidScheduleInput(
                 f"Summary task {sid!r} has an empty children list; remove it from "
@@ -1300,6 +1323,17 @@ def _validate_project(project: Project) -> None:
             f"Calendar has {len(project.calendar.exceptions)} exception ranges, exceeding "
             f"the maximum of {MAX_CALENDAR_EXCEPTIONS:,}; a real calendar has at most a few "
             "hundred holidays or closures."
+        )
+
+    # start_date feeds every calendar walk below (the reachability probe here, then
+    # both passes) via ``.weekday()``; a non-date (a direct-object caller passing
+    # None/str, not the from_dict path which already coerces it) would leak a bare
+    # AttributeError past the documented contract (#1823) — the same #1209
+    # direct-object gap the task/calendar fields already guard. datetime is a date
+    # subclass but mixes badly with date arithmetic, so reject it like the date pins.
+    if not isinstance(project.start_date, date) or isinstance(project.start_date, datetime):
+        raise InvalidScheduleInput(
+            f"Project start_date must be a date, not {type(project.start_date).__name__}."
         )
 
     # Reachability probe: a working day must exist within MAX_CALENDAR_SCAN_DAYS
@@ -1983,6 +2017,13 @@ def monte_carlo(
             registry (per-task calendars are not honored by this pass — see
             the note above).
     """
+    # ``runs`` is a documented public int param that sizes ``np.empty((runs, ...))``.
+    # A non-int leaked a bare TypeError (a str from ``runs < 1``, a float from
+    # ``np.empty``) past the SchedulerError contract — the same gap the ``seed``
+    # guard below already closes (#1453). bool is an int subclass but never a
+    # meaningful run count, so reject it explicitly (#1825).
+    if isinstance(runs, bool) or not isinstance(runs, int):
+        raise InvalidScheduleInput(f"runs must be a positive integer (got {runs!r}).")
     if runs < 1:
         raise InvalidScheduleInput(f"runs must be a positive integer (got {runs}).")
     if project.calendars:
