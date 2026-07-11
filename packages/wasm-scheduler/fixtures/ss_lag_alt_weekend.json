@@ -1,0 +1,18 @@
+{
+  "id": "p-ss-lag-alt-weekend",
+  "name": "SS lag crossing a Friday+Saturday weekend (Sun-Thu work week)",
+  "start_date": "2026-03-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 172800.0},
+    {"id": "B", "name": "Task B", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 432000.0}
+  ],
+  "calendar": {
+    "working_days": 79,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

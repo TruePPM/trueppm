@@ -1,0 +1,20 @@
+{
+  "id": "p-fs-lag-holiday-week",
+  "name": "FS lag landing inside a whole-week vacation",
+  "start_date": "2026-06-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 259200.0},
+    {"id": "B", "name": "Task B", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 950400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [
+      {"start": "2026-06-15", "end": "2026-06-19"}
+    ],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
