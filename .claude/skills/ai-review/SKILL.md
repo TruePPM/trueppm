@@ -66,8 +66,11 @@ not a follow-up issue.
   a **server-side invariant** so an agent write can't create an impossible/illegal
   state (engine-as-referee, #1062; existing scheduling invariants; RBAC; broadcast
   safety)?
-- Is the action recorded in a **team-readable audit** (agent-as-audited-actor, #1063)?
-- Silent coercion of a bad write is a GAP — reject with a structured reason instead.
+- Is the action recorded in the **team-readable, hash-chained audit** with a `verdict`
+  (`allowed`/`refused`/`requires-approval`) and, on refusal, an `identity`-vs-`policy`
+  reason (agent-as-audited-actor #1063; audit substrate #1805, ADR-0112 §1.3)?
+- Silent coercion of a bad write is a GAP — reject with a structured reason and record a
+  `refused` audit entry instead.
 
 ### 4. Decision memory
 - Does this feature produce a **decision** worth remembering — a rebaseline reason, a
@@ -79,9 +82,16 @@ not a follow-up issue.
 ### 5. AI boundary (extends `enterprise-check`)
 - Does the **team-level** AI capability stay in OSS (a single team using AI needs it to
   work), while its **org-governance** counterpart is filed in `trueppm-enterprise`?
-- Apply the split the way the existing pillars do:
-  - team-readable audit (OSS) vs immutable/tamper-evident audit (Enterprise)
-  - engine referee (OSS) vs human-in-the-loop approval workflow (Enterprise)
+- Apply the split the way the existing pillars do (ADR-0112, ratified 2026-07-11):
+  - team-readable, **hash-chained** audit + per-instance `audit_verify` integrity
+    self-check (OSS, RC1) vs externally **notarized / signed / retained**, org-wide
+    cross-instance compliance evidence (Enterprise). The line is *detect* local
+    tampering (OSS) vs *prove* non-tampering to an auditor (Enterprise) — hash-chaining
+    is **not** Enterprise-only.
+  - engine referee + **single-approver** human-in-the-loop gate (OSS, RC4) vs
+    **multi-step approval chains / delegated authority / notification routing**
+    (Enterprise). A one-human-approves-one-write gate is OSS table-stakes safety;
+    the workflow engine on top is Enterprise.
   - decision store + read (OSS) vs cross-program calibration/scoring (Enterprise)
   - ephemeral what-if primitive (OSS) vs persisted/named/portfolio scenarios (Enterprise)
   - local-model adapter (OSS) vs org model-governance/egress policy (Enterprise)
