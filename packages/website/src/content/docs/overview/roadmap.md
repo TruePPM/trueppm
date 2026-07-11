@@ -103,6 +103,7 @@ the full carve-out and a dated comparison against the open-core competition.
 - **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
 - **Native Android app** — React Native / Expo + WatermelonDB; My Tasks, 15-second time capture, on-device WASM CPM, offline sync, Play Store submission. Android phones first, tablets second; iPhone ships at 1.0
 - **Agile-team refinements (continued from 0.3)** — sprint, board, and hybrid-bridge polish rebalanced out of the 0.4 beta so the beta stays focused on its MCP and evaluation headliners. These keep maturing the Scrum-Master and Product-Owner surfaces; not all are committed to the 0.5 date — the milestone is the holding line for this work, to be re-triaged against the 0.5 charter
+- **Hybrid human/AI scheduling — first cut** (#1834 #1835 #1836) — the first step toward representing AI agents as first-class *resources*, for software teams whose work now runs across people and agents. The engine will separate **effort** (work content) from **duration** (elapsed time) so an agent's throughput and round-the-clock availability no longer have to masquerade as an 8-hour human day (#1835); a worker profile on the resource will carry agent throughput, concurrency, and review capacity (#1836, extending the resource-allocation model above); and a **team-owned review-gate read** (#1834) will surface when a team's own review queue — not authoring — has become the bottleneck. That queue signal is a team signal by design: team-owned, opt-in to roll upward, never a management surveillance surface ([team ownership is not surveillance](/overview/team-ownership-not-surveillance/)). The engine depth — sub-day scheduling and the probabilistic human-fallback branch — follows in 0.6
 
 ### 0.6 — open & portable (target: Oct 19–26, 2026)
 
@@ -114,6 +115,7 @@ the full carve-out and a dated comparison against the open-core competition.
 - **Public REST API depth** and JSON import/export
 - **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder, built on the 0.4 share-link token mechanism (#1486)
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
+- **Hybrid human/AI scheduling — engine depth** (#1837 #1838 #1839 #1840) — the engine work behind the 0.5 first cut. Sub-day scheduling will land in both the Python and WASM engines so a 20-minute agent task no longer rounds to a whole working day (#1838); a `delivery_mode="agent"` task class will carry a probabilistic **fallback-to-human** branch the Monte Carlo samples, so a plan honestly reflects "sometimes a human has to step in" (#1837); the Gantt will render agent work as a queue glyph rather than an invisible sub-hour bar (#1839); and three-register reporting will report human dates, agent effort and throughput, and the program's true unit — the length of the human-bound critical path (#1840). Portfolio-level agent governance — agent-ROI, cross-program leveling, org approval workflows — stays in the enterprise edition, after 1.0
 
 ### 0.7 — the product owner (target: Nov 16–23, 2026)
 
