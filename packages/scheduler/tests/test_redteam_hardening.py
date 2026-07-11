@@ -388,3 +388,75 @@ def test_monte_carlo_good_seed_accepted(good_seed: object) -> None:
     """None and any non-negative int remain valid seeds (#1453)."""
     project = _one_task_project()
     monte_carlo(project, runs=12, seed=good_seed)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# #1823 — Project.start_date unvalidated in the direct-object API
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_start", [None, "2026-01-01", 20260101, datetime(2026, 1, 1)])
+def test_project_start_date_non_date_rejected(bad_start: object) -> None:
+    """start_date feeds every calendar walk via ``.weekday()``; a non-date (or a
+    datetime, which mixes badly with date arithmetic) used to leak a bare
+    AttributeError/TypeError past the contract on the direct-object path the Django
+    API uses (#1823). Both entry points must reject it with InvalidScheduleInput."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=bad_start,  # type: ignore[arg-type]
+        tasks=[Task(id="a", name="a", duration=timedelta(days=1))],
+    )
+    with pytest.raises(InvalidScheduleInput):
+        schedule(project)
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=12, seed=1)
+
+
+# ---------------------------------------------------------------------------
+# #1825 — public-API type-guard gaps (children_map, monte_carlo runs)
+# ---------------------------------------------------------------------------
+
+
+def test_find_cycle_non_dict_children_map_rejected() -> None:
+    """find_cycle validated children_map *values* but not that the map itself is a
+    dict, leaking a bare AttributeError from ``.items()`` (#1825)."""
+    for bad_map in (["a", "b"], "ab", 5):
+        with pytest.raises(InvalidScheduleInput):
+            find_cycle([("a", "b")], children_map=bad_map)  # type: ignore[arg-type]
+
+
+def test_expand_summary_dependencies_non_list_child_value_rejected() -> None:
+    """expand_summary_dependencies is the twin of find_cycle but skipped the
+    value-type guard (#1825). A non-list value leaked a bare TypeError from
+    reversed(); a *string* value was worse — it silently iterated characters as
+    child ids, producing corrupt expanded dependencies with no error."""
+    tasks = [Task(id="L", name="L", duration=timedelta(days=1))]
+    deps = [Dependency(predecessor_id="S", successor_id="L", dep_type=DependencyType.FS)]
+    for bad_value in (5, "xy", None):
+        with pytest.raises(InvalidScheduleInput):
+            expand_summary_dependencies(tasks, deps, {"S": bad_value})  # type: ignore[dict-item]
+
+
+def test_expand_summary_dependencies_non_dict_children_map_rejected() -> None:
+    """A non-dict (but truthy) children_map reached ``.items()`` in
+    _check_children_map and leaked a bare AttributeError (#1825)."""
+    tasks = [Task(id="L", name="L", duration=timedelta(days=1))]
+    deps = [Dependency(predecessor_id="S", successor_id="L", dep_type=DependencyType.FS)]
+    with pytest.raises(InvalidScheduleInput):
+        expand_summary_dependencies(tasks, deps, ["S"])  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("bad_runs", ["10", 1.5, True, None])
+def test_monte_carlo_non_int_runs_rejected(bad_runs: object) -> None:
+    """runs sizes ``np.empty((runs, ...))``; a str tripped ``runs < 1`` and a float
+    tripped np.empty, both leaking a bare TypeError. Mirrors the seed guard (#1825)."""
+    project = _one_task_project()
+    with pytest.raises(InvalidScheduleInput):
+        monte_carlo(project, runs=bad_runs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("good_runs", [1, 12, 1000])
+def test_monte_carlo_int_runs_accepted(good_runs: int) -> None:
+    """A positive int remains a valid run count (#1825)."""
+    monte_carlo(_one_task_project(), runs=good_runs, seed=1)
