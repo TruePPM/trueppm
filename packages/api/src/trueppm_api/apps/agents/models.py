@@ -1,0 +1,231 @@
+"""Agent-action audit models — the OSS hash-chained audit substrate (ADR-0112 RC1/RC2, #1805).
+
+Every MCP/agent decision (a read, or a refusal) is recorded as one append-only
+``AgentAction`` row. The rows form a **per-instance, hash-chained** log: each row
+stores a monotonic ``sequence`` and ``record_hash = sha256(prev_hash ‖ canonical(record))``
+where ``prev_hash`` is the predecessor row's ``record_hash``. A team can therefore
+detect whether its own log was altered on its own instance via
+``manage.py audit_verify`` — the OSS integrity self-check (the audit-log analog of the
+answer-stamp hash). Org-scale compliance *evidence* (external notarization, a
+cryptographic signature over the chain, retention policy, cross-instance trail) is the
+Enterprise value-add (#146); this OSS log detects local tampering, it does not notarize.
+
+RC2: the ``sequence`` and chain are **per-instance / per-workspace**, not per-tenant —
+TruePPM is single-tenant/self-hosted. The chain head is a single row
+(``AgentActionChainHead``); ``record_agent_action`` serializes appends with a
+``select_for_update`` on it, so the chain is strictly gap-free and ordered.
+
+Both models are plain ``models.Model`` (not ``VersionedModel``): append-only audit rows
+are never synced to mobile and immutability makes ``server_version`` unnecessary — the
+same rationale as ``ApiTokenAuditEntry`` and the ADR-0176 sprint-outcome snapshots.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import uuid
+
+from django.conf import settings
+from django.db import models
+from django.db.models import Q
+
+#: Schema version of the ``AgentAction`` record + the canonical hash input. Bumped only
+#: on a breaking change to the chained field set or the canonicalization (which would be
+#: a chain-format break). Enterprise receivers branch on this (ADR-0112 contract).
+AGENT_ACTION_SCHEMA_VERSION = 1
+
+#: The genesis ``prev_hash`` for the first row in a fresh chain. A fixed, versioned
+#: domain-separated constant so the chain root is deterministic and reproducible across
+#: instances (it is not secret — it anchors the chain, it does not authenticate it).
+GENESIS_PREV_HASH = hashlib.sha256(b"trueppm/agents/agent-action/genesis/v1").hexdigest()
+
+
+class AgentActorKind(models.TextChoices):
+    """What kind of actor performed the action.
+
+    Phase 0 (#1805) only ever records ``MCP_TOKEN`` — a personal ``mcp:read`` API
+    token acting on the MCP read surface. The fuller first-class agent-actor kinds
+    arrive with #1063 (0.5); the field exists now so the vocabulary is stable.
+    """
+
+    MCP_TOKEN = "mcp_token", "MCP token"
+
+
+class AgentActionVerdict(models.TextChoices):
+    """The decision outcome recorded for the action (ADR-0112 RC1)."""
+
+    ALLOWED = "allowed", "Allowed"
+    REFUSED = "refused", "Refused"
+    REQUIRES_APPROVAL = "requires_approval", "Requires approval"
+
+
+class AgentActionRefusalReason(models.TextChoices):
+    """Why a ``REFUSED`` action was refused (ADR-0112 RC1).
+
+    ``IDENTITY`` — no/invalid actor (a revoked or expired token was presented).
+    ``POLICY`` — actor known, but a capability/permission (or, later, an approval)
+    was denied. Recorded from day one so the log answers *why* a decision went the
+    way it did, not merely *that* it did.
+    """
+
+    IDENTITY = "identity", "Identity"
+    POLICY = "policy", "Policy"
+
+
+class AgentActionChainHead(models.Model):
+    """Singleton head of the per-instance hash chain (ADR-0112 RC2).
+
+    Holds the last allocated ``sequence`` and the last row's ``record_hash`` so a new
+    append reads the predecessor link under a single ``select_for_update`` lock. The row
+    is seeded (id=1, sequence=0, hash=genesis) by the initial migration so the service
+    can ``select_for_update().get(pk=1)`` without a create race on the first request.
+    """
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    last_sequence = models.BigIntegerField(
+        default=0,
+        help_text="Highest sequence allocated so far (0 before the first record).",
+    )
+    last_record_hash = models.CharField(
+        max_length=64,
+        default=GENESIS_PREV_HASH,
+        help_text="record_hash of the most recent AgentAction — the next row's prev_hash.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "agents_agent_action_chain_head"
+        constraints = [
+            # Enforce the singleton at the DB level: only id=1 may exist.
+            models.CheckConstraint(
+                condition=Q(id=1),
+                name="agent_action_chain_head_singleton",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"AgentActionChainHead(seq={self.last_sequence})"
+
+
+class AgentAction(models.Model):
+    """One append-only, hash-chained record of an MCP/agent decision (ADR-0112 RC1, #1805).
+
+    Never updated or deleted after creation — a purge would break the chain, which
+    ``audit_verify`` would then (correctly) report as a break. ``token_prefix`` and the
+    denormalized identity fields are preserved after the parent token/user is deleted
+    (the FKs are SET_NULL) so a row stays identifiable and its hash stays valid.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    schema_version = models.PositiveSmallIntegerField(
+        default=AGENT_ACTION_SCHEMA_VERSION,
+        help_text="AGENT_ACTION_SCHEMA_VERSION at write time (part of the hashed record).",
+    )
+
+    # --- actor + human principal ------------------------------------------------
+    actor_kind = models.CharField(max_length=16, choices=AgentActorKind.choices)
+    actor_token = models.ForeignKey(
+        "projects.ApiToken",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_actions",
+        help_text="The API token that acted. SET_NULL — a deleted token leaves its "
+        "audit trail behind (identified by actor_token_prefix).",
+    )
+    actor_token_prefix = models.CharField(
+        max_length=8,
+        db_index=True,
+        help_text="First 8 hex chars of the acting token — denormalized, never the "
+        "token material. Preserved after token deletion.",
+    )
+    principal = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_actions_as_principal",
+        help_text="The human on whose behalf the actor acted (the token owner). "
+        "SET_NULL so the row survives account deletion.",
+    )
+
+    # --- what was attempted -----------------------------------------------------
+    action = models.CharField(
+        max_length=128,
+        help_text="Stable operation identifier (e.g. the MCP tool / view name).",
+    )
+    method = models.CharField(max_length=8, help_text="HTTP method (GET, POST, …).")
+    object_type = models.CharField(max_length=64, blank=True, default="")
+    object_id = models.CharField(max_length=64, blank=True, default="")
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_actions",
+        help_text="The project in scope, when resolvable from the request.",
+    )
+    capability_used = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="The scope/capability that authorized (or was checked for) the "
+        "action, e.g. 'mcp:read'.",
+    )
+
+    # --- verdict ----------------------------------------------------------------
+    verdict = models.CharField(max_length=20, choices=AgentActionVerdict.choices)
+    refusal_reason = models.CharField(
+        max_length=16,
+        choices=AgentActionRefusalReason.choices,
+        blank=True,
+        default="",
+        help_text="Set (identity|policy) when verdict=refused; empty otherwise.",
+    )
+
+    # --- reproducibility anchor (ADR-0112 §2 / #1065) ---------------------------
+    payload_hash = models.CharField(
+        max_length=64,
+        help_text="sha256 over the canonicalized operation payload (method, path, "
+        "sorted query, body shape) — the reproducibility anchor for the request.",
+    )
+    engine_version = models.CharField(
+        max_length=64,
+        help_text="trueppm-scheduler version at decision time (the answer-stamp engine anchor).",
+    )
+
+    # --- chain link -------------------------------------------------------------
+    sequence = models.BigIntegerField(
+        unique=True,
+        help_text="Per-instance monotonic sequence (RC2). Gap-free and strictly "
+        "increasing; a gap or reorder is a tamper signal.",
+    )
+    prev_hash = models.CharField(
+        max_length=64,
+        help_text="record_hash of the predecessor row (GENESIS_PREV_HASH for the first).",
+    )
+    record_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="sha256(prev_hash ‖ canonical(record)) — the chain link. Recomputed "
+        "and checked by `manage.py audit_verify`.",
+    )
+
+    summary = models.TextField(blank=True, default="", help_text="Human-readable, team-facing.")
+    source_ip = models.GenericIPAddressField(null=True, blank=True)
+    occurred_at = models.DateTimeField(
+        db_index=True,
+        help_text="Set explicitly at write time (NOT auto_now_add) because its exact "
+        "value is part of the hashed record.",
+    )
+
+    class Meta:
+        db_table = "agents_agent_action"
+        ordering = ["sequence"]
+        indexes = [
+            models.Index(fields=["project", "-occurred_at"], name="agent_action_proj_idx"),
+            models.Index(fields=["principal", "-occurred_at"], name="agent_action_princ_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AgentAction(#{self.sequence} {self.action} {self.verdict})"

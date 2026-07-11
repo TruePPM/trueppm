@@ -122,4 +122,6 @@ urlpatterns = [
     # Basic SSO — OIDC relying party (ADR-0187). Flow endpoints under
     # auth/oidc/*, admin config under workspace/sso/*.
     path("api/v1/", include("trueppm_api.apps.sso.urls")),
+    # Team-readable agent-action audit log (ADR-0112 RC1, #1805).
+    path("api/v1/", include("trueppm_api.apps.agents.urls")),
 ]

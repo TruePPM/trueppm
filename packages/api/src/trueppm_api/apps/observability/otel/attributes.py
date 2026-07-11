@@ -69,7 +69,24 @@ OUTBOX_STATE = "trueppm.outbox.state"
 DB_STATE = "trueppm.db.state"
 """PostgreSQL backend state bucket: ``active`` | ``idle`` | ``idle_in_transaction`` | ``other``."""
 
+# --- Agent / MCP span attributes (OSS-owned, ADR-0112 RC1, #1805) ----------
+# Set on the request span when an MCP/agent token acts, so an operator can attribute
+# a read (or a refusal) to a token + scope + actor kind without opening the payload.
+# NEVER carries token material — only the 8-char prefix.
+AGENT_TOKEN_PREFIX = "trueppm.agent.token_prefix"
+"""First 8 hex chars of the acting API token — never the token itself."""
+AGENT_CAPABILITY = "trueppm.agent.capability"
+"""The scope/capability that authorized (or was checked for) the action, e.g. ``mcp:read``."""
+AGENT_ACTOR_KIND = "trueppm.agent.actor_kind"
+"""The actor kind, e.g. ``mcp_token`` (ADR-0112 §1)."""
+AGENT_VERDICT = "trueppm.agent.verdict"
+"""The decision outcome: ``allowed`` | ``refused`` | ``requires_approval``."""
+
 __all__ = [
+    "AGENT_ACTOR_KIND",
+    "AGENT_CAPABILITY",
+    "AGENT_TOKEN_PREFIX",
+    "AGENT_VERDICT",
     "BOARD_ID",
     "DB_STATE",
     "NAMESPACE",
