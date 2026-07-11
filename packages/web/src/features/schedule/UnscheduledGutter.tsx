@@ -126,6 +126,34 @@ export function UnscheduledGutter({
   const promoteMutation = usePromoteTask();
   const setActionToast = useScheduleStore((s) => s.setScheduleActionToast);
 
+  // Reveal bridge (#1798): the "N planned" badge on a phase row asks the tray to
+  // expand and scroll a target sprint's group into view. We own the collapsed
+  // state, so the request comes through the store; the `nonce` re-fires the
+  // reveal on a repeat click even when the sprintId is unchanged.
+  const revealRequest = useScheduleStore((s) => s.revealGutterSprint);
+  useEffect(() => {
+    if (!revealRequest) return;
+    persistCollapsed(false);
+    const sprintId = revealRequest.sprintId;
+    if (!sprintId) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Two rAFs so the tray has committed its expanded DOM before we look up the
+    // group element and scroll it in (a single frame can race the state flush).
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = document.querySelector<HTMLElement>(`[data-sprint-group="${sprintId}"]`);
+        el?.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [revealRequest, persistCollapsed]);
+
   // aria-live (polite) — promote announcements via DOM ref (rule 30), not state.
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
@@ -395,6 +423,7 @@ export function UnscheduledGutter({
               return (
                 <section
                   key={group.sprintId}
+                  data-sprint-group={group.sprintId}
                   role="group"
                   aria-label={`Targeted for ${name}, ${stateWord.toLowerCase()}, read-only, ${n} ${n === 1 ? 'task' : 'tasks'}`}
                   className="border-t border-neutral-border"

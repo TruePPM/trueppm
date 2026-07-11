@@ -35,6 +35,7 @@ import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import { LinkIcon, WarningIcon } from '@/components/Icons';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
+import type { PhasePlannedBadge } from './plannedByPhase';
 import {
   useBuildMode,
   EditableCell,
@@ -120,6 +121,12 @@ interface Props {
   startInlineEditOnMount?: boolean;
   /** Fired once this row has started editing from `startInlineEditOnMount`. */
   onAutoEditConsumed?: () => void;
+  /**
+   * "N planned" badge model (#1798) — present only on a summary/phase row whose
+   * subtree holds sprint-assigned backlog. Muted, dashed, notification-silent; a
+   * click reveals that work in the Unscheduled tray (never a task action).
+   */
+  plannedBadge?: PhasePlannedBadge;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -197,11 +204,13 @@ function TaskListRowInner({
   onAddPhaseFirstChild,
   startInlineEditOnMount = false,
   onAutoEditConsumed,
+  plannedBadge,
 }: Props) {
   const projectId = useProjectId() ?? '';
   const itl = useIterationLabel(projectId);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const requestRevealGutterSprint = useScheduleStore((s) => s.requestRevealGutterSprint);
   const setScheduleError = useScheduleStore((s) => s.setScheduleError);
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const isSelected = selectedTaskId === task.id;
@@ -920,6 +929,32 @@ function TaskListRowInner({
               >
                 📝
               </span>
+            )}
+            {/* "N planned" badge (#1798): a phase row whose subtree holds sprint-
+                assigned backlog. Muted + dashed neutral (never a semantic/critical
+                token) — planned work is a read-state, not a risk. It is a
+                navigation control, not a task action: activating it reveals that
+                work in the Unscheduled tray (the #1790 VoC "at-a-glance" layer). */}
+            {task.isSummary && plannedBadge && plannedBadge.count > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  requestRevealGutterSprint(plannedBadge.primarySprintId);
+                }}
+                className="inline-flex shrink-0 items-center gap-1 rounded-chip border border-dashed border-neutral-border
+                  px-1.5 py-0.5 text-xs font-normal text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                title={
+                  plannedBadge.sprintNames.length === 1
+                    ? `Planned for ${plannedBadge.sprintNames[0]} — not a committed date`
+                    : `${plannedBadge.count} tasks planned for upcoming ${itl.lower}s — not committed dates`
+                }
+                aria-label={`${plannedBadge.count} planned${plannedBadge.sprintNames.length ? `, targeted for ${plannedBadge.sprintNames.join(', ')}` : ''}. Not committed dates. Activate to show in the Unscheduled tray.`}
+                data-testid="planned-badge"
+              >
+                {plannedBadge.count} planned
+              </button>
             )}
             {hasMissingDatesWarning && (
               <span

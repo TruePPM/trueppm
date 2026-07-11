@@ -473,6 +473,94 @@ test.describe('Unscheduled gutter — sprint-assigned backlog (#1790)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// "N planned" phase badge (#1798) — at-a-glance layer for #1790
+// ---------------------------------------------------------------------------
+
+/** A phase whose subtree holds sprint-assigned backlog: the badge summarizes it. */
+const FIXTURE_PHASE = {
+  id: 'ph5',
+  wbs_path: '5',
+  name: 'Data Migration',
+  early_start: '2026-04-07',
+  early_finish: '2026-04-21',
+  planned_start: null,
+  duration: 14,
+  percent_complete: 0,
+  is_critical: false,
+  is_milestone: false,
+  is_summary: true,
+  parent_id: null,
+  status: 'NOT_STARTED',
+  actual_start: null,
+  actual_finish: null,
+  schedule_variance_days: null,
+  baseline_start: null,
+  baseline_finish: null,
+  optimistic_duration: null,
+  most_likely_duration: null,
+  pessimistic_duration: null,
+  estimate_status: null,
+  total_float: null,
+  assignee_is_overallocated: false,
+  assignments: [],
+};
+
+/** The phase's sprint-assigned backlog child (CPM-excluded, so undated). */
+const FIXTURE_PHASE_BACKLOG_CHILD = {
+  ...FIXTURE_SPRINT_BACKLOG_TASK,
+  id: 'sb5',
+  wbs_path: '5.1',
+  name: 'Backfill emails',
+  parent_id: 'ph5',
+};
+
+test.describe('Schedule — "N planned" phase badge (#1798)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/v1/projects/*/sprints/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [FIXTURE_PLANNED_SPRINT],
+        }),
+      }),
+    );
+    await gotoSchedule(page, [...FIXTURE_API_TASKS, FIXTURE_PHASE, FIXTURE_PHASE_BACKLOG_CHILD]);
+  });
+
+  test('renders a muted "N planned" badge on the phase row with an honest tooltip', async ({
+    page,
+  }) => {
+    const badge = page.getByTestId('planned-badge');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText('1 planned');
+    await expect(badge).toHaveAttribute(
+      'title',
+      'Planned for Build Sprint 3 — not a committed date',
+    );
+  });
+
+  test('clicking the badge reveals the target sprint group in the collapsed tray', async ({
+    page,
+  }) => {
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    // Collapse the tray so the reveal is observable.
+    await page.getByRole('button', { name: /collapse unscheduled tasks/i }).click();
+    await expect(gutter.getByText('Backfill emails')).not.toBeVisible();
+
+    await page.getByTestId('planned-badge').click();
+
+    // The badge expands the tray and brings the sprint group back into view.
+    const group = gutter.getByRole('group', { name: /Targeted for Build Sprint 3/i });
+    await expect(group).toBeVisible();
+    await expect(group.getByText('Backfill emails')).toBeVisible();
+  });
+});
+
 test.describe('Unscheduled gutter — promote sends PATCH (#213)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
