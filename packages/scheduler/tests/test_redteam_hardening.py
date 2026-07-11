@@ -525,3 +525,58 @@ def test_forward_pass_snap_memoized_over_blanket_calendar() -> None:
     # Only Jan 5 (Mon) and Jan 6 (Tue) are workable before the blanket; every
     # dependency-free 1-day task snaps to the project start.
     assert result.project_finish == date(2026, 1, 5)
+
+
+# ---------------------------------------------------------------------------
+# #1821 — monte_carlo() undersized index clamped completed-task actuals
+# ---------------------------------------------------------------------------
+
+
+def test_monte_carlo_matches_schedule_for_late_completed_actual() -> None:
+    """A task that finished long after its planned duration pins the project finish.
+    The MC working-day index omitted an actuals term, so the pin mapped past the
+    index end and clamped to the last entry — monte_carlo() reported a finish months
+    before schedule() on the same fully-deterministic completed project (#1821)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            # planned 5 days, actually finished ~5 months late
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=5),
+                percent_complete=100.0,
+                actual_finish=date(2026, 6, 1),
+            ),
+            Task(id="B", name="B", duration=timedelta(days=10)),
+        ],
+    )
+    result = schedule(project)
+    mc = monte_carlo(project, runs=300, seed=1, max_runs=None, max_tasks=None)
+    assert result.project_finish == date(2026, 6, 1)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+def test_monte_carlo_matches_schedule_for_late_actual_start_only() -> None:
+    """The same undersizing hit a completed task recorded with only actual_start
+    (a REVIEW task, done and awaiting sign-off) far in the future (#1821)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=5),
+                percent_complete=100.0,
+                actual_start=date(2026, 6, 1),
+            ),
+            Task(id="B", name="B", duration=timedelta(days=3)),
+        ],
+    )
+    result = schedule(project)
+    mc = monte_carlo(project, runs=300, seed=1, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish

@@ -2200,6 +2200,7 @@ def monte_carlo(
     # the offset→date conversion below.
     dur_upper = 0
     snet_upper = 0
+    actual_upper = 0
     for t in task_map.values():
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
@@ -2216,6 +2217,19 @@ def monte_carlo(
         # safe over-estimate of working-day offsets).
         if t.planned_start is not None:
             snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
+        # Recorded actuals (ADR-0132/0136) pin a completed task's offset pair to a
+        # constant, and an actual far in the *future* (a task that finished long
+        # after its planned duration) is often the project's latest finish. Without
+        # covering it the pin mapped past the index end and was silently clamped to
+        # the last entry, so monte_carlo() reported a finish months before schedule()
+        # on the same completed project (#1821). Cover the furthest future actual
+        # (calendar days over-estimate working-day offsets, as snet/status do). A
+        # pre-start actual is not covered here — the forward index starts at the
+        # project start; _completed_offsets floors those at offset 0 (an anomalous
+        # data state: a task completed before the project began).
+        for actual in (t.actual_start, t.actual_finish):
+            if actual is not None:
+                actual_upper = max(actual_upper, (actual - project.start_date).days)
     lag_upper = sum(
         data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
     )
@@ -2225,7 +2239,7 @@ def monte_carlo(
     status_upper = 0
     if project.status_date is not None:
         status_upper = max(0, (project.status_date - project.start_date).days)
-    index_size = dur_upper + lag_upper + snet_upper + status_upper + n_tasks + 30
+    index_size = dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 
