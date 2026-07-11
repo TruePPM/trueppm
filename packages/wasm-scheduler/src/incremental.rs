@@ -183,6 +183,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 
@@ -200,6 +203,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         }
     }
 

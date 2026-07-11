@@ -214,6 +214,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 
@@ -232,6 +235,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
         let pg = build_graph(&project).unwrap();
         let topo_ids: Vec<&str> = pg.topo_order.iter().map(|&i| pg.graph[i].as_str()).collect();
@@ -261,6 +267,9 @@ mod tests {
             ],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
         assert!(build_graph(&project).is_err());
     }
@@ -282,6 +291,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
         assert!(matches!(
             build_graph(&project),

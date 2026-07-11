@@ -31,14 +31,16 @@ pub struct DateRange {
 /// Duration and float fields use working days (integers), matching the Python
 /// `timedelta(days=N)` convention where `total_seconds() / 86400 = N`.
 ///
-/// `deny_unknown_fields` (#1505): the Python `Task` model carries scheduling-
-/// affecting fields this engine does not yet implement — `calendar_id` (per-task
-/// calendars, ADR-0120 D3) and `delivery_mode`/`story_points`. Silently ignoring
-/// them would make the WASM engine schedule a task on the wrong calendar and
-/// quietly disagree with the server. Rejecting the input at parse time is honest:
-/// the offline recompute refuses work it cannot faithfully reproduce rather than
-/// returning wrong dates. Progress fields (`actual_start`/`actual_finish`/
-/// `percent_complete`, ADR-0132) are now consumed — see the forward/backward pass.
+/// `deny_unknown_fields` (#1505): rejects a genuinely-unknown key. The Python-only
+/// fields the `Task` model carries — `calendar_id` (per-task calendars, ADR-0120 D3)
+/// and `delivery_mode`/`story_points` (agile Monte Carlo) — are now *declared* below
+/// so the canonical `Project.to_json()` output (which always emits them, as `null`
+/// when unset) parses instead of being refused (#1816). A *set* `calendar_id` is
+/// still rejected — in `validate.rs`, since this engine shares one calendar and
+/// cannot reproduce a per-task one — while `delivery_mode`/`story_points` are
+/// accepted and ignored (they never affect a deterministic CPM result). Progress
+/// fields (`actual_start`/`actual_finish`/`percent_complete`, ADR-0132) are consumed
+/// by the forward/backward pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Task {
@@ -91,6 +93,20 @@ pub struct Task {
     pub most_likely_duration: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pessimistic_duration: Option<f64>,
+
+    // Python-only fields, declared so the canonical `Project.to_json()` output — which
+    // always emits these keys (as `null` when unset) — parses instead of being rejected
+    // by `deny_unknown_fields` (#1816). `calendar_id` (per-task calendars, ADR-0120 D3)
+    // *is* honored by the Python deterministic schedule, so a non-null value is rejected
+    // in `validate.rs` (this engine cannot reproduce it). `delivery_mode`/`story_points`
+    // drive Monte Carlo only — which this engine does not run — so they never affect a
+    // deterministic CPM result and are accepted and ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub story_points: Option<f64>,
 }
 
 impl Task {
@@ -204,11 +220,13 @@ impl Default for Calendar {
 
 /// Top-level container for a scheduled project.
 ///
-/// `deny_unknown_fields` (#1505): rejects a project that carries Python-only
-/// fields this engine does not implement — the `calendars` per-task registry
-/// (ADR-0120 D3) or `velocity_samples`/`sprint_length_days` (agile Monte Carlo).
-/// See the `Task` note above: honest rejection beats a silently-wrong offline
-/// schedule. `status_date` (the data date, ADR-0132) is now consumed by the
+/// `deny_unknown_fields` (#1505): rejects a genuinely-unknown key. The Python-only
+/// `calendars` per-task registry (ADR-0120 D3) and `velocity_samples`/
+/// `sprint_length_days` (agile Monte Carlo) are now *declared* below so the canonical
+/// `Project.to_json()` output (which always emits them, as `null` when unset) parses
+/// (#1816). A *non-empty* `calendars` registry is still rejected in `validate.rs`
+/// (this engine shares one calendar); the agile fields are accepted and ignored. See
+/// the `Task` note above. `status_date` (the data date, ADR-0132) is consumed by the
 /// progress-aware forward pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -227,6 +245,19 @@ pub struct Project {
     /// pass identical to the pre-progress behaviour.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_date: Option<NaiveDate>,
+
+    // Python-only fields, declared so the canonical `Project.to_json()` output parses
+    // instead of being rejected by `deny_unknown_fields` (#1816). `calendars` (the
+    // per-task calendar registry, ADR-0120 D3) *does* affect the deterministic
+    // schedule, so a non-empty registry is rejected in `validate.rs` (this engine
+    // cannot honor it). `velocity_samples`/`sprint_length_days` feed agile Monte Carlo
+    // only, which this engine does not run, so they are accepted and ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendars: Option<std::collections::HashMap<String, Calendar>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_samples: Option<Vec<Option<f64>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprint_length_days: Option<f64>,
 }
 
 /// Output of a CPM schedule calculation.
@@ -276,6 +307,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 

@@ -64,6 +64,34 @@ fn is_whole_days(seconds: f64) -> bool {
 pub fn validate_project(project: &Project) -> Result<(), String> {
     let cal = &project.calendar;
 
+    // Per-task calendars (ADR-0120 D3) are now *parsed* (so the canonical
+    // Project.to_json() output, which always emits calendar_id/calendars as null,
+    // is accepted, #1816) but still *rejected when set*: this engine shares one
+    // calendar across all tasks and cannot reproduce a per-task calendar, so honoring
+    // it would silently disagree with the server schedule. A null value (the common
+    // case) is fine; a set value is refused here rather than at parse. The MC-only
+    // fields (delivery_mode/story_points/velocity_samples/sprint_length_days) are
+    // deliberately *not* rejected — they never affect a deterministic CPM result.
+    if let Some(calendars) = &project.calendars {
+        if !calendars.is_empty() {
+            return Err(format!(
+                "This engine does not support per-task calendars (Project.calendars \
+                 declares {} calendar(s)); it shares one calendar across all tasks. \
+                 Schedule on the server, or remove the per-task calendar registry.",
+                calendars.len()
+            ));
+        }
+    }
+    for t in &project.tasks {
+        if t.calendar_id.is_some() {
+            return Err(format!(
+                "Task {:?} sets calendar_id (a per-task calendar, ADR-0120 D3), which \
+                 this engine cannot honor; it shares one calendar across all tasks.",
+                t.id
+            ));
+        }
+    }
+
     // Unique task IDs: every per-task result is keyed on Task.id, so a duplicate
     // id silently shadows one task. Reject it as the structural error it is,
     // matching the Python engine's _validate_project (#749).
@@ -398,6 +426,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 
@@ -410,6 +441,9 @@ mod tests {
             dependencies: deps,
             calendar: cal,
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         }
     }
 
@@ -671,6 +705,15 @@ mod tests {
         assert!(validate_project(&p).is_err());
     }
 
+    #[test]
+    fn accepts_null_python_only_fields() {
+        // #1816: the canonical Project.to_json() emits calendar_id/delivery_mode/
+        // story_points/calendars/velocity_samples/sprint_length_days as null; unset
+        // (None) they must be accepted (the helpers already build them as None).
+        let p = project(vec![task("A", 5)], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
     fn dep(pred: &str, succ: &str, dt: DependencyType, lag_secs: f64) -> Dependency {
         Dependency {
             predecessor_id: pred.to_string(),
@@ -702,6 +745,29 @@ mod tests {
     }
 
     #[test]
+    fn accepts_and_ignores_mc_only_fields() {
+        // delivery_mode/story_points (task) and velocity_samples/sprint_length_days
+        // (project) drive Monte Carlo only, which this engine does not run — they must
+        // be accepted and never affect a deterministic schedule (#1816).
+        let mut t = task("A", 5);
+        t.delivery_mode = Some("SCRUM".to_string());
+        t.story_points = Some(8.0);
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.velocity_samples = Some(vec![Some(10.0), None, Some(12.0)]);
+        p.sprint_length_days = Some(14.0);
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_set_calendar_id() {
+        // A *set* per-task calendar cannot be honored by this single-calendar engine.
+        let mut t = task("A", 5);
+        t.calendar_id = Some("six-day".to_string());
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
     fn rejects_fractional_duration() {
         // #1818: 1.5-day duration schedules differently across engines (Python floor,
         // Rust round); reject a non-whole-day value.
@@ -728,6 +794,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_empty_calendars_registry() {
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "six-day".to_string(),
+            Calendar {
+                working_days: 63,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
     fn rejects_working_days_with_bit7_set() {
         // #1826: working_days=200 has weekday bits (so it passes the empty-mask check)
         // AND bit 7 set. Python rejects (must be in [0,127]); this engine used to
@@ -738,6 +819,14 @@ mod tests {
         };
         let p = project(vec![task("A", 1)], vec![], cal);
         assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_empty_calendars_registry() {
+        // An empty {} registry (or null) means no per-task calendars — accept it.
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        p.calendars = Some(std::collections::HashMap::new());
+        assert!(validate_project(&p).is_ok());
     }
 
     #[test]

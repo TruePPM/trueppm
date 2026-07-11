@@ -280,6 +280,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 
@@ -303,6 +306,9 @@ mod tests {
             dependencies: vec![dep("A", "B"), dep("B", "C")],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -362,6 +368,9 @@ mod tests {
             ],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -389,6 +398,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         assert!(schedule_impl(&project).is_err());
@@ -407,6 +419,9 @@ mod tests {
             dependencies: vec![dep("A", "C"), dep("B", "C")],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -434,6 +449,9 @@ mod tests {
             dependencies: vec![dep("A", "M"), dep("M", "B")],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -457,6 +475,9 @@ mod tests {
             dependencies: vec![],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -476,6 +497,9 @@ mod tests {
             dependencies: vec![dep("A", "B")],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let json = serde_json::to_string(&project).unwrap();
@@ -501,6 +525,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -526,6 +553,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -551,6 +581,9 @@ mod tests {
             }],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         let result = schedule_impl(&project).unwrap();
@@ -579,6 +612,9 @@ mod tests {
             dependencies: vec![dep("A", "B"), dep("B", "C")],
             calendar: Calendar::default(),
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         };
 
         // Graph built ONCE, as `SchedulerSession::new` would.
