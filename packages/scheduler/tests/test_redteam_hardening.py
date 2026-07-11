@@ -460,3 +460,68 @@ def test_monte_carlo_non_int_runs_rejected(bad_runs: object) -> None:
 def test_monte_carlo_int_runs_accepted(good_runs: int) -> None:
     """A positive int remains a valid run count (#1825)."""
     monte_carlo(_one_task_project(), runs=good_runs, seed=1)
+
+
+# ---------------------------------------------------------------------------
+# #1822 — MAX_EXPANDED_EDGES bypass via exponential leaf materialization
+# ---------------------------------------------------------------------------
+
+
+def _doubling_children_map(depth: int) -> dict[str, list[str]]:
+    """A valid, acyclic children_map with 2**depth root-to-leaf paths to one leaf.
+
+    Each summary points at the next level *twice*, so ``_collect_leaves`` yields the
+    single leaf 2**depth times — the exponential list that used to blow up before the
+    MAX_EXPANDED_EDGES guard (which reads its length) ran (#1822)."""
+    return {f"s{i}": [f"s{i + 1}", f"s{i + 1}"] for i in range(depth)}
+
+
+@pytest.mark.parametrize("depth", [25, 40, 200])
+def test_collect_leaves_exponential_map_rejected_fast(depth: int) -> None:
+    """A doubling children_map must be rejected in bounded time via find_cycle and
+    expand_summary_dependencies — not materialize a 2**depth list first (#1822).
+    Depth 40 would be ~10**12 paths and hang for minutes without the in-traversal cap.
+    """
+    import time
+
+    cmap = _doubling_children_map(depth)
+    edges = [("s0", f"s{depth}")]
+    t0 = time.perf_counter()
+    with pytest.raises(InvalidScheduleInput):
+        find_cycle(edges, children_map=cmap)
+    assert time.perf_counter() - t0 < 2.0
+
+    tasks = [Task(id=f"s{depth}", name="leaf", duration=timedelta(days=1))]
+    deps = [Dependency(predecessor_id="s0", successor_id=f"s{depth}")]
+    t0 = time.perf_counter()
+    with pytest.raises(InvalidScheduleInput):
+        expand_summary_dependencies(tasks, deps, cmap)
+    assert time.perf_counter() - t0 < 2.0
+
+
+# ---------------------------------------------------------------------------
+# #1824 — repeated unbounded calendar scans in the forward pass
+# ---------------------------------------------------------------------------
+
+
+def test_forward_pass_snap_memoized_over_blanket_calendar() -> None:
+    """A valid calendar whose exceptions blanket a ~36k-day gap after the start
+    (one working day just past it, so validation's reachability probe passes) used to
+    make schedule() O(tasks · scan_depth): every task repeated the same 36k-day snap.
+    Memoizing the per-calendar snap (#1824) keeps a many-task schedule fast."""
+    import time
+
+    cal = Calendar(
+        working_days=0b0011111,
+        exceptions=[DateRange(date(2026, 1, 7), date(2026, 1, 7) + timedelta(days=36000))],
+    )
+    tasks = [Task(id=f"t{i}", name=f"t{i}", duration=timedelta(days=1)) for i in range(200)]
+    project = Project(
+        id="p", name="p", start_date=date(2026, 1, 5), tasks=tasks, dependencies=[], calendar=cal
+    )
+    t0 = time.perf_counter()
+    result = schedule(project)
+    assert time.perf_counter() - t0 < 2.0
+    # Only Jan 5 (Mon) and Jan 6 (Tue) are workable before the blanket; every
+    # dependency-free 1-day task snaps to the project start.
+    assert result.project_finish == date(2026, 1, 5)
