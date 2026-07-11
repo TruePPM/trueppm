@@ -114,8 +114,11 @@ test.describe('Schedule toolbar — clustered layout (#1741)', () => {
     if (box) expect(box.height).toBeLessThan(56);
   });
 
-  test('at 600px (sm) the filters stay in the Display popover — they never move to the Actions overflow (rule 243)', async ({ page }) => {
-    await gotoSchedule(page, 600);
+  test('at 768px (narrowest desktop toolbar) the filters stay in the Display popover — they never move to the Actions overflow (rule 243)', async ({ page }) => {
+    // 768px is the smallest width the desktop toolbar renders at: below md
+    // (≤767px) ScheduleView swaps to the dedicated mobile Schedule surface,
+    // which has no toolbar at all (#1671, ADR-0348).
+    await gotoSchedule(page, 768);
 
     const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
 

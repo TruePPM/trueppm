@@ -603,82 +603,8 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
   });
 });
 
-/**
- * Mobile Schedule layout (#1670).
- *
- * Below `md` (< 768px) the desktop split-pane Gantt is unusable — the ~220px
- * task-list table crowds the canvas off the right edge. ScheduleView forces
- * full-width Timeline mode on phones: the task-list panel + splitter never
- * render, so the canvas owns the whole width, and the now-meaningless Columns
- * button + Grid/Timeline toggle are hidden.
- */
-test.describe('Schedule mobile layout (#1670)', () => {
-  test.use({ viewport: { width: 375, height: 812 } });
-
-  test.beforeEach(async ({ page }) => {
-    await gotoSchedule(page);
-    // On mobile the task-list grid never mounts, so wait on the canvas instead.
-    await expect(page.getByTestId('schedule-canvas-scroll')).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('hides the task-list panel and fills the width with the canvas', async ({ page }) => {
-    // The desktop task-list panel (role="grid" name="Task list") is suppressed.
-    await expect(page.getByRole('grid', { name: 'Task list' })).toHaveCount(0);
-
-    // The canvas scroll container is present and spans essentially the full
-    // viewport width (not shoved behind a 220px table).
-    const canvas = page.getByTestId('schedule-canvas-scroll');
-    await expect(canvas).toBeVisible();
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    // 375px viewport, allow for any thin gutter — canvas should be > 90% of it.
-    expect(box!.width).toBeGreaterThan(340);
-  });
-
-  test('hides the Columns button and the Grid/Timeline layout toggle', async ({ page }) => {
-    await expect(page.getByRole('button', { name: 'Columns' })).toHaveCount(0);
-    await expect(page.getByRole('radiogroup', { name: 'Schedule layout' })).toHaveCount(0);
-  });
-
-  // #1787 — bounded mobile quick-win on top of #1670 (the dedicated mobile-first
-  // schedule surface is still #1671).
-  test('opens fit to the work, not the empty leading pad (#1787)', async ({ page }) => {
-    // The desktop initial viewport parks *today* at 25% from the left; on a phone
-    // whose project (Jan) starts far from the Oct–Nov fixture work — and from
-    // today — that lands in the engine's empty leading pad, pushing the bars off
-    // the right edge. On mobile we fitToProject instead, so the whole schedule is
-    // compressed into the viewport and the bars are visible on first paint.
-    const canvas = page.getByTestId('schedule-canvas-scroll');
-    const { scrollWidth, clientWidth } = await canvas.evaluate((el) => ({
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }));
-    // Fitted, the whole padded project is compressed to ~3× the 375px viewport
-    // (measured ~1123px) with the bars inside the first screen. The un-fitted
-    // desktop default keeps a coarse px/day and renders ~2424px — the bars are
-    // then off the right edge, needing a scroll-right to find the work. The 4.5×
-    // gate sits squarely between the two deterministic values.
-    expect(scrollWidth).toBeLessThan(clientWidth * 4.5);
-  });
-
-  test('collapses the toolbar so it fits the phone width without overflowing (#1787)', async ({ page }) => {
-    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
-    await expect(toolbar).toBeVisible();
-    const { scrollWidth, clientWidth } = await toolbar.evaluate((el) => ({
-      scrollWidth: el.scrollWidth,
-      clientWidth: el.clientWidth,
-    }));
-    // Not overflowing — the clustered row fits on one line (no clipped "To…").
-    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
-
-    // The controls #1787 names as must-reach are present inline: primary "+ Task"
-    // and Today. The secondary creators' inline buttons are gone (they fold into
-    // the ··· Project actions menu — mobile-only "Add milestone / phase" items),
-    // and the ··· trigger stays on the row so the folded actions stay reachable.
-    await expect(page.getByRole('button', { name: 'Add task' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Today' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Add new milestone (Cmd+M)' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Add new phase (Cmd+P)' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Project actions' })).toBeVisible();
-  });
-});
+// The mobile Schedule surface below md is a dedicated DOM list-timeline
+// (#1671, ADR-0348), not the desktop canvas. Its E2E coverage lives in
+// e2e/mobile-schedule.spec.ts. The former #1670 "canvas full-width on mobile"
+// describe and the #1787 fitted-viewport / collapsed-toolbar tests were removed
+// here when the canvas (and its toolbar) stopped rendering below md.

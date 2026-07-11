@@ -26,6 +26,20 @@ Split-pane: a virtualized task list on the left (seven columns — WBS, Task, Du
 To lay out the WBS quickly — type a task, `Tab` to indent, `Space` to complete, `F2` to edit — turn on [Schedule build mode](/features/schedule-build-mode/), a keyboard-first construction surface for the task list. It builds the schedule; sprint planning still lives on the [Board](/features/board/).
 :::
 
+### On a phone
+
+Below the `md` breakpoint the split-pane canvas gives way to a dedicated
+touch-native surface: a vertically-scrolling, WBS-ordered list where each row
+carries the task name, its planned dates, `% complete`, and a compact timeline
+strip. Every strip is drawn against one shared project window, so the rows read
+top-to-bottom as a cascade you can scan for sequence and slack. The critical
+path shows as a border cue plus a warning glyph (never colour alone), milestones
+render as an amber diamond, and tasks with no dates collect in a collapsible
+**Unscheduled** tray at the top. Tap any row to open its detail sheet; leaf
+tasks you can edit get a one-tap complete. The Monte Carlo forecast card stays
+pinned at the bottom. This is a read-and-navigate surface — reschedule and
+drag-to-plan stay on the desktop canvas.
+
 ## Task detail drawer
 
 Clicking a task row opens a right-side drawer (a bottom sheet on mobile). The

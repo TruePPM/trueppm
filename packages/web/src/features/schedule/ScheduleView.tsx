@@ -48,6 +48,7 @@ import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
+import { MobileSchedule } from './mobile/MobileSchedule';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import {
@@ -667,32 +668,22 @@ export function ScheduleView() {
     // so the listener must bind to the new node.
   }, [effectiveViewMode]);
 
-  const handleEngineReady = useCallback(
-    (eng: GanttEngine) => {
-      setEngine(eng);
+  // The canvas engine mounts only on the desktop branch (below `md` the
+  // dedicated MobileSchedule surface renders instead, #1671/ADR-0348), so the
+  // former #1787 mobile fitToProject special case is gone with the mobile canvas.
+  const handleEngineReady = useCallback((eng: GanttEngine) => {
+    setEngine(eng);
 
-      // On a phone (#1787) the desktop "today at 25% from left" (rule 81) lands
-      // in the engine's leading pad whenever the project starts before today —
-      // the first paint is an empty week grid with the real work scrolled off to
-      // the right. Fit the whole project into the narrow viewport instead so the
-      // bars are on screen immediately. The full mobile-first surface is #1671.
-      if (isMobile) {
-        eng.fitToProject();
-        return;
-      }
-
-      // Initial viewport: today at 25% from left (rule 81)
-      const scales = eng.scales;
-      const container = canvasScrollRef.current;
-      if (scales && container) {
-        const today = new Date().toISOString().slice(0, 10);
-        const todayX = dateToLeft(today, scales);
-        const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
-        container.scrollLeft = targetScrollLeft;
-      }
-    },
-    [isMobile],
-  );
+    // Initial viewport: today at 25% from left (rule 81)
+    const scales = eng.scales;
+    const container = canvasScrollRef.current;
+    if (scales && container) {
+      const today = new Date().toISOString().slice(0, 10);
+      const todayX = dateToLeft(today, scales);
+      const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
+      container.scrollLeft = targetScrollLeft;
+    }
+  }, []);
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19)
   useDragCpm({
@@ -1383,11 +1374,14 @@ export function ScheduleView() {
     );
   }, [projectId, createTaskMut, focus]);
 
-  if (error) {
+  // Mobile owns its own error/loading/empty states inside MobileSchedule
+  // (#1671), so these desktop-only early returns are skipped below md — the
+  // mobile branch in `mainView` renders the phone skeleton/error instead.
+  if (error && !isMobile) {
     return <QueryErrorState message="Couldn't load tasks." />;
   }
 
-  if (isLoading || !rawTasks) {
+  if ((isLoading || !rawTasks) && !isMobile) {
     return (
       <div
         className="flex h-full bg-neutral-surface"
@@ -1407,7 +1401,7 @@ export function ScheduleView() {
     );
   }
 
-  if (!canvasSupported) {
+  if (!canvasSupported && !isMobile) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
         <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
@@ -1448,219 +1442,184 @@ export function ScheduleView() {
           analysis toggles render icon-only at md and move into the shared
           ToolbarOverflowMenu below md. Root is `flex-nowrap` (rule 113) so a
           missing collapse rule surfaces as a clipped row, never a stacked one. */}
-      <div
-        role="toolbar"
-        aria-label="Schedule toolbar"
-        className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
-      >
-        {/* "+ Task" button — only shown when a project is selected */}
-        {projectId && (
-          <button
-            type="button"
-            onClick={() => setShowAddForm((v) => !v)}
-            aria-label="Add task"
-            aria-expanded={showAddForm}
-            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
+      {!isMobile && (
+        <div
+          role="toolbar"
+          aria-label="Schedule toolbar"
+          className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
+        >
+          {/* "+ Task" button — only shown when a project is selected */}
+          {projectId && (
+            <button
+              type="button"
+              onClick={() => setShowAddForm((v) => !v)}
+              aria-label="Add task"
+              aria-expanded={showAddForm}
+              className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
-          >
-            + Task
-          </button>
-        )}
-        {/* "+ Milestone" / "+ Phase" peer buttons (#340, epic #1752). On mobile
-            (#1787) three full-width create buttons + Today overflow a 375px row,
-            so the two secondary creators fold into the ··· menu ("Add milestone /
-            phase" items below) and only the primary "+ Task" stays inline. */}
-        {projectId && !isMobile && (
-          <ScheduleAddMilestoneButton
-            onAddMilestone={handleAddMilestone}
-            disabled={readOnly}
-            pending={createTaskMut.isPending}
-          />
-        )}
-        {/* Schedule/Gantt only — never appears on a contributor surface (board,
-            sprints, My Work). */}
-        {projectId && !isMobile && (
-          <ScheduleAddPhaseButton
-            onAddPhase={handleAddPhase}
-            disabled={readOnly}
-            pending={createTaskMut.isPending}
-          />
-        )}
-        {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
-        {/* Show the badge for in-flight optimistic edits, and also while a
+            >
+              + Task
+            </button>
+          )}
+          {/* "+ Milestone" peer button (#340) — same gate as "+ Task" */}
+          {projectId && (
+            <ScheduleAddMilestoneButton
+              onAddMilestone={handleAddMilestone}
+              disabled={readOnly}
+              pending={createTaskMut.isPending}
+            />
+          )}
+          {/* "+ Phase" peer button (epic #1752, issue #1754) — same gate as
+            "+ Task" / "+ Milestone". Schedule/Gantt only — never appears on a
+            contributor surface (board, sprints, My Work). */}
+          {projectId && (
+            <ScheduleAddPhaseButton
+              onAddPhase={handleAddPhase}
+              disabled={readOnly}
+              pending={createTaskMut.isPending}
+            />
+          )}
+          {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
+          {/* Show the badge for in-flight optimistic edits, and also while a
             freshly-imported sample's first post-import CPM pass is still pending
             (recalculated_at null) so the demo never reads as broken with
             uncomputed dates (#1053). */}
-        <RecalculatingBadge
-          isVisible={
-            pendingTaskIds.size > 0 ||
-            (projectDetail?.is_sample === true && projectDetail?.recalculated_at == null)
-          }
-        />
-
-        <div className="flex-1" />
-
-        {/* Project-health summary chip (#248) — standalone read-only status.
-            Hidden on mobile (#1787) so the create actions + Today fit the row
-            without overflowing/clipping; the full mobile surface is #1671. */}
-        {!isMobile && (
-          <>
-            <ScheduleSummaryChip visibleTasks={visibleTasks} />
-            <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
-          </>
-        )}
-
-        {/* Grid↔Timeline layout toggle (issue 1221) — standalone: Grid keeps the
-            WBS table beside the timeline, Timeline hides it for a full-width canvas.
-            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
-        {!isMobile && <ScheduleViewModeToggle />}
-
-        {/* Show cluster (#1741) — the Display popover is the single home for the
-            four view/render filters plus (in Grid mode) column visibility, at every
-            width, including mobile (icon-only). Filters never migrate to the ···
-            overflow (web rule 243). */}
-        <ScheduleDisplayMenu
-          showCpOnly={showCpOnly}
-          setShowCpOnly={setShowCpOnly}
-          focusModeEnabled={focusModeEnabled}
-          setFocusModeEnabled={setFocusModeEnabled}
-          showCriticalOnly={showCriticalOnly}
-          setShowCriticalOnly={setShowCriticalOnly}
-          showMilestonesOnly={showMilestonesOnly}
-          setShowMilestonesOnly={setShowMilestonesOnly}
-          columns={
-            effectiveViewMode === 'grid'
-              ? (['dur', 'start', 'finish', 'progress'] as const).map((col) => ({
-                  id: col,
-                  label:
-                    col === 'dur'
-                      ? 'Duration'
-                      : col === 'start'
-                        ? 'Start'
-                        : col === 'finish'
-                          ? 'Finish'
-                          : '% Complete',
-                  checked: visible[col],
-                  onChange: () => toggleColumn(col),
-                }))
-              : null
-          }
-          iconOnly={breakpoint !== 'lg'}
-        />
-
-        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
-
-        {/* Time cluster (#1741) — timeline navigation: jump-to-today, zoom, and the
-            fiscal/calendar quarter toggle (self-hides off quarter/year zoom and on a
-            January fiscal start). */}
-        <div role="group" aria-label="Timeline navigation" className="flex items-center gap-1">
-          {/* "Today" button (rule 82) */}
-          <button
-            type="button"
-            onClick={handleScrollToToday}
-            className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-          >
-            Today
-          </button>
-          {/* Zoom + fiscal-quarter toggle collapse on mobile (#1787) — the bounded
-              fix keeps only Today inline; touch pan/zoom is deferred to #1671. */}
-          {!isMobile && (
-            <>
-              <ZoomControl onFit={() => engine?.fitToProject()} />
-              <QuarterModeControl />
-            </>
-          )}
-        </div>
-
-        <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
-        {/* Project actions (···) — always present so Import/Export are
-            discoverable at every width. The secondary analysis toggles fold in
-            here only at the narrowest breakpoint; at md+ they render inline. */}
-        {(projectId || breakpoint === 'sm') && (
-          <ToolbarOverflowMenu
-            triggerAriaLabel="Project actions"
-            items={
-              [
-                // Mobile-only (#1787): the secondary create actions live here
-                // because their inline buttons are suppressed on a phone. Gated by
-                // authoring role (readOnly viewers never see a create action).
-                ...(projectId && isMobile && !readOnly
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        id: 'add-milestone',
-                        label: 'Add milestone',
-                        // Mirror the inline buttons' in-flight guard (they disable
-                        // while a create is pending) so a phone user can't re-fire.
-                        disabled: createTaskMut.isPending,
-                        onSelect: handleAddMilestone,
-                      },
-                      {
-                        kind: 'action' as const,
-                        id: 'add-phase',
-                        label: 'Add phase',
-                        disabled: createTaskMut.isPending,
-                        onSelect: handleAddPhase,
-                      },
-                    ]
-                  : []),
-                ...(projectId && canImport
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        id: 'import-msproject',
-                        label: 'Import from MS Project…',
-                        onSelect: () => setImportOpen(true),
-                      },
-                    ]
-                  : []),
-                ...(projectId
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        id: 'export-msproject',
-                        label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
-                        disabled: isExporting,
-                        onSelect: () => {
-                          void exportProject();
-                        },
-                      },
-                    ]
-                  : []),
-                // Schedule PDF export (issue 1438). Now an Actions-menu item (#1741) —
-                // the standalone lg button was removed to hold the toolbar at ≤6
-                // affordances. Disabled (not hidden) when nothing is exportable, so it
-                // stays discoverable. Still hidden at sm — a deck-style export is a
-                // desk task, not a mobile one.
-                ...(projectId && breakpoint !== 'sm'
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        id: 'export-pdf',
-                        label: 'Export schedule as PDF…',
-                        disabled: !scheduleExport.canExport,
-                        onSelect: scheduleExport.openDialog,
-                      },
-                    ]
-                  : []),
-                // Share (#1486) — now an Actions-menu item at every width (#1741),
-                // Admin+ only.
-                ...(projectId && canShare
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        id: 'share-schedule',
-                        label: 'Share this schedule…',
-                        onSelect: () => setShareOpen(true),
-                      },
-                    ]
-                  : []),
-              ] as ToolbarOverflowItem[]
+          <RecalculatingBadge
+            isVisible={
+              pendingTaskIds.size > 0 ||
+              (projectDetail?.is_sample === true && projectDetail?.recalculated_at == null)
             }
           />
-        )}
-      </div>
+
+          <div className="flex-1" />
+
+          {/* Project-health summary chip (#248) — standalone read-only status. */}
+          <ScheduleSummaryChip visibleTasks={visibleTasks} />
+
+          <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+
+          {/* Grid↔Timeline layout toggle (issue 1221) — standalone: Grid keeps the
+            WBS table beside the timeline, Timeline hides it for a full-width canvas.
+            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
+          {!isMobile && <ScheduleViewModeToggle />}
+
+          {/* Show cluster (#1741) — the Display popover is the single home for the
+            four view/render filters plus (in Grid mode) column visibility, at every
+            width. Filters never migrate to the ··· overflow (web rule 243). */}
+          <ScheduleDisplayMenu
+            showCpOnly={showCpOnly}
+            setShowCpOnly={setShowCpOnly}
+            focusModeEnabled={focusModeEnabled}
+            setFocusModeEnabled={setFocusModeEnabled}
+            showCriticalOnly={showCriticalOnly}
+            setShowCriticalOnly={setShowCriticalOnly}
+            showMilestonesOnly={showMilestonesOnly}
+            setShowMilestonesOnly={setShowMilestonesOnly}
+            columns={
+              effectiveViewMode === 'grid'
+                ? (['dur', 'start', 'finish', 'progress'] as const).map((col) => ({
+                    id: col,
+                    label:
+                      col === 'dur'
+                        ? 'Duration'
+                        : col === 'start'
+                          ? 'Start'
+                          : col === 'finish'
+                            ? 'Finish'
+                            : '% Complete',
+                    checked: visible[col],
+                    onChange: () => toggleColumn(col),
+                  }))
+                : null
+            }
+            iconOnly={breakpoint !== 'lg'}
+          />
+
+          <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+
+          {/* Time cluster (#1741) — timeline navigation: jump-to-today, zoom, and the
+            fiscal/calendar quarter toggle (self-hides off quarter/year zoom and on a
+            January fiscal start). */}
+          <div role="group" aria-label="Timeline navigation" className="flex items-center gap-1">
+            {/* "Today" button (rule 82) */}
+            <button
+              type="button"
+              onClick={handleScrollToToday}
+              className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+            >
+              Today
+            </button>
+            <ZoomControl onFit={() => engine?.fitToProject()} />
+            <QuarterModeControl />
+          </div>
+
+          <div aria-hidden="true" className="mx-0.5 h-5 w-px bg-neutral-border shrink-0" />
+          {/* Project actions (···) — always present so Import/Export are
+            discoverable at every width. The secondary analysis toggles fold in
+            here only at the narrowest breakpoint; at md+ they render inline. */}
+          {(projectId || breakpoint === 'sm') && (
+            <ToolbarOverflowMenu
+              triggerAriaLabel="Project actions"
+              items={
+                [
+                  ...(projectId && canImport
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'import-msproject',
+                          label: 'Import from MS Project…',
+                          onSelect: () => setImportOpen(true),
+                        },
+                      ]
+                    : []),
+                  ...(projectId
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'export-msproject',
+                          label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
+                          disabled: isExporting,
+                          onSelect: () => {
+                            void exportProject();
+                          },
+                        },
+                      ]
+                    : []),
+                  // Schedule PDF export (issue 1438). Now an Actions-menu item (#1741) —
+                  // the standalone lg button was removed to hold the toolbar at ≤6
+                  // affordances. Disabled (not hidden) when nothing is exportable, so it
+                  // stays discoverable. Still hidden at sm — a deck-style export is a
+                  // desk task, not a mobile one.
+                  ...(projectId && breakpoint !== 'sm'
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'export-pdf',
+                          label: 'Export schedule as PDF…',
+                          disabled: !scheduleExport.canExport,
+                          onSelect: scheduleExport.openDialog,
+                        },
+                      ]
+                    : []),
+                  // Share (#1486) — now an Actions-menu item at every width (#1741),
+                  // Admin+ only.
+                  ...(projectId && canShare
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'share-schedule',
+                          label: 'Share this schedule…',
+                          onSelect: () => setShareOpen(true),
+                        },
+                      ]
+                    : []),
+                ] as ToolbarOverflowItem[]
+              }
+            />
+          )}
+        </div>
+      )}
 
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another
           team has proposed inert cross-project links against this project's
@@ -1697,112 +1656,130 @@ export function ScheduleView() {
         />
       )}
 
-      <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
-        {/* Grid mode shows the WBS task-list table + resize splitter; Timeline
+      {isMobile ? (
+        /* Dedicated mobile-first Schedule surface (#1671, ADR-0348) — a DOM
+           list-timeline that replaces the desktop canvas below md. Owns its own
+           loading/error/empty states; edits delegate to the shared
+           TaskDetailDrawer (mounted below) via scheduleStore.selectedTaskId. */
+        <MobileSchedule
+          tasks={allTasks}
+          projectId={projectId}
+          readOnly={readOnly}
+          isLoading={isLoading}
+          error={error}
+          onAddTask={() => setShowAddForm(true)}
+        />
+      ) : (
+        <>
+          <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
+            {/* Grid mode shows the WBS task-list table + resize splitter; Timeline
             mode (issue 1221) hides both for a full-width canvas (task names render
             inline on the bars). Mobile is forced to Timeline (#1670), so the
             panel + splitter never render on a phone. */}
-        {effectiveViewMode === 'grid' && (
-          <>
-            <TaskListPanel
-              tasks={visibleTasks}
-              pendingTaskIds={pendingTaskIds}
-              scrollRef={taskListScrollRef}
-              widths={widths}
-              visible={visible}
-              setWidth={setWidth}
-              totalWidth={totalWidth}
-              summaryIds={summaryIds}
-              expandedIds={expandedIds}
-              onToggle={toggleExpand}
-              focusChainIds={focusChainIds}
-              depChipsById={depChipsById}
-              onHoverChange={setHoveredTaskId}
-              onAddDependencyRequest={handleAddDependencyRequest}
-              sprintsById={sprintsById}
-              phaseInWaitingIds={visiblePhaseInWaitingIds}
-              onAddPhaseFirstChild={handleAddPhaseFirstChild}
-              autoEditTaskId={pendingAutoEditId}
-              onAutoEditConsumed={() => setPendingAutoEditId(null)}
-            />
-            {/* Panel splitter — drag to resize task list width */}
-            <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
-          </>
-        )}
+            {effectiveViewMode === 'grid' && (
+              <>
+                <TaskListPanel
+                  tasks={visibleTasks}
+                  pendingTaskIds={pendingTaskIds}
+                  scrollRef={taskListScrollRef}
+                  widths={widths}
+                  visible={visible}
+                  setWidth={setWidth}
+                  totalWidth={totalWidth}
+                  summaryIds={summaryIds}
+                  expandedIds={expandedIds}
+                  onToggle={toggleExpand}
+                  focusChainIds={focusChainIds}
+                  depChipsById={depChipsById}
+                  onHoverChange={setHoveredTaskId}
+                  onAddDependencyRequest={handleAddDependencyRequest}
+                  sprintsById={sprintsById}
+                  phaseInWaitingIds={visiblePhaseInWaitingIds}
+                  onAddPhaseFirstChild={handleAddPhaseFirstChild}
+                  autoEditTaskId={pendingAutoEditId}
+                  onAutoEditConsumed={() => setPendingAutoEditId(null)}
+                />
+                {/* Panel splitter — drag to resize task list width */}
+                <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
+              </>
+            )}
 
-        {visibleTasks.length === 0 ? (
-          buildModeActive ? (
-            <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
-          ) : (
-            <ScheduleEmptyState />
-          )
-        ) : (
-          <div
-            ref={canvasScrollRef}
-            data-testid="schedule-canvas-scroll"
-            className="flex-1 min-w-0 overflow-auto relative z-0"
-            onScroll={handleCanvasScroll}
-          >
-            {/* Scrollable content area sized to the full canvas width.
+            {visibleTasks.length === 0 ? (
+              buildModeActive ? (
+                <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
+              ) : (
+                <ScheduleEmptyState />
+              )
+            ) : (
+              <div
+                ref={canvasScrollRef}
+                data-testid="schedule-canvas-scroll"
+                className="flex-1 min-w-0 overflow-auto relative z-0"
+                onScroll={handleCanvasScroll}
+              >
+                {/* Scrollable content area sized to the full canvas width.
                 minWidth:'100%' ensures the timeline fills the viewport even when
                 the task date range is narrower than the available panel width (#92). */}
-            <div
-              style={{
-                width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
-                minWidth: '100%',
-                height: HEADER_HEIGHT + visibleTasks.length * ROW_HEIGHT,
-                position: 'relative',
-              }}
-            >
-              {/* Canvas layers fill the viewport.
+                <div
+                  style={{
+                    width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
+                    minWidth: '100%',
+                    height: HEADER_HEIGHT + visibleTasks.length * ROW_HEIGHT,
+                    position: 'relative',
+                  }}
+                >
+                  {/* Canvas layers fill the viewport.
                   width/height driven by --gantt-vw/vh CSS vars set by the engine
                   on _applyDpr(). Using 100% here would resolve to totalCanvasWidth
                   (the scroll spacer's width), making position:sticky left:0 impossible
                   to satisfy — the element is as wide as its containing block and cannot
                   move left to "stick" (issue #96). */}
-              <div
-                style={{
-                  position: 'sticky',
-                  top: 0,
-                  left: 0,
-                  width: 'var(--gantt-vw, 100%)',
-                  height: 'var(--gantt-vh, 100%)',
-                  pointerEvents: 'none',
-                }}
-              >
-                <CanvasScheduleTimeline
-                  tasks={visibleTasks}
-                  links={links ?? []}
-                  zoomLevel={zoomLevel}
-                  containerRef={canvasScrollRef}
-                  onEngineReady={handleEngineReady}
-                />
-                {/* P50/P80/P95 vertical markers — scroll-synced via DOM ref writes (#333) */}
-                <MonteCarloGanttMarkers
-                  result={mcResult ?? null}
-                  scaleData={scheduleScales}
-                  canvasScrollRef={canvasScrollRef}
-                />
+                  <div
+                    style={{
+                      position: 'sticky',
+                      top: 0,
+                      left: 0,
+                      width: 'var(--gantt-vw, 100%)',
+                      height: 'var(--gantt-vh, 100%)',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <CanvasScheduleTimeline
+                      tasks={visibleTasks}
+                      links={links ?? []}
+                      zoomLevel={zoomLevel}
+                      containerRef={canvasScrollRef}
+                      onEngineReady={handleEngineReady}
+                    />
+                    {/* P50/P80/P95 vertical markers — scroll-synced via DOM ref writes (#333) */}
+                    <MonteCarloGanttMarkers
+                      result={mcResult ?? null}
+                      scaleData={scheduleScales}
+                      canvasScrollRef={canvasScrollRef}
+                    />
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            )}
 
-        {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
+            {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend taskListWidth={panelWidth} showBaselines={surfaces.baselines} />
-      </div>
+            <ScheduleLegend taskListWidth={panelWidth} showBaselines={surfaces.baselines} />
+          </div>
 
-      {/* Unscheduled gutter — tasks with no planned/CPM dates (#213) */}
-      {projectId && (
-        <UnscheduledGutter
-          tasks={unscheduledTasks}
-          projectId={projectId}
-          scaleData={scheduleScales}
-          canvasScrollRef={canvasScrollRef}
-          taskListWidth={panelWidth}
-          sprints={sprints}
-        />
+          {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop
+          only; the mobile surface carries its own Unscheduled tray (#1671). */}
+          {projectId && (
+            <UnscheduledGutter
+              tasks={unscheduledTasks}
+              projectId={projectId}
+              scaleData={scheduleScales}
+              canvasScrollRef={canvasScrollRef}
+              taskListWidth={panelWidth}
+              sprints={sprints}
+            />
+          )}
+        </>
       )}
 
       {/* Contextual hint strip (#1250, web rule 194): render only while the user
