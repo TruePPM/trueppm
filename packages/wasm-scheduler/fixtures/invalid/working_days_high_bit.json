@@ -1,0 +1,10 @@
+{
+  "id": "inv-working-days-high-bit",
+  "name": "working_days with bit 7 set (200) — Python rejects, Rust accepted (#1826)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 200, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

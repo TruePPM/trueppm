@@ -1,0 +1,15 @@
+{
+  "id": "inv-inverted-exception-range",
+  "name": "Calendar exception with end before start (#1826)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [{"start": "2026-04-10", "end": "2026-04-05"}],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

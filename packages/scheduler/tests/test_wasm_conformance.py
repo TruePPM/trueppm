@@ -169,10 +169,20 @@ def test_invalid_fixture_rejected(invalid_name: str) -> None:
     and :class:`CyclicDependencyError` (the ``cycle`` fixture, #1505). A cycle is
     a rejection just like the others; the cross-engine contract is "Python rejects
     this input, so Rust must too", which ``SchedulerError`` captures for both.
+
+    A fixture may be rejected at *parse* time (``from_dict`` — e.g. a
+    ``working_days`` outside [0, 127] or an inverted ``DateRange``, both validated in
+    ``models.py``) or at *schedule* time (``_validate_project``). Either stage is a
+    valid Python rejection; the Rust engine rejects the same fixtures inside
+    ``schedule_impl`` (it has no separate parse-validation step). So a
+    ``from_dict`` that raises ``SchedulerError`` satisfies the contract on its own.
     """
     with open(INVALID_DIR / f"{invalid_name}.json") as f:
         data = json.load(f)
-    project = Project.from_dict(data)
+    try:
+        project = Project.from_dict(data)
+    except SchedulerError:
+        return  # rejected at parse time — a valid rejection (Rust rejects in schedule_impl)
     with pytest.raises(SchedulerError):
         schedule(project)
     # Also assert the Monte Carlo entry point rejects every adversarial fixture.
