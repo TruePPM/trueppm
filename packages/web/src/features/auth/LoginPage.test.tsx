@@ -185,15 +185,59 @@ describe('LoginPage', () => {
     expect(queryClient.getQueryData(['current-user'])).toBeUndefined();
   });
 
-  it('shows SSO tooltip when SSO button is clicked', async () => {
+  it('starts SSO and redirects to the RP login endpoint when the email domain has a provider', async () => {
+    // discoverSso() probes GET /auth/oidc/discover; a matched domain hands off
+    // to the RP login endpoint via a top-level navigation (issue 1392).
+    // jsdom's window.location.assign isn't spyable, so replace location for this test.
+    const originalLocation = window.location;
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, assign },
+    });
+    mockedAxios.get.mockResolvedValueOnce({
+      data: { provider_present: true, display_name: 'Acme SSO', issuer: 'https://id.acme.io' },
+    });
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Email'), 'anna@acme.io');
+    await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/login'));
+    const discoverCall = mockedAxios.get.mock.calls[0];
+    expect(discoverCall[0]).toBe('/api/v1/auth/oidc/discover/');
+    expect(discoverCall[1]).toEqual(
+      expect.objectContaining({ params: { email: 'anna@acme.io' } }),
+    );
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it('falls back to password entry when no SSO provider matches the email domain', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: { provider_present: false } });
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText('Email'), 'anna@nowhere.example');
+    await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
+
+    expect(
+      await screen.findByText(/No SSO provider is set up for that email domain/i),
+    ).toBeInTheDocument();
+  });
+
+  it('prompts for an email before starting SSO when the field is empty', async () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
 
-    expect(screen.getByRole('tooltip')).toHaveTextContent(
-      'Single sign-on with your identity provider is coming — tracked in issue 1392.',
-    );
+    expect(
+      await screen.findByText(/Enter your work email above, then continue with SSO/i),
+    ).toBeInTheDocument();
   });
 
   it('links Forgot? to the self-service password reset flow (issue 765)', () => {

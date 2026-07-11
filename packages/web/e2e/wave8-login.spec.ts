@@ -3,8 +3,9 @@ import { test, expect } from '@playwright/test';
 /**
  * Wave 8 — Login screen redesign (#215).
  *
- * Covers the two-column layout, marketing panel, SSO stub, and remember-me
- * checkbox. Auth flow happy-path and error-path are covered in auth.spec.ts.
+ * Covers the two-column layout, marketing panel, real SSO entry (#1392), and
+ * remember-me checkbox. Auth flow happy-path and error-path are covered in
+ * auth.spec.ts; the SSO completion flow in sso-login.spec.ts.
  */
 
 const AUTH_TOKEN_URL = '**/api/v1/auth/token/';
@@ -78,16 +79,47 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeFocused();
   });
 
-  test('SSO button shows coming-soon tooltip on click', async ({ page }) => {
+  test('SSO button and open-source chip are shown (basic SSO is OSS, #1392)', async ({ page }) => {
     await page.goto('/login');
 
-    const ssoButton = page.getByRole('button', { name: 'Continue with SSO' });
-    await expect(ssoButton).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue with SSO' })).toBeVisible();
+    // The chip corrects the prior "SSO available in Enterprise tier" mislabel.
+    await expect(page.getByText(/Open-source core/i)).toBeVisible();
+  });
 
-    await ssoButton.click();
-    await expect(page.getByRole('tooltip')).toContainText(
-      'Single sign-on with your identity provider is coming',
+  test('SSO falls back to password entry when the email domain has no provider', async ({
+    page,
+  }) => {
+    await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
+      route.fulfill({ status: 200, json: { provider_present: false } }),
     );
+    await page.goto('/login');
+
+    await page.getByLabel('Email').fill('nobody@unknown.example');
+    await page.getByRole('button', { name: 'Continue with SSO' }).click();
+
+    await expect(page.getByText(/No SSO provider is set up for that email domain/i)).toBeVisible();
+  });
+
+  test('SSO hands off to the RP login endpoint for a matched domain', async ({ page }) => {
+    await page.route('**/api/v1/auth/oidc/discover/**', (route) =>
+      route.fulfill({
+        status: 200,
+        json: { provider_present: true, display_name: 'Acme SSO', issuer: 'https://id.acme.io' },
+      }),
+    );
+    // The handoff is a top-level navigation to the RP login endpoint (which would
+    // 302 to the IdP in production); stub it so the browser lands somewhere benign.
+    await page.route('**/api/v1/auth/oidc/login', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>idp</body></html>' }),
+    );
+    await page.goto('/login');
+
+    await page.getByLabel('Email').fill('anna@acme.io');
+    await page.getByRole('button', { name: 'Continue with SSO' }).click();
+
+    await page.waitForURL('**/api/v1/auth/oidc/login');
+    expect(page.url()).toContain('/api/v1/auth/oidc/login');
   });
 
   test('marketing panel shows headline and build info', async ({ page }) => {

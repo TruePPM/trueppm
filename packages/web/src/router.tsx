@@ -216,6 +216,14 @@ const PublicScheduleSharePage = lazy(() =>
   })),
 );
 
+// SSO completion landing (#1392, ADR-0187) — public sibling of the login screen;
+// lazy so the OIDC flow adds nothing to the initial login bundle.
+const SsoCompletePage = lazy(() =>
+  import('@/features/auth/SsoCompletePage').then((m) => ({
+    default: m.SsoCompletePage,
+  })),
+);
+
 // ── Self-service password reset (issue 765, ADR-0209) — five public (no-auth) screens.
 //    Lazy-loaded so the recovery flow adds nothing to the initial login bundle. ──
 const ForgotPasswordPage = lazy(() =>
@@ -363,6 +371,19 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<RouteLoadingFallback />}>
         <ResetPasswordExpiredPage />
+      </Suspense>
+    ),
+  },
+  // Public route — no auth required (#1392, ADR-0187). SSO completion landing:
+  // the OIDC callback 302s here (success mints the session from the refresh
+  // cookie; failure arrives as ?error=<code>). Must sit outside RequireAuth so a
+  // not-yet-member (sso_no_member) can see the error instead of being bounced.
+  {
+    path: '/auth/sso/complete',
+    errorElement: <RouteErrorBoundary />,
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <SsoCompletePage />
       </Suspense>
     ),
   },
@@ -868,6 +889,7 @@ export const router = createBrowserRouter([
             element: <SectionRedirect base="/settings" anchor="groups" />,
           },
           { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
+          { path: 'settings/sso', element: <SectionRedirect base="/settings" anchor="sso" /> },
           {
             path: 'settings/methodology',
             element: <SectionRedirect base="/settings" anchor="methodology" />,
