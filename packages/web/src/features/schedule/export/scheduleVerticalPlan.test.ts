@@ -157,6 +157,28 @@ describe('planVerticalPages', () => {
     const pages = planVerticalPages(geom, 300);
     expect(pages.every((p) => p.header?.kind !== 'cp')).toBe(true);
   });
+
+  it('keeps the Unscheduled — Planned Work block together, starting it on a fresh page (#1799)', () => {
+    const geom: VerticalFlowGeometry = {
+      imageHeightPx: 560,
+      ganttHeader: { top: 40, height: 40 },
+      ganttRows: { top: 80, bottom: 260, rowH: 40 },
+      cp: null,
+      unscheduled: { top: 300, bottom: 420 },
+      footerTop: 420,
+    };
+    // Page body 300px. The block (300–420) can't fit page 1's remainder, so page 1
+    // ends exactly at the block's top and page 2 carries the whole block — never a
+    // break between 300 and 420 (keep-together).
+    const pages = planVerticalPages(geom, 300);
+    expect(pages).toEqual([
+      { sy: 0, sh: 300, header: null },
+      { sy: 300, sh: 260, header: null },
+    ]);
+    // No page boundary falls strictly inside the block.
+    const boundaries = pages.map((p) => p.sy).filter((y) => y > 300 && y < 420);
+    expect(boundaries).toHaveLength(0);
+  });
 });
 
 describe('pageLabel', () => {

@@ -47,6 +47,19 @@ export interface CpBlock {
   rowH: number;
 }
 
+/**
+ * The "Unscheduled — Planned Work" block (#1799) — a keep-together card between
+ * the CP summary and the footer. It is never split: `top`..`bottom` are safe
+ * break boundaries so a page break can fall *before* or *after* it, but the
+ * planner adds no interior breaks, so the whole block starts on a fresh page
+ * when it doesn't fit the remaining space (ADR-0276, mirroring the footer's
+ * keep-together treatment).
+ */
+export interface UnscheduledBlock {
+  top: number;
+  bottom: number;
+}
+
 export interface VerticalFlowGeometry {
   /** Full rasterized bitmap height (img px). */
   imageHeightPx: number;
@@ -54,6 +67,8 @@ export interface VerticalFlowGeometry {
   ganttRows: GanttRowsRegion;
   /** Null when the CP summary is omitted or empty. */
   cp: CpBlock | null;
+  /** Null/absent when there is no planned-but-unscheduled work (#1799). */
+  unscheduled?: UnscheduledBlock | null;
   /** Sign-off + watermark strip — kept together, never split. */
   footerTop: number;
 }
@@ -120,7 +135,7 @@ function avoidGanttOrphan(
 
 /** Sorted-ascending unique numbers, dropping values outside `(0, imageHeight]`. */
 function safeBreaks(geom: VerticalFlowGeometry): number[] {
-  const { imageHeightPx, ganttRows, cp, footerTop } = geom;
+  const { imageHeightPx, ganttRows, cp, unscheduled, footerTop } = geom;
   const set = new Set<number>();
   // Every Gantt row boundary (top+rowH … bottom) is a safe cut.
   for (let y = ganttRows.top + ganttRows.rowH; y < ganttRows.bottom; y += ganttRows.rowH) {
@@ -133,6 +148,12 @@ function safeBreaks(geom: VerticalFlowGeometry): number[] {
       set.add(Math.round(y));
     }
     set.add(Math.round(cp.rowsBottom));
+  }
+  if (unscheduled) {
+    // Keep-together (#1799): only the block's outer edges are safe cuts, so a page
+    // break falls before or after the whole block, never inside it.
+    set.add(Math.round(unscheduled.top));
+    set.add(Math.round(unscheduled.bottom));
   }
   set.add(Math.round(footerTop)); // keep the sign-off footer together
   set.add(Math.round(imageHeightPx)); // the report end

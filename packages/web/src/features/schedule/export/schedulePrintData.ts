@@ -12,7 +12,7 @@
  * transform performs NO new compute and reads NO new endpoint (ADR-0188:
  * "no API/migration/permission surface").
  */
-import type { Task, TaskLink, LinkType, MonteCarloResult } from '@/types';
+import type { ApiSprint, Task, TaskLink, LinkType, MonteCarloResult } from '@/types';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { initialsOf } from '@/lib/initials';
 
@@ -115,11 +115,51 @@ export interface SchedulePrintFooter {
   contentSha: string | null;
 }
 
+/** One planned-but-unscheduled task in the "Unscheduled — Planned Work" section. */
+export interface SchedulePrintUnscheduledTask {
+  id: string;
+  wbsCode: string;
+  name: string;
+  ownerInitials: string | null;
+}
+
+/**
+ * A group of unscheduled planned tasks, ordered to mirror the on-screen tray:
+ * one group per target sprint (sprint-assigned backlog), and a trailing
+ * no-sprint bucket for any other undated To Do / Backlog rows.
+ */
+export interface SchedulePrintUnscheduledGroup {
+  /** Sprint id, or `'__none__'` for the no-sprint bucket. */
+  key: string;
+  /** Sprint name, or null for the no-sprint bucket. */
+  sprintName: string | null;
+  /** Sprint window label ("Apr 1 – Apr 14"), or null. */
+  windowLabel: string | null;
+  /** Title-cased sprint state ("Planned"/"Active"/…), or null. */
+  stateLabel: string | null;
+  tasks: SchedulePrintUnscheduledTask[];
+}
+
+/**
+ * The planned-but-unscheduled work the chart cannot place (ADR-0188 follow-up,
+ * #1799). Mirrors `useUnscheduledTasks`, restricted to rows with no CPM
+ * placement (no start AND no finish) — the sprint-assigned backlog and any
+ * pre-CPM undated tasks that otherwise render as blank chart rows. These are
+ * carved OUT of {@link SchedulePrintData.rows} and surfaced here so a
+ * client-ready chart never silently drops planned work.
+ */
+export interface SchedulePrintUnscheduled {
+  count: number;
+  groups: SchedulePrintUnscheduledGroup[];
+}
+
 export interface SchedulePrintData {
   rows: SchedulePrintRow[];
   links: SchedulePrintLink[];
   kpis: SchedulePrintKpis;
   cpChain: SchedulePrintCpTask[];
+  /** Planned-but-unscheduled work, grouped by target sprint (#1799). */
+  unscheduled: SchedulePrintUnscheduled;
   masthead: SchedulePrintMasthead;
   footer: SchedulePrintFooter;
 }
@@ -271,6 +311,95 @@ function toPrintRow(task: Task): SchedulePrintRow {
     isMilestone: task.isMilestone,
     milestoneMet: task.isMilestone ? task.isComplete || task.progress >= 100 : null,
   };
+}
+
+/**
+ * Whether a task is planned-but-unscheduled for the export's dedicated section.
+ *
+ * Mirrors the `useUnscheduledTasks` gutter predicate (NOT_STARTED/BACKLOG, no
+ * PM-committed `planned_start`, not a summary, and either no sprint or a
+ * sprint-assigned BACKLOG idea), further restricted to rows with **no CPM
+ * placement** (`!start && !finish`). Those are exactly the ones the chart cannot
+ * draw a bar for — they render as blank rows today (or drop out of a windowed
+ * export). To Do / Backlog tasks that DID get CPM early dates keep their bars on
+ * the chart, unchanged.
+ */
+function isUnscheduledPlanned(task: Task): boolean {
+  const matchesTray =
+    (task.status === 'NOT_STARTED' || task.status === 'BACKLOG') &&
+    !task.plannedStart &&
+    !task.isSummary &&
+    (!task.sprintId || task.status === 'BACKLOG');
+  return matchesTray && !task.start && !task.finish;
+}
+
+const NO_SPRINT_KEY = '__none__';
+
+/**
+ * Build the "Unscheduled — Planned Work" section: the planned-but-unscheduled
+ * tasks grouped by target sprint (earliest-starting first), with a trailing
+ * no-sprint bucket. Returns the id set so the caller can carve these rows out of
+ * the chart and avoid listing them twice.
+ */
+function buildUnscheduled(
+  tasks: Task[],
+  sprints: ApiSprint[],
+): { data: SchedulePrintUnscheduled; ids: Set<string> } {
+  const sprintById = new Map(sprints.map((s) => [s.id, s]));
+  const bySprint = new Map<string, SchedulePrintUnscheduledTask[]>();
+  const noSprint: SchedulePrintUnscheduledTask[] = [];
+  const ids = new Set<string>();
+
+  for (const t of tasks) {
+    if (!isUnscheduledPlanned(t)) continue;
+    ids.add(t.id);
+    const owner = t.assignees[0]?.name ?? null;
+    const row: SchedulePrintUnscheduledTask = {
+      id: t.id,
+      wbsCode: t.wbs,
+      name: t.name,
+      ownerInitials: owner ? initialsOf(owner) : null,
+    };
+    if (t.sprintId) {
+      const arr = bySprint.get(t.sprintId) ?? [];
+      arr.push(row);
+      bySprint.set(t.sprintId, arr);
+    } else {
+      noSprint.push(row);
+    }
+  }
+
+  const groups: SchedulePrintUnscheduledGroup[] = [...bySprint.entries()]
+    .map(([sprintId, rows]) => {
+      const s = sprintById.get(sprintId) ?? null;
+      return {
+        key: sprintId,
+        sprintName: s?.name ?? 'Sprint',
+        windowLabel:
+          s && s.start_date && s.finish_date
+            ? `${fmtUtcShort(s.start_date)} – ${fmtUtcShort(s.finish_date)}`
+            : null,
+        stateLabel: s?.state ? s.state.charAt(0) + s.state.slice(1).toLowerCase() : null,
+        tasks: rows,
+      };
+    })
+    .sort((a, b) =>
+      (sprintById.get(a.key)?.start_date ?? '￿').localeCompare(
+        sprintById.get(b.key)?.start_date ?? '￿',
+      ),
+    );
+
+  if (noSprint.length > 0) {
+    groups.push({
+      key: NO_SPRINT_KEY,
+      sprintName: null,
+      windowLabel: null,
+      stateLabel: null,
+      tasks: noSprint,
+    });
+  }
+
+  return { data: { count: ids.size, groups }, ids };
 }
 
 /** Whole calendar days between two ISO dates (UTC), inclusive of the finish day. */
@@ -442,6 +571,12 @@ export interface BuildSchedulePrintArgs {
   baselineLabel?: string | null;
   tasks: Task[];
   links: TaskLink[];
+  /**
+   * Project sprints — used to label the "Unscheduled — Planned Work" groups with
+   * an honest window/state (#1799). Optional: absent → sprint-assigned backlog
+   * still groups by id with a generic "Sprint" label.
+   */
+  sprints?: ApiSprint[];
   /** Existing forecast/Monte-Carlo result the live view already reads; null when none. */
   forecast?: MonteCarloResult | null;
   userName: string | null;
@@ -490,7 +625,16 @@ export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePr
   const kpis = buildKpis(allRows, args.forecast);
   const cpChain = buildCpChain(allRows);
 
-  let rows = allRows;
+  // Planned-but-unscheduled work (#1799): the rows the chart can't place. Carve
+  // them out of the charted rows so they surface ONCE in the dedicated section
+  // rather than as blank chart rows AND a section entry. KPIs/CP chain are built
+  // from `allRows` above, so the project facts are unaffected by the carve-out.
+  const { data: unscheduled, ids: unscheduledIds } = buildUnscheduled(
+    args.tasks,
+    args.sprints ?? [],
+  );
+
+  let rows = allRows.filter((r) => !unscheduledIds.has(r.id));
   if (args.windowStart && args.windowEnd) {
     // ISO YYYY-MM-DD strings compare lexicographically; overlap = start ≤ windowEnd
     // AND finish ≥ windowStart. Slice to the date so a stored time component can't
@@ -528,6 +672,7 @@ export function buildSchedulePrintData(args: BuildSchedulePrintArgs): SchedulePr
     links,
     kpis,
     cpChain,
+    unscheduled,
     masthead: {
       projectName: args.projectName,
       methodSubtitle: args.methodSubtitle ?? DEFAULT_METHOD_SUBTITLE,

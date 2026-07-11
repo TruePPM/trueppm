@@ -238,11 +238,20 @@ function readVFlowGeometry(node: HTMLElement, imageHeightPx: number): VerticalFl
     }
   }
 
+  // Unscheduled — Planned Work block (#1799): a keep-together card between the CP
+  // summary and the footer. Only its outer edges are safe breaks (never split).
+  const unscheduledCard = mark('unscheduled');
+  const unscheduled =
+    unscheduledCard && bottom(unscheduledCard) > top(unscheduledCard)
+      ? { top: top(unscheduledCard) * R, bottom: bottom(unscheduledCard) * R }
+      : null;
+
   return {
     imageHeightPx,
     ganttHeader: { top: ganttTop * R, height: (rowsTop - ganttTop) * R },
     ganttRows: { top: rowsTop * R, bottom: rowsBottom * R, rowH: ((rowsBottom - rowsTop) / rowCount) * R },
     cp,
+    unscheduled,
     footerTop: top(footer) * R,
   };
 }

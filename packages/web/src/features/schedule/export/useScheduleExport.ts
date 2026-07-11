@@ -8,7 +8,7 @@
  * pipeline — parameters, never a divergent path.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import type { Task, TaskLink, MonteCarloResult } from '@/types';
+import type { ApiSprint, Task, TaskLink, MonteCarloResult } from '@/types';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
 import { buildSchedulePrintData, type SchedulePrintData } from './schedulePrintData';
 import {
@@ -38,6 +38,8 @@ interface UseScheduleExportArgs {
   userName: string | null;
   tasks: Task[];
   links: TaskLink[];
+  /** Project sprints — label the "Unscheduled — Planned Work" groups (#1799). */
+  sprints?: ApiSprint[];
   forecast: MonteCarloResult | null;
   /** Snapshot the currently-visible [start,end] ISO window; null when unavailable. */
   getVisibleWindow: () => VisibleWindow | null;
@@ -84,6 +86,7 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
     userName,
     tasks,
     links,
+    sprints,
     forecast,
     getVisibleWindow,
     visibleWindowAvailable,
@@ -181,6 +184,7 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
         workspaceUrl,
         tasks,
         links,
+        sprints,
         forecast,
         userName,
         generatedAtLabel: fmtUtcLong(openedAtIso || new Date().toISOString()),
@@ -194,6 +198,7 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
       workspaceUrl,
       tasks,
       links,
+      sprints,
       forecast,
       userName,
       openedAtIso,
