@@ -164,6 +164,28 @@ def test_milestone_is_omitted() -> None:
     assert "ms" not in ids
 
 
+def test_completed_task_with_estimate_is_omitted() -> None:
+    """A *completed* task that still carries a three-point estimate (ordinary
+    real-world data — the estimate outlives completion) is pinned in the forward
+    pass and cannot move the finish, so it must be omitted from the tornado. The
+    old code sampled its estimate, giving the column variance that surfaced as pure
+    bootstrap noise in the ranking — contradicting the documented contract (#1827).
+    Distinct from ``test_zero_variance_tasks_are_omitted`` (a task with *no*
+    estimate, which ``np.ptp == 0`` already excluded)."""
+    done = _pert("done", 2, 4, 9)
+    done.percent_complete = 100.0
+    done.actual_start = date(2026, 3, 2)
+    done.actual_finish = date(2026, 3, 5)
+    project = _make_project(
+        tasks=[done, _pert("variable", 2, 6, 20)],
+        dependencies=[Dependency("done", "variable", DependencyType.FS)],
+    )
+    result = monte_carlo(project, runs=1500, seed=3, max_runs=None)
+    ids = {s.task_id for s in result.sensitivity}
+    assert "done" not in ids
+    assert "variable" in ids
+
+
 # ---------------------------------------------------------------------------
 # Output shape: bounded, sorted, in-range, deterministic
 # ---------------------------------------------------------------------------

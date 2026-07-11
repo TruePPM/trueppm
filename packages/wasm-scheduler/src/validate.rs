@@ -7,7 +7,7 @@
 //! front turns it into a clean error string (surfaced to JS as an exception),
 //! keeping parity with the Python engine's behaviour and bounds.
 
-use chrono::Duration;
+use chrono::{Duration, NaiveDate};
 
 use crate::models::Project;
 
@@ -29,6 +29,31 @@ pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
 /// for a multi-million-edge payload. Checked from `.len()`, so the guard is O(1).
 /// Mirrors `trueppm_scheduler.engine.MAX_DEPENDENCIES` (#1203).
 pub const MAX_DEPENDENCIES: usize = 100_000;
+/// Ceiling on calendar exception ranges. Mirrors
+/// `trueppm_scheduler.engine.MAX_CALENDAR_EXCEPTIONS` (#1826): a real calendar has
+/// at most a few hundred holidays/closures; a multi-million-entry list is
+/// pathological and made the index build O(E log E) on hostile input.
+pub const MAX_CALENDAR_EXCEPTIONS: usize = 100_000;
+
+/// The Python `datetime.date.max` (9999-12-31). The Python engine bounds a
+/// far-future `start_date` against *this* ceiling, not `chrono::NaiveDate::MAX`
+/// (~year 262143), so the Rust engine must use the same ceiling to reject the
+/// identical inputs (#1826) — otherwise a year-9950 start is rejected by Python
+/// but scheduled by Rust.
+fn py_date_max() -> NaiveDate {
+    NaiveDate::from_ymd_opt(9999, 12, 31).expect("9999-12-31 is a valid date")
+}
+
+/// Whether a Python-`timedelta` seconds value is a whole number of days.
+///
+/// The engines consume durations/lags differently on a sub-day value — Python
+/// floors `timedelta.days`, Rust rounds `seconds / 86400` — so a fractional value
+/// schedules differently across engines and is rejected up front by both (#1818).
+/// A whole-day value is an exact multiple of 86,400 (exactly representable in f64
+/// for every value within the duration/lag caps).
+fn is_whole_days(seconds: f64) -> bool {
+    seconds % 86_400.0 == 0.0
+}
 
 /// Reject degenerate input before any calendar walk runs.
 ///
@@ -89,8 +114,42 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
                 .to_string(),
         );
     }
+    // working_days must be a 7-bit mask (#1826). Python's Calendar.from_dict requires
+    // 0 <= working_days < 128; a value with bit 7 set (128-255) was rejected by Python
+    // but accepted by the Rust `u8` parse (it schedules on the low 7 bits, silently
+    // ignoring bit 7), so both engines must reject it identically.
+    if (cal.working_days & 0b1000_0000) != 0 {
+        return Err(format!(
+            "Calendar working_days must be a 7-bit mask in [0, 127] (got {}); bit 7 has \
+             no weekday meaning.",
+            cal.working_days
+        ));
+    }
+    // Bound the exception-range count (#1826): Python caps this; an unbounded list
+    // is pathological and its O(E log E) index build a DoS vector.
+    if cal.exceptions.len() > MAX_CALENDAR_EXCEPTIONS {
+        return Err(format!(
+            "Calendar has {} exception ranges, exceeding the maximum of {}; a real \
+             calendar has at most a few hundred holidays or closures.",
+            cal.exceptions.len(),
+            MAX_CALENDAR_EXCEPTIONS
+        ));
+    }
+    // Inverted exception range (#1826): Python's DateRange.__post_init__ rejects
+    // end < start, while the Rust index build silently filtered such ranges as
+    // no-ops — a document Python refuses that Rust accepts. Reject it to match.
+    for exc in &cal.exceptions {
+        if exc.end < exc.start {
+            return Err(format!(
+                "Calendar exception range end ({}) is before start ({}); a DateRange must \
+                 have start <= end.",
+                exc.end, exc.start
+            ));
+        }
+    }
 
     for t in &project.tasks {
+        check_whole_days(t.duration, &format!("Task {:?} duration", t.id))?;
         check_duration(
             i64::from(t.duration_days()),
             &format!("Task {:?} duration", t.id),
@@ -101,6 +160,7 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             ("pessimistic_duration", t.pessimistic_duration),
         ] {
             if let Some(seconds) = secs {
+                check_whole_days(seconds, &format!("Task {:?} {}", t.id, label))?;
                 let days = (seconds / 86_400.0).round() as i64;
                 check_duration(days, &format!("Task {:?} {}", t.id, label))?;
             }
@@ -174,7 +234,29 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         ));
     }
 
+    let mut seen_edges: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
     for dep in &project.dependencies {
+        // Duplicate (predecessor, successor) edges diverge between engines (#1817):
+        // the Python `nx.DiGraph` overwrites, keeping only the last dependency on a
+        // pair, while this engine's `petgraph` keeps parallel edges and applies all
+        // of them. Both engines reject a duplicated pair so neither silent behaviour
+        // can occur (a self-loop A->A is caught later as a cycle, not here).
+        if !seen_edges.insert((dep.predecessor_id.as_str(), dep.successor_id.as_str())) {
+            return Err(format!(
+                "Duplicate dependency {:?} -> {:?}; each task pair may carry at most one \
+                 dependency.",
+                dep.predecessor_id, dep.successor_id
+            ));
+        }
+        // Sub-day lag schedules differently across engines and can drive a late date
+        // before an early date (#1818); reject a non-whole-day lag like a duration.
+        check_whole_days(
+            dep.lag,
+            &format!(
+                "Dependency {:?} -> {:?} lag",
+                dep.predecessor_id, dep.successor_id
+            ),
+        )?;
         let lag = dep.lag_days();
         if lag.abs() > MAX_LAG_DAYS {
             return Err(format!(
@@ -250,6 +332,23 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         ));
     }
 
+    // Far-future start (#1826): the engine walks in *calendar* days (a weekday-only
+    // calendar inflates a working-day span up to 7x) and a single snap advances up
+    // to MAX_CALENDAR_SCAN_DAYS. Python rejects a start close enough to date.max
+    // (9999-12-31) that the walk would step past it; this engine's `chrono` ceiling
+    // is far higher (~262143), so without matching the Python ceiling a year-9950
+    // start is rejected by Python but scheduled here. Use the *same* conservative
+    // estimate (span x 7 + one scan) against the Python date ceiling.
+    let max_calendar_reach = total_span.saturating_mul(7) + MAX_CALENDAR_SCAN_DAYS;
+    if (py_date_max() - project.start_date).num_days() < max_calendar_reach {
+        return Err(format!(
+            "Project start date {} is too close to the maximum representable date for a \
+             span of {total_span} working days; the schedule would overflow the date range. \
+             Use an earlier start date.",
+            project.start_date
+        ));
+    }
+
     // Reachability: a working day must exist within MAX_CALENDAR_SCAN_DAYS of
     // the project start (catches a valid mask whose exceptions blanket the
     // schedule). Uses checked arithmetic so this scan cannot itself panic, even
@@ -279,6 +378,18 @@ fn check_duration(days: i64, label: &str) -> Result<(), String> {
     if days > MAX_DURATION_DAYS {
         return Err(format!(
             "{label} exceeds the maximum of {MAX_DURATION_DAYS} days (got {days})."
+        ));
+    }
+    Ok(())
+}
+
+/// Reject a duration/lag (in seconds) that is not a whole number of days (#1818).
+fn check_whole_days(seconds: f64, label: &str) -> Result<(), String> {
+    if !is_whole_days(seconds) {
+        return Err(format!(
+            "{label} must be a whole number of days (got {} days); sub-day durations and \
+             lags are not supported and would schedule differently across engines.",
+            seconds / 86_400.0
         ));
     }
     Ok(())
@@ -603,6 +714,36 @@ mod tests {
         assert!(validate_project(&p).is_ok());
     }
 
+    fn dep(pred: &str, succ: &str, dt: DependencyType, lag_secs: f64) -> Dependency {
+        Dependency {
+            predecessor_id: pred.to_string(),
+            successor_id: succ.to_string(),
+            dep_type: dt,
+            lag: lag_secs,
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_edge() {
+        // #1817: the same (pred,succ) pair twice — Python's DiGraph keeps only the
+        // last, this engine's petgraph keeps both; reject so neither diverges.
+        let deps = vec![
+            dep("A", "B", DependencyType::FS, 0.0),
+            dep("A", "B", DependencyType::SS, day(1)),
+        ];
+        let p = project(vec![task("A", 5), task("B", 3)], deps, Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_same_pair_reversed_is_not_a_duplicate() {
+        // A->B and B->A are distinct edges (and would form a cycle caught later),
+        // not a duplicate — the duplicate guard keys on the ordered pair.
+        let deps = vec![dep("A", "B", DependencyType::FS, 0.0)];
+        let p = project(vec![task("A", 5), task("B", 3)], deps, Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
     #[test]
     fn accepts_and_ignores_mc_only_fields() {
         // delivery_mode/story_points (task) and velocity_samples/sprint_length_days
@@ -627,6 +768,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_fractional_duration() {
+        // #1818: 1.5-day duration schedules differently across engines (Python floor,
+        // Rust round); reject a non-whole-day value.
+        let p = project(vec![task("A", 0)], vec![], Calendar::default());
+        let mut p = p;
+        p.tasks[0].duration = 129_600.0; // 1.5 days
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_fractional_lag() {
+        // #1818: a 12-hour lag; sub-day lags can drive a late date before an early one.
+        let deps = vec![dep("A", "B", DependencyType::SS, 43_200.0)];
+        let p = project(vec![task("A", 2), task("B", 2)], deps, Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_fractional_pert_estimate() {
+        let mut t = task("A", 3);
+        t.most_likely_duration = Some(129_600.0); // 1.5 days
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
     fn rejects_non_empty_calendars_registry() {
         let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
         let mut registry = std::collections::HashMap::new();
@@ -642,10 +809,69 @@ mod tests {
     }
 
     #[test]
+    fn rejects_working_days_with_bit7_set() {
+        // #1826: working_days=200 has weekday bits (so it passes the empty-mask check)
+        // AND bit 7 set. Python rejects (must be in [0,127]); this engine used to
+        // accept and schedule on the low 7 bits.
+        let cal = Calendar {
+            working_days: 200,
+            ..Calendar::default()
+        };
+        let p = project(vec![task("A", 1)], vec![], cal);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
     fn accepts_empty_calendars_registry() {
         // An empty {} registry (or null) means no per-task calendars — accept it.
         let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
         p.calendars = Some(std::collections::HashMap::new());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_inverted_exception_range() {
+        // #1826: end < start. Python's DateRange rejects it; this engine silently
+        // filtered it as a no-op.
+        let cal = Calendar {
+            exceptions: vec![DateRange {
+                start: NaiveDate::from_ymd_opt(2026, 4, 10).unwrap(),
+                end: NaiveDate::from_ymd_opt(2026, 4, 5).unwrap(),
+            }],
+            ..Calendar::default()
+        };
+        let p = project(vec![task("A", 1)], vec![], cal);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_too_many_calendar_exceptions() {
+        // #1826: a multi-million-entry exceptions list is pathological; Python caps it.
+        let one = DateRange {
+            start: NaiveDate::from_ymd_opt(2027, 1, 1).unwrap(),
+            end: NaiveDate::from_ymd_opt(2027, 1, 1).unwrap(),
+        };
+        let cal = Calendar {
+            exceptions: vec![one; MAX_CALENDAR_EXCEPTIONS + 1],
+            ..Calendar::default()
+        };
+        let p = project(vec![task("A", 1)], vec![], cal);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_far_future_start() {
+        // #1826: a start within ~100 years of the Python date.max (9999-12-31). Python
+        // rejects it; this engine's chrono ceiling (~year 262143) accepted it.
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        p.start_date = NaiveDate::from_ymd_opt(9990, 1, 1).unwrap();
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_normal_start_far_from_date_max() {
+        // The far-future guard must not reject an ordinary 21st-century start.
+        let p = project(vec![task("A", 5)], vec![], Calendar::default());
         assert!(validate_project(&p).is_ok());
     }
 }

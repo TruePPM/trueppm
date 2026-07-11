@@ -10,7 +10,7 @@
       "late_start": "2026-03-03",
       "late_finish": "2026-03-06",
       "total_float": 86400.0,
-      "free_float": 0.0,
+      "free_float": 86400.0,
       "is_critical": false
     },
     {

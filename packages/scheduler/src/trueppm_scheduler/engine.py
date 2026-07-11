@@ -1018,20 +1018,24 @@ def _compute_floats(
     ``free_float`` is the number of working days a task can slip without delaying
     the early start (FS/SS links) or the early finish (FF/SF links) of *any* of
     its successors — the standard critical-path-method definition of free float,
-    evaluated across **all four** dependency types. For each
-    successor link we take the early date this task imposes on the successor —
-    the *same* constraint the forward pass applies (see :func:`_forward_pass`) —
-    and measure the working-day slack to the successor's actual early date. Free
+    evaluated across **all four** dependency types. Like total float it is computed
+    by **inverting** the forward constraint (the same inversion the backward pass
+    applies for late dates), anchored on each successor's *early* date: for every
+    link we find the latest date this task could finish/start that still leaves the
+    successor's early date untouched, and take the working-day slip to it. Free
     float is the minimum of those slacks, capped at total float; a task with no
-    successors falls back to its total float. (Earlier versions inspected FS
+    live successor falls back to its total float. (Earlier versions inspected FS
     successors only and let SS/FF/SF tasks report ``free_float == total_float``;
-    that FS-only caveat is now removed — see issue #825.)
+    that FS-only caveat was removed in #825. Earlier still, the slack was measured
+    from the *forward*-imposed date instead of the inverse constraint — a proxy
+    that diverged whenever a calendar-day lag re-landed across non-working days as
+    the task slipped, #1828.)
 
-    Per-task calendars (ADR-0120 D3): a task's own total-float span is measured on
-    its own calendar, while each free-float slack — like the forward constraint it
-    mirrors — is measured on the *successor's* calendar. With one project calendar
-    every span resolves to ``calendar`` and the fast ``wd_counter`` is used for all
-    of them, exactly as before.
+    Per-task calendars (ADR-0120 D3): every span — total-float and each free-float
+    slack — is measured on the task's *own* calendar, because the slip is counted
+    in that task's working days; each free-float constraint is snapped on that same
+    calendar, mirroring the backward pass. With one project calendar every span
+    resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
     """
 
     # O(log n) span counts when a counter is supplied (the schedule() hot path,
@@ -1057,13 +1061,32 @@ def _compute_floats(
         task.total_float = timedelta(days=tf_days)
         task.is_critical = tf_days == 0
 
-        # Free float: the smallest slack to any successor, across every dependency
-        # type. ``imposed`` is the early date this task forces on the successor
-        # through the link (mirroring _forward_pass so the two can never disagree
-        # about when this task begins to push a successor); ``succ_date`` is the
-        # successor's matching early date. For a lag-free FS link with EF=Fri and
-        # succ.ES=Mon the slack is 0 (no room to slip). The upper bound is total
-        # float, which is also the value when a task has no successors.
+        # Free float: the largest number of working days this task can slip before
+        # it would push the early date of *any* live successor. Like total float,
+        # it must **invert** the forward constraint rather than approximate it. For
+        # each link we compute the latest date this task could finish (FS/FF) or
+        # start (SS/SF) that still leaves the successor's early date untouched —
+        # applying the *same* calendar-day retreat the backward pass uses for late
+        # dates (see :func:`_backward_pass`), but anchored on the successor's
+        # **early** dates (not late), which is exactly what turns the result into
+        # free float rather than total float. Free float is the working-day slip
+        # from this task's own early date to that latest date, minimized over all
+        # successors and capped at total float; a task with no live successor falls
+        # back to its total float.
+        #
+        # The earlier version instead measured the working-day gap between the
+        # *forward*-imposed date and the successor's early date. That proxy assumes
+        # one working day of slip moves the imposed date by one working day, which
+        # fails whenever a calendar-day lag re-lands across non-working days as the
+        # task slips: a single working day of slip can jump the imposed date by
+        # several working days (or none), so the proxy both over- and under-counted
+        # the true slack (#1828). Inverting the constraint — the way total float
+        # already does — is exact for every dep type and lag.
+        #
+        # The slip is measured in *this* task's working days, and each constraint
+        # is snapped on this task's own calendar (``node_cal``) — mirroring the
+        # backward pass, whose retreat also lands on ``node_cal``. With one project
+        # calendar every span resolves to ``calendar`` and the fast counter is used.
         ff_days = tf_days
         for succ_id in g.successors(node_id):
             succ = task_map[succ_id]
@@ -1075,25 +1098,23 @@ def _compute_floats(
                 continue
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
-            # The constraint is consumed on the successor's calendar (mirrors the
-            # forward pass, where the snap used the successor's calendar).
-            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             assert succ.early_start is not None and succ.early_finish is not None
             if dep.dep_type == DependencyType.FS:
-                imposed = _next_working_day(
-                    _safe_offset(task.early_finish, timedelta(days=1) + lag), succ_cal
+                # Latest finish that leaves succ.early_start unmoved (inverse of the
+                # forward FS constraint; matches the backward pass's LF retreat).
+                latest = _prev_working_day(
+                    _safe_offset(succ.early_start, -timedelta(days=1) - lag), node_cal
                 )
-                succ_date = succ.early_start
+                slack = _wdb(task.early_finish, latest, node_cal)
             elif dep.dep_type == DependencyType.SS:
-                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
-                succ_date = succ.early_start
+                latest = _retreat_calendar_days(succ.early_start, lag, node_cal)
+                slack = _wdb(task.early_start, latest, node_cal)
             elif dep.dep_type == DependencyType.FF:
-                imposed = _advance_calendar_days(task.early_finish, lag, succ_cal)
-                succ_date = succ.early_finish
+                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+                slack = _wdb(task.early_finish, latest, node_cal)
             else:  # SF: successor finish is bounded by this task's start + lag
-                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
-                succ_date = succ.early_finish
-            slack = _wdb(imposed, succ_date, succ_cal)
+                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+                slack = _wdb(task.early_start, latest, node_cal)
             ff_days = min(ff_days, max(0, slack))
 
         task.free_float = timedelta(days=max(0, ff_days))
@@ -1285,8 +1306,28 @@ def expand_summary_dependencies(
 # ---------------------------------------------------------------------------
 
 
+def _check_whole_days(td: timedelta, label: str) -> None:
+    """Reject a duration/lag that is not a whole number of days (#1818).
+
+    The engine consumes durations and lags via ``timedelta.days`` (floor toward
+    negative infinity), while the Rust engine rounds ``seconds / 86400`` to the
+    nearest whole day.
+    A sub-day value therefore schedules *differently* in the two engines (e.g. 1.5d
+    → Python 1-day, Rust 2-day), and a sub-day lag even drives a late date before an
+    early date in Python alone. Rather than pick a shared rounding rule, both engines
+    reject a non-whole-day value up front so the two can never disagree. A whole-day
+    ``timedelta`` has zero sub-day component regardless of sign.
+    """
+    if td.seconds or td.microseconds:
+        raise InvalidScheduleInput(
+            f"{label} must be a whole number of days (got {td}); sub-day durations and "
+            "lags are not supported and would schedule differently across engines."
+        )
+
+
 def _check_duration(td: timedelta, label: str) -> None:
-    """Reject a negative or absurdly large working-day duration."""
+    """Reject a negative, absurdly large, or fractional working-day duration."""
+    _check_whole_days(td, label)
     days = td.days
     if days < 0:
         raise InvalidScheduleInput(f"{label} must not be negative (got {days} days).")
@@ -1567,6 +1608,7 @@ def _validate_project(project: Project) -> None:
             f"maximum of {MAX_DEPENDENCIES}; the graph cannot be scheduled within "
             "resource limits."
         )
+    seen_edges: set[tuple[str, str]] = set()
     for dep in project.dependencies:
         # Type guard for the direct-object API (#1209): a non-timedelta lag would
         # otherwise leak AttributeError from ``.days`` here and in both passes.
@@ -1575,6 +1617,24 @@ def _validate_project(project: Project) -> None:
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag must be a "
                 f"timedelta (got {dep.lag!r})."
             )
+        # Duplicate (predecessor, successor) edges diverge between engines (#1817):
+        # ``_build_graph`` uses ``nx.DiGraph``, which *overwrites* the edge attribute
+        # so only the last dependency on a pair survives, while the Rust engine keeps
+        # parallel edges and applies *all* of them (a different schedule, floats, and
+        # critical path). Rather than silently drop or silently merge, both engines
+        # reject a duplicated pair — the caller must express a single relationship per
+        # pair (a self-loop A→A is caught later as a cycle, not here).
+        key = (dep.predecessor_id, dep.successor_id)
+        if key in seen_edges:
+            raise InvalidScheduleInput(
+                f"Duplicate dependency {dep.predecessor_id!r} → {dep.successor_id!r}; "
+                "each task pair may carry at most one dependency (declare a single "
+                "relationship per predecessor/successor pair)."
+            )
+        seen_edges.add(key)
+        # Sub-day lag schedules differently across engines and can drive a late date
+        # before an early date (#1818); reject a non-whole-day lag like a duration.
+        _check_whole_days(dep.lag, f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag")
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "
@@ -2182,6 +2242,16 @@ def monte_carlo(
             dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
         else:
             dur_matrix[:, col] = base
+        # A completed task is pinned to a constant offset pair in the forward pass
+        # (its sampled column is never read there), so its sampled duration cannot
+        # move the finish — a varying column would surface in the sensitivity tornado
+        # as pure bootstrap noise, contradicting the documented contract that
+        # completed tasks are omitted (#1827). Collapse the column to a constant so
+        # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
+        # skipping it) so the seeded RNG stream — and therefore every other task's
+        # samples and P50/P80/P95 — is byte-for-byte unchanged.
+        if _is_complete(t):
+            dur_matrix[:, col] = base
 
     # --- Vectorised forward pass (working-day offsets from project start) ---
     # ES and EF are floating-point working-day offsets (0 = project start).
@@ -2200,6 +2270,7 @@ def monte_carlo(
     # the offset→date conversion below.
     dur_upper = 0
     snet_upper = 0
+    actual_upper = 0
     for t in task_map.values():
         d_days = t.duration.days
         if t.pessimistic_duration is not None:
@@ -2216,6 +2287,19 @@ def monte_carlo(
         # safe over-estimate of working-day offsets).
         if t.planned_start is not None:
             snet_upper = max(snet_upper, (t.planned_start - project.start_date).days)
+        # Recorded actuals (ADR-0132/0136) pin a completed task's offset pair to a
+        # constant, and an actual far in the *future* (a task that finished long
+        # after its planned duration) is often the project's latest finish. Without
+        # covering it the pin mapped past the index end and was silently clamped to
+        # the last entry, so monte_carlo() reported a finish months before schedule()
+        # on the same completed project (#1821). Cover the furthest future actual
+        # (calendar days over-estimate working-day offsets, as snet/status do). A
+        # pre-start actual is not covered here — the forward index starts at the
+        # project start; _completed_offsets floors those at offset 0 (an anomalous
+        # data state: a task completed before the project began).
+        for actual in (t.actual_start, t.actual_finish):
+            if actual is not None:
+                actual_upper = max(actual_upper, (actual - project.start_date).days)
     lag_upper = sum(
         data["dep"].lag.days for _, _, data in g.edges(data=True) if data["dep"].lag.days > 0
     )
@@ -2225,7 +2309,7 @@ def monte_carlo(
     status_upper = 0
     if project.status_date is not None:
         status_upper = max(0, (project.status_date - project.start_date).days)
-    index_size = dur_upper + lag_upper + snet_upper + status_upper + n_tasks + 30
+    index_size = dur_upper + lag_upper + snet_upper + status_upper + actual_upper + n_tasks + 30
     wd_index = _build_working_day_index(project.start_date, calendar, index_size)
     offset_of = {d: i for i, d in enumerate(wd_index)}
 

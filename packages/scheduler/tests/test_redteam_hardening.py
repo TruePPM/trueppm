@@ -525,3 +525,279 @@ def test_forward_pass_snap_memoized_over_blanket_calendar() -> None:
     # Only Jan 5 (Mon) and Jan 6 (Tue) are workable before the blanket; every
     # dependency-free 1-day task snaps to the project start.
     assert result.project_finish == date(2026, 1, 5)
+
+
+# ---------------------------------------------------------------------------
+# #1821 — monte_carlo() undersized index clamped completed-task actuals
+# ---------------------------------------------------------------------------
+
+
+def test_monte_carlo_matches_schedule_for_late_completed_actual() -> None:
+    """A task that finished long after its planned duration pins the project finish.
+    The MC working-day index omitted an actuals term, so the pin mapped past the
+    index end and clamped to the last entry — monte_carlo() reported a finish months
+    before schedule() on the same fully-deterministic completed project (#1821)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            # planned 5 days, actually finished ~5 months late
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=5),
+                percent_complete=100.0,
+                actual_finish=date(2026, 6, 1),
+            ),
+            Task(id="B", name="B", duration=timedelta(days=10)),
+        ],
+    )
+    result = schedule(project)
+    mc = monte_carlo(project, runs=300, seed=1, max_runs=None, max_tasks=None)
+    assert result.project_finish == date(2026, 6, 1)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+def test_monte_carlo_matches_schedule_for_late_actual_start_only() -> None:
+    """The same undersizing hit a completed task recorded with only actual_start
+    (a REVIEW task, done and awaiting sign-off) far in the future (#1821)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=5),
+                percent_complete=100.0,
+                actual_start=date(2026, 6, 1),
+            ),
+            Task(id="B", name="B", duration=timedelta(days=3)),
+        ],
+    )
+    result = schedule(project)
+    mc = monte_carlo(project, runs=300, seed=1, max_runs=None, max_tasks=None)
+    assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+# ---------------------------------------------------------------------------
+# #1828 — free_float wrong when a lag's calendar-day arithmetic crosses
+#          non-working days
+# ---------------------------------------------------------------------------
+
+# Each case: A links to B with a positive calendar-day lag that lands across a
+# weekend. B's early date is driven by the lag itself (no other predecessor), so
+# the whole weekend absorbs the lag — A can slip its *entire* total float without
+# moving B's early date, i.e. free_float == total_float (2 working days here).
+# The old proxy measured the working-day gap from A's forward-imposed date to B's
+# early date, which collapsed to 0 exactly because the snap already consumed the
+# weekend — reporting free_float 0 against a total_float of 2 (#1828). start_date
+# 2026-03-02 is a Monday; the default calendar is Mon-Fri.
+_ABSORBED_LAG_CASES = [
+    # dep_type, A duration (days), lag (calendar days), B duration (days)
+    (DependencyType.FS, 3, 2, 2),
+    (DependencyType.SS, 2, 5, 2),
+    (DependencyType.FF, 2, 4, 2),
+    (DependencyType.SF, 2, 5, 2),
+]
+
+
+@pytest.mark.parametrize(("dep_type", "dur_a", "lag_days", "dur_b"), _ABSORBED_LAG_CASES)
+def test_free_float_lag_absorbed_by_weekend(
+    dep_type: DependencyType, dur_a: int, lag_days: int, dur_b: int
+) -> None:
+    """A calendar-day lag fully absorbed by a weekend must not zero out free float.
+
+    Inverting the forward constraint (the fix) reports free_float == total_float ==
+    2 working days; the old forward-imposed-date proxy reported 0 (#1828)."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=dur_a)),
+            Task(id="B", name="B", duration=timedelta(days=dur_b)),
+        ],
+        dependencies=[
+            Dependency(
+                predecessor_id="A",
+                successor_id="B",
+                dep_type=dep_type,
+                lag=timedelta(days=lag_days),
+            )
+        ],
+    )
+    a = {t.id: t for t in schedule(project).tasks}["A"]
+    assert a.total_float == timedelta(days=2)
+    assert a.free_float == timedelta(days=2)  # not 0 (the pre-fix proxy value)
+
+
+def test_free_float_lag_understated_by_weekend() -> None:
+    """The proxy also *under*-counted: a 1-cd FS lag that re-lands on the same
+    working day as the predecessor slips leaves one full working day of true slack
+    that the old code reported as 0 (#1828). A(4d) finishes Thu; +1cd FS pushes B
+    to Mon regardless of whether A finishes Thu or Fri, so A has 1 day of free
+    float. A long parallel pole (Z) gives A ample total float, so free float is
+    strictly less than total float — proving the fix is not just clamping to it."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=4)),
+            Task(id="B", name="B", duration=timedelta(days=1)),
+            Task(id="Z", name="Z", duration=timedelta(days=20)),
+        ],
+        dependencies=[
+            Dependency(
+                predecessor_id="A",
+                successor_id="B",
+                dep_type=DependencyType.FS,
+                lag=timedelta(days=1),
+            )
+        ],
+    )
+    a = {t.id: t for t in schedule(project).tasks}["A"]
+    assert a.free_float == timedelta(days=1)  # not 0 (the pre-fix proxy value)
+    assert a.total_float > a.free_float
+
+
+# The fix delegates every "is this a working day?" decision to the calendar, so it
+# must be correct for *any* working week and *any* holiday/vacation block, not just
+# a Mon-Fri weekend. These cases prove that against an independent brute-force
+# simulation. (``hours_per_day`` is deliberately excluded: the engine documents it
+# as not affecting calculation — floats are whole-working-day, sub-day scheduling
+# is a future change — so a "4 hours a day" calendar counts days identically.)
+def _advance_working_days(d: date, n: int, cal: Calendar) -> date:
+    """The working day ``n`` working days after ``d`` (calendar-driven)."""
+    result = d
+    remaining = n
+    while remaining > 0:
+        result += timedelta(days=1)
+        if cal.is_working_day(result):
+            remaining -= 1
+    return result
+
+
+def _link_project(
+    cal: Calendar, dep_type: DependencyType, lag_days: int, start: date, a_snet: date | None = None
+) -> Project:
+    """A─(dep,lag)─►B with a long parallel pole Z so A is never critical (has float)."""
+    return Project(
+        id="p",
+        name="p",
+        start_date=start,
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=3), planned_start=a_snet),
+            Task(id="B", name="B", duration=timedelta(days=1)),
+            Task(id="Z", name="Z", duration=timedelta(days=40)),
+        ],
+        dependencies=[
+            Dependency(
+                predecessor_id="A",
+                successor_id="B",
+                dep_type=dep_type,
+                lag=timedelta(days=lag_days),
+            )
+        ],
+        calendar=cal,
+    )
+
+
+def _brute_force_free_float(
+    cal: Calendar, dep_type: DependencyType, lag_days: int, start: date
+) -> int:
+    """Independent ground truth: the largest number of working days A's start can be
+    pushed (via SNET) before the successor's binding early date moves. Uses only
+    ``schedule()`` output and the calendar, so it shares no logic with _compute_floats."""
+
+    def binding_early(tasks: dict[str, Task]) -> date:
+        b = tasks["B"]
+        early = (
+            b.early_start if dep_type in (DependencyType.FS, DependencyType.SS) else b.early_finish
+        )
+        assert early is not None
+        return early
+
+    base = {t.id: t for t in schedule(_link_project(cal, dep_type, lag_days, start)).tasks}
+    a_es0 = base["A"].early_start
+    assert a_es0 is not None
+    base_succ = binding_early(base)
+    k = 0
+    while k < 60:
+        snet = _advance_working_days(a_es0, k + 1, cal)
+        trial = {
+            t.id: t for t in schedule(_link_project(cal, dep_type, lag_days, start, snet)).tasks
+        }
+        if binding_early(trial) != base_succ:
+            return k
+        k += 1
+    return k
+
+
+_ROBUST_CALENDARS = [
+    # id, calendar, a working start day for that calendar
+    ("mon_fri", Calendar(working_days=0b0011111), date(2026, 3, 2)),  # Mon-Fri, start Mon
+    ("sun_thu", Calendar(working_days=0b1001111), date(2026, 3, 1)),  # Fri+Sat off, start Sun
+    ("four_day_mon_thu", Calendar(working_days=0b0001111), date(2026, 3, 2)),  # Fri-Sun off
+    (
+        "mon_fri_vacation_week",
+        Calendar(
+            working_days=0b0011111, exceptions=[DateRange(date(2026, 3, 16), date(2026, 3, 20))]
+        ),
+        date(2026, 3, 2),  # a whole Mon-Fri work week off two weeks out
+    ),
+]
+
+
+@pytest.mark.parametrize(("cal_id", "cal", "start"), _ROBUST_CALENDARS)
+@pytest.mark.parametrize("dep_type", DEP_TYPES)
+def test_free_float_is_calendar_agnostic(
+    cal_id: str, cal: Calendar, start: date, dep_type: DependencyType
+) -> None:
+    """free_float matches an independent brute-force simulation for alternate
+    weekends (Fri+Sat off), short weeks (4-day), and whole-week vacations — every
+    non-working span a calendar-day lag can land in, not only the Mon-Fri weekend
+    the original proxy happened to be tuned against (#1828)."""
+    lag_days = 6  # a calendar-day lag guaranteed to span a non-working stretch
+    a = {t.id: t for t in schedule(_link_project(cal, dep_type, lag_days, start)).tasks}["A"]
+    expected = _brute_force_free_float(cal, dep_type, lag_days, start)
+    assert a.free_float == timedelta(days=expected)
+
+
+def test_free_float_absorbs_whole_vacation_week() -> None:
+    """A whole-week vacation the FS lag lands inside is absorbed into free float: A
+    can slip across the entire blocked week without moving B's early start (#1828).
+
+    Mon-Fri calendar with Mon 15-Jun .. Fri 19-Jun off. A(3d) finishes Wed 3-Jun;
+    an 11-cd FS lag lands the imposed date on Mon 15-Jun (in the vacation), snapping
+    B to Mon 22-Jun. A can slip 5 working days (through Tue 9-Jun) before that snap
+    releases and B moves — the vacation week is real free float, reported 0 before."""
+    project = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 6, 1),  # Monday
+        tasks=[
+            Task(id="A", name="A", duration=timedelta(days=3)),
+            Task(id="B", name="B", duration=timedelta(days=1)),
+            Task(id="Z", name="Z", duration=timedelta(days=40)),  # keep A non-critical
+        ],
+        dependencies=[
+            Dependency(
+                predecessor_id="A",
+                successor_id="B",
+                dep_type=DependencyType.FS,
+                lag=timedelta(days=11),
+            )
+        ],
+        calendar=Calendar(
+            working_days=0b0011111,
+            exceptions=[DateRange(date(2026, 6, 15), date(2026, 6, 19))],
+        ),
+    )
+    result = {t.id: t for t in schedule(project).tasks}
+    assert result["B"].early_start == date(2026, 6, 22)
+    assert result["A"].free_float == timedelta(days=5)
+    assert result["A"].total_float > result["A"].free_float

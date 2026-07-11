@@ -1,0 +1,30 @@
+{
+  "project_id": "p-fs-lag-holiday-week",
+  "project_start": "2026-06-01",
+  "project_finish": "2026-06-22",
+  "tasks": [
+    {
+      "id": "A",
+      "early_start": "2026-06-01",
+      "early_finish": "2026-06-03",
+      "late_start": "2026-06-08",
+      "late_finish": "2026-06-10",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false
+    },
+    {
+      "id": "B",
+      "early_start": "2026-06-22",
+      "early_finish": "2026-06-22",
+      "late_start": "2026-06-22",
+      "late_finish": "2026-06-22",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true
+    }
+  ],
+  "critical_path": [
+    "B"
+  ]
+}

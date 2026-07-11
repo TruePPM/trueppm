@@ -197,6 +197,34 @@ may follow in a later release.
   transport behind a reverse proxy that terminates TLS; the server speaks plain
   HTTP and must never face the public internet directly.
 
+## Agent-action audit log
+
+Every read an MCP/agent token makes — and every refusal — is recorded as one
+append-only **agent-action** row: the acting token (its 8-character prefix only,
+never the secret), the human the token acts for, the operation, the project in
+scope, the verdict (`allowed`, or `refused` with an `identity` vs `policy`
+reason), a per-request payload hash, and the scheduler engine version at the time.
+This answers *what did this agent read, when, and in which project* — the question
+a single `last_used_at` timestamp could not.
+
+The rows form a **per-instance, hash-chained** log: each row stores
+`sha256(previous_hash ‖ the row's canonical fields)`, so altering or deleting any
+row breaks the chain. Verify the chain's integrity at any time:
+
+```bash
+python manage.py audit_verify
+```
+
+It walks the chain in order, recomputes each hash, and reports the first break (or
+confirms the chain is intact). This is the OSS **integrity self-check** — it lets a
+team detect tampering on its own instance. External notarization, a cryptographic
+signature over the chain, retention policy, and an org-wide cross-instance trail are
+Enterprise (ADR-0112).
+
+Project members read their team's agent actions at `GET /api/v1/agent-actions/`,
+scoped to the projects they belong to (plus their own agent's actions). A human
+session read on the same views is **not** recorded — only token/agent traffic is.
+
 ## Troubleshooting
 
 | Symptom | Likely cause |

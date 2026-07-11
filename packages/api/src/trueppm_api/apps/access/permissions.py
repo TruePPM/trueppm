@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from django.db.models import QuerySet
@@ -14,6 +15,8 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1290,6 +1293,155 @@ class McpReadableViewMixin(_McpViewBase):
         # instances at runtime; the stub types them via a Protocol, hence the cast.
         existing = cast("list[BasePermission]", list(super().get_permissions()))
         return [*existing, *self.mcp_token_guards()]
+
+    def finalize_response(self, request: Request, response: Any, *args: Any, **kwargs: Any) -> Any:
+        """Record the per-action agent audit for a token-authenticated MCP read (#1805).
+
+        ``finalize_response`` runs exactly once per request for **both** a successful
+        read and a DRF-handled refusal (auth/permission exceptions are turned into
+        responses, so this still runs and — under ATOMIC_REQUESTS — commits). It is
+        therefore the single point where an ``allowed`` read and a ``policy`` refusal are
+        both audited exactly once (ADR-0112 RC1). The write is fail-closed: if
+        ``record_agent_action`` cannot persist, the exception propagates and the request
+        rolls back — an audit substrate must never serve an un-audited read.
+        """
+
+        response = super().finalize_response(request, response, *args, **kwargs)
+        self._record_mcp_agent_action(request, response)
+        return response
+
+    def _record_mcp_agent_action(self, request: Request, response: Any) -> None:
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        # Only a token-authenticated call is an *agent* action. A human JWT/session read
+        # on the same view is not audited. ``successful_authenticator is None`` covers
+        # both "auth failed" and "anonymous"; guarding on it also means we never touch
+        # ``request.auth`` in a way that could re-trigger (and re-raise) a failed
+        # authentication inside finalize_response. (Identity refusals — a revoked/expired
+        # token — are audited in the authenticator, which still has the token context.)
+        if getattr(request, "successful_authenticator", None) is None:
+            return
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ProjectApiToken):
+            return
+
+        from trueppm_api.apps.agents.models import (
+            AgentActionRefusalReason,
+            AgentActionVerdict,
+            AgentActorKind,
+        )
+        from trueppm_api.apps.agents.services import (
+            hash_request_payload,
+            record_agent_action,
+        )
+        from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+        status = getattr(response, "status_code", 200)
+        allowed = status < 400
+        verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
+        # An authenticated token rejected by an MCP guard is a *policy* refusal (the
+        # actor is known; a capability/scope check denied it).
+        refusal_reason = "" if allowed else AgentActionRefusalReason.POLICY
+
+        action, object_type, object_id, project_id = self._mcp_audit_target(request)
+        summary = f"MCP {request.method} {action}"
+        if not allowed:
+            summary += f" — refused ({status})"
+
+        def _write() -> None:
+            record_agent_action(
+                actor_kind=AgentActorKind.MCP_TOKEN,
+                actor_token=token,
+                principal=token.owner,
+                action=action,
+                method=request.method or "",
+                capability_used=SCOPE_MCP_READ,
+                verdict=verdict,
+                refusal_reason=refusal_reason,
+                object_type=object_type,
+                object_id=object_id,
+                project_id=project_id,
+                payload_hash=hash_request_payload(request),
+                summary=summary,
+                source_ip=_mcp_client_ip(request),
+            )
+            _set_agent_span_attributes(token, str(verdict))
+
+        if allowed:
+            # Fail-closed: a successful read that we could not audit must not be served —
+            # the write raises, ATOMIC_REQUESTS rolls back, and the request 500s.
+            _write()
+            return
+
+        # A refusal is already the safe outcome. Never turn a 401/403 into a 500 because
+        # the audit could not be written, and skip when the request transaction is already
+        # marked for rollback (a denied request often taints its transaction, and the row
+        # could not persist regardless). Recorded best-effort on a clean refusal path.
+        from django.db import connection
+
+        if getattr(connection, "needs_rollback", False):
+            return
+        try:
+            _write()
+        except Exception:
+            logger.warning("agent-action refusal audit failed", exc_info=True)
+
+    def _mcp_audit_target(self, request: Request) -> tuple[str, str, str, Any | None]:
+        """Best-effort ``(action, object_type, object_id, project_id)`` for the audit row.
+
+        Total by construction — never raises, so a metadata edge case cannot 500 a read
+        (only the DB write itself is fail-closed).
+        """
+
+        match = getattr(request, "resolver_match", None)
+        action = ""
+        if match is not None:
+            action = match.view_name or match.url_name or ""
+        action = action or type(self).__name__
+
+        view_kwargs = getattr(self, "kwargs", {}) or {}
+        object_id = str(view_kwargs.get("pk") or "")
+        project_id = view_kwargs.get("project_pk") or view_kwargs.get("project_id") or None
+
+        object_type = ""
+        queryset = getattr(self, "queryset", None)
+        model = getattr(queryset, "model", None)
+        if model is not None:
+            object_type = model.__name__
+            # A retrieve on the Project view: the object *is* the project.
+            if project_id is None and object_type == "Project" and object_id:
+                project_id = object_id
+
+        return action, object_type, object_id, project_id
+
+
+def _mcp_client_ip(request: Request) -> str | None:
+    """Client IP for the audit row: leftmost X-Forwarded-For hop, else REMOTE_ADDR."""
+
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        return xff.split(",")[0].strip() or None
+    return request.META.get("REMOTE_ADDR") or None
+
+
+def _set_agent_span_attributes(token: Any, verdict: str) -> None:
+    """Attach agent attributes to the current span — best-effort (never breaks a read)."""
+
+    try:
+        from opentelemetry import trace
+
+        from trueppm_api.apps.observability.otel import attributes as attrs
+
+        span = trace.get_current_span()
+        if span is None:
+            return
+        span.set_attribute(attrs.AGENT_TOKEN_PREFIX, token.token_prefix)
+        span.set_attribute(attrs.AGENT_CAPABILITY, "mcp:read")
+        span.set_attribute(attrs.AGENT_ACTOR_KIND, "mcp_token")
+        span.set_attribute(attrs.AGENT_VERDICT, verdict)
+    except Exception:
+        # Telemetry is best-effort; a span/exporter hiccup must not fail an audited read.
+        pass
 
 
 # ---------------------------------------------------------------------------
