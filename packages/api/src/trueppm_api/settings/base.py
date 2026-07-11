@@ -1286,6 +1286,11 @@ SPECTACULAR_SETTINGS = {
             "public unauthenticated read endpoint.",
         },
         {
+            "name": "agent-actions",
+            "description": "Append-only, hash-chained audit trail of MCP/agent read actions "
+            "and refusals, scoped to project membership.",
+        },
+        {
             "name": "meta",
             "description": "Deployment metadata, health probes and administrative endpoints.",
         },
