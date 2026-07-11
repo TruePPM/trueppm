@@ -39,6 +39,34 @@ pub const MAX_DEPENDENCIES: usize = 100_000;
 pub fn validate_project(project: &Project) -> Result<(), String> {
     let cal = &project.calendar;
 
+    // Per-task calendars (ADR-0120 D3) are now *parsed* (so the canonical
+    // Project.to_json() output, which always emits calendar_id/calendars as null,
+    // is accepted, #1816) but still *rejected when set*: this engine shares one
+    // calendar across all tasks and cannot reproduce a per-task calendar, so honoring
+    // it would silently disagree with the server schedule. A null value (the common
+    // case) is fine; a set value is refused here rather than at parse. The MC-only
+    // fields (delivery_mode/story_points/velocity_samples/sprint_length_days) are
+    // deliberately *not* rejected — they never affect a deterministic CPM result.
+    if let Some(calendars) = &project.calendars {
+        if !calendars.is_empty() {
+            return Err(format!(
+                "This engine does not support per-task calendars (Project.calendars \
+                 declares {} calendar(s)); it shares one calendar across all tasks. \
+                 Schedule on the server, or remove the per-task calendar registry.",
+                calendars.len()
+            ));
+        }
+    }
+    for t in &project.tasks {
+        if t.calendar_id.is_some() {
+            return Err(format!(
+                "Task {:?} sets calendar_id (a per-task calendar, ADR-0120 D3), which \
+                 this engine cannot honor; it shares one calendar across all tasks.",
+                t.id
+            ));
+        }
+    }
+
     // Unique task IDs: every per-task result is keyed on Task.id, so a duplicate
     // id silently shadows one task. Reject it as the structural error it is,
     // matching the Python engine's _validate_project (#749).
@@ -55,13 +83,18 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
     // is_working_day only consults bits 0-6 (Mon-Sun); a mask with none of them
     // set (0, or only bits >= 7) has no working day at all.
     if (cal.working_days & 0b0111_1111) == 0 {
-        return Err("Calendar has no working weekday set (working_days bitmask is empty); \
+        return Err(
+            "Calendar has no working weekday set (working_days bitmask is empty); \
                     at least one of Mon-Sun must be a working day."
-            .to_string());
+                .to_string(),
+        );
     }
 
     for t in &project.tasks {
-        check_duration(i64::from(t.duration_days()), &format!("Task {:?} duration", t.id))?;
+        check_duration(
+            i64::from(t.duration_days()),
+            &format!("Task {:?} duration", t.id),
+        )?;
         for (label, secs) in [
             ("optimistic_duration", t.optimistic_duration),
             ("most_likely_duration", t.most_likely_duration),
@@ -80,9 +113,11 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         // pessimistic bound (#1069). Partial estimates are not validated: Monte
         // Carlo only samples when all three are present. Day-granularity match to
         // Python's `.days` comparison (#1085).
-        if let (Some(o), Some(m), Some(pe)) =
-            (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration)
-        {
+        if let (Some(o), Some(m), Some(pe)) = (
+            t.optimistic_duration,
+            t.most_likely_duration,
+            t.pessimistic_duration,
+        ) {
             let od = (o / 86_400.0).round() as i64;
             let md = (m / 86_400.0).round() as i64;
             let pd = (pe / 86_400.0).round() as i64;
@@ -168,9 +203,13 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
         // only a *partial* estimate can set most_likely above the deterministic
         // duration, which is exactly the case this max() still guards.
         let mut task_max = i64::from(t.duration_days());
-        for seconds in [t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration]
-            .into_iter()
-            .flatten()
+        for seconds in [
+            t.optimistic_duration,
+            t.most_likely_duration,
+            t.pessimistic_duration,
+        ]
+        .into_iter()
+        .flatten()
         {
             task_max = task_max.max((seconds / 86_400.0).round() as i64);
         }
@@ -276,6 +315,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 
@@ -288,6 +330,9 @@ mod tests {
             dependencies: deps,
             calendar: cal,
             status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
         }
     }
 
@@ -299,14 +344,20 @@ mod tests {
 
     #[test]
     fn rejects_empty_working_day_mask() {
-        let cal = Calendar { working_days: 0, ..Calendar::default() };
+        let cal = Calendar {
+            working_days: 0,
+            ..Calendar::default()
+        };
         let p = project(vec![task("A", 1)], vec![], cal);
         assert!(validate_project(&p).is_err());
     }
 
     #[test]
     fn rejects_mask_with_only_non_weekday_bits() {
-        let cal = Calendar { working_days: 0b1000_0000, ..Calendar::default() };
+        let cal = Calendar {
+            working_days: 0b1000_0000,
+            ..Calendar::default()
+        };
         let p = project(vec![task("A", 1)], vec![], cal);
         assert!(validate_project(&p).is_err());
     }
@@ -326,13 +377,21 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_task_id() {
-        let p = project(vec![task("A", 3), task("A", 2)], vec![], Calendar::default());
+        let p = project(
+            vec![task("A", 3), task("A", 2)],
+            vec![],
+            Calendar::default(),
+        );
         assert!(validate_project(&p).is_err());
     }
 
     #[test]
     fn rejects_duration_over_max() {
-        let p = project(vec![task("A", MAX_DURATION_DAYS + 1)], vec![], Calendar::default());
+        let p = project(
+            vec![task("A", MAX_DURATION_DAYS + 1)],
+            vec![],
+            Calendar::default(),
+        );
         assert!(validate_project(&p).is_err());
     }
 
@@ -376,7 +435,9 @@ mod tests {
     fn rejects_cumulative_span_over_max() {
         // Each task is within the per-task cap, but together they exceed the
         // cumulative project span (11 * 36525 = 401,775 > 366,000).
-        let tasks: Vec<Task> = (0..11).map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS)).collect();
+        let tasks: Vec<Task> = (0..11)
+            .map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS))
+            .collect();
         let p = project(tasks, vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
     }
@@ -521,11 +582,70 @@ mod tests {
         // The status_date offset folds into the cumulative total_span guard the
         // same way max_snet_days and max_actual_days do: a small per-task
         // duration can still exceed the cap once the status_date offset is added.
-        let mut p = project(vec![task("A", MAX_DURATION_DAYS)], vec![], Calendar::default());
+        let mut p = project(
+            vec![task("A", MAX_DURATION_DAYS)],
+            vec![],
+            Calendar::default(),
+        );
         p.status_date = Some(
             NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
                 + chrono::Duration::days(MAX_PROJECT_SPAN_DAYS),
         );
         assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_null_python_only_fields() {
+        // #1816: the canonical Project.to_json() emits calendar_id/delivery_mode/
+        // story_points/calendars/velocity_samples/sprint_length_days as null; unset
+        // (None) they must be accepted (the helpers already build them as None).
+        let p = project(vec![task("A", 5)], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn accepts_and_ignores_mc_only_fields() {
+        // delivery_mode/story_points (task) and velocity_samples/sprint_length_days
+        // (project) drive Monte Carlo only, which this engine does not run — they must
+        // be accepted and never affect a deterministic schedule (#1816).
+        let mut t = task("A", 5);
+        t.delivery_mode = Some("SCRUM".to_string());
+        t.story_points = Some(8.0);
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.velocity_samples = Some(vec![Some(10.0), None, Some(12.0)]);
+        p.sprint_length_days = Some(14.0);
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_set_calendar_id() {
+        // A *set* per-task calendar cannot be honored by this single-calendar engine.
+        let mut t = task("A", 5);
+        t.calendar_id = Some("six-day".to_string());
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_non_empty_calendars_registry() {
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        let mut registry = std::collections::HashMap::new();
+        registry.insert(
+            "six-day".to_string(),
+            Calendar {
+                working_days: 63,
+                ..Calendar::default()
+            },
+        );
+        p.calendars = Some(registry);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_empty_calendars_registry() {
+        // An empty {} registry (or null) means no per-task calendars — accept it.
+        let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
+        p.calendars = Some(std::collections::HashMap::new());
+        assert!(validate_project(&p).is_ok());
     }
 }

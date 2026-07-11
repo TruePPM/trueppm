@@ -440,6 +440,9 @@ mod tests {
             optimistic_duration: None,
             most_likely_duration: None,
             pessimistic_duration: None,
+            calendar_id: None,
+            delivery_mode: None,
+            story_points: None,
         }
     }
 

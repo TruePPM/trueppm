@@ -64,9 +64,12 @@ fn all_invalid_fixtures_rejected() {
 }
 
 /// Every `fixtures/rust_rejects/*.json` is valid for the Python engine but must
-/// be rejected by Rust *at parse time* via `#[serde(deny_unknown_fields)]`
-/// (#1505). Rejecting the input is the honest alternative to silently scheduling
-/// on the wrong calendar — the WASM engine refuses work it cannot reproduce.
+/// be rejected by Rust because it *sets* a field this engine cannot honor
+/// (per-task calendars, ADR-0120 D3). Since #1816 these fields are *parsed* (so the
+/// canonical `Project.to_json()` output — which emits them as `null` — is accepted),
+/// so the rejection moved from parse time (`deny_unknown_fields`) to schedule time
+/// (`validate_project`). The fixture parses cleanly and `schedule_impl` returns
+/// `Err` — the honest alternative to silently scheduling on the wrong calendar.
 #[test]
 fn rust_rejects_unhonorable_inputs() {
     let dir = fixtures_dir().join("rust_rejects");
@@ -81,12 +84,14 @@ fn rust_rejects_unhonorable_inputs() {
         let path = dir.join(format!("{stem}.json"));
         let json = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("{stem}: failed to read fixture: {e}"));
-        let parsed: Result<Project, _> = serde_json::from_str(&json);
+        // Parses (the Python-only keys are now declared, #1816) but is rejected at
+        // schedule time because it *sets* a per-task calendar this engine can't honor.
+        let project: Project = serde_json::from_str(&json)
+            .unwrap_or_else(|e| panic!("{stem}: fixture should parse since #1816, got {e}"));
         assert!(
-            parsed.is_err(),
-            "{stem}: Rust must reject an input carrying fields it cannot honor \
-             (deny_unknown_fields), but it parsed cleanly — the engine would \
-             silently schedule on the wrong calendar (#1505)."
+            schedule_impl(&project).is_err(),
+            "{stem}: Rust must reject an input that sets a per-task calendar it cannot \
+             honor — it would otherwise silently schedule on the wrong calendar (#1505/#1816)."
         );
     }
 }
