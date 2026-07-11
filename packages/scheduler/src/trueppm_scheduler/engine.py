@@ -1018,20 +1018,24 @@ def _compute_floats(
     ``free_float`` is the number of working days a task can slip without delaying
     the early start (FS/SS links) or the early finish (FF/SF links) of *any* of
     its successors — the standard critical-path-method definition of free float,
-    evaluated across **all four** dependency types. For each
-    successor link we take the early date this task imposes on the successor —
-    the *same* constraint the forward pass applies (see :func:`_forward_pass`) —
-    and measure the working-day slack to the successor's actual early date. Free
+    evaluated across **all four** dependency types. Like total float it is computed
+    by **inverting** the forward constraint (the same inversion the backward pass
+    applies for late dates), anchored on each successor's *early* date: for every
+    link we find the latest date this task could finish/start that still leaves the
+    successor's early date untouched, and take the working-day slip to it. Free
     float is the minimum of those slacks, capped at total float; a task with no
-    successors falls back to its total float. (Earlier versions inspected FS
+    live successor falls back to its total float. (Earlier versions inspected FS
     successors only and let SS/FF/SF tasks report ``free_float == total_float``;
-    that FS-only caveat is now removed — see issue #825.)
+    that FS-only caveat was removed in #825. Earlier still, the slack was measured
+    from the *forward*-imposed date instead of the inverse constraint — a proxy
+    that diverged whenever a calendar-day lag re-landed across non-working days as
+    the task slipped, #1828.)
 
-    Per-task calendars (ADR-0120 D3): a task's own total-float span is measured on
-    its own calendar, while each free-float slack — like the forward constraint it
-    mirrors — is measured on the *successor's* calendar. With one project calendar
-    every span resolves to ``calendar`` and the fast ``wd_counter`` is used for all
-    of them, exactly as before.
+    Per-task calendars (ADR-0120 D3): every span — total-float and each free-float
+    slack — is measured on the task's *own* calendar, because the slip is counted
+    in that task's working days; each free-float constraint is snapped on that same
+    calendar, mirroring the backward pass. With one project calendar every span
+    resolves to ``calendar`` and the fast ``wd_counter`` is used for all of them.
     """
 
     # O(log n) span counts when a counter is supplied (the schedule() hot path,
@@ -1057,13 +1061,32 @@ def _compute_floats(
         task.total_float = timedelta(days=tf_days)
         task.is_critical = tf_days == 0
 
-        # Free float: the smallest slack to any successor, across every dependency
-        # type. ``imposed`` is the early date this task forces on the successor
-        # through the link (mirroring _forward_pass so the two can never disagree
-        # about when this task begins to push a successor); ``succ_date`` is the
-        # successor's matching early date. For a lag-free FS link with EF=Fri and
-        # succ.ES=Mon the slack is 0 (no room to slip). The upper bound is total
-        # float, which is also the value when a task has no successors.
+        # Free float: the largest number of working days this task can slip before
+        # it would push the early date of *any* live successor. Like total float,
+        # it must **invert** the forward constraint rather than approximate it. For
+        # each link we compute the latest date this task could finish (FS/FF) or
+        # start (SS/SF) that still leaves the successor's early date untouched —
+        # applying the *same* calendar-day retreat the backward pass uses for late
+        # dates (see :func:`_backward_pass`), but anchored on the successor's
+        # **early** dates (not late), which is exactly what turns the result into
+        # free float rather than total float. Free float is the working-day slip
+        # from this task's own early date to that latest date, minimized over all
+        # successors and capped at total float; a task with no live successor falls
+        # back to its total float.
+        #
+        # The earlier version instead measured the working-day gap between the
+        # *forward*-imposed date and the successor's early date. That proxy assumes
+        # one working day of slip moves the imposed date by one working day, which
+        # fails whenever a calendar-day lag re-lands across non-working days as the
+        # task slips: a single working day of slip can jump the imposed date by
+        # several working days (or none), so the proxy both over- and under-counted
+        # the true slack (#1828). Inverting the constraint — the way total float
+        # already does — is exact for every dep type and lag.
+        #
+        # The slip is measured in *this* task's working days, and each constraint
+        # is snapped on this task's own calendar (``node_cal``) — mirroring the
+        # backward pass, whose retreat also lands on ``node_cal``. With one project
+        # calendar every span resolves to ``calendar`` and the fast counter is used.
         ff_days = tf_days
         for succ_id in g.successors(node_id):
             succ = task_map[succ_id]
@@ -1075,25 +1098,23 @@ def _compute_floats(
                 continue
             dep: Dependency = g[node_id][succ_id]["dep"]
             lag = dep.lag
-            # The constraint is consumed on the successor's calendar (mirrors the
-            # forward pass, where the snap used the successor's calendar).
-            succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
             assert succ.early_start is not None and succ.early_finish is not None
             if dep.dep_type == DependencyType.FS:
-                imposed = _next_working_day(
-                    _safe_offset(task.early_finish, timedelta(days=1) + lag), succ_cal
+                # Latest finish that leaves succ.early_start unmoved (inverse of the
+                # forward FS constraint; matches the backward pass's LF retreat).
+                latest = _prev_working_day(
+                    _safe_offset(succ.early_start, -timedelta(days=1) - lag), node_cal
                 )
-                succ_date = succ.early_start
+                slack = _wdb(task.early_finish, latest, node_cal)
             elif dep.dep_type == DependencyType.SS:
-                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
-                succ_date = succ.early_start
+                latest = _retreat_calendar_days(succ.early_start, lag, node_cal)
+                slack = _wdb(task.early_start, latest, node_cal)
             elif dep.dep_type == DependencyType.FF:
-                imposed = _advance_calendar_days(task.early_finish, lag, succ_cal)
-                succ_date = succ.early_finish
+                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+                slack = _wdb(task.early_finish, latest, node_cal)
             else:  # SF: successor finish is bounded by this task's start + lag
-                imposed = _advance_calendar_days(task.early_start, lag, succ_cal)
-                succ_date = succ.early_finish
-            slack = _wdb(imposed, succ_date, succ_cal)
+                latest = _retreat_calendar_days(succ.early_finish, lag, node_cal)
+                slack = _wdb(task.early_start, latest, node_cal)
             ff_days = min(ff_days, max(0, slack))
 
         task.free_float = timedelta(days=max(0, ff_days))

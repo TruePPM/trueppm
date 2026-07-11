@@ -337,8 +337,13 @@ class TestFreeFloatAllDependencyTypes:
         assert by_id["A"].total_float > by_id["A"].free_float
 
     def test_free_float_sf_link(self) -> None:
-        # A ─SF(lag=4)─► B: B must finish no earlier than A starts + 4 cal days
-        # (Fri 6-Mar). B finishes Wed 11-Mar → 3 working days of slack for A.
+        # A ─SF(lag=4)─► B: B must finish no earlier than A starts + 4 cal days.
+        # A starts Mon 2-Mar; B finishes Wed 11-Mar (pinned by planned_start). A can
+        # slip 4 working days — to Fri 6-Mar, whose +4cd lower bound is Tue 10-Mar —
+        # before the bound crosses 11-Mar and pushes B's finish. (A 5th day of slip
+        # lands A on Mon 9-Mar, whose +4cd = Fri 13-Mar > 11-Mar.) The calendar-day
+        # lag spans a weekend, so the true slack is 4, not the 3 the old
+        # forward-imposed-date proxy reported (#1828).
         p = make_project(
             tasks=[
                 task("A", "A", 1),
@@ -350,7 +355,7 @@ class TestFreeFloatAllDependencyTypes:
             ],
         )
         by_id = {t.id: t for t in schedule(p).tasks}
-        assert by_id["A"].free_float == timedelta(days=3)
+        assert by_id["A"].free_float == timedelta(days=4)
         assert by_id["A"].total_float > by_id["A"].free_float
 
     def test_free_float_never_exceeds_total_float(self) -> None:

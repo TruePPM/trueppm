@@ -7,7 +7,7 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
 use crate::calendar::{
-    advance_calendar_days, checked_offset_days, next_working_day, WorkingDayCounter,
+    checked_offset_days, prev_working_day, retreat_calendar_days, WorkingDayCounter,
 };
 use crate::graph::ProjectGraph;
 use crate::models::{Calendar, Dependency, DependencyType, Task};
@@ -39,11 +39,18 @@ pub fn compute_floats(
         let tf_days = counter.between(es, ls);
         let is_critical = tf_days == 0;
 
-        // Free float: smallest slack to any successor across every dependency
-        // type (standard critical-path definition, #825). `imposed` is the early date this task
-        // forces on the successor through the link (mirroring the forward pass);
-        // `succ_date` is the successor's matching early date. Capped at total
-        // float, which is also the value when there are no successors.
+        // Free float (standard critical-path definition, #825): the largest slip
+        // this task can absorb before it pushes the early date of any live
+        // successor. Like total float, compute it by **inverting** the forward
+        // constraint — the same retreat the backward pass applies for late dates —
+        // anchored on each successor's *early* date (not late, which is what makes
+        // it free rather than total float). `latest` is the last date this task
+        // could finish (FS/FF) or start (SS/SF) leaving the successor untouched;
+        // the slack is the working-day slip from this task's own early date to it.
+        // Measuring the gap from the *forward*-imposed date instead (the old proxy)
+        // diverged whenever a calendar-day lag re-lands across non-working days as
+        // the task slips (#1828). Capped at total float; the value when there are
+        // no live successors.
         let mut ff_days = tf_days;
         for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
             let succ = &tasks[edge.target().index()];
@@ -57,16 +64,16 @@ pub fn compute_floats(
             let lag_days = dep.lag_days();
             let succ_es = succ.early_start.unwrap();
             let succ_ef = succ.early_finish.unwrap();
-            let (imposed, succ_date) = match dep.dep_type {
+            let (anchor, latest) = match dep.dep_type {
                 DependencyType::FS => (
-                    next_working_day(checked_offset_days(ef, 1 + lag_days)?, calendar)?,
-                    succ_es,
+                    ef,
+                    prev_working_day(checked_offset_days(succ_es, -1 - lag_days)?, calendar)?,
                 ),
-                DependencyType::SS => (advance_calendar_days(es, lag_days, calendar)?, succ_es),
-                DependencyType::FF => (advance_calendar_days(ef, lag_days, calendar)?, succ_ef),
-                DependencyType::SF => (advance_calendar_days(es, lag_days, calendar)?, succ_ef),
+                DependencyType::SS => (es, retreat_calendar_days(succ_es, lag_days, calendar)?),
+                DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, calendar)?),
+                DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, calendar)?),
             };
-            let slack = counter.between(imposed, succ_date);
+            let slack = counter.between(anchor, latest);
             ff_days = ff_days.min(slack.max(0));
         }
         ff_days = ff_days.max(0);
