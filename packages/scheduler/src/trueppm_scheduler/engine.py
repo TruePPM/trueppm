@@ -2182,6 +2182,16 @@ def monte_carlo(
             dur_matrix[:, col] = _sample_pert(opt, ml, pess, runs, rng)
         else:
             dur_matrix[:, col] = base
+        # A completed task is pinned to a constant offset pair in the forward pass
+        # (its sampled column is never read there), so its sampled duration cannot
+        # move the finish — a varying column would surface in the sensitivity tornado
+        # as pure bootstrap noise, contradicting the documented contract that
+        # completed tasks are omitted (#1827). Collapse the column to a constant so
+        # ``np.ptp == 0`` excludes it from the tornado. Done *after* sampling (not by
+        # skipping it) so the seeded RNG stream — and therefore every other task's
+        # samples and P50/P80/P95 — is byte-for-byte unchanged.
+        if _is_complete(t):
+            dur_matrix[:, col] = base
 
     # --- Vectorised forward pass (working-day offsets from project start) ---
     # ES and EF are floating-point working-day offsets (0 = project start).
