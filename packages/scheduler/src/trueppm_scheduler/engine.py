@@ -1285,8 +1285,28 @@ def expand_summary_dependencies(
 # ---------------------------------------------------------------------------
 
 
+def _check_whole_days(td: timedelta, label: str) -> None:
+    """Reject a duration/lag that is not a whole number of days (#1818).
+
+    The engine consumes durations and lags via ``timedelta.days`` (floor toward
+    negative infinity), while the Rust engine rounds ``seconds / 86400`` to the
+    nearest whole day.
+    A sub-day value therefore schedules *differently* in the two engines (e.g. 1.5d
+    → Python 1-day, Rust 2-day), and a sub-day lag even drives a late date before an
+    early date in Python alone. Rather than pick a shared rounding rule, both engines
+    reject a non-whole-day value up front so the two can never disagree. A whole-day
+    ``timedelta`` has zero sub-day component regardless of sign.
+    """
+    if td.seconds or td.microseconds:
+        raise InvalidScheduleInput(
+            f"{label} must be a whole number of days (got {td}); sub-day durations and "
+            "lags are not supported and would schedule differently across engines."
+        )
+
+
 def _check_duration(td: timedelta, label: str) -> None:
-    """Reject a negative or absurdly large working-day duration."""
+    """Reject a negative, absurdly large, or fractional working-day duration."""
+    _check_whole_days(td, label)
     days = td.days
     if days < 0:
         raise InvalidScheduleInput(f"{label} must not be negative (got {days} days).")
@@ -1567,6 +1587,7 @@ def _validate_project(project: Project) -> None:
             f"maximum of {MAX_DEPENDENCIES}; the graph cannot be scheduled within "
             "resource limits."
         )
+    seen_edges: set[tuple[str, str]] = set()
     for dep in project.dependencies:
         # Type guard for the direct-object API (#1209): a non-timedelta lag would
         # otherwise leak AttributeError from ``.days`` here and in both passes.
@@ -1575,6 +1596,24 @@ def _validate_project(project: Project) -> None:
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag must be a "
                 f"timedelta (got {dep.lag!r})."
             )
+        # Duplicate (predecessor, successor) edges diverge between engines (#1817):
+        # ``_build_graph`` uses ``nx.DiGraph``, which *overwrites* the edge attribute
+        # so only the last dependency on a pair survives, while the Rust engine keeps
+        # parallel edges and applies *all* of them (a different schedule, floats, and
+        # critical path). Rather than silently drop or silently merge, both engines
+        # reject a duplicated pair — the caller must express a single relationship per
+        # pair (a self-loop A→A is caught later as a cycle, not here).
+        key = (dep.predecessor_id, dep.successor_id)
+        if key in seen_edges:
+            raise InvalidScheduleInput(
+                f"Duplicate dependency {dep.predecessor_id!r} → {dep.successor_id!r}; "
+                "each task pair may carry at most one dependency (declare a single "
+                "relationship per predecessor/successor pair)."
+            )
+        seen_edges.add(key)
+        # Sub-day lag schedules differently across engines and can drive a late date
+        # before an early date (#1818); reject a non-whole-day lag like a duration.
+        _check_whole_days(dep.lag, f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag")
         if abs(dep.lag.days) > MAX_LAG_DAYS:
             raise InvalidScheduleInput(
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "

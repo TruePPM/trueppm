@@ -1,0 +1,13 @@
+{
+  "id": "inv-fractional-lag",
+  "name": "Sub-day (12-hour) dependency lag (#1818)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 172800.0},
+    {"id": "B", "name": "Task B", "duration": 172800.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS", "lag": 43200.0}
+  ],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}
