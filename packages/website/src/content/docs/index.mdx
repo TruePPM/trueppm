@@ -118,6 +118,14 @@ print(result.critical_path)           # ['t-1', 't-2']
   </Card>
 </CardGrid>
 
+## Ready for teams of people — and agents
+
+Software teams increasingly run work across people *and* AI agents: an agent drafts, a human reviews. That breaks a fifty-year assumption baked into every project tool — that a task takes days and a person does one thing at a time. TruePPM's scheduling-first engine is built to model it honestly, and the difference between *effort* (work content) and *duration* (elapsed time) is the seam that makes it possible.
+
+Starting in **0.5**, TruePPM will represent AI agents as first-class *resources* — separating effort from duration so an agent's throughput and round-the-clock availability no longer have to masquerade as an 8-hour human day, and giving a team a **team-owned** read on when its own review queue, not authoring, has become the bottleneck. The engine depth — sub-day scheduling, a probabilistic human-fallback branch, and reporting whose true unit is the length of the human-bound critical path — will follow in 0.6.
+
+One principle is load-bearing here, and it is why we built the pillar the way we did: that review signal belongs to the **team**, opt-in to roll upward — never a management dashboard. See [**Team ownership is not surveillance**](/overview/team-ownership-not-surveillance/). AI that *does* the scheduling for you — auto-optimization, cross-program agent leveling — is the enterprise layer, after 1.0. TruePPM plans *for* hybrid teams; it does not take the plan out of their hands.
+
 ## Who is it for?
 
 | Persona | Methodology | TruePPM gives them... | Guide |
