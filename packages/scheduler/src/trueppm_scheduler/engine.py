@@ -765,6 +765,16 @@ def _forward_pass(
     the successor *is* the node here. ``task_calendars=None`` (or any task absent
     from it) falls back to ``calendar``, making the single-calendar path identical.
     """
+    # Memoize the project-start (and status-date) snap per calendar (#1824): each is
+    # identical for every task sharing a calendar, so re-snapping it per task made the
+    # forward pass O(tasks · scan_depth). A valid calendar whose exceptions blanket a
+    # ~36k-day gap after the start (one working day just past it, so validation's
+    # reachability probe passes) then turned even a few hundred tasks into a
+    # multi-second spin — every task repeating the same 36k-day walk. One snap per
+    # distinct calendar instead. Keyed by object identity: Calendar holds a mutable
+    # exceptions list and isn't hashable, and the resolved objects are stable here.
+    start_base_by_cal: dict[int, date] = {}
+    status_snap_by_cal: dict[int, date] = {}
     for node_id in topo_order:
         task = task_map[node_id]
         # The node being computed is the successor of all its incoming edges, so a
@@ -776,15 +786,24 @@ def _forward_pass(
         # The project-start floor (and the data-date floor) snap to *this* task's
         # calendar — a task can never begin on its own non-working day. With one
         # project calendar every task resolves the same value the pre-ADR-0120 pass
-        # hoisted out of the loop; the result is byte-identical.
-        start_base = _next_working_day(project_start, cal)
+        # hoisted out of the loop; the result is byte-identical. Memoized per calendar
+        # (#1824) so the snap runs once per distinct calendar, not once per task.
+        cal_key = id(cal)
+        start_base = start_base_by_cal.get(cal_key)
+        if start_base is None:
+            start_base = _next_working_day(project_start, cal)
+            start_base_by_cal[cal_key] = start_base
         # The data date floors all not-yet-finished work: nothing remaining can be
         # scheduled before "as of now". A status date at or before project start is
         # already covered by the project-start floor. Completed work is historical
         # and is deliberately *not* floored at the data date (handled below).
         start = start_base
         if status_date is not None:
-            start = max(start_base, _next_working_day(status_date, cal))
+            status_snap = status_snap_by_cal.get(cal_key)
+            if status_snap is None:
+                status_snap = _next_working_day(status_date, cal)
+                status_snap_by_cal[cal_key] = status_snap
+            start = max(start_base, status_snap)
 
         # Completed (actual_finish set, or percent_complete >= 100): laid out at its
         # FULL duration so the bar keeps its shape (ADR-0136). Whatever actuals exist
@@ -1145,6 +1164,22 @@ def _collect_leaves(
         children = children_map.get(node)
         if not children:
             leaves.append(node)
+            # Bound the leaf-*path* count during traversal (#1822). A leaf is yielded
+            # once per root-to-leaf path, so a "doubling" children_map (each summary
+            # points at the next twice) has 2^depth paths to a single leaf — the
+            # exponential list that made ``len(_collect_leaves(...))`` blow up *before*
+            # the callers' MAX_EXPANDED_EDGES guard (which reads that length) ever ran.
+            # Capping here keeps the walk O(MAX_EXPANDED_EDGES · depth). This never
+            # rejects an input the callers would accept: they cap the leaf *product*
+            # across an edge at MAX_EXPANDED_EDGES, so a single endpoint exceeding it
+            # already forces every incident edge's product over the cap.
+            if len(leaves) > MAX_EXPANDED_EDGES:
+                raise InvalidScheduleInput(
+                    f"Expanding summary dependencies would exceed {MAX_EXPANDED_EDGES:,} "
+                    "leaf-level edges: a summary task fans out to that many root-to-leaf "
+                    "paths (typically a summary→summary dependency crossing a deep or "
+                    "wide WBS). Depend on specific leaf tasks, or split the summary edge."
+                )
             continue
         if node in path:
             raise InvalidScheduleInput(f"children_map contains a cycle through task {node!r}.")
