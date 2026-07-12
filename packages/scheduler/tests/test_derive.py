@@ -351,6 +351,73 @@ class TestFloat:
         assert d.value == by_id["A"].free_float.days
         assert d.binding is not None
 
+    def test_free_float_fs_lag_across_weekend_matches_engine(self) -> None:
+        # The #1828 fixture (fs_lag_weekend): A=3d finishes Wed 3/4; FS lag 2
+        # lands B's early start on Mon 3/9 (raw Sat 3/7 snaps forward). A can
+        # slip to finish Thu 3/5 or Fri 3/6 and B's start is still Mon 3/9, so
+        # the engine reports free_float=2. The pre-#1828 proxy (working-day gap
+        # from the forward-imposed date, Mon 3/9, to B's early start, Mon 3/9)
+        # reported 0 — the regression #1853 fixes in the derivation.
+        p = make_project(
+            [task("A", "A", 3), task("B", "B", 2)],
+            dependencies=[Dependency("A", "B", lag=timedelta(days=2))],
+        )
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        assert by_id["A"].free_float == timedelta(days=2)  # engine ground truth
+        d = derive_value(p, "A", Quantity.FREE_FLOAT, result=result)
+        assert d.value == by_id["A"].free_float.days == 2
+        assert d.binding is not None
+        assert d.binding.kind == "successor_free_slack"
+        assert d.binding.source_task_id == "B"
+        assert d.binding.slack_days == 2
+        # The recorded constraint is the *inverse* of the forward FS constraint:
+        # the latest finish (Fri 3/6) that leaves B's early start unmoved.
+        assert d.binding.imposed_date == date(2026, 3, 6)
+
+    @pytest.mark.parametrize(
+        "dep_type",
+        [DependencyType.FS, DependencyType.SS, DependencyType.FF, DependencyType.SF],
+    )
+    def test_free_float_weekend_lag_faithful_for_all_dep_types(
+        self, dep_type: DependencyType
+    ) -> None:
+        # Faithfulness under a calendar-day lag that re-lands across a weekend,
+        # for every dependency type: derive_value(FREE_FLOAT) must equal the
+        # engine's free_float exactly. The long parallel task gives the linked
+        # pair real total float so the successor slack (not the cap) can bind.
+        p = make_project(
+            [task("A", "A", 2), task("B", "B", 2), task("L", "Long", 10)],
+            dependencies=[Dependency("A", "B", dep_type=dep_type, lag=timedelta(days=4))],
+        )
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        for tid in ("A", "B", "L"):
+            d = derive_value(p, tid, Quantity.FREE_FLOAT, result=result)
+            assert d.value == by_id[tid].free_float.days, (dep_type, tid)
+
+    def test_free_float_per_task_calendar_measured_on_own_calendar(self) -> None:
+        # Per-task calendars (ADR-0120 D3): the slip is counted in the *task's
+        # own* working days and the inverse constraint snaps on that same
+        # calendar — mirroring engine._compute_floats. A works a seven-day week
+        # (EF Wed 3/4); B works Mon-Fri, so the FS lag-2 constraint snaps B's
+        # early start to Mon 3/9. A can slip 2 of its own working days (to Fri
+        # 3/6) before B moves. The pre-#1853 derivation measured the gap on the
+        # *successor's* calendar from the forward-imposed date and reported 0.
+        seven = Calendar(working_days=0b111_1111)
+        p = make_project(
+            [task("A", "A", 3, calendar_id="seven"), task("B", "B", 2)],
+            dependencies=[Dependency("A", "B", lag=timedelta(days=2))],
+            calendars={"seven": seven},
+        )
+        result = schedule(p)
+        by_id = {t.id: t for t in result.tasks}
+        d = derive_value(p, "A", Quantity.FREE_FLOAT, result=result)
+        assert d.value == by_id["A"].free_float.days == 2
+        assert d.binding is not None
+        assert d.binding.kind == "successor_free_slack"
+        assert d.binding.slack_days == 2
+
     def test_free_float_no_successors_falls_back_to_total_float(self) -> None:
         p = make_project(
             [task("A", "A", 3), task("B", "B", 2)],
