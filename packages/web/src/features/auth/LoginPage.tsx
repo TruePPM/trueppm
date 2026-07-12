@@ -6,6 +6,8 @@ import { queryClient } from '@/lib/queryClient';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { LogoMark } from '@/components/Icons';
+import { OSSChip } from '@/components/OSSChip';
+import { discoverSso, SSO_LOGIN_PATH, type SsoDiscoverResult } from '@/hooks/ssoLogin';
 
 interface TokenResponse {
   // The refresh token is no longer returned in the body — it is set as an
@@ -113,7 +115,13 @@ export function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSsoTooltip, setShowSsoTooltip] = useState(false);
+  // SSO login state (issue 1392, ADR-0187). The flow reuses the email typed
+  // above: `checking` probes the provider, `redirecting` hands off to the IdP,
+  // `unmatched` means the email domain is not served by the configured provider.
+  const [ssoStatus, setSsoStatus] = useState<'idle' | 'checking' | 'redirecting' | 'unmatched'>(
+    'idle',
+  );
+  const [ssoProvider, setSsoProvider] = useState<SsoDiscoverResult | null>(null);
 
   const emailId = useId();
   const passwordId = useId();
@@ -167,6 +175,33 @@ export function LoginPage() {
     }
   }
 
+  /**
+   * Begin SSO: match the typed email's domain to the configured provider, then
+   * hand off to the RP login endpoint. The handoff is a top-level browser
+   * navigation (not a fetch) so the browser follows the 302 to the IdP and
+   * carries the single-use `state` cookie the endpoint sets (login-CSRF binding,
+   * ADR-0187 §2). `discoverSso` never throws — a probe failure degrades to
+   * `unmatched`, leaving password sign-in available.
+   */
+  async function handleSso() {
+    setError(null);
+    if (email.trim() === '') {
+      setSsoStatus('idle');
+      setError('Enter your work email above, then continue with SSO.');
+      return;
+    }
+    setSsoStatus('checking');
+    const result = await discoverSso(email.trim());
+    if (result.provider_present) {
+      setSsoProvider(result);
+      setSsoStatus('redirecting');
+      window.location.assign(SSO_LOGIN_PATH);
+    } else {
+      setSsoStatus('unmatched');
+    }
+  }
+
+  const ssoBusy = ssoStatus === 'checking' || ssoStatus === 'redirecting';
   const canSubmit = email.trim() !== '' && password !== '' && !isSubmitting;
 
   return (
@@ -211,7 +246,11 @@ export function LoginPage() {
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // Editing the email invalidates any prior SSO probe result.
+                setSsoStatus('idle');
+              }}
               disabled={isSubmitting}
               placeholder="anna.khoury@example.com"
               className="
@@ -319,37 +358,49 @@ export function LoginPage() {
             <div className="flex-1 h-px bg-neutral-border" />
           </div>
 
-          {/* SSO button — stub until basic OIDC login lands (issue 1392);
-              enterprise may still override this component's slot */}
-          <div className="relative">
+          {/* SSO — basic OIDC/OAuth login against the operator's own IdP (issue
+              1392, ADR-0187). Part of the Apache-2.0 community edition: the auth
+              carve-out gates identity *governance* (SAML/SCIM/directory sync),
+              not login federation — hence the OSS chip, which corrects the prior
+              "SSO available in Enterprise tier" mislabel. Reuses the email typed
+              above: discover matches the domain, then we hand off to the RP login
+              endpoint which 302s to the IdP. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-center">
+              <OSSChip />
+            </div>
+            {/* No static aria-label — the visible text IS the accessible name so
+                it tracks the flow state; the live region below announces changes. */}
             <button
               type="button"
-              onClick={() => setShowSsoTooltip((v) => !v)}
-              onBlur={() => setShowSsoTooltip(false)}
-              aria-expanded={showSsoTooltip}
+              onClick={() => void handleSso()}
+              disabled={ssoBusy}
               className="
                 h-11 w-full rounded border border-neutral-border
                 bg-neutral-surface-raised text-neutral-text-primary
                 text-sm font-medium
                 hover:bg-neutral-surface-sunken
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                disabled:opacity-50 disabled:cursor-not-allowed
                 transition-colors
               "
             >
-              Continue with SSO
+              {ssoStatus === 'checking'
+                ? 'Checking your provider…'
+                : ssoStatus === 'redirecting'
+                  ? 'Redirecting you securely…'
+                  : 'Continue with SSO'}
             </button>
-            {showSsoTooltip && (
-              <div
-                role="tooltip"
-                className="
-                  absolute top-full left-1/2 -translate-x-1/2 mt-2 z-10 w-64
-                  bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
-                  whitespace-normal shadow-none border border-neutral-border
-                "
-              >
-                Single sign-on with your identity provider is coming — tracked in issue 1392.
-                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-neutral-text-primary rotate-45 border-l border-t border-neutral-border" />
-              </div>
+            {/* One polite live region covering every transient SSO state so a
+                screen-reader user hears the outcome of pressing the button. */}
+            {ssoStatus !== 'idle' && (
+              <p role="status" aria-live="polite" className="text-xs text-neutral-text-secondary text-center">
+                {ssoStatus === 'checking' && 'Checking your identity provider…'}
+                {ssoStatus === 'redirecting' &&
+                  `Provider matched${ssoProvider?.issuer ? `: ${ssoProvider.issuer}` : ''} — redirecting you securely…`}
+                {ssoStatus === 'unmatched' &&
+                  'No SSO provider is set up for that email domain. Sign in with your password above.'}
+              </p>
             )}
           </div>
         </form>
