@@ -71,6 +71,15 @@ def member_client(user: object, project: Project) -> APIClient:
 
 
 @pytest.fixture
+def scheduler_client(project: Project) -> APIClient:
+    scheduler = User.objects.create_user(username="mc_latest_scheduler", password="pw")
+    ProjectMembership.objects.create(project=project, user=scheduler, role=Role.SCHEDULER)
+    c = APIClient()
+    c.force_authenticate(user=scheduler)
+    return c
+
+
+@pytest.fixture
 def anon_client() -> APIClient:
     return APIClient()
 
@@ -210,14 +219,16 @@ class TestMonteCarloLatest:
         assert curve[-1]["pct"] == pytest.approx(100.0)
 
     def test_history_fallback_keeps_cpm_delta_and_persisted_curve(
-        self, member_client: APIClient, project: Project
+        self, member_client: APIClient, scheduler_client: APIClient, project: Project
     ) -> None:
         """After the cache TTL expires the persisted run carries cpm_finish +
         delta_vs_cpm, and — as of #1231 — the persisted distribution too, so the
         confidence_curve + histogram survive cache expiry instead of falling back
-        to empty (ADR-0144)."""
+        to empty (ADR-0144). The run is posted by a Scheduler because only
+        Scheduler+ persists a history row (#1502); the fallback read stays open
+        to every member."""
         self._scheduled_task(project)
-        member_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
+        scheduler_client.post(self.mc_url(project.pk), {"n_simulations": 200}, format="json")
         cache.clear()  # simulate TTL expiry → history fallback path
 
         data = member_client.get(self.url(project.pk)).json()
