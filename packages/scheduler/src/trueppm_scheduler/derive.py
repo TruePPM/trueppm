@@ -13,8 +13,10 @@ The derivation is faithful **by construction**, not guessed: it evaluates the
 same ``max``/``min`` the engine evaluated, over inputs (the predecessors'/
 successors' final early/late dates) taken from a completed
 :class:`~trueppm_scheduler.engine.ScheduleResult`. Because those inputs are
-already final, deriving one task's one value is ``O(degree(task))`` — no
-whole-network re-pass — and the reported binding date equals the engine's
+already final, deriving one task's one value needs only the ``<= degree(task)``
+dependency edges incident to the task, gathered by one filtered scan of the
+dependency list — no graph rebuild and no whole-network re-pass — and the
+reported binding date equals the engine's
 computed value (asserted by the library's unit tests). Nothing is fabricated: a
 contribution is emitted only for a constraint the engine actually evaluates.
 
@@ -33,7 +35,6 @@ from typing import Any
 
 from trueppm_scheduler.engine import (
     ScheduleResult,
-    _build_graph,
     _effective_duration_days,
     _is_complete,
     _next_working_day,
@@ -43,7 +44,7 @@ from trueppm_scheduler.engine import (
     _working_days_between,
     schedule,
 )
-from trueppm_scheduler.models import Calendar, DependencyType, Project, Task
+from trueppm_scheduler.models import Calendar, Dependency, DependencyType, Project, Task
 
 
 class Quantity(enum.Enum):
@@ -641,21 +642,32 @@ def derive_value(
     if task is None:
         raise UnknownTaskError(f"Task {task_id!r} is not in the project.")
 
-    g = _build_graph(project)
     task_calendars = _resolve_task_calendars(project)
     default_cal = project.calendar
     cal = _cal_for(task_id, default_cal, task_calendars)
 
-    preds: list[tuple[Task, DependencyType, timedelta]] = []
-    if task_id in g:
-        for pred_id in g.predecessors(task_id):
-            dep = g[pred_id][task_id]["dep"]
-            preds.append((task_map[pred_id], dep.dep_type, dep.lag))
-    succs: list[tuple[Task, DependencyType, timedelta]] = []
-    if task_id in g:
-        for succ_id in g.successors(task_id):
-            dep = g[task_id][succ_id]["dep"]
-            succs.append((task_map[succ_id], dep.dep_type, dep.lag))
+    # Only the <= degree(task_id) edges incident to the target are ever read, so a
+    # single filtering scan of the dependency list suffices — rebuilding the full
+    # nx.DiGraph here cost O(V + E) time plus a transient whole-adjacency
+    # allocation per explained value (#1859). The dicts keyed by the far endpoint
+    # mirror nx.DiGraph adjacency semantics exactly: insertion-ordered, and the
+    # last duplicate (predecessor, successor) pair wins. (schedule() rejects such
+    # duplicates outright, so the tiebreak only matters for a caller passing a
+    # prebuilt ``result`` for input the engine would refuse.)
+    pred_deps: dict[str, Dependency] = {}
+    succ_deps: dict[str, Dependency] = {}
+    for dep in project.dependencies:
+        if dep.successor_id == task_id:
+            pred_deps[dep.predecessor_id] = dep
+        if dep.predecessor_id == task_id:
+            succ_deps[dep.successor_id] = dep
+
+    preds: list[tuple[Task, DependencyType, timedelta]] = [
+        (task_map[pred_id], dep.dep_type, dep.lag) for pred_id, dep in pred_deps.items()
+    ]
+    succs: list[tuple[Task, DependencyType, timedelta]] = [
+        (task_map[succ_id], dep.dep_type, dep.lag) for succ_id, dep in succ_deps.items()
+    ]
 
     value: str | int | None
     contribs: list[DerivationContribution]
@@ -677,13 +689,14 @@ def derive_value(
             result.project_finish,
             want_start=q is Quantity.LATE_START,
         )
-    elif q is Quantity.TOTAL_FLOAT:
-        value, contribs = _derive_total_float(task, cal)
-    else:  # FREE_FLOAT
-        tf_days, _ = _derive_total_float(task, cal)
-        value, contribs = _derive_free_float(
-            task, task_map, succs, cal, tf_days, task_calendars, default_cal
-        )
+    else:  # TOTAL_FLOAT / FREE_FLOAT — both start from the same total-float replay.
+        tf_days, tf_contribs = _derive_total_float(task, cal)
+        if q is Quantity.TOTAL_FLOAT:
+            value, contribs = tf_days, tf_contribs
+        else:
+            value, contribs = _derive_free_float(
+                task, task_map, succs, cal, tf_days, task_calendars, default_cal
+            )
 
     binding = next((c for c in contribs if c.is_binding), None)
     return Derivation(
