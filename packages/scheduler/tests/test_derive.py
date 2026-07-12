@@ -395,3 +395,39 @@ class TestErrorsAndSerialization:
         p = make_project([task("A", "A", 2)])
         d = derive_value(p, "A", Quantity.EARLY_START)
         assert isinstance(d, Derivation)
+
+
+# ---------------------------------------------------------------------------
+# Prebuilt-result equivalence — the incident-edge scan must match a fresh run
+# ---------------------------------------------------------------------------
+
+
+class TestPrebuiltResultEquivalence:
+    def test_prebuilt_result_matches_fresh_schedule_for_all_quantities(self) -> None:
+        """derive_value must produce byte-identical derivations whether it
+        schedules the project itself or reuses a prebuilt ScheduleResult — across
+        every task and all six quantities. This pins the O(degree) incident-edge
+        scan (#1859) to the same output as scheduling from scratch: any drift in
+        how predecessors/successors are gathered would surface as a dict diff."""
+        project = make_project(
+            [
+                task("A", "Design", 3),
+                task("B", "Build", 5),
+                task("C", "Test", 2),
+                task("D", "Ship", 1),
+                task("E", "Docs", 1),
+            ],
+            dependencies=[
+                Dependency("A", "B"),  # FS
+                Dependency("A", "C", dep_type=DependencyType.SS, lag=timedelta(days=1)),
+                Dependency("B", "D", dep_type=DependencyType.FF),
+                Dependency("C", "D"),  # FS
+                Dependency("D", "E", dep_type=DependencyType.SF, lag=timedelta(days=2)),
+            ],
+        )
+        result = schedule(project)
+        for t in result.tasks:
+            for q in Quantity:
+                fresh = derive_value(project, t.id, q)
+                reused = derive_value(project, t.id, q, result=result)
+                assert fresh.to_dict() == reused.to_dict(), (t.id, q)
