@@ -18,20 +18,24 @@ mod forward;
 mod graph;
 mod incremental;
 pub mod models;
+mod typed;
 mod validate;
 
 // Re-exported so the conformance suite can cross-check the incremental
 // drag-preview recompute against a full schedule (#1505).
 pub use incremental::incremental_update;
 
-use chrono::NaiveDate;
+use std::cell::RefCell;
+
+use chrono::{Datelike, NaiveDate};
 use wasm_bindgen::prelude::*;
 
 use crate::backward::backward_pass;
 use crate::floats::compute_floats;
 use crate::forward::forward_pass;
 use crate::graph::{build_graph, ProjectGraph};
-use crate::models::{Project, ScheduleResult, TaskResult};
+use crate::models::{Project, ScheduleResult, Task, TaskResult};
+use crate::typed::{compute_downstream_typed, compute_full_typed, TypedResult};
 
 /// Run a full CPM schedule on the project and return the result as JSON.
 ///
@@ -97,10 +101,111 @@ pub fn wasm_incremental_update(
 /// mutated project. The session's true-partial forward pass (recomputing only the
 /// changed subgraph) is deliberately left as a follow-up so the full pass remains
 /// the single conformance oracle.
+///
+/// For the hot drag path, prefer the typed-array methods
+/// [`recalc_typed`](SchedulerSession::recalc_typed) /
+/// [`recalc_incremental_typed`](SchedulerSession::recalc_incremental_typed)
+/// (#1856): they run the passes into a session-resident scratch buffer (no
+/// per-frame `Vec<Task>` clone) and return columnar typed arrays instead of a
+/// JSON string (no serialize + `JSON.parse`). The JSON `recalc*` methods stay as
+/// the conformance-parity path. See ADR-0371 and `typed.rs` for the contract.
 #[wasm_bindgen]
 pub struct SchedulerSession {
     project: Project,
     graph: ProjectGraph,
+    /// Resident scratch task buffer reused across every frame (#1856). The
+    /// stateless paths and the JSON `recalc*` methods deep-clone `project.tasks`
+    /// each call — ~10k heap allocations at 5k tasks, every animation frame. The
+    /// typed-array `recalc*_typed` methods run the CPM passes into this buffer
+    /// instead: its per-task `String`s (id, name) stay resident and only the
+    /// `Copy` input fields are refreshed before the passes overwrite the computed
+    /// fields. `RefCell` because the recalc methods take `&self` (the session's
+    /// *observable* state — the project — is unchanged by a recalc) while needing
+    /// to write the scratch's computed fields.
+    scratch: RefCell<Vec<Task>>,
+    /// Session epoch for the typed-array day-ordinal encoding — the project start
+    /// date. Constant for the session (a drag moves dates, not the anchor), so it
+    /// crosses to JS once via [`SchedulerSession::epoch`].
+    epoch: NaiveDate,
+}
+
+/// Columnar typed-array drag-preview result handed to JS (#1856).
+///
+/// Each getter returns a typed array indexed by **row**; `nodeIndices[row]` is
+/// the task's stable dense node position, and the id is recovered from the
+/// one-time [`SchedulerSession::task_ids`] ordering as `ids[nodeIndices[row]]`.
+/// Date columns are day ordinals relative to [`SchedulerSession::epoch`]; float
+/// columns are in seconds (parity with the JSON result). See `typed.rs` for the
+/// full contract. Getters clone the underlying `Vec` (one contiguous memcpy into
+/// a JS typed array) — cheap next to the JSON serialize + `JSON.parse` this
+/// replaces, and each column is read once per frame.
+#[wasm_bindgen]
+pub struct DragResult {
+    inner: TypedResult,
+}
+
+#[wasm_bindgen]
+impl DragResult {
+    /// Dense node position of each row (`row → node`). `0..N` for a full recalc;
+    /// the downstream subset (the delta) for an incremental recalc.
+    #[wasm_bindgen(getter, js_name = nodeIndices)]
+    pub fn node_indices(&self) -> Vec<u32> {
+        self.inner.node_indices.clone()
+    }
+
+    /// Early-start day ordinals relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = earlyStart)]
+    pub fn early_start(&self) -> Vec<i32> {
+        self.inner.early_start.clone()
+    }
+
+    /// Early-finish day ordinals relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = earlyFinish)]
+    pub fn early_finish(&self) -> Vec<i32> {
+        self.inner.early_finish.clone()
+    }
+
+    /// Late-start day ordinals relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = lateStart)]
+    pub fn late_start(&self) -> Vec<i32> {
+        self.inner.late_start.clone()
+    }
+
+    /// Late-finish day ordinals relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = lateFinish)]
+    pub fn late_finish(&self) -> Vec<i32> {
+        self.inner.late_finish.clone()
+    }
+
+    /// Total float in seconds (divide by 86 400 for working days).
+    #[wasm_bindgen(getter, js_name = totalFloat)]
+    pub fn total_float(&self) -> Vec<f64> {
+        self.inner.total_float.clone()
+    }
+
+    /// Free float in seconds (divide by 86 400 for working days).
+    #[wasm_bindgen(getter, js_name = freeFloat)]
+    pub fn free_float(&self) -> Vec<f64> {
+        self.inner.free_float.clone()
+    }
+
+    /// 1 if the task is on the critical path, else 0 — one byte per row.
+    #[wasm_bindgen(getter, js_name = isCritical)]
+    pub fn is_critical(&self) -> Vec<u8> {
+        self.inner.is_critical.clone()
+    }
+
+    /// Project start as a day ordinal relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = projectStart)]
+    pub fn project_start(&self) -> i32 {
+        self.inner.project_start
+    }
+
+    /// Project finish as a day ordinal relative to the session epoch.
+    #[wasm_bindgen(getter, js_name = projectFinish)]
+    pub fn project_finish(&self) -> i32 {
+        self.inner.project_finish
+    }
 }
 
 #[wasm_bindgen]
@@ -120,7 +225,70 @@ impl SchedulerSession {
         }
         validate::validate_project(&project).map_err(|e| JsValue::from_str(&e))?;
         let graph = build_graph(&project).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(SchedulerSession { project, graph })
+        // Clone the task set into the resident scratch buffer ONCE (#1856); every
+        // frame reuses it, so the per-frame deep clone the JSON paths pay is gone.
+        let scratch = RefCell::new(project.tasks.clone());
+        let epoch = project.start_date;
+        Ok(SchedulerSession {
+            project,
+            graph,
+            scratch,
+            epoch,
+        })
+    }
+
+    /// The stable task-id ordering, in dense node order — crossed to JS **once**
+    /// per session. A typed-array [`DragResult`] row `r` maps to the task
+    /// `task_ids()[nodeIndices[r]]`, so ids never cross the boundary per frame
+    /// (#1856).
+    #[wasm_bindgen(js_name = taskIds)]
+    pub fn task_ids(&self) -> Vec<String> {
+        self.project.tasks.iter().map(|t| t.id.clone()).collect()
+    }
+
+    /// The session epoch as an ISO `YYYY-MM-DD` string — crossed to JS **once**.
+    /// Every date column in a [`DragResult`] is a day ordinal relative to this
+    /// epoch: `date = epoch + ordinal days`. Formatted explicitly (chrono is
+    /// built without its `format` feature) — the epoch is the project start, a
+    /// 4-digit-year date.
+    #[wasm_bindgen(getter)]
+    pub fn epoch(&self) -> String {
+        format!(
+            "{:04}-{:02}-{:02}",
+            self.epoch.year(),
+            self.epoch.month(),
+            self.epoch.day()
+        )
+    }
+
+    /// Full CPM over the cached graph → typed-array [`DragResult`] (#1856). Same
+    /// per-task values as [`recalc`](SchedulerSession::recalc), with no per-frame
+    /// task clone and no JSON serialization/parse. Prefer this on the drag path.
+    #[wasm_bindgen(js_name = recalcTyped)]
+    pub fn recalc_typed(&self) -> Result<DragResult, JsValue> {
+        let mut scratch = self.scratch.borrow_mut();
+        let inner = compute_full_typed(&self.project, &self.graph, &mut scratch, self.epoch)
+            .map_err(|e| JsValue::from_str(&e))?;
+        Ok(DragResult { inner })
+    }
+
+    /// Downstream-only CPM over the cached graph → typed-array [`DragResult`]
+    /// (#1856). Only tasks reachable from `changed_task_id` are emitted, so
+    /// `nodeIndices` is the drag delta. Same per-task values as
+    /// [`recalc_incremental`](SchedulerSession::recalc_incremental), with no
+    /// per-frame clone and no JSON.
+    #[wasm_bindgen(js_name = recalcIncrementalTyped)]
+    pub fn recalc_incremental_typed(&self, changed_task_id: &str) -> Result<DragResult, JsValue> {
+        let mut scratch = self.scratch.borrow_mut();
+        let inner = compute_downstream_typed(
+            &self.project,
+            &self.graph,
+            &mut scratch,
+            self.epoch,
+            changed_task_id,
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
+        Ok(DragResult { inner })
     }
 
     /// Override a resident task's planned start (the drag), in place — no
@@ -209,10 +377,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
 /// builds the graph fresh each call, while [`SchedulerSession`] reuses one cached
 /// across a drag session (#1533). Keeping one body means the stateful session API
 /// can never drift from the conformance oracle.
-pub(crate) fn compute_full(
-    project: &Project,
-    pg: &ProjectGraph,
-) -> Result<ScheduleResult, String> {
+pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<ScheduleResult, String> {
     // Tasks carried in a dense `Vec<Task>` indexed by node position — the passes
     // index it by `NodeIndex::index()`, never by string id (#1535).
     let mut tasks: Vec<models::Task> = project.tasks.clone();
@@ -677,13 +842,19 @@ mod tests {
             !err.contains("invalid start date"),
             "MAX must be rejected by validation, not date parsing: {err}"
         );
-        assert_eq!(project.tasks[0].planned_start, None, "rejected drag must not mutate");
+        assert_eq!(
+            project.tasks[0].planned_start, None,
+            "rejected drag must not mutate"
+        );
 
         // A merely-large date beyond MAX_PROJECT_SPAN_DAYS (the freeze variant,
         // and a parseable 4-digit year, so this provably exercises the
         // validation guard rather than date parsing).
         assert!(set_task_start_impl(&mut project, &pg, "T", "9500-01-01").is_err());
-        assert_eq!(project.tasks[0].planned_start, None, "rejected drag must not mutate");
+        assert_eq!(
+            project.tasks[0].planned_start, None,
+            "rejected drag must not mutate"
+        );
 
         // A sane drag still lands, and the session stays fully usable — the
         // rejected mutations must not have poisoned the resident project.
