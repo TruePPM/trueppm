@@ -15,7 +15,7 @@ import { formatRelative } from '@/lib/formatRelative';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { isTaskScheduled } from '@/lib/task';
-import { PendingAcceptanceChip } from './PendingAcceptanceChip';
+import { PendingAcceptanceChip, pendingAcceptanceExplainer } from './PendingAcceptanceChip';
 import { PendingSyncBadge } from './PendingSyncBadge';
 import { useIsCardPendingSync } from './offline/boardOutboxStore';
 import { ReadinessChip } from './ReadinessChip';
@@ -359,6 +359,10 @@ function BoardCardImpl({
   // PendingAcceptanceChip carries the read-state instead.
   const isPending = task.sprintPending === true;
   const showCriticalState = task.isCritical && isScheduled && !isPending;
+  // #1472: the pending chip becomes a tap-to-explain disclosure on the board so a
+  // plain Member (who has no reachable accept/reject) can understand the signal.
+  // Role-neutral, iteration-label-aware copy built in the shared helper.
+  const pendingExplainer = pendingAcceptanceExplainer(itl.lower);
 
   // ADR-0220: does this card have a status move queued offline (IndexedDB) that
   // has not yet flushed? Subscribed from the board outbox store so the badge
@@ -715,7 +719,9 @@ function BoardCardImpl({
           >
             {task.name}
           </span>
-          {isPending && <PendingAcceptanceChip compact className="shrink-0" />}
+          {isPending && (
+            <PendingAcceptanceChip compact explainer={pendingExplainer} className="shrink-0" />
+          )}
           {isPendingSync && <PendingSyncBadge compact className="shrink-0" />}
           {/* Worst-offender badge (issue 1305) — at compact density it is display-only
               (no peek): one glyph + label conveying the single highest-severity
@@ -893,7 +899,7 @@ function BoardCardImpl({
           task.assignees.length > 0 ||
           isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-            {isPending && <PendingAcceptanceChip />}
+            {isPending && <PendingAcceptanceChip explainer={pendingExplainer} />}
             {isPendingSync && <PendingSyncBadge />}
             {/* Comfortable: one interactive worst-offender badge that toggles the
                 health-chip peek (issue 1305). Detailed: keep the CP chip inline since

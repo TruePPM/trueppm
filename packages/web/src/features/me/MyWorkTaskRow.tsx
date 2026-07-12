@@ -23,7 +23,10 @@ import { formatMinutesAsHm } from '@/lib/parseHours';
 import { formatDueLabel } from './dueLabel';
 import { LogTimePopover } from './LogTimePopover';
 import { StatusPicker } from './StatusPicker';
-import { PendingAcceptanceChip } from '@/features/board/PendingAcceptanceChip';
+import {
+  PendingAcceptanceChip,
+  pendingAcceptanceExplainer,
+} from '@/features/board/PendingAcceptanceChip';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
 import { toast } from '@/components/Toast';
 
@@ -267,7 +270,12 @@ export function MyWorkTaskRow({ task }: Props) {
           {task.sprint_pending && (
             <>
               <span aria-hidden="true"> · </span>
-              <PendingAcceptanceChip />
+              {/* #1472: tap-to-explain here too — My Work is the assignee's home
+                  surface, where the "signal I can't act on" is felt most. Generic
+                  copy (default iteration noun): My Work is cross-project, so no
+                  single project's iteration label applies. Still NO accept/reject
+                  in the me tree (rule 144) — the explainer is close-only. */}
+              <PendingAcceptanceChip explainer={pendingAcceptanceExplainer()} />
             </>
           )}
         </p>
