@@ -1,0 +1,15 @@
+{
+  "id": "p-max-duration-boundary",
+  "name": "Max Duration Boundary",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Century Task", "duration": 3155760000.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

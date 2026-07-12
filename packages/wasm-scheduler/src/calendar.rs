@@ -208,6 +208,15 @@ pub fn prev_working_day(d: NaiveDate, cal: &Calendar) -> Result<NaiveDate, Strin
 ///
 /// A duration of 1 means the task occupies only the start day.
 /// A duration of 0 is treated as a milestone: returns the start day.
+///
+/// The `MAX_CALENDAR_SCAN_DAYS` budget is **per non-working gap**, not for the
+/// whole expansion: it resets on every working-day hit, mirroring the Python
+/// engine's `_finish_from_start`, which calls `_scan_for_working_day` (a fresh
+/// counter) once per working-day step. Bounding the entire walk instead would
+/// reject validator-legal long durations (e.g. `MAX_DURATION_DAYS` on a Mon-Fri
+/// calendar needs ~51k calendar steps) that Python schedules (#1855). The guard
+/// still catches its target — a calendar whose exceptions blanket the window —
+/// because such a calendar produces one gap longer than the budget.
 pub fn finish_from_start(
     start: NaiveDate,
     duration_days: i32,
@@ -229,6 +238,7 @@ pub fn finish_from_start(
         scanned += 1;
         if cal.is_working_day(current) {
             remaining -= 1;
+            scanned = 0;
         }
     }
     Ok(current)
@@ -236,7 +246,8 @@ pub fn finish_from_start(
 
 /// Return the first working day of a task given its finish and working-day duration.
 ///
-/// Inverse of `finish_from_start`.
+/// Inverse of `finish_from_start`, with the same per-gap (not whole-walk) scan
+/// budget — see that function's doc comment (#1855).
 pub fn start_from_finish(
     finish: NaiveDate,
     duration_days: i32,
@@ -258,6 +269,7 @@ pub fn start_from_finish(
         scanned += 1;
         if cal.is_working_day(current) {
             remaining -= 1;
+            scanned = 0;
         }
     }
     Ok(current)
@@ -309,6 +321,7 @@ pub fn retreat_calendar_days(
 mod tests {
     use super::*;
     use crate::models::DateRange;
+    use crate::validate::MAX_DURATION_DAYS;
 
     fn weekday_cal() -> Calendar {
         Calendar::default()
@@ -377,6 +390,65 @@ mod tests {
         let cal = weekday_cal();
         let start = NaiveDate::from_ymd_opt(2026, 3, 30).unwrap();
         assert_eq!(finish_from_start(start, 0, &cal).unwrap(), start);
+    }
+
+    #[test]
+    fn test_finish_from_start_max_duration_boundary() {
+        // #1855: the scan budget is per non-working gap, not for the whole
+        // expansion. MAX_DURATION_DAYS working days on a Mon-Fri calendar walk
+        // ~51k calendar steps — far past MAX_CALENDAR_SCAN_DAYS — but every gap
+        // is a 2-day weekend, so the walk must succeed. The Python engine
+        // schedules this exact input to 2166-04-01 (verified against
+        // _finish_from_start); a whole-walk bound rejected it.
+        let cal = weekday_cal();
+        let start = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2166, 4, 1).unwrap();
+        assert_eq!(
+            finish_from_start(start, MAX_DURATION_DAYS as i32, &cal).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_start_from_finish_max_duration_boundary() {
+        // Inverse of the boundary walk above: the backward pass must round-trip
+        // the same MAX_DURATION_DAYS expansion (#1855).
+        let cal = weekday_cal();
+        let finish = NaiveDate::from_ymd_opt(2166, 4, 1).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        assert_eq!(
+            start_from_finish(finish, MAX_DURATION_DAYS as i32, &cal).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_duration_walk_still_rejects_blanket_gap() {
+        // The per-gap reset must not weaken the guard's real target: a single
+        // non-working gap longer than MAX_CALENDAR_SCAN_DAYS (exceptions
+        // blanketing the window after a valid start) still errors instead of
+        // walking to the date ceiling (#908, preserved by #1855).
+        let gap_start = NaiveDate::from_ymd_opt(2026, 4, 2).unwrap();
+        let cal = Calendar {
+            exceptions: vec![DateRange {
+                start: gap_start,
+                end: gap_start + Duration::days(MAX_CALENDAR_SCAN_DAYS + 10),
+            }],
+            ..Calendar::default()
+        };
+        let start = NaiveDate::from_ymd_opt(2026, 4, 1).unwrap();
+        assert!(finish_from_start(start, 2, &cal).is_err());
+        // Backward direction: same blanket before a valid finish day.
+        let finish = gap_start + Duration::days(MAX_CALENDAR_SCAN_DAYS + 11);
+        let cal_back = Calendar {
+            working_days: 127, // every weekday working, so only the blanket blocks
+            exceptions: vec![DateRange {
+                start: gap_start,
+                end: gap_start + Duration::days(MAX_CALENDAR_SCAN_DAYS + 10),
+            }],
+            ..Calendar::default()
+        };
+        assert!(start_from_finish(finish, 2, &cal_back).is_err());
     }
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
