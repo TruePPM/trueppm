@@ -1,0 +1,10 @@
+{
+  "id": "pr-date-weekdate-planned-start",
+  "name": "ISO week-date task planned_start 2026-W15-2 — lenient Python fromisoformat accepted, chrono %Y-%m-%d rejects (#1861)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0, "planned_start": "2026-W15-2"}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

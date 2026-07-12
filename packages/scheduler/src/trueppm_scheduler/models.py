@@ -6,6 +6,7 @@ import bisect
 import enum
 import json
 import math
+import re
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
@@ -81,7 +82,8 @@ class DateRange:
         """Build a :class:`DateRange` from a ``to_dict`` mapping.
 
         Args:
-            data: A mapping with ISO-8601 ``start`` and ``end`` date strings.
+            data: A mapping with ``start`` and ``end`` date strings in strict
+                ISO-8601 ``YYYY-MM-DD`` form.
 
         Returns:
             The reconstructed :class:`DateRange`.
@@ -95,8 +97,8 @@ class DateRange:
 
         try:
             return cls(
-                start=date.fromisoformat(data["start"]),
-                end=date.fromisoformat(data["end"]),
+                start=_parse_date(data["start"], "start"),
+                end=_parse_date(data["end"], "end"),
             )
         except (KeyError, ValueError, TypeError) as err:
             raise InvalidScheduleInput(f"Invalid date range: {err}") from err
@@ -191,8 +193,9 @@ class Task:
 
         Args:
             data: A task mapping. ``duration`` and the PERT/float fields are
-                seconds (int/float) or timedeltas; date fields are ISO-8601
-                strings; ``delivery_mode`` is a :class:`DeliveryMode` value.
+                seconds (int/float) or timedeltas; date fields are strict
+                ISO-8601 ``YYYY-MM-DD`` strings; ``delivery_mode`` is a
+                :class:`DeliveryMode` value.
 
         Returns:
             The reconstructed :class:`Task`.
@@ -205,7 +208,7 @@ class Task:
         # Wrap the whole body so a directly-called Task.from_dict (a public
         # classmethod) raises the documented InvalidScheduleInput rather than a bare
         # TypeError/KeyError — e.g. a non-string planned_start hitting
-        # date.fromisoformat, or an unknown field reaching cls(**d) (#1209). Via
+        # _parse_date, or an unknown field reaching cls(**d) (#1209). Via
         # Project.from_dict the same coverage already applied; this closes the
         # direct-call surface. InvalidScheduleInput is re-raised unwrapped so its
         # specific message (bad delivery_mode) survives.
@@ -238,7 +241,7 @@ class Task:
                 "actual_finish",
             ):
                 if d.get(f) is not None:
-                    d[f] = date.fromisoformat(d[f])
+                    d[f] = _parse_date(d[f], f)
             for f in (
                 "optimistic_duration",
                 "most_likely_duration",
@@ -607,14 +610,14 @@ class Project:
             return cls(
                 id=data["id"],
                 name=data["name"],
-                start_date=date.fromisoformat(data["start_date"]),
+                start_date=_parse_date(data["start_date"], "start_date"),
                 tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
                 dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
                 calendar=Calendar.from_dict(data.get("calendar", {})),
                 velocity_samples=velocity_samples,
                 sprint_length_days=data.get("sprint_length_days"),
                 status_date=(
-                    date.fromisoformat(data["status_date"])
+                    _parse_date(data["status_date"], "status_date")
                     if data.get("status_date") is not None
                     else None
                 ),
@@ -696,6 +699,44 @@ def _serialize(obj: Any) -> Any:
     if isinstance(obj, enum.Enum):
         return obj.value
     return obj
+
+
+# Strict ISO-8601 *extended calendar* date: exactly YYYY-MM-DD with ASCII digits.
+# [0-9] (not \d) so Unicode digits can't sneak past into date.fromisoformat.
+_STRICT_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _parse_date(val: Any, field_name: str) -> date:
+    """Parse a date string, accepting strict ``YYYY-MM-DD`` only.
+
+    Python 3.11+ ``date.fromisoformat`` is lenient — it also accepts compact
+    (``"20260401"``), week-date (``"2026-W15-1"``), and ordinal (``"2026-092"``)
+    forms. The Rust/WASM engine's chrono ``NaiveDate`` parser accepts
+    ``%Y-%m-%d`` only, so a lenient form would schedule in Python but fail to
+    parse in Rust — a silent cross-engine divergence (#1861). The
+    deserialization surface therefore pins the single canonical format that
+    ``to_dict``/``to_json`` emit and both engines parse.
+
+    Args:
+        val: The raw value from a deserialized document.
+        field_name: The document field being parsed, named in the error.
+
+    Returns:
+        The parsed :class:`datetime.date`.
+
+    Raises:
+        ValueError: If ``val`` is not a string in strict ``YYYY-MM-DD`` form or
+            is not a real calendar date. Callers wrap this in the public
+            ``InvalidScheduleInput`` like the rest of the deserialization
+            surface.
+    """
+    if not isinstance(val, str) or not _STRICT_DATE_RE.fullmatch(val):
+        raise ValueError(
+            f"{field_name} must be an ISO-8601 date string in YYYY-MM-DD format, got {val!r}."
+        )
+    # The regex pins the shape; fromisoformat still validates the calendar
+    # (month in 1..12, day in range for the month).
+    return date.fromisoformat(val)
 
 
 def _parse_timedelta(val: Any) -> timedelta:

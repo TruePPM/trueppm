@@ -12,6 +12,7 @@ from trueppm_scheduler import (
     DateRange,
     Dependency,
     DependencyType,
+    InvalidScheduleInput,
     Project,
     Task,
 )
@@ -210,3 +211,63 @@ class TestDeserializationExceptionSurface:
 
         with pytest.raises(InvalidScheduleInput):
             DateRange.from_dict({"start": "not-a-date", "end": "2026-01-02"})
+
+
+# ISO-8601 forms Python 3.11+ ``date.fromisoformat`` accepts but the Rust/WASM
+# engine's chrono ``%Y-%m-%d`` parser rejects (#1861). All represent 2026-04-02.
+LENIENT_ISO_FORMS = ["20260402", "2026-W14-4", "2026-092", "2026W144"]
+
+
+class TestStrictDateFormat:
+    """The deserialization surface accepts strict ``YYYY-MM-DD`` only (#1861).
+
+    Python's ``date.fromisoformat`` (3.11+) is more lenient than the Rust
+    engine's chrono parser; a compact/week-date/ordinal form would schedule in
+    Python but fail to parse in Rust. Every date field is therefore pinned to
+    the canonical form ``to_json`` emits. Cross-engine parity for the same
+    inputs is asserted by the shared ``fixtures/parse_rejects/`` suite.
+    """
+
+    @pytest.mark.parametrize("lenient", LENIENT_ISO_FORMS)
+    def test_project_start_date_lenient_form_rejected(self, lenient: str) -> None:
+        with pytest.raises(InvalidScheduleInput, match=r"start_date.*YYYY-MM-DD"):
+            Project.from_dict({"id": "p", "name": "p", "start_date": lenient})
+
+    @pytest.mark.parametrize("lenient", LENIENT_ISO_FORMS)
+    def test_project_status_date_lenient_form_rejected(self, lenient: str) -> None:
+        with pytest.raises(InvalidScheduleInput, match=r"status_date.*YYYY-MM-DD"):
+            Project.from_dict(
+                {"id": "p", "name": "p", "start_date": "2026-04-01", "status_date": lenient}
+            )
+
+    @pytest.mark.parametrize("lenient", LENIENT_ISO_FORMS)
+    def test_task_planned_start_lenient_form_rejected(self, lenient: str) -> None:
+        with pytest.raises(InvalidScheduleInput, match=r"planned_start.*YYYY-MM-DD"):
+            Task.from_dict({"id": "t", "name": "t", "duration": 86400.0, "planned_start": lenient})
+
+    @pytest.mark.parametrize("lenient", LENIENT_ISO_FORMS)
+    def test_date_range_lenient_form_rejected(self, lenient: str) -> None:
+        with pytest.raises(InvalidScheduleInput, match=r"start.*YYYY-MM-DD"):
+            DateRange.from_dict({"start": lenient, "end": "2026-04-30"})
+
+    def test_from_json_lenient_form_rejected(self) -> None:
+        """The untrusted-input path rejects a compact date, naming the field."""
+        doc = '{"id": "p", "name": "p", "start_date": "20260402"}'
+        with pytest.raises(InvalidScheduleInput, match=r"start_date.*YYYY-MM-DD"):
+            Project.from_json(doc)
+
+    def test_non_string_date_rejected_with_format_message(self) -> None:
+        with pytest.raises(InvalidScheduleInput, match=r"start_date.*YYYY-MM-DD"):
+            Project.from_dict({"id": "p", "name": "p", "start_date": 20260402})
+
+    def test_shape_valid_but_impossible_date_still_rejected(self) -> None:
+        """The regex pins the shape; fromisoformat still validates the calendar."""
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_dict({"id": "p", "name": "p", "start_date": "2026-13-45"})
+
+    def test_canonical_form_still_accepted(self) -> None:
+        p = Project.from_dict(
+            {"id": "p", "name": "p", "start_date": "2026-04-02", "status_date": "2026-04-10"}
+        )
+        assert p.start_date == date(2026, 4, 2)
+        assert p.status_date == date(2026, 4, 10)

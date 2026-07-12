@@ -1,0 +1,11 @@
+{
+  "id": "pr-date-ordinal-status",
+  "name": "ISO ordinal status_date 2026-092 — lenient Python fromisoformat accepted, chrono %Y-%m-%d rejects (#1861)",
+  "start_date": "2026-04-01",
+  "status_date": "2026-092",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}

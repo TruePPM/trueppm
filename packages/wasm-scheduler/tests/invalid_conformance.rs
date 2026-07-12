@@ -13,6 +13,14 @@
 //! Rust must reject these at parse time rather than silently schedule on the
 //! wrong calendar. These are one-sided (Rust-only) rejections, so they live
 //! outside `invalid/` and Python never loads them.
+//!
+//! `fixtures/parse_rejects/` — documents that must fail *deserialization* in
+//! both engines (#1861): dates in lenient ISO-8601 forms (compact `20260401`,
+//! week-date `2026-W15-1`, ordinal `2026-092`) that chrono's `%Y-%m-%d`
+//! `NaiveDate` serde never accepted and that Python now rejects with a strict
+//! `YYYY-MM-DD` pre-check. They cannot live in `invalid/` because that suite
+//! requires every fixture to parse; these by design do not. The Python side is
+//! `test_wasm_conformance.py::test_parse_reject_fixture_rejected_at_parse`.
 
 use std::fs;
 use std::path::PathBuf;
@@ -92,6 +100,34 @@ fn rust_rejects_unhonorable_inputs() {
             schedule_impl(&project).is_err(),
             "{stem}: Rust must reject an input that sets a per-task calendar it cannot \
              honor — it would otherwise silently schedule on the wrong calendar (#1505/#1816)."
+        );
+    }
+}
+
+/// Every `fixtures/parse_rejects/*.json` must fail deserialization (#1861).
+/// These carry dates in lenient ISO-8601 forms (compact / week-date / ordinal)
+/// that Python's `date.fromisoformat` used to accept while chrono's `%Y-%m-%d`
+/// serde rejects — a silent cross-engine divergence. Both engines now reject
+/// them at parse time; iterating the directory means a new lenient-form fixture
+/// added on either side is automatically enforced in both engines.
+#[test]
+fn parse_reject_fixtures_fail_to_deserialize() {
+    let dir = fixtures_dir().join("parse_rejects");
+    let stems = json_stems(&dir);
+    assert!(
+        !stems.is_empty(),
+        "no parse_rejects fixtures found in {} — path break? (#1506)",
+        dir.display()
+    );
+
+    for stem in &stems {
+        let path = dir.join(format!("{stem}.json"));
+        let json = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("{stem}: failed to read fixture: {e}"));
+        assert!(
+            serde_json::from_str::<Project>(&json).is_err(),
+            "{stem}: expected deserialization to reject a non-canonical (non-YYYY-MM-DD) \
+             date form, got Ok (#1861)"
         );
     }
 }

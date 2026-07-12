@@ -22,6 +22,7 @@ from trueppm_scheduler.models import Project
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "wasm-scheduler" / "fixtures"
 EXPECTED_DIR = FIXTURES_DIR / "expected"
 INVALID_DIR = FIXTURES_DIR / "invalid"
+PARSE_REJECTS_DIR = FIXTURES_DIR / "parse_rejects"
 
 # Regeneration is an explicit, opt-in action — never a side effect of a normal
 # run. A missing expected snapshot HARD-FAILS (#1506); it may only be
@@ -47,13 +48,19 @@ assert INVALID_DIR.is_dir(), (
     "run against fixtures/invalid/; a missing directory means the entire suite would "
     "vanish with a green run (#1506)."
 )
+assert PARSE_REJECTS_DIR.is_dir(), (
+    f"Parse-reject fixture directory not found: {PARSE_REJECTS_DIR}. The parse-reject "
+    "parity suite (#1861) must run against fixtures/parse_rejects/; a missing directory "
+    "means the entire suite would vanish with a green run (#1506)."
+)
 
 
 def fixture_names() -> list[str]:
     """Discover all valid fixture JSON files (top-level only).
 
     ``glob("*.json")`` is deliberately non-recursive: it excludes the
-    ``expected/``, ``invalid/``, and ``rust_rejects/`` subdirectories.
+    ``expected/``, ``invalid/``, ``parse_rejects/``, and ``rust_rejects/``
+    subdirectories.
     """
     return sorted(p.stem for p in FIXTURES_DIR.glob("*.json"))
 
@@ -63,14 +70,23 @@ def invalid_fixture_names() -> list[str]:
     return sorted(p.stem for p in INVALID_DIR.glob("*.json"))
 
 
+def parse_reject_fixture_names() -> list[str]:
+    """Discover fixtures both engines must reject at *parse* time (#1861)."""
+    return sorted(p.stem for p in PARSE_REJECTS_DIR.glob("*.json"))
+
+
 # Collected once at import so the non-empty guards below run before pytest builds
 # the parametrized suites. An empty directory (dir exists but holds no fixtures)
 # would otherwise still collect zero tests and pass green (#1506).
 _VALID_FIXTURES = fixture_names()
 _INVALID_FIXTURES = invalid_fixture_names()
+_PARSE_REJECT_FIXTURES = parse_reject_fixture_names()
 assert _VALID_FIXTURES, f"No *.json fixtures found in {FIXTURES_DIR} — zero tests would collect."
 assert _INVALID_FIXTURES, (
     f"No *.json fixtures found in {INVALID_DIR} — the reject-parity suite would vanish."
+)
+assert _PARSE_REJECT_FIXTURES, (
+    f"No *.json fixtures found in {PARSE_REJECTS_DIR} — the parse-reject parity suite would vanish."
 )
 
 
@@ -196,3 +212,26 @@ def test_invalid_fixture_rejected(invalid_name: str) -> None:
     # raised by monte_carlo's own cycle check — is also accepted (#1505).
     with pytest.raises(SchedulerError):
         monte_carlo(project, runs=10, max_runs=None, max_tasks=None)
+
+
+@pytest.mark.parametrize("parse_reject_name", _PARSE_REJECT_FIXTURES, ids=_PARSE_REJECT_FIXTURES)
+def test_parse_reject_fixture_rejected_at_parse(parse_reject_name: str) -> None:
+    """Fixtures under ``parse_rejects/`` must fail *deserialization* in both engines (#1861).
+
+    These documents are valid JSON but carry a date in a lenient ISO-8601 form
+    (compact ``20260401``, week-date ``2026-W15-1``, ordinal ``2026-092``) that
+    Python 3.11+ ``date.fromisoformat`` would happily accept while the Rust
+    engine's chrono ``NaiveDate`` serde (``%Y-%m-%d`` only) fails at parse time.
+    The contract is strict ``YYYY-MM-DD`` — the canonical ``to_json`` output —
+    so Python must reject these in ``from_dict`` (before any scheduling), in
+    parity with Rust's serde parse failure asserted in
+    ``packages/wasm-scheduler/tests/invalid_conformance.rs``.
+
+    They cannot live in ``fixtures/invalid/`` because that suite's Rust side
+    requires every fixture to *parse* (rejection happens at schedule time);
+    these by design do not parse in Rust.
+    """
+    with open(PARSE_REJECTS_DIR / f"{parse_reject_name}.json") as f:
+        data = json.load(f)
+    with pytest.raises(SchedulerError):
+        Project.from_dict(data)
