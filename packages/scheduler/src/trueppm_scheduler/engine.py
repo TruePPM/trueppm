@@ -2405,13 +2405,13 @@ def monte_carlo(
         for u, v, data in g.edges(data=True)
     }
 
-    def _lag_term(delta_arr: np.ndarray | None, anchor: np.ndarray) -> np.ndarray:
+    def _lag_term(delta_arr: np.ndarray, anchor: np.ndarray) -> np.ndarray:
         """Per-run lag delta gathered at each run's (rounded) anchor offset.
 
-        Returns an all-zero vector for lag-free edges so the caller's offset add
-        is unchanged."""
-        if delta_arr is None:
-            return np.zeros_like(anchor)
+        Lag-free edges (``delta_by_key[key] is None``) never reach here: the
+        constraint loop uses the anchor directly, skipping a runs-sized zeros
+        allocation plus a no-op add per edge (#1860 — adding zeros is exact in
+        float64, so results are unchanged)."""
         idx = np.clip(np.rint(anchor).astype(np.int64), 0, len(delta_arr) - 1)
         return np.asarray(delta_arr[idx], dtype=np.float64)
 
@@ -2525,19 +2525,23 @@ def monte_carlo(
             delta_arr = edge_lag_delta[(pred_id, tid)]
             p = task_idx[pred_id]
 
-            if dep.dep_type == DependencyType.FS:
+            # Anchor: predecessor finish for FS/FF, predecessor start for SS/SF.
+            if dep.dep_type in (DependencyType.FS, DependencyType.FF):
                 anchor = ef_mat[:, p]
-                es_constraints = np.maximum(es_constraints, anchor + _lag_term(delta_arr, anchor))
-            elif dep.dep_type == DependencyType.SS:
+            else:
                 anchor = es_mat[:, p]
-                es_constraints = np.maximum(es_constraints, anchor + _lag_term(delta_arr, anchor))
-            elif dep.dep_type == DependencyType.FF:
-                anchor = ef_mat[:, p]
-                ef_constraints = np.maximum(ef_constraints, anchor + _lag_term(delta_arr, anchor))
-                has_ef_constraint = True
-            elif dep.dep_type == DependencyType.SF:
-                anchor = es_mat[:, p]
-                ef_constraints = np.maximum(ef_constraints, anchor + _lag_term(delta_arr, anchor))
+            # Lag-free edges (the dominant kind) use the anchor directly instead
+            # of allocating a runs-sized zeros vector and adding it — adding
+            # zeros is exact in float64, so results are bit-identical (#1860).
+            # The in-place maximum removes the remaining temporary; it is safe
+            # because es/ef_constraints are freshly allocated owned arrays per
+            # task (never views aliasing the anchor's matrix) and both start
+            # fully initialized (SNET/status floors and zeros respectively).
+            constraint = anchor if delta_arr is None else anchor + _lag_term(delta_arr, anchor)
+            if dep.dep_type in (DependencyType.FS, DependencyType.SS):
+                np.maximum(es_constraints, constraint, out=es_constraints)
+            else:  # FF / SF
+                np.maximum(ef_constraints, constraint, out=ef_constraints)
                 has_ef_constraint = True
 
         # Effective duration floors at one working day: a task occupies at least
