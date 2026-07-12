@@ -164,6 +164,52 @@ test.describe('Sprint scope-injection approve-gate (#881 / ADR-0102)', () => {
     await expect.poll(() => acceptHit).toBe(true);
   });
 
+  test('non-facet Member taps the pending chip → self-explanatory disclosure, no accept/reject (#1472)', async ({
+    page,
+  }) => {
+    await setupRoutes(page);
+    // Re-cast the viewer as a plain Member (100): the banner Review affordance
+    // is gated off for her (useCanManageScope), so the pending chip is her only
+    // reachable touchpoint — exactly the "signal I can't act on" this fixes.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 'mem-1', role: 100 }]),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+
+    // The board opens on the "My tasks" filter; the injected task is unassigned,
+    // so turn the filter off to reveal it.
+    const myTasks = page.getByRole('button', { name: 'My tasks' });
+    await expect(myTasks).toHaveAttribute('aria-pressed', 'true');
+    await myTasks.click();
+
+    // The card renders and the Review affordance is gated off for a Member.
+    await expect(page.getByText('Urgent hotfix').first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /Review \(/ })).toHaveCount(0);
+
+    // The pending chip is now an interactive disclosure trigger.
+    const chip = page.getByRole('button', { name: /Pending acceptance\. What does this mean\?/ });
+    await expect(chip.first()).toBeVisible();
+    await expect(chip.first()).toHaveAttribute('aria-expanded', 'false');
+
+    // Tapping it opens a plain-language explanation — not a dead control.
+    await chip.first().click();
+    const note = page.getByRole('note', { name: /Pending acceptance — explanation/ });
+    await expect(note).toBeVisible();
+    await expect(note).toContainText(/won't count toward the committed plan until someone on the team/i);
+    // No accept/reject capability is granted to the Member — only "Got it".
+    await expect(note.getByRole('button')).toHaveText('Got it');
+
+    // "Got it" closes it and returns focus to the chip.
+    await note.getByRole('button', { name: 'Got it' }).click();
+    await expect(page.getByRole('note')).toHaveCount(0);
+    await expect(chip.first()).toBeFocused();
+  });
+
   test('empty state: panel with no pending items shows the all-clear message', async ({ page }) => {
     await setupRoutes(page);
     // Re-route the sprint + tasks so nothing is pending.

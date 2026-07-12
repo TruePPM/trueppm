@@ -104,6 +104,15 @@ endpoint and never mutates sprint state — it is a visibility surface, not an
 approval gate. The same audit is reachable from the milestone side via the
 [scope-changed chip](/features/sprint-milestone-rollup/#scope-change-audit-chip).
 
+An injected task also carries a neutral **Pending acceptance** chip on its board
+card (and in the contributor's *My Work* list) while it awaits a decision. Any
+team member can tap the chip for a plain-language explanation — that the task was
+added after the sprint started and will not count toward the committed plan until
+someone on the team accepts it. The explanation is read-only: accepting or
+declining stays with the Scrum Master, Product Owner, or an admin, so a
+contributor who sees the chip understands the signal without being handed a
+control they cannot act on.
+
 *Screenshot TODO: Board sprint panel header showing the `⚠ 3 tasks added
 mid-sprint` badge, and the open scope-change audit drawer.*
 

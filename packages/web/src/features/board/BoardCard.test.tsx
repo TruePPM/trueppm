@@ -938,7 +938,11 @@ describe('BoardCard', () => {
 
     it('renders the pending chip and suppresses the CP badge while pending', () => {
       renderCard({ task: pendingTask, scopeActions });
-      expect(screen.getByLabelText('Pending acceptance')).toBeInTheDocument();
+      // #1472: the board chip is now a tap-to-explain disclosure trigger — its
+      // accessible name gained the "What does this mean?" affordance hint.
+      expect(
+        screen.getByRole('button', { name: /Pending acceptance\. What does this mean\?/ }),
+      ).toBeInTheDocument();
       // CP is suppressed for pending injections (not yet committed).
       expect(screen.queryByText('CP')).not.toBeInTheDocument();
     });
