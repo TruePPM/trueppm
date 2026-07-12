@@ -1874,14 +1874,34 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
         return Response(derivation.to_dict())
 
     def _monte_carlo_derivation(self, pk: str, quantity: str) -> Response:
-        """Derive a Monte Carlo percentile from the latest persisted run (#987).
+        """Derive a Monte Carlo percentile from the latest run (#987).
 
         The percentile's "why" is the deterministic ``cpm_finish`` it is measured
         against, the signed ``delta_vs_cpm`` days of risk premium, and the ADR-0140
         sensitivity drivers (the tasks whose duration most moves the finish). All
-        three are already computed and persisted on the run — this surfaces them,
-        it does not recompute the forecast.
+        three are already computed on the run — this surfaces them, it does not
+        recompute the forecast.
+
+        Reads the shared ``mc_latest`` cache first, falling back to the most recent
+        persisted ``MonteCarloRun`` — the same order as ``MonteCarloLatestView``.
+        The cache-first read matters since #1502: a Member/Viewer-triggered run
+        refreshes the cache but persists no attributed row, and the derivation is
+        part of the open read surface, so it must see cache-only forecasts.
         """
+        cached = cache.get(f"mc_latest:{pk}")
+        if cached is not None:
+            return Response(
+                {
+                    "quantity": quantity,
+                    "value": cached.get(quantity),
+                    "pass": "monte_carlo",
+                    "cpm_finish": cached.get("cpm_finish"),
+                    "delta_vs_cpm_days": (cached.get("delta_vs_cpm") or {}).get(quantity),
+                    "drivers": cached.get("sensitivity", []),
+                    "runs": cached.get("runs"),
+                    "last_run_at": cached.get("last_run_at"),
+                }
+            )
         latest = MonteCarloRun.objects.filter(project_id=pk).order_by("-taken_at").first()
         if latest is None:
             return Response(
