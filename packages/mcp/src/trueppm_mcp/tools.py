@@ -151,6 +151,172 @@ def _list_result(
 
 
 # ---------------------------------------------------------------------------
+# Inline provenance — the compact "why" behind a primary answer (ADR-0368, #1848)
+# ---------------------------------------------------------------------------
+#
+# The primary answer tools attach a compact ``why`` block so an answer is
+# *explained by default* instead of the reason being a round-trip away via
+# ``get_schedule_derivation`` (ADR-0218). Two invariants make this safe and cheap:
+#
+# * **No recompute, no extra request.** Every ``why`` is distilled purely from
+#   fields the tool has already fetched in its own response — the engine's own
+#   server-computed facts (risk premium, sensitivity, critical-path membership,
+#   float). Nothing here re-runs the CPM/Monte-Carlo engine; the full contribution
+#   chain (which *does* cost a schedule pass) stays behind ``get_schedule_derivation``.
+# * **Scope-safe by construction.** The source payload is the token's own
+#   already-permission-filtered API response (the API applies sprint-internal and
+#   velocity-signal suppression upstream at ``McpReadableViewMixin``). A field the
+#   token cannot see is simply absent from the payload, so it can never leak into a
+#   ``why`` — this layer re-presents, it never re-fetches or re-derives.
+
+#: The deep-dive derivation tool every inline ``why`` points to via ``see_also``.
+_DERIVATION_TOOL = "get_schedule_derivation"
+
+
+def _mc_forecast_why(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Compact "why" for a Monte Carlo forecast — the P80 risk premium + top driver.
+
+    Distilled from the ``/monte-carlo/latest/`` response the tool already holds
+    (``cpm_finish``, ``delta_vs_cpm``, ``sensitivity``): cites how far the P80 sits
+    past the deterministic CPM finish and the single task whose duration most drives
+    that spread (ADR-0140). Returns ``{}`` when the run carries none of those inputs
+    (a legacy run, or a below-audience reader), so nothing is fabricated.
+    """
+    cpm_finish = payload.get("cpm_finish")
+    p80 = payload.get("p80")
+    delta = payload.get("delta_vs_cpm")
+    premium = delta.get("p80") if isinstance(delta, Mapping) else None
+    sensitivity = payload.get("sensitivity")
+    top = sensitivity[0] if isinstance(sensitivity, list) and sensitivity else None
+
+    segments: list[str] = []
+    if p80 and cpm_finish and isinstance(premium, int):
+        segments.append(
+            f"the P80 finish {p80} is {premium} working day(s) past the deterministic "
+            f"CPM finish {cpm_finish}"
+        )
+    elif p80 and cpm_finish:
+        segments.append(
+            f"the P80 finish is {p80}, versus a deterministic CPM finish of {cpm_finish}"
+        )
+
+    why: dict[str, Any] = {}
+    if isinstance(top, Mapping) and top.get("task_id"):
+        why["top_driver"] = {"task_id": top["task_id"], "index": top.get("index")}
+        segments.append(f"the largest single driver of that spread is task {top['task_id']}")
+
+    if not segments and not why:
+        return {}
+    if segments:
+        why["explanation"] = "This forecast: " + "; ".join(segments) + "."
+    why["see_also"] = (
+        f"{_DERIVATION_TOOL}(project_id, quantity='p50'|'p80'|'p95') for the full "
+        "risk-premium and per-driver derivation"
+    )
+    return why
+
+
+def _whatif_why(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Compact "why" for a what-if result — the P80 shift and whether the path changed.
+
+    Distilled from ``delta_vs_current`` and ``critical_path_changed`` already in the
+    what-if response; returns ``{}`` when neither is present so an empty perturbation
+    payload is left unexplained rather than annotated with a guess.
+    """
+    delta = payload.get("delta_vs_current")
+    p80 = delta.get("p80") if isinstance(delta, Mapping) else None
+    changed = payload.get("critical_path_changed")
+
+    segments: list[str] = []
+    if isinstance(p80, int):
+        if p80 == 0:
+            segments.append("the P80 finish is unchanged")
+        else:
+            segments.append(
+                f"the P80 finish moves {abs(p80)} working day(s) "
+                f"{'later' if p80 > 0 else 'earlier'}"
+            )
+    if changed is True:
+        segments.append("the critical path changes — a different task chain now drives the finish")
+    elif changed is False:
+        segments.append("the critical path is unchanged")
+
+    if not segments:
+        return {}
+    return {
+        "explanation": "This perturbation: " + "; ".join(segments) + ".",
+        "see_also": (
+            f"{_DERIVATION_TOOL}(project_id, quantity='p80') for the driver breakdown "
+            "behind the forecast"
+        ),
+    }
+
+
+def _schedule_summary_why(payload: Mapping[str, Any], critical_task_count: int) -> dict[str, Any]:
+    """Compact "why" for the schedule summary — the CPM finish and its critical drivers.
+
+    Distilled from the ``/forecast/`` payload (``cpm_finish``) and the critical-task
+    count the tool already computes. Points to ``get_schedule_derivation`` for both
+    the per-date binding predecessor and the Monte-Carlo risk premium.
+    """
+    cpm_finish = payload.get("cpm_finish")
+    segments: list[str] = []
+    if cpm_finish:
+        segments.append(f"the deterministic CPM finish is {cpm_finish}")
+    if isinstance(critical_task_count, int):
+        segments.append(
+            f"driven by {critical_task_count} critical-path task(s) — zero float, so any "
+            "slip moves the finish"
+        )
+    if not segments:
+        return {}
+    return {
+        "explanation": "This forecast: " + "; ".join(segments) + ".",
+        "see_also": (
+            f"{_DERIVATION_TOOL}(project_id, task_id, quantity) for the binding predecessor "
+            "of any computed date, or quantity='p50'|'p80'|'p95' for the Monte-Carlo premium"
+        ),
+    }
+
+
+def _task_why(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Compact "why" for a task — its critical-path membership and float headroom.
+
+    Distilled from the persisted CPM fields already on the task detail response
+    (``is_critical`` / ``total_float``). The binding predecessor is deliberately
+    *not* computed here — that costs a full engine schedule pass and is undefined for
+    an unscheduled backlog task — so the ``why`` points to ``get_schedule_derivation``
+    for it. Returns ``{}`` for an unscheduled task (no CPM output to explain).
+    """
+    is_critical = payload.get("is_critical")
+    total_float = payload.get("total_float")
+
+    if is_critical is True:
+        explanation = (
+            "This task is on the critical path (zero total float) — any slip moves the "
+            "project finish."
+        )
+    elif is_critical is False and isinstance(total_float, int):
+        explanation = (
+            f"This task has {total_float} working day(s) of total float before a slip "
+            "affects the project finish."
+        )
+    elif is_critical is False:
+        explanation = "This task is not on the critical path."
+    else:
+        # is_critical absent/None → unscheduled (or suppressed): nothing computed to explain.
+        return {}
+    return {
+        "explanation": explanation,
+        "see_also": (
+            f"{_DERIVATION_TOOL}(project_id, task_id, "
+            "quantity='early_start'|'early_finish'|'total_float'|...) for the binding "
+            "predecessor and per-constraint contributions"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Tool implementations (testable; each takes the client explicitly)
 # ---------------------------------------------------------------------------
 
@@ -225,9 +391,20 @@ async def _list_tasks(
 
 
 async def _get_task(client: TruePPMClient, task_id: str) -> dict[str, Any]:
-    """A single task with all its fields (dates, assignee, criteria, sprint)."""
-    payload = await client.get(f"tasks/{task_id}/")
-    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+    """A single task with all its fields (dates, assignee, criteria, sprint).
+
+    Carries a compact ``why`` (ADR-0368) — the task's critical-path membership and
+    float headroom, distilled from the persisted CPM fields already on the response —
+    so an agent sees *why* the dates matter, not just the dates. Omitted for an
+    unscheduled task (no CPM output).
+    """
+    data = await client.get(f"tasks/{task_id}/")
+    data = data if isinstance(data, Mapping) else {}
+    result = _compact_mapping(data)
+    why = _task_why(data)
+    if why:
+        result["why"] = why
+    return result
 
 
 async def _get_board_state(client: TruePPMClient, project_id: str) -> dict[str, Any]:
@@ -250,11 +427,19 @@ async def _get_board_state(client: TruePPMClient, project_id: str) -> dict[str, 
 
 
 async def _get_schedule_summary(client: TruePPMClient, project_id: str) -> dict[str, Any]:
-    """CPM/Monte-Carlo forecast plus the count of critical-path tasks."""
+    """CPM/Monte-Carlo forecast plus the count of critical-path tasks.
+
+    Carries a compact ``why`` (ADR-0368) citing the CPM finish and its critical-path
+    driver count, with a pointer to ``get_schedule_derivation`` for the full chain.
+    """
     forecast = await client.get(f"projects/{project_id}/forecast/")
     critical = await client.get("tasks/", params={"project": project_id, "is_critical": "true"})
-    result = _compact_mapping(forecast if isinstance(forecast, Mapping) else {})
+    data = forecast if isinstance(forecast, Mapping) else {}
+    result = _compact_mapping(data)
     result["critical_task_count"] = _count(critical)
+    why = _schedule_summary_why(data, result["critical_task_count"])
+    if why:
+        result["why"] = why
     return result
 
 
@@ -265,9 +450,19 @@ async def _list_risks(client: TruePPMClient, project_id: str) -> dict[str, Any]:
 
 
 async def _get_monte_carlo_forecast(client: TruePPMClient, project_id: str) -> dict[str, Any]:
-    """The latest persisted Monte Carlo run (P50/P80/P95, cpm_finish, delta)."""
-    payload = await client.get(f"projects/{project_id}/monte-carlo/latest/")
-    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+    """The latest persisted Monte Carlo run (P50/P80/P95, cpm_finish, delta).
+
+    Carries a compact ``why`` (ADR-0368): the P80 risk premium over the deterministic
+    CPM finish and the single largest duration-sensitivity driver (ADR-0140),
+    distilled from the run already in the response.
+    """
+    data = await client.get(f"projects/{project_id}/monte-carlo/latest/")
+    data = data if isinstance(data, Mapping) else {}
+    result = _compact_mapping(data)
+    why = _mc_forecast_why(data)
+    if why:
+        result["why"] = why
+    return result
 
 
 async def _whatif(
@@ -298,7 +493,12 @@ async def _whatif(
     if n_simulations is not None:
         params["n_simulations"] = n_simulations
     payload = await client.get(f"projects/{project_id}/monte-carlo/whatif/", params=params)
-    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+    data = payload if isinstance(payload, Mapping) else {}
+    result = _compact_mapping(data)
+    why = _whatif_why(data)
+    if why:
+        result["why"] = why
+    return result
 
 
 async def _get_schedule_derivation(
@@ -446,6 +646,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     async def get_task(task_id: str) -> dict[str, Any]:
         """Full detail for one task (dates, assignee, acceptance criteria, sprint).
 
+        Carries a compact ``why`` explaining the schedule stakes — whether the task
+        is on the critical path and how much total float it has — so a computed date
+        arrives explained, not bare. For the binding predecessor and per-constraint
+        contribution chain, call ``get_schedule_derivation``.
+
         Args:
             task_id: The task's UUID.
         """
@@ -463,6 +668,10 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
     @server.tool()
     async def get_schedule_summary(project_id: str) -> dict[str, Any]:
         """CPM finish, Monte Carlo P50/P80/P95, SPI, and critical-task count.
+
+        Includes a compact ``why`` — the CPM finish and how many critical-path tasks
+        drive it — so the summary is explained by default. Call
+        ``get_schedule_derivation`` for the binding predecessor of any single value.
 
         Args:
             project_id: The project's UUID.
@@ -489,6 +698,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         simulation. Use ``whatif`` to ask "what breaks if this task slips?" —
         it recomputes in memory without persisting anything.
 
+        Includes a compact ``why`` — the P80 risk premium over the deterministic CPM
+        finish and the single largest duration-sensitivity driver — so the percentile
+        is explained by default. Call ``get_schedule_derivation`` (quantity=p50/p80/p95)
+        for the full per-driver breakdown.
+
         Args:
             project_id: The project's UUID.
         """
@@ -514,6 +728,10 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
 
         Read-only and side-effect-free (modeled as a GET): it writes no rows,
         caches nothing, and enqueues no recompute.
+
+        Includes a compact ``why`` — how far the P80 finish shifts and whether the
+        critical path changed — so the delta is explained by default. Call
+        ``get_schedule_derivation`` for the driver breakdown behind the forecast.
 
         Args:
             project_id: The project's UUID.

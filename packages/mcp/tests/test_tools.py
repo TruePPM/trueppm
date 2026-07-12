@@ -520,6 +520,168 @@ async def test_get_schedule_derivation_returns_why(settings: Settings) -> None:
     assert result["pass"] == "forward"
 
 
+# ---------------------------------------------------------------------------
+# Inline provenance — the compact "why" on primary answers (ADR-0368, #1848)
+# ---------------------------------------------------------------------------
+
+
+async def test_monte_carlo_forecast_attaches_compact_why(settings: Settings) -> None:
+    """The forecast carries a ``why`` citing the P80 risk premium + top driver.
+
+    Distilled purely from the run already in the response (cpm_finish + delta_vs_cpm
+    + sensitivity) — no extra request, no recompute.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "p95": "2026-10-01",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p50": 8, "p80": 18, "p95": 30},
+                "sensitivity": [
+                    {"task_id": "t-hot", "index": 0.82},
+                    {"task_id": "t-cool", "index": 0.10},
+                ],
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    why = result["why"]
+    assert why["top_driver"] == {"task_id": "t-hot", "index": 0.82}
+    assert "18 working day(s)" in why["explanation"]
+    assert "2026-08-20" in why["explanation"]
+    assert why["see_also"].startswith("get_schedule_derivation")
+
+
+async def test_monte_carlo_forecast_omits_why_without_derivation_inputs(settings: Settings) -> None:
+    """A legacy/bare run (no cpm_finish, delta, or sensitivity) gets no ``why``.
+
+    Nothing is fabricated: with no derivation inputs in the response there is nothing
+    honest to explain, so the key is simply absent.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json({"p50": "2026-09-01", "p80": "2026-09-15"})
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    assert "why" not in result
+
+
+async def test_monte_carlo_why_omits_top_driver_when_sensitivity_suppressed(
+    settings: Settings,
+) -> None:
+    """A below-audience reader with no ``sensitivity`` gets a ``why`` with no driver.
+
+    Scope-safety by construction: the ``why`` is distilled only from the token's own
+    already-filtered response, so an absent field never appears in the explanation.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "sensitivity": [],
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    assert "top_driver" not in result["why"]
+    assert "t-" not in result["why"]["explanation"]
+
+
+async def test_whatif_attaches_compact_why(settings: Settings) -> None:
+    """``whatif`` carries a ``why`` with the P80 shift and critical-path change."""
+    routes: Routes = {
+        "projects/p-1/monte-carlo/whatif/": _json(
+            {
+                "task_id": "t-9",
+                "current": {"p80": "2026-09-15"},
+                "whatif": {"p80": "2026-09-22"},
+                "critical_path_changed": True,
+                "delta_vs_current": {"p50": 7, "p80": 7, "p95": 7, "cpm_finish": 7},
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _whatif(client, "p-1", "t-9", duration_delta=5)
+    why = result["why"]
+    assert "7 working day(s) later" in why["explanation"]
+    assert "critical path changes" in why["explanation"]
+    assert why["see_also"].startswith("get_schedule_derivation")
+
+
+async def test_schedule_summary_attaches_compact_why(settings: Settings) -> None:
+    """The summary carries a ``why`` citing the CPM finish and critical-driver count."""
+
+    def tasks_handler(request: httpx.Request) -> httpx.Response:
+        return _json(_page([{"id": "t-1"}, {"id": "t-2"}, {"id": "t-3"}], count=3))
+
+    routes: Routes = {
+        "projects/p-1/forecast/": _json({"cpm_finish": "2026-09-01", "spi": 0.92}),
+        "tasks/": tasks_handler,
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_schedule_summary(client, "p-1")
+    why = result["why"]
+    assert "2026-09-01" in why["explanation"]
+    assert "3 critical-path task(s)" in why["explanation"]
+    assert why["see_also"].startswith("get_schedule_derivation")
+
+
+async def test_get_task_attaches_why_for_critical_task(settings: Settings) -> None:
+    """A critical task's ``why`` names the zero-float critical-path stake."""
+    routes: Routes = {
+        "tasks/t-1/": _json(
+            {"id": "t-1", "name": "Design", "project": "p-1", "is_critical": True, "total_float": 0}
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_task(client, "t-1")
+    assert "critical path" in result["why"]["explanation"]
+    assert result["why"]["see_also"].startswith("get_schedule_derivation")
+
+
+async def test_get_task_why_cites_float_for_noncritical_task(settings: Settings) -> None:
+    """A non-critical task's ``why`` cites its total-float headroom."""
+    routes: Routes = {
+        "tasks/t-2/": _json(
+            {"id": "t-2", "name": "Docs", "project": "p-1", "is_critical": False, "total_float": 5}
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_task(client, "t-2")
+    assert "5 working day(s) of total float" in result["why"]["explanation"]
+
+
+async def test_get_task_why_omitted_for_unscheduled_task(settings: Settings) -> None:
+    """An unscheduled task (``is_critical`` absent) gets no ``why`` — nothing computed."""
+    routes: Routes = {"tasks/t-3/": _json({"id": "t-3", "name": "Backlog item"})}
+    async with _client(settings, routes) as client:
+        result = await _get_task(client, "t-3")
+    assert "why" not in result
+
+
+async def test_get_task_why_never_surfaces_a_suppressed_field(settings: Settings) -> None:
+    """A token whose response omits ``total_float`` gets a ``why`` that omits it too.
+
+    Scope-safety by construction: the ``why`` distills only from the token's own
+    permission-filtered response, so a field the API suppressed can never leak inline.
+    Here ``total_float`` is absent (suppressed); the explanation must carry no float
+    figure, only the non-revealing critical-path membership.
+    """
+    routes: Routes = {
+        "tasks/t-4/": _json({"id": "t-4", "name": "Scoped", "project": "p-1", "is_critical": False})
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_task(client, "t-4")
+    assert result["why"]["explanation"] == "This task is not on the critical path."
+    assert "float" not in result["why"]["explanation"]
+
+
 async def test_list_sprints_compacts_rows(settings: Settings) -> None:
     routes: Routes = {
         "projects/p-1/sprints/": _json(

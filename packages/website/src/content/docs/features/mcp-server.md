@@ -144,7 +144,7 @@ rather than reason over an incomplete list.
 | Tool | Arguments | Returns |
 |------|-----------|---------|
 | `list_tasks` | `project_id`, and optional `status`, `assignee`, `sprint`, `is_critical`, `type`, `updated_after` (alias `since`) | A project's tasks, filtered and compacted. |
-| `get_task` | `task_id` | Full detail for one task (dates, assignee, acceptance criteria, sprint). |
+| `get_task` | `task_id` | Full detail for one task (dates, assignee, acceptance criteria, sprint), plus a compact `why` — whether the task is on the critical path and how much total float it has. |
 | `get_board_state` | `project_id` | The board's columns and their task cards for one project. |
 | `list_my_work` | — | Your assigned tasks across every project you belong to. |
 
@@ -152,12 +152,21 @@ rather than reason over an incomplete list.
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count. |
-| `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. |
+| `get_schedule_summary` | `project_id` | CPM finish, Monte Carlo P50/P80/P95, SPI, and the critical-task count, plus a compact `why` citing the CPM finish and how many critical-path tasks drive it. |
+| `get_monte_carlo_forecast` | `project_id` | The latest **persisted** Monte Carlo run (P50/P80/P95, `cpm_finish`, delta). Read-only — never triggers a new simulation. Carries a compact `why` — the P80 risk premium over the CPM finish and the single largest duration-sensitivity driver. |
 | `get_release_forecast` | `project_id` | Backlog delivery forecast from the team's velocity Monte Carlo: P50/P80 **sprint counts** and calendar dates to clear the committed backlog (plus P95 date). Always a range, never a single date; returns a `warming_up` shape when velocity history is thin. |
-| `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse). |
-| `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). Cite the reason, not just the number. |
+| `whatif` | `project_id`, `task_id`, one of `duration_delta` / `new_duration`, optional `n_simulations` | **What breaks if this task's duration changes.** Perturbs one task and recomputes CPM + Monte Carlo **in memory, persisting nothing**. Returns `current` vs. `whatif` P50/P80/P95, the deterministic CPM finish for each, `critical_path_changed`, and `delta_vs_current` (signed calendar-day shifts, positive = later/worse), plus a compact `why`. |
+| `get_schedule_derivation` | `project_id`, `task_id`, `quantity` | The server-computed *why* behind a value **in full**: the driving predecessor/successor, the binding constraint, lag and calendar contributions, and which pass set it. `quantity` is a CPM value (`early_start`, `early_finish`, `late_start`, `late_finish`, `total_float`, `free_float`) or a Monte Carlo percentile (`p50`, `p80`, `p95`). The primary answer tools above carry a one-line `why`; call this for the complete contribution chain. |
 | `list_risks` | `project_id` | The project's risk register (impact, probability, status). |
+
+:::tip[Explained by default]
+The primary answer tools — `get_schedule_summary`, `get_monte_carlo_forecast`,
+`whatif`, and `get_task` — each attach a compact `why`: a one-line reason for the
+number (the binding critical-path stake, the P80 risk premium and its top driver,
+the effect of a perturbation) plus a pointer to `get_schedule_derivation` for the
+full contribution chain. So an answer arrives explained, not bare — and the `why`
+only ever reflects data your token can already read.
+:::
 
 ### Sprints
 
