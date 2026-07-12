@@ -285,8 +285,11 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     """Run a Monte Carlo probabilistic schedule simulation synchronously.
 
     Monte Carlo is fast (< 100 ms vectorised) so this runs in the request/
-    response cycle rather than via Celery. No state is written; results are
-    returned directly.
+    response cycle rather than via Celery; the result is returned directly. The
+    per-project ``mc_latest`` read cache is refreshed for every caller, but a
+    persisted, author-attributed drift-history row (MonteCarloRun) is written
+    only for Scheduler+ — the forecast read is Member-level, its record is not
+    (#1502). Requests are rate-limited per user via the ``monte_carlo`` scope.
 
     Synchronous-by-design decision (#1203): keeping this inline is only safe
     because *every* multiplicative cost factor the run depends on is now bounded
@@ -507,28 +510,43 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
 
-    # Persist this run for the forecast-drift history (ADR-0175, #961). Best-effort:
-    # a write failure inside the service is logged and swallowed so the simulation
-    # result is still returned; the response carries the run id when persistence
-    # succeeded.
-    # Persist the same distribution slice the cache holds, but bounded to
-    # MC_DISTRIBUTION_MAX_BYTES via down-sampling (#1231) — the cache copy above is
-    # full-resolution and untouched. Stored so the histogram + tornado survive
-    # cache expiry and a past run stays re-viewable.
-    distribution = _distribution_for_persist(result_dict)
-    run = record_monte_carlo_run(
-        str(project.pk),
-        p50=mc_result.p50,
-        p80=mc_result.p80,
-        p95=mc_result.p95,
-        n_simulations=n_simulations,
-        cpm_finish=cpm_finish,
-        task_count=len(db_tasks),
-        user=request.user,
-        distribution=distribution,
-    )
-    if run is not None:
-        result_dict["run_id"] = str(run.id)
+    # Persist a forecast-drift history row (ADR-0175, #961) only for callers with
+    # schedule authority (Scheduler+). The forecast *read* is intentionally open to
+    # any project member — a Viewer may pull the band — but the persisted run is a
+    # different act: it attributes drift to its author (`user=request.user`) and
+    # grows the retained-run set. Gating the read at Member and the write at
+    # Scheduler stops a Viewer/Member from spamming run_monte_carlo to inflate
+    # history and pollute drift attribution over a schedule they cannot own (#1502).
+    # The mc_latest cache above is a per-project read cache, not per-user history,
+    # so it stays refreshed for every caller — only the attributed row is gated.
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import _membership_role
+
+    # Pass project.pk (canonical UUID), not the raw `pk` URL string, so this reuses
+    # the per-request role cache the earlier object-permission check already warmed
+    # under the same key — no second membership query.
+    role = _membership_role(request, project.pk)
+    if role is not None and role >= Role.SCHEDULER:
+        # Best-effort: a write failure inside the service is logged and swallowed so
+        # the simulation result is still returned; the response carries the run id
+        # only when persistence succeeded. Persist the same distribution slice the
+        # cache holds, but bounded to MC_DISTRIBUTION_MAX_BYTES via down-sampling
+        # (#1231) — the cache copy above is full-resolution and untouched. Stored so
+        # the histogram + tornado survive cache expiry and a past run stays viewable.
+        distribution = _distribution_for_persist(result_dict)
+        run = record_monte_carlo_run(
+            str(project.pk),
+            p50=mc_result.p50,
+            p80=mc_result.p80,
+            p95=mc_result.p95,
+            n_simulations=n_simulations,
+            cpm_finish=cpm_finish,
+            task_count=len(db_tasks),
+            user=request.user,
+            distribution=distribution,
+        )
+        if run is not None:
+            result_dict["run_id"] = str(run.id)
     return Response(result_dict)
 
 

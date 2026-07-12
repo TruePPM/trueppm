@@ -141,6 +141,48 @@ class TestPersistOnRun:
         admin_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
         assert MonteCarloRun.objects.filter(project=project).count() == 2
 
+    def test_scheduler_run_persists_a_row(
+        self,
+        scheduler_client: APIClient,
+        scheduler: object,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        # Scheduler is the write floor (#1502): a Scheduler holds schedule
+        # authority, so their run is attributed and retained — the persistence
+        # gate is role >= SCHEDULER, not a hardcoded Admin/Owner check.
+        res = scheduler_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        assert res.status_code == 200
+        assert "run_id" in res.json()
+        runs = MonteCarloRun.objects.filter(project=project)
+        assert runs.count() == 1
+        first = runs.first()
+        assert first is not None and first.triggered_by_id == scheduler.pk
+
+    def test_member_run_returns_forecast_but_persists_no_row(
+        self, member_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        # #1502: a Member may read the forecast but holds no schedule authority, so
+        # no attributed history row is written. The read succeeds in full — the
+        # record does not — so the response omits run_id.
+        res = member_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        assert res.status_code == 200
+        body = res.json()
+        assert "last_run_at" in body  # the full computed forecast is still returned
+        assert "run_id" not in body
+        assert MonteCarloRun.objects.filter(project=project).count() == 0
+
+    def test_viewer_run_returns_forecast_but_persists_no_row(
+        self, viewer_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        # #1502 root case: a Viewer (role 0) POSTing repeatedly to grow history and
+        # pollute drift attribution over a schedule they cannot own. Read stays open;
+        # the write is gated, so no row and no run_id.
+        res = viewer_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        assert res.status_code == 200
+        assert "run_id" not in res.json()
+        assert MonteCarloRun.objects.filter(project=project).count() == 0
+
 
 @pytest.mark.django_db
 class TestHistoryEndpoint:
