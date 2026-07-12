@@ -100,6 +100,9 @@ async function setup(page: Page, initial: TokenRow[] = []) {
         id: `tok-${state.length + 1}`,
         token_prefix: 'tppm_new',
         expires_at: body.expires_at ?? null,
+        // Echo the requested scope so the reveal picks the right panel
+        // (mcp:read → McpConnectPanel; legacy:full → plain reveal).
+        scopes: Array.isArray(body.scopes) && body.scopes.length ? body.scopes : ['legacy:full'],
       });
       state.push(row);
       return route.fulfill({
@@ -147,6 +150,34 @@ test.describe('Personal access tokens page', () => {
 
     // The new token is now in the list.
     await expect(page.getByText('Power BI export')).toBeVisible();
+  });
+
+  test('mcp:read: choosing "Read-only for AI assistants" reveals the config snippet', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto('/me/settings/api-tokens');
+
+    await expect(page.getByRole('heading', { name: 'Personal access tokens' })).toBeVisible();
+    await page.getByRole('button', { name: 'Create token' }).click();
+    const dialog = page.getByRole('dialog', { name: /Create personal access token/i });
+    await dialog.getByLabel('Name').fill('Claude Desktop');
+    await dialog.getByRole('radio', { name: /Read-only for AI assistants/i }).check();
+
+    // mcp:read requires an expiry — pick a future date via the date input.
+    await dialog.getByLabel(/Expiration/i).fill('2030-01-01');
+    await dialog.getByRole('button', { name: 'Create token' }).click();
+
+    // The reused McpConnectPanel renders the copy-paste config block with the
+    // raw token and the trueppm-mcp command.
+    const snippet = page.getByRole('group', { name: /claude_desktop_config\.json snippet/i });
+    await expect(snippet).toBeVisible();
+    await expect(snippet).toContainText('trueppm-mcp');
+    await expect(snippet).toContainText('tppm_the_only_reveal_0123456789abcdef');
+    await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(page.getByText('Claude Desktop')).toBeVisible();
   });
 
   test('revoke: confirm removes the Revoke affordance', async ({ page }) => {

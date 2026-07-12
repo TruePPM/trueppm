@@ -21,10 +21,17 @@ import {
   useCreateMyApiToken,
   useMyApiTokens,
   useRevokeMyApiToken,
+  type ApiTokenScope,
   type CreatedMyApiToken,
   type MyApiToken,
 } from '@/hooks/useMyApiTokens';
+import { McpConnectPanel } from '@/features/settings/components/integrations/McpConnectPanel';
 import { docsUrl } from '@/lib/docsUrl';
+
+/** Whether a created/listed token carries the read-only MCP scope. */
+function isMcpRead(scopes: readonly string[] | undefined): boolean {
+  return Array.isArray(scopes) && scopes.includes('mcp:read');
+}
 
 export function PersonalAccessTokensPage() {
   const { data: tokens, isLoading, isError, refetch } = useMyApiTokens();
@@ -213,9 +220,15 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateMyApiToken();
   const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
+  const [tokenScope, setTokenScope] = useState<ApiTokenScope>('legacy:full');
   const [expiresAt, setExpiresAt] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedMyApiToken | null>(null);
+
+  // An mcp:read token must carry an expiry (server rule #1713: a leaked read
+  // credential must be self-limiting), so surface the requirement in the UI and
+  // block submit rather than round-trip for a 400.
+  const mcpRead = tokenScope === 'mcp:read';
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -240,18 +253,26 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
       setError('Give the token a name.');
       return;
     }
+    if (mcpRead && !expiresAt) {
+      setError('Set an expiration date — a read-only AI token must expire.');
+      return;
+    }
     setError(null);
     // A bare date input yields YYYY-MM-DD; send it as an end-of-day ISO instant so
     // the token stays valid through the whole chosen day.
     const expires = expiresAt ? new Date(`${expiresAt}T23:59:59`).toISOString() : undefined;
     create.mutate(
-      { name: name.trim(), expires_at: expires },
+      { name: name.trim(), expires_at: expires, scopes: [tokenScope] },
       {
         onSuccess: (data) => setCreated(data),
         onError: (err) => setError(extractError(err)),
       },
     );
   }
+
+  // Prefer the server's authoritative scope on the created token; fall back to
+  // the chosen scope for a not-yet-rebased API that omits the field.
+  const revealMcp = created ? isMcpRead(created.scopes ?? [tokenScope]) : false;
 
   return (
     <div
@@ -263,9 +284,18 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget && !create.isPending && !created) onClose();
       }}
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-card w-full max-w-md p-5 motion-safe:animate-modal-scale-in">
+      <div
+        className={[
+          'bg-neutral-surface border border-neutral-border rounded-card w-full p-5 motion-safe:animate-modal-scale-in',
+          created && revealMcp ? 'max-w-lg' : 'max-w-md',
+        ].join(' ')}
+      >
         {created ? (
-          <TokenReveal token={created.token} onClose={onClose} />
+          revealMcp ? (
+            <McpConnectPanel token={created.token} onClose={onClose} />
+          ) : (
+            <TokenReveal token={created.token} onClose={onClose} />
+          )
         ) : (
           <>
             <h2 id={titleId} className="text-sm font-semibold text-neutral-text-primary mb-3">
@@ -283,19 +313,31 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                   className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
               </label>
+
+              <ScopeSelector value={tokenScope} onChange={setTokenScope} />
+
               <label className="flex flex-col gap-1">
                 <span className="text-[13px] font-medium text-neutral-text-primary">
-                  Expiration <span className="text-neutral-text-secondary">(optional)</span>
+                  Expiration{' '}
+                  {mcpRead ? (
+                    <span className="text-semantic-critical">(required)</span>
+                  ) : (
+                    <span className="text-neutral-text-secondary">(optional)</span>
+                  )}
                 </span>
                 <input
                   type="date"
                   value={expiresAt}
                   min={tomorrowISODate()}
+                  required={mcpRead}
+                  aria-required={mcpRead}
                   onChange={(e) => setExpiresAt(e.target.value)}
                   className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 <span className="text-[12px] text-neutral-text-secondary">
-                  Leave blank for a token that never expires.
+                  {mcpRead
+                    ? 'A read-only AI token must expire so a leaked credential is self-limiting.'
+                    : 'Leave blank for a token that never expires.'}
                 </span>
               </label>
               {error && (
@@ -325,6 +367,87 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Radio group choosing what a new personal token is for (#1846). Mirrors the
+ * project/program token scope picker but with personal-token copy: a `mcp:read`
+ * personal token is the one the MCP read surface actually accepts (it admits
+ * only owner-scoped tokens), so this is the canonical mint path for connecting
+ * an AI assistant.
+ */
+function ScopeSelector({
+  value,
+  onChange,
+}: {
+  value: ApiTokenScope;
+  onChange: (v: ApiTokenScope) => void;
+}) {
+  const options: {
+    scope: ApiTokenScope;
+    label: string;
+    help: string;
+    describedBy: string;
+  }[] = [
+    {
+      scope: 'legacy:full',
+      label: 'Full access (acts as you)',
+      help: 'Read and write everything your account can — for scripts, CI, or a portfolio export.',
+      describedBy: 'pat-scope-full-help',
+    },
+    {
+      scope: 'mcp:read',
+      label: 'Read-only for AI assistants',
+      help: "Lets Claude Desktop and other MCP clients read your data. It can't make any changes.",
+      describedBy: 'pat-scope-mcp-help',
+    },
+  ];
+
+  return (
+    <fieldset>
+      <legend className="mb-1.5 text-[13px] font-medium text-neutral-text-primary">
+        What is this token for?
+      </legend>
+      <div className="flex flex-col gap-2">
+        {options.map((opt) => {
+          const selected = value === opt.scope;
+          const inputId = `${opt.describedBy}-radio`;
+          return (
+            <label
+              key={opt.scope}
+              htmlFor={inputId}
+              className={[
+                'flex gap-2.5 p-2.5 rounded-control border cursor-pointer',
+                selected
+                  ? 'border-brand-primary ring-1 ring-brand-primary/40 bg-brand-primary/5'
+                  : 'border-neutral-border hover:bg-neutral-surface-sunken',
+              ].join(' ')}
+            >
+              <input
+                id={inputId}
+                type="radio"
+                name="pat-token-scope"
+                value={opt.scope}
+                checked={selected}
+                onChange={() => onChange(opt.scope)}
+                aria-describedby={opt.describedBy}
+                className="mt-0.5 accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              />
+              <span className="flex flex-col text-[13px] font-medium text-neutral-text-primary">
+                {opt.label}
+                <span
+                  id={opt.describedBy}
+                  className="text-[12px] font-normal text-neutral-text-secondary"
+                >
+                  {opt.help}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 

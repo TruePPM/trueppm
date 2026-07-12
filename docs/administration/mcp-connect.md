@@ -11,20 +11,23 @@ instance URL and a read-only token through the environment.
 
 ## Step 1 — Mint a read-only token
 
-The server authenticates with a **project API token** (`tppm_<64-hex>`) — the
-same token type used for inbound integrations, scoped read-only for AI clients.
+The server authenticates with a **personal access token** (`tppm_<64-hex>`)
+carrying the `mcp:read` scope. The read surface accepts **only owner-scoped
+(personal) tokens** — a project- or program-scoped token is rejected here — so
+mint the token from your personal settings, not the project Integrations page.
 
-1. Open **Project or Program → Settings → Integrations → API Tokens → Create
-   token**.
+1. Open **Personal Settings → API tokens → Create token**.
 2. Choose the **"Read-only for AI assistants"** scope (`mcp:read`). It grants
    safe-method (`GET`) access only and is rejected at every write path.
-3. The reveal dialog shows the raw token **once** — copy it immediately. Only its
+3. **Set an expiration date** — it is required for an `mcp:read` token, so a
+   leaked read credential is self-limiting.
+4. The reveal dialog shows the raw token **once** — copy it immediately. Only its
    SHA-256 digest is stored server-side.
 
-A token is bound to a single project or program and can read only what your role
-on that scope permits. The reveal dialog also offers a ready-to-paste
-`claude_desktop_config.json` snippet — if you use Claude Desktop, that is the
-fastest path.
+The token acts as you and can read only what your role permits across the
+projects and programs you belong to. The reveal dialog also offers a
+ready-to-paste `claude_desktop_config.json` snippet — if you use Claude Desktop,
+that is the fastest path.
 
 ## Step 2 — Add the server to your client
 
@@ -114,14 +117,17 @@ launch immediately with a clear message.
 
 ## What you can ask
 
-The server exposes **14 read-only tools**, each mapping to one existing REST
+The server exposes **18 read-only tools**, each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
-  `get_program_health` (single-program only; cross-program rollups are Enterprise).
+  `get_program_health` (single-program only; cross-program rollups are Enterprise),
+  `list_program_backlog` (a program's backlog intake pool; single-program only).
 - **Tasks & work** — `list_tasks`, `get_task`, `get_board_state`, `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary`, `get_monte_carlo_forecast`
-  (latest persisted run; read-only), `whatif` (perturb one task's duration and
+  (latest persisted run; read-only), `get_release_forecast` (velocity-based
+  backlog delivery forecast — P50/P80 sprint counts and dates),
+  `whatif` (perturb one task's duration and
   recompute in memory — "what breaks if this task slips?"),
   `get_schedule_derivation` (the *why* behind a
   computed CPM value or Monte Carlo percentile), `list_risks`.

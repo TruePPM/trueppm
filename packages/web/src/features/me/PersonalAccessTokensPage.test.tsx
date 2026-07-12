@@ -113,6 +113,55 @@ describe('PersonalAccessTokensPage', () => {
     );
   });
 
+  it('choosing "Read-only for AI assistants" requires an expiry before submit', () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<PersonalAccessTokensPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Claude' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i }));
+
+    // Submitting without an expiry is blocked client-side (the server also
+    // requires it for mcp:read) — the mutation must not fire.
+    fireEvent.submit(dialog.querySelector('form')!);
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/must expire/i);
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it('creating an mcp:read token reveals the claude_desktop_config.json snippet', async () => {
+    useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    const created: CreatedMyApiToken = {
+      ...token({ scopes: ['mcp:read'], expires_at: '2027-01-01T23:59:59Z' }),
+      token: 'tppm_mcp_reveal_token',
+    };
+    createMutate.mockImplementation(
+      (_body: unknown, opts: { onSuccess: (d: CreatedMyApiToken) => void }) => {
+        opts.onSuccess(created);
+      },
+    );
+    render(<PersonalAccessTokensPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
+    const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
+    fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Claude' } });
+    fireEvent.click(within(dialog).getByRole('radio', { name: /Read-only for AI assistants/i }));
+    fireEvent.change(screen.getByLabelText(/Expiration/i), { target: { value: '2027-01-01' } });
+    fireEvent.submit(dialog.querySelector('form')!);
+
+    // The reused McpConnectPanel renders the copy-paste config block.
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: /claude_desktop_config\.json snippet/i })).toBeInTheDocument(),
+    );
+    const snippet = screen.getByRole('group', { name: /claude_desktop_config\.json snippet/i });
+    expect(snippet).toHaveTextContent('trueppm-mcp');
+    expect(snippet).toHaveTextContent('tppm_mcp_reveal_token');
+    expect(screen.getByRole('button', { name: 'Copy config' })).toBeInTheDocument();
+    // The mutation carried the read scope.
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Claude', scopes: ['mcp:read'] }),
+      expect.any(Object),
+    );
+  });
+
   it('revoke opens a confirm dialog and fires the mutation on confirm', () => {
     useMyApiTokens.mockReturnValue({
       data: [token()],
