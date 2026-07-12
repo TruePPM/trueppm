@@ -7,7 +7,29 @@
 use chrono::{Datelike, Duration, NaiveDate};
 
 use crate::models::{Calendar, DateRange, Task};
-use crate::validate::MAX_CALENDAR_SCAN_DAYS;
+use crate::validate::{MAX_CALENDAR_SCAN_DAYS, MAX_PROJECT_SPAN_DAYS};
+
+/// Ceiling on any single day-by-day working-day walk (#1858).
+///
+/// For a project that passed [`crate::validate::validate_project`], every date
+/// the passes produce lies within the calendar reach of the project start —
+/// bounded by the span cap (times 7, for a sparse weekly mask) plus one snap
+/// scan — so no legitimate `[lo, hi]` walk can approach this ceiling (~3 M
+/// days). A walk that does can only come from *unvalidated* dates (e.g. a
+/// mutation path that skipped validation and let `NaiveDate::MAX` reach the
+/// float pass); erroring here turns what used to be a multi-second freeze or an
+/// overflow panic — which traps the whole WASM module — into a clean `Err`.
+const MAX_WORKING_DAY_WALK_DAYS: i64 = MAX_PROJECT_SPAN_DAYS * 8 + MAX_CALENDAR_SCAN_DAYS;
+
+/// Error for a working-day span walk whose bounds exceed
+/// [`MAX_WORKING_DAY_WALK_DAYS`] — dates this far apart cannot come from a
+/// validated schedule.
+fn working_day_walk_error(lo: NaiveDate, hi: NaiveDate) -> String {
+    format!(
+        "Working-day walk from {lo} to {hi} exceeds {MAX_WORKING_DAY_WALK_DAYS} days; \
+         the schedule falls outside the computable date range."
+    )
+}
 
 /// Build the sorted, merged exception index used by [`Calendar::is_working_day`].
 ///
@@ -123,36 +145,47 @@ impl<'a> WorkingDayCounter<'a> {
     /// by the tasks' resolved dates (`min early_start` .. `max late_finish`) — the
     /// range every `compute_floats` span query lands in. An empty or inverted
     /// range yields an always-fall-back counter.
-    pub fn build(tasks: &[Task], cal: &'a Calendar) -> Self {
+    ///
+    /// Returns `Err` when the range exceeds [`MAX_WORKING_DAY_WALK_DAYS`] or the
+    /// day increment would overflow `NaiveDate` — bounds only unvalidated input
+    /// can produce (#1858). The raw `+= Duration::days(1)` here was the last
+    /// unchecked date increment left after #908: at `current == NaiveDate::MAX`
+    /// it panicked and trapped the whole WASM module.
+    pub fn build(tasks: &[Task], cal: &'a Calendar) -> Result<Self, String> {
         let lo = tasks.iter().filter_map(|t| t.early_start).min();
         let hi = tasks.iter().filter_map(|t| t.late_finish).max();
         let mut ords: Vec<i32> = Vec::new();
         let (lo_ord, hi_ord) = match (lo, hi) {
             (Some(lo), Some(hi)) if hi >= lo => {
+                if (hi - lo).num_days() > MAX_WORKING_DAY_WALK_DAYS {
+                    return Err(working_day_walk_error(lo, hi));
+                }
                 let mut current = lo;
                 while current <= hi {
                     if cal.is_working_day(current) {
                         ords.push(current.num_days_from_ce());
                     }
-                    current += Duration::days(1);
+                    current = current
+                        .checked_add_signed(Duration::days(1))
+                        .ok_or_else(|| working_day_walk_error(lo, hi))?;
                 }
                 (lo.num_days_from_ce(), hi.num_days_from_ce())
             }
             // Sentinel empty range: lo_ord > hi_ord forces every query to fall back.
             _ => (0, -1),
         };
-        Self {
+        Ok(Self {
             ords,
             lo_ord,
             hi_ord,
             cal,
-        }
+        })
     }
 
     /// Count working days in `[start, end)`; identical to [`working_days_between`].
-    pub fn between(&self, start: NaiveDate, end: NaiveDate) -> i32 {
+    pub fn between(&self, start: NaiveDate, end: NaiveDate) -> Result<i32, String> {
         if end <= start {
-            return 0;
+            return Ok(0);
         }
         let s_ord = start.num_days_from_ce();
         let e_ord = end.num_days_from_ce();
@@ -164,7 +197,7 @@ impl<'a> WorkingDayCounter<'a> {
         }
         let lo = self.ords.partition_point(|&o| o < s_ord);
         let hi = self.ords.partition_point(|&o| o < e_ord);
-        (hi - lo) as i32
+        Ok((hi - lo) as i32)
     }
 }
 
@@ -277,10 +310,21 @@ pub fn start_from_finish(
 
 /// Count working days in `[start, end)` — start inclusive, end exclusive.
 ///
-/// Returns 0 when `end <= start`.
-pub fn working_days_between(start: NaiveDate, end: NaiveDate, cal: &Calendar) -> i32 {
+/// Returns `Ok(0)` when `end <= start`, and `Err` when the span exceeds
+/// [`MAX_WORKING_DAY_WALK_DAYS`] or the day increment would overflow — bounds
+/// only unvalidated input can produce (#1858). Checked like the other calendar
+/// walks so no future call path can re-expose the O(span) freeze or the
+/// overflow panic through this loop.
+pub fn working_days_between(
+    start: NaiveDate,
+    end: NaiveDate,
+    cal: &Calendar,
+) -> Result<i32, String> {
     if end <= start {
-        return 0;
+        return Ok(0);
+    }
+    if (end - start).num_days() > MAX_WORKING_DAY_WALK_DAYS {
+        return Err(working_day_walk_error(start, end));
     }
     let mut count = 0;
     let mut current = start;
@@ -288,9 +332,11 @@ pub fn working_days_between(start: NaiveDate, end: NaiveDate, cal: &Calendar) ->
         if cal.is_working_day(current) {
             count += 1;
         }
-        current += Duration::days(1);
+        current = current
+            .checked_add_signed(Duration::days(1))
+            .ok_or_else(|| working_day_walk_error(start, end))?;
     }
-    count
+    Ok(count)
 }
 
 /// Advance `d` by `lag` calendar days and snap to the next working day.
@@ -382,7 +428,7 @@ mod tests {
         let mon = NaiveDate::from_ymd_opt(2026, 3, 30).unwrap();
         let next_mon = NaiveDate::from_ymd_opt(2026, 4, 6).unwrap();
         // Mon to next Mon exclusive = 5 working days
-        assert_eq!(working_days_between(mon, next_mon, &cal), 5);
+        assert_eq!(working_days_between(mon, next_mon, &cal).unwrap(), 5);
     }
 
     #[test]
@@ -529,7 +575,7 @@ mod tests {
             task_spanning("A", d(2026, 4, 1), d(2026, 5, 1)),
             task_spanning("B", d(2026, 4, 6), d(2026, 4, 20)),
         ];
-        let counter = WorkingDayCounter::build(&tasks, &cal);
+        let counter = WorkingDayCounter::build(&tasks, &cal).unwrap();
         // Every in-range [start, end) pair must equal the scalar reference.
         let lo = d(2026, 4, 1);
         let hi = d(2026, 5, 1);
@@ -538,8 +584,8 @@ mod tests {
             let mut b = a;
             while b <= hi {
                 assert_eq!(
-                    counter.between(a, b),
-                    working_days_between(a, b, &cal),
+                    counter.between(a, b).unwrap(),
+                    working_days_between(a, b, &cal).unwrap(),
                     "counter/scalar mismatch for [{a}, {b})"
                 );
                 b += Duration::days(1);
@@ -552,18 +598,39 @@ mod tests {
     fn test_working_day_counter_falls_back_out_of_range() {
         let cal = weekday_cal();
         let tasks = vec![task_spanning("A", d(2026, 4, 6), d(2026, 4, 10))];
-        let counter = WorkingDayCounter::build(&tasks, &cal);
+        let counter = WorkingDayCounter::build(&tasks, &cal).unwrap();
         // A span starting before lo and one ending after hi both defer to the
         // scalar reference and must still be exact.
         let before = (d(2026, 3, 1), d(2026, 4, 8));
         let after = (d(2026, 4, 8), d(2026, 6, 1));
         assert_eq!(
-            counter.between(before.0, before.1),
-            working_days_between(before.0, before.1, &cal)
+            counter.between(before.0, before.1).unwrap(),
+            working_days_between(before.0, before.1, &cal).unwrap()
         );
         assert_eq!(
-            counter.between(after.0, after.1),
-            working_days_between(after.0, after.1, &cal)
+            counter.between(after.0, after.1).unwrap(),
+            working_days_between(after.0, after.1, &cal).unwrap()
         );
+    }
+
+    #[test]
+    fn test_working_day_counter_build_errors_on_absurd_bounds() {
+        // #1858 second layer: if any future mutation path again lets a
+        // NaiveDate::MAX late_finish reach the float pass, the counter build
+        // must return Err — before this fix the `current += 1 day` increment
+        // at current == MAX panicked and trapped the WASM module (and a
+        // merely-large bound walked tens of millions of days first).
+        let cal = weekday_cal();
+        let tasks = vec![task_spanning("A", d(2026, 4, 1), NaiveDate::MAX)];
+        assert!(WorkingDayCounter::build(&tasks, &cal).is_err());
+    }
+
+    #[test]
+    fn test_working_days_between_errors_on_absurd_bounds() {
+        // #1858 second layer: same guard for the scalar reference walk — an
+        // end bound only unvalidated input can produce yields Err, not an
+        // O(tens-of-millions-of-days) main-thread freeze.
+        let cal = weekday_cal();
+        assert!(working_days_between(d(2026, 4, 1), NaiveDate::MAX, &cal).is_err());
     }
 }

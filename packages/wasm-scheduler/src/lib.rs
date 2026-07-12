@@ -74,11 +74,16 @@ pub fn wasm_incremental_update(
 /// re-parse the entire project JSON, re-validate it, and rebuild the petgraph on
 /// **every** call — a cost that scales with total project size and, on a drag,
 /// repeats every animation frame before any CPM math runs. A `SchedulerSession`
-/// pays that cost **once**, in [`SchedulerSession::new`]: the parsed [`Project`]
-/// and its built graph stay resident, so each frame only mutates the dragged
-/// task's start ([`set_task_start`](SchedulerSession::set_task_start)) and reruns
-/// the passes over the cached graph
-/// ([`recalc_incremental`](SchedulerSession::recalc_incremental)).
+/// pays the parse and graph-build cost **once**, in [`SchedulerSession::new`]:
+/// the parsed [`Project`] and its built graph stay resident, so each frame only
+/// mutates the dragged task's start
+/// ([`set_task_start`](SchedulerSession::set_task_start)) and reruns the passes
+/// over the cached graph
+/// ([`recalc_incremental`](SchedulerSession::recalc_incremental)). Each mutation
+/// *does* re-validate the project (#1858) — without that, a crafted start date
+/// reaches unchecked date arithmetic that the stateless entry points' validation
+/// rejects — but validation is linear in the input, not the dominant per-frame
+/// cost the session exists to avoid.
 ///
 /// Reusing the graph across the session is sound because a drag moves a bar's
 /// *date*, not the network *topology* — the nodes, edges, and topological order
@@ -119,22 +124,17 @@ impl SchedulerSession {
     }
 
     /// Override a resident task's planned start (the drag), in place — no
-    /// re-parse, no re-validate, no graph rebuild.
+    /// re-parse, no graph rebuild.
     ///
     /// `new_start` is an ISO `YYYY-MM-DD` date. The forward pass treats
     /// `planned_start` as a start-no-earlier-than floor, so this is the dragged
-    /// bar's new position. Returns `Err` for an unknown id or an unparseable date
-    /// (never panics — a WASM trap poisons the whole module until reload, #1087).
+    /// bar's new position. Returns `Err` for an unknown id, an unparseable date,
+    /// or a date the stateless path's validation would reject (never panics — a
+    /// WASM trap poisons the whole module until reload, #1087). On a rejected
+    /// date the mutation is rolled back, so the session stays valid and usable.
     pub fn set_task_start(&mut self, task_id: &str, new_start: &str) -> Result<(), JsValue> {
-        let date = NaiveDate::parse_from_str(new_start, "%Y-%m-%d")
-            .map_err(|e| JsValue::from_str(&format!("invalid start date {new_start:?}: {e}")))?;
-        // `node_index[id].index()` is the task's dense position: nodes are added
-        // in `project.tasks` order (#1535), so this indexes the same task.
-        let &idx = self.graph.node_index.get(task_id).ok_or_else(|| {
-            JsValue::from_str(&format!("task_id {task_id:?} does not exist in the project."))
-        })?;
-        self.project.tasks[idx.index()].planned_start = Some(date);
-        Ok(())
+        set_task_start_impl(&mut self.project, &self.graph, task_id, new_start)
+            .map_err(|e| JsValue::from_str(&e))
     }
 
     /// Full CPM over the cached graph → `ScheduleResult` JSON. Identical to
@@ -151,6 +151,43 @@ impl SchedulerSession {
             .map_err(|e| JsValue::from_str(&e))?;
         serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
     }
+}
+
+/// Body of [`SchedulerSession::set_task_start`] (no wasm-bindgen dependency, so
+/// native tests can exercise it — `JsValue` cannot).
+///
+/// The mutated project must satisfy the same guards the stateless path enforces
+/// (#1858): `SchedulerSession::new` validates once, but a drag that moves
+/// `planned_start` past the far-future / `MAX_PROJECT_SPAN_DAYS` bounds reaches
+/// the day-by-day calendar walks with unrepresentable dates — `compute_full` /
+/// `compute_downstream` do not re-validate, so a crafted `set_task_start`
+/// (e.g. `NaiveDate::MAX`) used to panic the working-day counter build and trap
+/// the whole WASM module (or freeze the main thread for a merely-large date).
+/// Mutate tentatively, re-run `validate_project`, and roll back on failure so a
+/// rejected drag leaves the session exactly as it was. The re-validation is
+/// O(tasks + dependencies) — the same order as the recalc that follows every
+/// frame — so the session's per-frame savings (parse + graph build) are kept.
+fn set_task_start_impl(
+    project: &mut Project,
+    graph: &ProjectGraph,
+    task_id: &str,
+    new_start: &str,
+) -> Result<(), String> {
+    let date = NaiveDate::parse_from_str(new_start, "%Y-%m-%d")
+        .map_err(|e| format!("invalid start date {new_start:?}: {e}"))?;
+    // `node_index[id].index()` is the task's dense position: nodes are added
+    // in `project.tasks` order (#1535), so this indexes the same task.
+    let &idx = graph
+        .node_index
+        .get(task_id)
+        .ok_or_else(|| format!("task_id {task_id:?} does not exist in the project."))?;
+    let prev = project.tasks[idx.index()].planned_start;
+    project.tasks[idx.index()].planned_start = Some(date);
+    if let Err(e) = validate::validate_project(project) {
+        project.tasks[idx.index()].planned_start = prev;
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Internal implementation of the full CPM schedule (no wasm-bindgen dependency).
@@ -591,6 +628,101 @@ mod tests {
         let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
         // B's EF >= A's ES (SF constraint)
         assert!(b.early_finish >= a.early_start);
+    }
+
+    #[test]
+    fn set_task_start_rejects_out_of_bounds_date_without_mutating() {
+        // #1858: `SchedulerSession::new` validates once, but the mutation path
+        // skipped re-validation, so a crafted set_task_start (NaiveDate::MAX on
+        // an all-7-days calendar) reached the working-day counter's unchecked
+        // `+= 1 day` loop: overflow panic at MAX (a WASM trap poisoning the
+        // module), multi-second freeze for a merely-large date. The mutation
+        // must now be rejected with Err — through the same validate_project
+        // guards the stateless path applies — and rolled back, leaving the
+        // session's resident project untouched and usable.
+        let all_days_cal = Calendar {
+            working_days: 0b0111_1111, // all 7 days working: passes validation,
+            ..Calendar::default()      // defeats any weekend-snap mitigation
+        };
+        let mut project = Project {
+            id: "p-1858".to_string(),
+            name: "session dos".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("T", 1)],
+            dependencies: vec![],
+            calendar: all_days_cal,
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        // Same acceptance gate as `SchedulerSession::new`.
+        crate::validate::validate_project(&project).unwrap();
+        let pg = crate::graph::build_graph(&project).unwrap();
+
+        // The issue's crafted input: NaiveDate::MAX (262142-12-31), fed as the
+        // ISO string a JS caller would pass — chrono's `%Y` needs an explicit
+        // `+` sign to parse a 6-digit year, so `"+262142-12-31"` is the exact
+        // string that reaches the mutation with date == MAX. (Built from
+        // Datelike::year; chrono is compiled without its `format` feature.)
+        use chrono::Datelike;
+        let max_start = format!(
+            "+{:04}-{:02}-{:02}",
+            NaiveDate::MAX.year(),
+            NaiveDate::MAX.month(),
+            NaiveDate::MAX.day()
+        );
+        let err = set_task_start_impl(&mut project, &pg, "T", &max_start).unwrap_err();
+        assert!(
+            !err.contains("invalid start date"),
+            "MAX must be rejected by validation, not date parsing: {err}"
+        );
+        assert_eq!(project.tasks[0].planned_start, None, "rejected drag must not mutate");
+
+        // A merely-large date beyond MAX_PROJECT_SPAN_DAYS (the freeze variant,
+        // and a parseable 4-digit year, so this provably exercises the
+        // validation guard rather than date parsing).
+        assert!(set_task_start_impl(&mut project, &pg, "T", "9500-01-01").is_err());
+        assert_eq!(project.tasks[0].planned_start, None, "rejected drag must not mutate");
+
+        // A sane drag still lands, and the session stays fully usable — the
+        // rejected mutations must not have poisoned the resident project.
+        set_task_start_impl(&mut project, &pg, "T", "2026-04-08").unwrap();
+        assert_eq!(
+            project.tasks[0].planned_start,
+            Some(NaiveDate::from_ymd_opt(2026, 4, 8).unwrap())
+        );
+
+        // A rejected drag rolls back to the previous *set* value, not to None.
+        assert!(set_task_start_impl(&mut project, &pg, "T", "9500-01-01").is_err());
+        assert_eq!(
+            project.tasks[0].planned_start,
+            Some(NaiveDate::from_ymd_opt(2026, 4, 8).unwrap())
+        );
+
+        // And the full-recalc body the session delegates to still computes.
+        assert!(compute_full(&project, &pg).is_ok());
+    }
+
+    #[test]
+    fn set_task_start_still_rejects_unknown_id_and_bad_date() {
+        // The pre-existing rejections must survive the #1858 refactor.
+        let mut project = Project {
+            id: "p".to_string(),
+            name: "p".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("T", 1)],
+            dependencies: vec![],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        let pg = crate::graph::build_graph(&project).unwrap();
+        assert!(set_task_start_impl(&mut project, &pg, "NOPE", "2026-04-08").is_err());
+        assert!(set_task_start_impl(&mut project, &pg, "T", "not-a-date").is_err());
+        assert_eq!(project.tasks[0].planned_start, None);
     }
 
     #[test]

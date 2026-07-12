@@ -28,7 +28,7 @@ pub fn compute_floats(
     deps: &[Dependency],
     calendar: &Calendar,
 ) -> Result<(), String> {
-    let counter = WorkingDayCounter::build(tasks, calendar);
+    let counter = WorkingDayCounter::build(tasks, calendar)?;
     for &idx in topo_order {
         let i = idx.index();
         let es = tasks[i].early_start.unwrap();
@@ -36,7 +36,7 @@ pub fn compute_floats(
         let ls = tasks[i].late_start.unwrap();
 
         // Total float: working days between ES and LS.
-        let tf_days = counter.between(es, ls);
+        let tf_days = counter.between(es, ls)?;
         let is_critical = tf_days == 0;
 
         // Free float (standard critical-path definition, #825): the largest slip
@@ -73,7 +73,7 @@ pub fn compute_floats(
                 DependencyType::FF => (ef, retreat_calendar_days(succ_ef, lag_days, calendar)?),
                 DependencyType::SF => (es, retreat_calendar_days(succ_ef, lag_days, calendar)?),
             };
-            let slack = counter.between(anchor, latest);
+            let slack = counter.between(anchor, latest)?;
             ff_days = ff_days.min(slack.max(0));
         }
         ff_days = ff_days.max(0);
