@@ -49,6 +49,14 @@ vi.mock('../hooks/useUserSearch', () => ({
   useUserSearch: () => ({ data: [], isFetching: false }),
 }));
 
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: { default_member_role: 100 }, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useProjectMutations', () => ({
+  useUpdateProject: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}));
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -167,6 +175,13 @@ describe('MembersTab', () => {
   it('shows the invite form for OWNER role', () => {
     render();
     expect(screen.getByRole('heading', { name: /add member/i })).toBeInTheDocument();
+  });
+
+  it('shows the default-member-role setting for Admin+ (ADR-0363)', () => {
+    render();
+    expect(
+      screen.getByRole('heading', { name: /default role for new members/i }),
+    ).toBeInTheDocument();
   });
 
   it('shows empty state when no members', () => {

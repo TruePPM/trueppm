@@ -15,8 +15,9 @@ Project settings are part of the **Community (OSS)** edition.
 
 When you create a project, the **New project** dialog has an optional **Copy settings
 from** picker listing the projects you can already read. Choose one to seed the new
-project with that project's calendar, default view, board cadence, visibility, and its
-sharing, attachment, and Monte Carlo policies. Leave it on **None** to start with blank
+project with that project's calendar, default view, board cadence, visibility, its
+[default role for new members](/features/settings/project-members/#default-role-for-new-members),
+and its sharing, attachment, and Monte Carlo policies. Leave it on **None** to start with blank
 defaults. Anything you set in the dialog itself — the name, dates, and planning model —
 always takes precedence over the copied values. The settings are copied once at creation
 time; the two projects are not linked afterward, so later changes to the source do not

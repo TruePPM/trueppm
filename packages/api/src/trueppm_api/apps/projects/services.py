@@ -5238,6 +5238,8 @@ SETTINGS_TEMPLATE_FIELDS: tuple[str, ...] = (
     "board_cadence",
     "stale_task_threshold_days",
     "prioritization_model",
+    # Default role for members added without an explicit role (ADR-0363, #157).
+    "default_member_role",
     # Calendar — the shared Calendar row reference is copied, never cloned
     # (ADR-0242 §2): Calendar is a standalone workspace resource, so pointing the
     # new project at the same row matches the existing shared-calendar model.

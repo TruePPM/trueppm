@@ -71,6 +71,14 @@ export interface ApiProjectDetail {
    * inheritable override — a project-local board setting.
    */
   board_cadence: BoardCadence;
+  /**
+   * Default RBAC role (ADR-0363, #157) applied when a member is added without an
+   * explicit role. A convenience default only — no lock/enforcement. One of the
+   * `ROLE_*` ordinals below Owner. `default_member_role_label` is the read-only
+   * human name ("Team Member") for rendering without an ordinal→label map.
+   */
+  default_member_role: number;
+  default_member_role_label: string;
   /** Optional short code (uppercase A-Z, 0-9, hyphen; ≤12 chars). Empty when unset. */
   code: string;
   /** PM health override; AUTO defers to the (future) rollup. */

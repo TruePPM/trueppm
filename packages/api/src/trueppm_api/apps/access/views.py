@@ -250,7 +250,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
         serializer.is_valid(raise_exception=True)
 
         actor_role = _membership_role(request, project.pk)
-        new_role = serializer.validated_data["role"]
+        # Role is optional on add (ADR-0363, #157): fall back to the project's
+        # configured default when the caller does not name one. The strictly-below-
+        # your-own guard below then applies to the resolved role exactly as it does
+        # to an explicit one — a default is never a way around it.
+        new_role = serializer.validated_data.get("role")
+        if new_role is None:
+            new_role = project.default_member_role
         # Caller may only assign roles strictly below their own.
         if actor_role is not None and new_role >= actor_role:
             raise drf_serializers.ValidationError(
@@ -266,7 +272,9 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 status=status.HTTP_409_CONFLICT,
             )
 
-        instance = serializer.save(project=project)
+        # Pass the resolved role explicitly — it may have come from the project
+        # default rather than the request payload, so it is not in validated_data.
+        instance = serializer.save(project=project, role=new_role)
 
         project_id = str(project.pk)
         membership_id = str(instance.pk)

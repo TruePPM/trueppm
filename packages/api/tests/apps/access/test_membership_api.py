@@ -177,6 +177,45 @@ def test_create_duplicate_returns_409(
     assert resp.status_code == 409
 
 
+@pytest.mark.django_db
+def test_create_without_role_uses_project_default(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """Omitting role falls back to the project's default_member_role (ADR-0363)."""
+    project.default_member_role = Role.SCHEDULER
+    project.save(update_fields=["default_member_role"])
+    new_user = User.objects.create_user(username="defaulted", password="pw")
+    resp = owner_client.post(_url(project), {"user": str(new_user.pk)})  # no role
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == Role.SCHEDULER
+    membership = ProjectMembership.objects.get(project=project, user=new_user)
+    assert membership.role == Role.SCHEDULER
+
+
+@pytest.mark.django_db
+def test_create_without_role_defaults_to_member_when_unset(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """A project left at its MEMBER default seeds MEMBER for a role-less add."""
+    new_user = User.objects.create_user(username="def_member", password="pw")
+    resp = owner_client.post(_url(project), {"user": str(new_user.pk)})
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == Role.MEMBER
+
+
+@pytest.mark.django_db
+def test_create_explicit_role_overrides_project_default(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """An explicit role in the payload wins over the project default."""
+    project.default_member_role = Role.VIEWER
+    project.save(update_fields=["default_member_role"])
+    new_user = User.objects.create_user(username="explicit", password="pw")
+    resp = owner_client.post(_url(project), {"user": str(new_user.pk), "role": Role.ADMIN})
+    assert resp.status_code == 201, resp.data
+    assert resp.data["role"] == Role.ADMIN
+
+
 # ---------------------------------------------------------------------------
 # Update (Owner only, role escalation rule)
 # ---------------------------------------------------------------------------

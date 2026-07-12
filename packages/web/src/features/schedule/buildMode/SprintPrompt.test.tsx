@@ -22,6 +22,8 @@ function agileProjectClient(): QueryClient {
     program: null,
     board_cadence: 'sprint',
     estimation_mode: 'open',
+    default_member_role: 100,
+    default_member_role_label: 'Team Member',
     agile_features: true,
     methodology: 'AGILE',
     effective_methodology: 'AGILE',

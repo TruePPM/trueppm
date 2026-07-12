@@ -268,6 +268,36 @@ describe('NewProjectModal', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Default role for new members (ADR-0363, #157)
+  // ---------------------------------------------------------------------------
+
+  it('sends default_member_role = Team Member (100) by default', async () => {
+    renderModal();
+    await goToStep3();
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ default_member_role: 100 }),
+      expect.anything(),
+    );
+  });
+
+  it('sends the chosen default_member_role when changed', async () => {
+    renderModal();
+    await goToStep3();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: /default role for new members/i }),
+      'Project Manager',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ default_member_role: 300 }),
+      expect.anything(),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // Focus trap
   // ---------------------------------------------------------------------------
 

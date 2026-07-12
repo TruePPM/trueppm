@@ -3,6 +3,7 @@ import { AvatarInitials } from '@/components/AvatarInitials';
 import { Button } from '@/components/Button';
 import { useUserSearch } from '../hooks/useUserSearch';
 import { useAddMember } from '../hooks/useAddMember';
+import { useProject } from '@/hooks/useProject';
 import { RolePicker } from './RolePicker';
 import { ROLE_MEMBER } from '@/lib/roles';
 import type { UserSearchResult } from '@/api/types';
@@ -15,7 +16,10 @@ export function InviteForm({ projectId }: InviteFormProps) {
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
-  const [role, setRole] = useState(ROLE_MEMBER);
+  // `null` = untouched → follow the project's default_member_role (ADR-0363).
+  // Once the user picks a role explicitly, `roleOverride` pins their choice until
+  // the next successful add resets it back to the default.
+  const [roleOverride, setRoleOverride] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -28,6 +32,10 @@ export function InviteForm({ projectId }: InviteFormProps) {
 
   const { data: results = [], isFetching } = useUserSearch(debouncedQ);
   const { mutate: addMember, isPending, error } = useAddMember(projectId);
+  const { data: project } = useProject(projectId);
+  // The picker reflects the project default until the user overrides it, so the
+  // "Default role for new members" setting is visible right where members are added.
+  const role = roleOverride ?? project?.default_member_role ?? ROLE_MEMBER;
 
   const conflictError =
     error &&
@@ -56,7 +64,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
       {
         onSuccess: () => {
           clearSelection();
-          setRole(ROLE_MEMBER);
+          setRoleOverride(null); // back to following the project default
         },
       },
     );
@@ -180,7 +188,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
           <label htmlFor="invite-role" className="sr-only">
             Role
           </label>
-          <RolePicker id="invite-role" value={role} onChange={setRole} disabled={isPending} />
+          <RolePicker id="invite-role" value={role} onChange={setRoleOverride} disabled={isPending} />
         </div>
 
         {/* Submit */}

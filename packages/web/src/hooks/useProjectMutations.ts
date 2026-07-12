@@ -48,6 +48,11 @@ export interface CreateProjectPayload {
    * Omit for today's blank-defaults behavior.
    */
   copy_settings_from?: string;
+  /**
+   * Default RBAC role for members later added without an explicit role (ADR-0363,
+   * #157). A `ROLE_*` ordinal below Owner; server defaults to `ROLE_MEMBER`.
+   */
+  default_member_role?: number;
 }
 
 /** POST /api/v1/projects/ — create a new project and invalidate the project list cache. */
@@ -82,6 +87,12 @@ export interface UpdateProjectPayload {
   timezone?: string;
   /** Default landing view (SCHEDULE | BOARD | TABLE | OVERVIEW). */
   default_view?: ProjectDefaultView;
+  /**
+   * Default RBAC role for members added without an explicit role (ADR-0363, #157).
+   * A `ROLE_*` ordinal strictly below Owner; rejected server-side otherwise.
+   * Admin+-only (settings-field allowlist default in the serializer).
+   */
+  default_member_role?: number;
   /**
    * Per-project methodology override (ADR-0107, issue 955). Always a concrete
    * value (no inherit sentinel — inheritance is governed by the workspace policy,

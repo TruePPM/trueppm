@@ -13,6 +13,7 @@ It is the management surface for the [5-role RBAC model](/administration/rbac/):
 |--------|-------------|
 | View the member list | Viewer |
 | Invite a member, change a role, remove a member | Owner |
+| Set the default role for new members | Project Manager (Admin) |
 | Leave the project (remove your own membership) | Any member |
 
 Any project member sees the full member list. The invite form, role picker, and remove controls are shown only to Owners; the API enforces the same gate server-side regardless of what the UI shows.
@@ -24,6 +25,14 @@ The invite form is a typeahead. Start typing a name and TruePPM searches existin
 The invited user **must already have a TruePPM account** — this page does not create accounts. To bring in someone who has never signed in, send them a [workspace invite](/administration/workspace-settings/#invites-settingsmembers--invite-flow) first; once they accept and have an account, they appear in the project member search.
 
 For privacy, the search returns username, display name, and initials only — never email addresses.
+
+## Default role for new members
+
+Every project has a **default role for new members** — the role a person receives when they are added without one chosen. The invite form's role picker starts on this default (Team Member unless you change it), so adding a contributor is a two-click action instead of re-selecting the same role each time. Any role you pick explicitly on the invite form still wins over the default.
+
+Set it when you create the project, or change it any time on **Settings → Members** (a Project Manager, i.e. Admin, or above can edit it). "[Copy settings from…](/administration/project-settings/#copy-settings-from-an-existing-project)" carries the default role along with the project's other settings when you seed a new project from an existing one.
+
+This is a convenience default only — there are **no locks, no enforcement, and no audit trail**. It never grants Project Admin (Owner) by default, and it does not change the roles of members who are already on the project.
 
 ## Changing a role
 

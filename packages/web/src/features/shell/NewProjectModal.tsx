@@ -2,6 +2,8 @@ import { useRef, useState, useEffect, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import { useProjects } from '@/hooks/useProjects';
+import { RolePicker } from '@/features/settings/members/RolePicker';
+import { ROLE_MEMBER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 
 interface Props {
@@ -56,6 +58,10 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
   // Optional source project to seed settings from at create time (#1659, ADR-0242).
   // Empty string = no copy (today's blank-defaults behavior).
   const [copySettingsFrom, setCopySettingsFrom] = useState('');
+  // Default RBAC role applied to members later added without an explicit role
+  // (ADR-0363, #157). Defaults to Team Member; the picker offers Viewer..Project
+  // Manager (Owner is never a sensible blanket default).
+  const [defaultMemberRole, setDefaultMemberRole] = useState<number>(ROLE_MEMBER);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const startRef = useRef<HTMLInputElement>(null);
@@ -129,6 +135,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
         methodology,
         ...(programId ? { program: programId } : {}),
         ...(copySettingsFrom ? { copy_settings_from: copySettingsFrom } : {}),
+        default_member_role: defaultMemberRole,
       },
       {
         onSuccess: (data) => {
@@ -305,6 +312,30 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     dates, and planning model you enter here always take precedence.
                   </span>
                 </label>
+                {/* Default role for new members (ADR-0363, #157). Applied when a
+                    member is added later without an explicit role — editable
+                    afterward on Settings → Members. */}
+                <div className="flex flex-col gap-1 pt-2 mt-1 border-t border-neutral-border">
+                  {/* Explicit htmlFor association (not a wrapping <label>) — the
+                      control is the RolePicker component, which jsx-a11y can't see
+                      as nested; htmlFor→id satisfies label-has-associated-control. */}
+                  <label
+                    htmlFor="new-project-default-member-role"
+                    className="text-xs font-medium text-neutral-text-secondary"
+                  >
+                    Default role for new members
+                  </label>
+                  <RolePicker
+                    id="new-project-default-member-role"
+                    variant="form"
+                    value={defaultMemberRole}
+                    onChange={setDefaultMemberRole}
+                  />
+                  <span className="text-xs text-neutral-text-secondary">
+                    The role a person gets when you add them to this project without
+                    choosing one. You can change it any time and override it per person.
+                  </span>
+                </div>
                 {createProject.isError && (
                   <p role="alert" className="text-xs text-semantic-critical">
                     Failed to create project. Please try again.
