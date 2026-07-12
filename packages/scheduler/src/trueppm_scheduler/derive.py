@@ -40,6 +40,7 @@ from trueppm_scheduler.engine import (
     _next_working_day,
     _prev_working_day,
     _resolve_task_calendars,
+    _retreat_calendar_days,
     _safe_offset,
     _working_days_between,
     schedule,
@@ -558,17 +559,25 @@ def _derive_total_float(task: Task, cal: Calendar) -> tuple[int, list[Derivation
 
 def _derive_free_float(
     task: Task,
-    task_map: dict[str, Task],
     succs: list[tuple[Task, DependencyType, timedelta]],
     cal: Calendar,
     tf_days: int,
-    task_calendars: dict[str, Calendar] | None,
-    default_cal: Calendar,
 ) -> tuple[int, list[DerivationContribution]]:
     """Replay :func:`engine._compute_floats` free-float slack, recording provenance.
 
-    Free float is the minimum working-day slack to any successor across all four
-    dependency types, capped at total float; the binding successor is the tightest.
+    Mirrors the post-#1828 engine exactly: for each live successor link the
+    forward constraint is **inverted** — retreat from the successor's *early*
+    date by the calendar-day lag, snapping on this task's own calendar — to find
+    the latest date this task could finish (FS/FF) or start (SS/SF) without
+    moving the successor. The slack is the working-day slip from the task's own
+    early date to that latest date, measured on the task's own calendar. Free
+    float is the minimum slack, capped at total float; the binding successor is
+    the tightest. (The earlier proxy measured the gap from the *forward*-imposed
+    date to the successor's early date on the successor's calendar, which
+    diverged whenever a calendar-day lag re-landed across non-working days.)
+
+    Each contribution's ``imposed_date`` is the latest allowable date the link
+    permits (the inverse constraint) — the date the slack is measured *to*.
     """
     contribs: list[DerivationContribution] = []
     ff_days = tf_days
@@ -585,29 +594,30 @@ def _derive_free_float(
             and succ.early_start is not None
             and succ.early_finish is not None
         )
-        succ_cal = _cal_for(succ.id, default_cal, task_calendars)
         if dep_type == DependencyType.FS:
-            imposed = _next_working_day(
-                _safe_offset(task.early_finish, timedelta(days=1) + lag), succ_cal
+            # Latest finish that leaves succ.early_start unmoved (inverse of the
+            # forward FS constraint; matches the backward pass's LF retreat).
+            latest = _prev_working_day(
+                _safe_offset(succ.early_start, -timedelta(days=1) - lag), cal
             )
-            succ_date = succ.early_start
+            slack = _working_days_between(task.early_finish, latest, cal)
         elif dep_type == DependencyType.SS:
-            imposed = _next_working_day(_safe_offset(task.early_start, lag), succ_cal)
-            succ_date = succ.early_start
+            latest = _retreat_calendar_days(succ.early_start, lag, cal)
+            slack = _working_days_between(task.early_start, latest, cal)
         elif dep_type == DependencyType.FF:
-            imposed = _next_working_day(_safe_offset(task.early_finish, lag), succ_cal)
-            succ_date = succ.early_finish
-        else:  # SF
-            imposed = _next_working_day(_safe_offset(task.early_start, lag), succ_cal)
-            succ_date = succ.early_finish
-        slack = max(0, _working_days_between(imposed, succ_date, succ_cal))
+            latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+            slack = _working_days_between(task.early_finish, latest, cal)
+        else:  # SF: successor finish is bounded by this task's start + lag
+            latest = _retreat_calendar_days(succ.early_finish, lag, cal)
+            slack = _working_days_between(task.early_start, latest, cal)
+        slack = max(0, slack)
         c = DerivationContribution(
             kind="successor_free_slack",
             source_task_id=succ.id,
             source_task_name=succ.name,
             dep_type=dep_type.value,
             lag_days=lag.days,
-            imposed_date=succ_date,
+            imposed_date=latest,
             slack_days=slack,
         )
         contribs.append(c)
@@ -618,7 +628,8 @@ def _derive_free_float(
     if binding is not None:
         binding.is_binding = True
     else:
-        # No successors: free float falls back to total float.
+        # No live successor bound the slip (none exist, all are complete, or every
+        # link's slack exceeds total float): free float falls back to total float.
         fallback = DerivationContribution(kind="total_float", slack_days=tf_days, is_binding=True)
         contribs.append(fallback)
     return ff_days, contribs
@@ -713,9 +724,7 @@ def derive_value(
         if q is Quantity.TOTAL_FLOAT:
             value, contribs = tf_days, tf_contribs
         else:
-            value, contribs = _derive_free_float(
-                task, task_map, succs, cal, tf_days, task_calendars, default_cal
-            )
+            value, contribs = _derive_free_float(task, succs, cal, tf_days)
 
     binding = next((c for c in contribs if c.is_binding), None)
     return Derivation(
