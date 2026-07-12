@@ -1242,6 +1242,30 @@ def expand_summary_dependencies(
     summary_ids = set(children_map.keys())
     leaf_tasks = [t for t in tasks if t.id not in summary_ids]
 
+    # ADR-0370: reject a Start-to-Start / Start-to-Finish link *from* a summary task.
+    # A summary's START is its earliest-starting leaf (ADR-0024 §3, matching MS Project
+    # semantics), but the leaf cross-product below fans a summary edge out to *every*
+    # leaf and preserves the dep type. For SS/SF that turns the successor's CPM ``max()``
+    # over its predecessors into "wait for the LAST-starting leaf" — silently
+    # over-constraining the successor by up to the summary's whole span (the #1854 bug).
+    # FS/FF anchor on the summary's FINISH (its latest-finishing leaf), which ``max()``
+    # over all leaves computes correctly, so those keep the fan-out. Rather than
+    # re-anchor to the earliest leaf (alternative a) or synthesize a hammock node
+    # (alternative b), we reject the link with an actionable error, matching MS Project's
+    # own restriction posture (it forbids SS/SF on summary tasks). This is deliberately
+    # kept out of ``_expand_edges_for_cycle_check`` — cycle detection stays conservative
+    # and must still see the expanded edges.
+    for dep in deps:
+        if dep.predecessor_id in summary_ids and dep.dep_type in (
+            DependencyType.SS,
+            DependencyType.SF,
+        ):
+            raise InvalidScheduleInput(
+                f"Start-to-Start/Start-to-Finish dependency from summary task "
+                f"{dep.predecessor_id!r} is not supported (ADR-0024); link to a specific "
+                "leaf task instead."
+            )
+
     # Resolve each endpoint to its leaves once and cache it (#1208): an endpoint id
     # recurs across many edges and _collect_leaves walks the subtree on each call.
     # Mirrors the caching the cycle-check twin (_expand_edges_for_cycle_check)
