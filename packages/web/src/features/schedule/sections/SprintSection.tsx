@@ -11,7 +11,7 @@ import {
 } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask } from '@/lib/roles';
-import { isPhaseTask } from '../isPhaseTask';
+import { isPhaseTask } from '@/lib/isPhaseTask';
 import { GuardrailNotice } from './GuardrailNotice';
 import { GuardrailBlock } from './GuardrailBlock';
 
