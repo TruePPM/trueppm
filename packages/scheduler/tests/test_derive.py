@@ -65,7 +65,10 @@ DATE_QUANTITIES = [
 
 class TestFaithfulness:
     def _network(self) -> Project:
-        # A diamond with mixed dependency types, lag, and a parallel slack path.
+        # A diamond with mixed dependency types, lag, and a parallel slack path,
+        # plus an SS-pullback chain (#1857): Q's SS link pulls P's late_start
+        # back, and the engine re-expands P's late_finish from it — a date that
+        # matches no LF-side constraint term.
         return make_project(
             [
                 task("A", "Design", 3),
@@ -73,6 +76,9 @@ class TestFaithfulness:
                 task("C", "Test", 2),
                 task("D", "Ship", 1),
                 task("E", "Docs", 1),
+                task("P", "Prep", 3),
+                task("Q", "Kickoff", 1),
+                task("R", "Long tail", 9),
             ],
             dependencies=[
                 Dependency("A", "B"),  # FS
@@ -80,6 +86,8 @@ class TestFaithfulness:
                 Dependency("B", "D"),  # FS
                 Dependency("C", "D"),  # FS
                 Dependency("A", "E"),  # FS — E is slack (short, parallel)
+                Dependency("P", "Q", dep_type=DependencyType.SS),  # SS — pulls P's LS back
+                Dependency("Q", "R"),  # FS — long chain keeps Q (hence P's LS) early
             ],
         )
 
@@ -110,6 +118,31 @@ class TestFaithfulness:
                     assert len(binding) >= 1
                 else:
                     assert len(binding) == 1, (t.id, q, len(binding))
+
+    def test_late_finish_ss_pullback_binds_duration_from_late_start(self) -> None:
+        """#1857: when an SS successor pulls late_start back, the engine
+        re-expands late_finish from it (LS-pullback branch) to a date matching
+        no LF-side term. The derivation must still produce exactly one binding
+        — the duration expansion naming the tightest SS/SF successor as the
+        honest driver — not binding=None."""
+        project = self._network()
+        result = schedule(project)
+        p = next(t for t in result.tasks if t.id == "P")
+        # Sanity-pin the worked example: Q's SS link pulls P's LS to 2026-03-02,
+        # so LF = LS + 3 working days = 2026-03-04, well before the 2026-03-13
+        # project-finish anchor (P's only LF-side constraint).
+        assert p.late_finish == date(2026, 3, 4)
+        d = derive_value(project, "P", Quantity.LATE_FINISH, result=result)
+        assert d.value == p.late_finish.isoformat()
+        assert d.binding is not None
+        assert d.binding.kind == "duration_from_late_start"
+        assert d.binding.source_task_id == "Q"
+        assert d.binding.dep_type == "SS"
+        assert d.binding.imposed_date == p.late_finish
+        assert [c for c in d.contributions if c.is_binding] == [d.binding]
+        # The pullback genuinely bypassed every LF-side term — none imposes LF.
+        lf_kinds = {"project_finish", "successor_fs", "successor_ff"}
+        assert all(c.imposed_date != p.late_finish for c in d.contributions if c.kind in lf_kinds)
 
     def test_faithful_with_completed_out_of_sequence_successor(self) -> None:
         """The derivation replay must agree with the engine when a completed,

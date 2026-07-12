@@ -91,7 +91,9 @@ class DerivationContribution:
     #: ``predecessor_ff`` | ``predecessor_sf`` | ``project_finish`` |
     #: ``successor_fs`` | ``successor_ss`` | ``successor_ff`` | ``successor_sf`` |
     #: ``actual_start`` | ``actual_finish`` | ``early_start`` | ``late_start`` |
-    #: ``successor_free_slack``.
+    #: ``successor_free_slack`` | ``total_float`` | ``duration_from_early_start`` |
+    #: ``early_finish_pullback`` | ``duration_from_late_finish`` |
+    #: ``duration_from_late_start``.
     kind: str
     #: The driving predecessor/successor task id for a link term; ``None`` for an
     #: anchor (project start/finish, data date, SNET, recorded actual).
@@ -488,9 +490,26 @@ def _derive_backward(
             contribs.append(binding)
         value = task.late_start
     else:
-        # lf_terms always includes the project_finish anchor, so min(lf_terms) is
-        # always one of them — _flag_binding never returns None here.
         binding = _flag_binding(lf_terms, task.late_finish)
+        if binding is None:
+            # Rare: an SS/SF successor pulled late_start below the LF-derived
+            # start (engine LS-pullback branch), and the forward re-expansion
+            # finish_from_start(late_start, duration) undercut every LF term —
+            # so late_finish matches none of them. The tightest SS/SF successor
+            # is the honest driver; the date its pullback forces onto the finish
+            # (via the duration expansion) is the late_finish itself.
+            driver = min(ls_terms, key=lambda c: c.imposed_date or date.max) if ls_terms else None
+            binding = DerivationContribution(
+                kind="duration_from_late_start",
+                source_task_id=driver.source_task_id if driver else None,
+                source_task_name=driver.source_task_name if driver else None,
+                dep_type=driver.dep_type if driver else None,
+                lag_days=driver.lag_days if driver else None,
+                imposed_date=task.late_finish,
+                is_binding=True,
+                slack_days=_effective_duration_days(task),
+            )
+            contribs.append(binding)
         value = task.late_finish
 
     return (value.isoformat() if value else None, contribs)
