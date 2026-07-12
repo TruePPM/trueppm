@@ -177,6 +177,11 @@ rather than reason over an incomplete list.
 Once connected, ask your assistant natural-language questions and it will pick
 the right tool:
 
+<!-- SINGLE SOURCE OF TRUTH: this list is mirrored in-app (the MCP connect dialog
+     and the read-only demo landing) by `MCP_EXAMPLE_PROMPTS` in
+     packages/web/src/lib/mcpExamplePrompts.ts (#1847). Docs can't import from the
+     web package, so keep both sides identical — change them in the same commit. -->
+
 - "Which of my projects are behind their P80 forecast?"
 - "Show me the critical path for the Apollo project and how much slack the near-critical tasks have."
 - "What's on my plate this sprint?"

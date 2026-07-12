@@ -64,6 +64,20 @@ describe('PublicScheduleSharePage', () => {
     expect(screen.getByText('Critical path (CP)')).toBeInTheDocument();
   });
 
+  it('surfaces the MCP example prompts on the demo landing (#1847)', async () => {
+    fetchMock.mockResolvedValueOnce(schedule);
+    renderAt();
+    await screen.findByText('Frame walls');
+    expect(
+      screen.getByRole('region', { name: /Explore this schedule with an AI assistant/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Ask this schedule anything')).toBeInTheDocument();
+    expect(
+      screen.getByText('What breaks if I slip the integration task 5 days?'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Connect an AI assistant/i })).toBeInTheDocument();
+  });
+
   it('draws milestones in brand-accent amber, not brand-primary sage (#1684)', async () => {
     const milestone = task({
       short_id: 'RIV-2',

@@ -149,6 +149,13 @@ describe('ApiTokensManager', () => {
     // The raw token is also shown in its own field, exactly once.
     expect(screen.getByDisplayValue('tppm_MCP_SECRET')).toBeInTheDocument();
 
+    // "Try asking:" surfaces the curated starter prompts (#1847) so an evaluator
+    // knows what to type — including the what-if headliner.
+    expect(screen.getByText('Try asking')).toBeInTheDocument();
+    expect(
+      screen.getByText('What breaks if I slip the integration task 5 days?'),
+    ).toBeInTheDocument();
+
     // One-time secret: after Done the modal closes and the token is not re-shown.
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByDisplayValue('tppm_MCP_SECRET')).not.toBeInTheDocument();
