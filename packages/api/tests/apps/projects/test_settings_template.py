@@ -70,6 +70,9 @@ def source(calendar: Calendar) -> Project:
         stale_task_threshold_days=14,
         agile_features=True,
         methodology=Methodology.AGILE,
+        # Default new-member role off its MEMBER default (ADR-0363) so the copy
+        # assertion below proves real transfer, not both-at-default.
+        default_member_role=Role.SCHEDULER,
         # Inheritable overrides — explicit (non-NULL) stored values.
         iteration_label="PI",
         task_duration_change_percent_policy=DurationChangePercentPolicy.PRORATE,
@@ -320,6 +323,92 @@ def test_copy_settings_from_rejected_on_update(source: Project, owner: Any) -> N
     )
     assert resp.status_code == 400
     assert "copy_settings_from" in resp.data
+
+
+@pytest.mark.django_db
+def test_default_member_role_copies_from_source(source: Project, owner: Any) -> None:
+    """default_member_role rides the settings-copy allowlist (ADR-0363)."""
+    resp = _client(owner).post(
+        CREATE_URL,
+        {"name": "Copy Role", "start_date": "2026-06-01", "copy_settings_from": str(source.pk)},
+        format="json",
+    )
+    new = _created_project(resp)
+    assert new.default_member_role == Role.SCHEDULER  # source's non-default value
+
+
+@pytest.mark.django_db
+def test_default_member_role_defaults_to_member(owner: Any) -> None:
+    """Without a template or explicit value, the field is MEMBER (ADR-0363 §2)."""
+    resp = _client(owner).post(
+        CREATE_URL, {"name": "Plain Role", "start_date": "2026-06-01"}, format="json"
+    )
+    new = _created_project(resp)
+    assert new.default_member_role == Role.MEMBER
+    # The read serializer exposes the human label for the settings UI.
+    assert resp.data["default_member_role"] == Role.MEMBER
+    assert resp.data["default_member_role_label"] == "Team Member"
+
+
+@pytest.mark.django_db
+def test_default_member_role_explicit_on_create(owner: Any) -> None:
+    resp = _client(owner).post(
+        CREATE_URL,
+        {"name": "Explicit Role", "start_date": "2026-06-01", "default_member_role": Role.ADMIN},
+        format="json",
+    )
+    new = _created_project(resp)
+    assert new.default_member_role == Role.ADMIN
+
+
+@pytest.mark.django_db
+def test_default_member_role_editable_after_create(owner: Any) -> None:
+    """Acceptance: all settings independently editable after create (no lock)."""
+    project = Project.objects.create(name="Editable", start_date=date(2026, 1, 5))
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)
+    resp = _client(owner).patch(
+        f"/api/v1/projects/{project.pk}/",
+        {"default_member_role": Role.VIEWER},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    project.refresh_from_db()
+    assert project.default_member_role == Role.VIEWER
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("verb", ["create", "patch"])
+def test_default_member_role_owner_is_rejected(owner: Any, verb: str) -> None:
+    """A default of OWNER is rejected (ADR-0363 §4) — an unusable, unsafe default."""
+    client = _client(owner)
+    if verb == "create":
+        resp = client.post(
+            CREATE_URL,
+            {"name": "Bad", "start_date": "2026-06-01", "default_member_role": Role.OWNER},
+            format="json",
+        )
+    else:
+        project = Project.objects.create(name="Bad Patch", start_date=date(2026, 1, 5))
+        ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)
+        resp = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"default_member_role": Role.OWNER},
+            format="json",
+        )
+    assert resp.status_code == 400
+    assert "default_member_role" in resp.data
+
+
+@pytest.mark.django_db
+def test_default_member_role_rejects_non_role_ordinal(owner: Any) -> None:
+    """Values outside the five OSS roles fail the field's choice validation."""
+    resp = _client(owner).post(
+        CREATE_URL,
+        {"name": "Junk", "start_date": "2026-06-01", "default_member_role": 137},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "default_member_role" in resp.data
 
 
 def test_allowlist_is_subset_of_model_fields_and_excludes_identity() -> None:

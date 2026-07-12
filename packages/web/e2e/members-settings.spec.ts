@@ -25,6 +25,10 @@ const FIXTURE_PROJECT = {
   start_date: '2026-01-01',
   calendar: 'default',
   methodology: 'HYBRID',
+  // Default new-member role (ADR-0363, #157) — drives the Members-tab setting and
+  // seeds the invite form's role picker.
+  default_member_role: 100,
+  default_member_role_label: 'Team Member',
 };
 
 const FIXTURE_ME = {
@@ -322,6 +326,60 @@ test.describe('Members Settings — invite form', () => {
     await page.getByRole('button', { name: /^add$/i }).click();
 
     await expect.poll(() => postBody).toMatchObject({ user: 'user-carol', role: 100 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Default role for new members (ADR-0363, #157)
+// ---------------------------------------------------------------------------
+
+test.describe('Members Settings — default member role', () => {
+  test('setting is visible with the project current default (Admin+)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    await expect(
+      page.getByRole('heading', { name: /default role for new members/i }),
+    ).toBeVisible();
+    // Reflects FIXTURE_PROJECT.default_member_role = 100 (Team Member).
+    await expect(
+      page.getByRole('combobox', { name: /default role for new members/i }),
+    ).toHaveValue('100');
+  });
+
+  test('changing the picker PATCHes default_member_role on the project', async ({ page }) => {
+    await setup(page);
+
+    let patchBody: unknown;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON();
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...FIXTURE_PROJECT, default_member_role: 300 }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECT),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    await page
+      .getByRole('combobox', { name: /default role for new members/i })
+      .selectOption('300');
+
+    await expect.poll(() => patchBody).toEqual({ default_member_role: 300 });
+  });
+
+  test('invite form role picker is seeded from the project default', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    // The invite form's own Role picker (accessible name "Role") starts at the
+    // project default (100), not a hardcoded value.
+    await expect(page.getByRole('combobox', { name: /^role$/i })).toHaveValue('100');
   });
 });
 

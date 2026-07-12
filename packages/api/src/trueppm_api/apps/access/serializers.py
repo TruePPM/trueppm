@@ -116,7 +116,21 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
 
 
 class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMembership]):
-    """Write serializer — accepts user (UUID) and role; project is injected from URL."""
+    """Write serializer — accepts user (UUID) and role; project is injected from URL.
+
+    ``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls
+    back to the project's ``default_member_role``. It remains required for a role
+    *change* (``partial_update`` always sends it), and the model column stays
+    non-null — the fallback is resolved before ``save``.
+    """
+
+    role = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Optional on add — defaults to the project's default_member_role "
+            "(ADR-0363). Required to change an existing member's role."
+        ),
+    )
 
     class Meta:
         model = ProjectMembership

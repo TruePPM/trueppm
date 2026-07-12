@@ -892,6 +892,23 @@ class PrioritizationModel(models.TextChoices):
     VALUE_EFFORT = "value_effort", "Value / Effort"
 
 
+# The RBAC ``Role`` enum lives in the access app, which imports ``VersionedModel``
+# *from this module* — so a top-level ``from ...access.models import Role`` here would
+# be circular (ADR-0363). Django 5 accepts a callable for ``choices``, evaluated lazily
+# after app-load, so the import is deferred to first use and the generated migration
+# serializes this function by dotted path rather than importing ``Role``.
+def _member_role_choices() -> list[tuple[int, str]]:
+    """Deferred ``Role.choices`` for ``Project.default_member_role`` (ADR-0363)."""
+    from trueppm_api.apps.access.models import Role
+
+    return Role.choices
+
+
+# Literal ordinal for the stored default; ``== Role.MEMBER`` (100). Kept as a literal
+# (not ``Role.MEMBER``) to avoid the circular import described on _member_role_choices.
+_DEFAULT_MEMBER_ROLE = 100
+
+
 class Project(VersionedModel):
     """A project — the top-level container for tasks and scheduling."""
 
@@ -979,6 +996,18 @@ class Project(VersionedModel):
         max_length=16,
         choices=EstimationMode.choices,
         default=EstimationMode.OPEN,
+    )
+    # Default RBAC role applied when a member is added to this project WITHOUT an
+    # explicit role (ADR-0363, #157). A convenience default only — no lock, no
+    # enforcement, no audit (governance is Enterprise #47). MEMBER is the safe
+    # middle: a person added to a project is presumed a contributor. Constrained to
+    # ``< OWNER`` in serializer validation — a default of OWNER would make every
+    # unspecified add an Owner and could never satisfy the "grant strictly below your
+    # own role" guard for an Owner actor. Choices are deferred (see
+    # _member_role_choices) to avoid a projects→access circular import.
+    default_member_role = models.IntegerField(
+        choices=_member_role_choices,
+        default=_DEFAULT_MEMBER_ROLE,
     )
     # Sprint UI gate (ADR-0037 amendment).  When False, the frontend hides
     # sprint-related affordances (Sprints route, board sprint filter,

@@ -7,7 +7,8 @@ import { useRemoveMember } from '../hooks/useRemoveMember';
 import { MemberRow } from './MemberRow';
 import { InviteForm } from './InviteForm';
 import { MentionGroupsSection } from './MentionGroupsSection';
-import { ROLE_OWNER } from '@/lib/roles';
+import { DefaultMemberRoleSetting } from './DefaultMemberRoleSetting';
+import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 
 export function MembersTab() {
   const projectId = useProjectId();
@@ -20,6 +21,9 @@ export function MembersTab() {
   if (!projectId) return null;
 
   const isOwnerRole = myRole === ROLE_OWNER;
+  // default_member_role PATCH is Admin+-gated server-side (settings-field allowlist);
+  // gate the control the same way so it never flashes for roles the server would 403.
+  const canEditDefaultRole = myRole != null && myRole >= ROLE_ADMIN;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
@@ -86,6 +90,9 @@ export function MembersTab() {
           <InviteForm projectId={projectId} />
         </section>
       )}
+
+      {/* Default role for members added without one (ADR-0363, #157) — Admin+ */}
+      {canEditDefaultRole && <DefaultMemberRoleSetting projectId={projectId} />}
 
       {/* User-defined @mention groups (issue 515) */}
       <MentionGroupsSection projectId={projectId} myRole={myRole} members={members} />

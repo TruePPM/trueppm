@@ -323,6 +323,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # Mirrors ``ProgramSerializer.my_role`` / ``my_role_label``.
     my_role = serializers.SerializerMethodField()
     my_role_label = serializers.SerializerMethodField()
+    # Human label for ``default_member_role`` (ADR-0363, #157) so the settings UI
+    # renders "Team Member" without duplicating the ordinal→label map client-side.
+    default_member_role_label = serializers.SerializerMethodField()
     # Read-only nested user payload so the General settings page can render the
     # lead's name + initials without a second per-project user fetch. Null when
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
@@ -444,6 +447,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Product-backlog prioritization model (ADR-0105 §3). Admin+-gated write,
             # enforced in ProjectViewSet alongside estimation_mode.
             "prioritization_model",
+            # Default RBAC role for members added without an explicit role (ADR-0363,
+            # #157). Plain project-local setting; constrained to < OWNER in
+            # validate_default_member_role. ``_label`` is the read-only human name.
+            "default_member_role",
+            "default_member_role_label",
             # Iteration-container display label OVERRIDE (ADR-0111/0116). Nullable:
             # NULL = inherit program/workspace. Admin+-gated write by the allowlist
             # default (not in _SCHEDULER_WRITABLE_FIELDS).
@@ -515,6 +523,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "lead_detail",
             "my_role",
             "my_role_label",
+            "default_member_role_label",
             "effective_iteration_label",
             "inherited_iteration_label",
             "effective_methodology",
@@ -646,6 +655,25 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if role is None:
             return None
         return Role(role).label
+
+    def get_default_member_role_label(self, obj: Project) -> str:
+        """Human label for the project's default new-member role (ADR-0363)."""
+        return Role(obj.default_member_role).label
+
+    def validate_default_member_role(self, value: int) -> int:
+        """Constrain the default to a real role strictly below OWNER (ADR-0363 §4).
+
+        A default of OWNER would make every unspecified add an Owner (a
+        privilege-escalation footgun) and, since add-member is Owner-only, a
+        resolved OWNER role is not *strictly below* the acting Owner and would
+        always fail the grant guard — an unusable default. Values outside the
+        five OSS roles are rejected by DRF against the field's choices.
+        """
+        if value >= Role.OWNER:
+            raise serializers.ValidationError(
+                "Default member role must be below Project Admin (Owner)."
+            )
+        return value
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.

@@ -43125,19 +43125,14 @@
             },
             "PatchedProjectMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.",
+                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"
                     },
                     "role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/RoleEnum"
-                            }
-                        ],
-                        "minimum": -2147483648,
-                        "maximum": 2147483647
+                        "type": "integer",
+                        "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
                     }
                 }
             },
@@ -43224,6 +43219,15 @@
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    },
+                    "default_member_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
                     },
                     "iteration_label": {
                         "type": "string",
@@ -45317,6 +45321,20 @@
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
+                    "default_member_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    },
+                    "default_member_role_label": {
+                        "type": "string",
+                        "description": "Human label for the project's default new-member role (ADR-0363).",
+                        "readOnly": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -45567,6 +45585,7 @@
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
+                    "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -45883,6 +45902,20 @@
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
+                    "default_member_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    },
+                    "default_member_role_label": {
+                        "type": "string",
+                        "description": "Human label for the project's default new-member role (ADR-0363).",
+                        "readOnly": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -46168,6 +46201,7 @@
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
+                    "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
@@ -46520,45 +46554,33 @@
             },
             "ProjectMembershipWrite": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.",
+                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"
                     },
                     "role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/RoleEnum"
-                            }
-                        ],
-                        "minimum": -2147483648,
-                        "maximum": 2147483647
+                        "type": "integer",
+                        "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
                     }
                 },
                 "required": [
-                    "role",
                     "user"
                 ]
             },
             "ProjectMembershipWriteRequest": {
                 "type": "object",
-                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.",
+                "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.\n\n``role`` is optional (ADR-0363, #157): when omitted on add, the viewset falls\nback to the project's ``default_member_role``. It remains required for a role\n*change* (``partial_update`` always sends it), and the model column stays\nnon-null — the fallback is resolved before ``save``.",
                 "properties": {
                     "user": {
                         "type": "integer"
                     },
                     "role": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/RoleEnum"
-                            }
-                        ],
-                        "minimum": -2147483648,
-                        "maximum": 2147483647
+                        "type": "integer",
+                        "description": "Optional on add — defaults to the project's default_member_role (ADR-0363). Required to change an existing member's role."
                     }
                 },
                 "required": [
-                    "role",
                     "user"
                 ]
             },
@@ -46661,6 +46683,15 @@
                     },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
+                    },
+                    "default_member_role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
                     },
                     "iteration_label": {
                         "type": "string",
