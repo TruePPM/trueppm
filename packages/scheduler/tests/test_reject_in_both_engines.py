@@ -19,6 +19,7 @@ from datetime import date, timedelta
 import pytest
 
 from trueppm_scheduler import (
+    Calendar,
     Dependency,
     DependencyType,
     InvalidScheduleInput,
@@ -116,3 +117,42 @@ def test_zero_lag_and_zero_duration_milestone_still_allowed() -> None:
     deps = [Dependency("A", "B", dep_type=DependencyType.FS)]
     result = schedule(_project([_task("A", timedelta(days=4)), _task("B", timedelta(0))], deps))
     assert result.project_finish is not None
+
+
+# --- #1862: reserved-field type strictness (Calendar.from_dict) -------------
+
+
+@pytest.mark.parametrize("bad", ["eight", True, None, [8]])
+def test_calendar_from_dict_rejects_non_number_hours_per_day(bad: object) -> None:
+    """serde types ``hours_per_day`` as ``f64``; a non-number (and bool, which is not
+    a JSON number to serde) parsed in Python but failed in Rust — reject it here too."""
+    with pytest.raises(InvalidScheduleInput, match="hours_per_day must be a number"):
+        Calendar.from_dict({"hours_per_day": bad})
+
+
+@pytest.mark.parametrize("bad", [123, True, ["UTC"]])
+def test_calendar_from_dict_rejects_non_string_timezone(bad: object) -> None:
+    """serde types ``timezone`` as ``String``; a non-string must be rejected to match."""
+    with pytest.raises(InvalidScheduleInput, match="timezone must be a string"):
+        Calendar.from_dict({"timezone": bad})
+
+
+# --- #1862: duplicate JSON key (Project.from_json object_pairs_hook) ---------
+
+
+def test_duplicate_json_key_rejected() -> None:
+    """``json.loads`` silently keeps the last value for a repeated key; Rust serde
+    rejects it as ``duplicate field``. Reject it here so both engines agree."""
+    with pytest.raises(InvalidScheduleInput, match="Duplicate JSON key"):
+        Project.from_json('{"id": "p", "id": "q"}')
+
+
+# --- #1862: sub-microsecond duration quantization ---------------------------
+
+
+def test_sub_microsecond_duration_rejected() -> None:
+    """A raw seconds value with sub-µs precision (1 day + 100 ns) is silently rounded
+    to a whole day by ``timedelta`` and would then pass the whole-day check; Rust
+    validates the raw f64 and rejects it. Reject it here before the evidence is lost."""
+    with pytest.raises(InvalidScheduleInput, match="sub-microsecond precision"):
+        Task.from_dict({"id": "A", "name": "A", "duration": 86400.0000001})
