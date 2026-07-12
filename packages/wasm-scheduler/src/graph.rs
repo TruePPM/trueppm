@@ -3,7 +3,7 @@
 //! Mirrors the Python `_build_graph` and `_check_cycles` functions.
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use chrono::NaiveDate;
 use petgraph::algo::toposort;
@@ -76,6 +76,62 @@ pub struct ProjectGraph {
     pub topo_order: Vec<NodeIndex>,
 }
 
+/// Reconstruct a full cycle path as task ids, entry node repeated at the end.
+///
+/// Given a `start` node known to participate in a cycle (petgraph's `toposort`
+/// returns exactly such a node), walk the graph to recover the concrete cycle so
+/// the error reads `A → B → A` — matching Python's `networkx.find_cycle` output —
+/// rather than the doubled single node petgraph alone can offer (#1862).
+///
+/// This runs only on the cyclic error path, never on the happy path, so an
+/// explicit iterative DFS (no recursion — a 5,000-task graph would blow the stack)
+/// is fine. The `done` set makes it linear: once a node is fully explored without
+/// closing a cycle, it is never revisited. If a cycle is somehow not re-found
+/// (it always is, since `start` is on one), fall back to the doubled node so the
+/// message is still well-formed.
+fn reconstruct_cycle_path(graph: &DiGraph<String, usize>, start: NodeIndex) -> Vec<String> {
+    let out = |n: NodeIndex| -> Vec<NodeIndex> {
+        graph.neighbors_directed(n, Direction::Outgoing).collect()
+    };
+    let mut path: Vec<NodeIndex> = vec![start];
+    let mut frontier: Vec<Vec<NodeIndex>> = vec![out(start)];
+    let mut cursor: Vec<usize> = vec![0];
+    let mut on_path: HashSet<NodeIndex> = HashSet::from([start]);
+    let mut done: HashSet<NodeIndex> = HashSet::new();
+
+    while let Some(depth) = path.len().checked_sub(1) {
+        if cursor[depth] < frontier[depth].len() {
+            let next = frontier[depth][cursor[depth]];
+            cursor[depth] += 1;
+            if on_path.contains(&next) {
+                // Back-edge into the current DFS path closes the cycle: emit from
+                // the re-entry node to the end, then the re-entry node again.
+                let pos = path.iter().position(|&n| n == next).expect("node on path");
+                let mut cycle: Vec<String> =
+                    path[pos..].iter().map(|&n| graph[n].clone()).collect();
+                cycle.push(graph[next].clone());
+                return cycle;
+            }
+            if done.contains(&next) {
+                continue;
+            }
+            path.push(next);
+            frontier.push(out(next));
+            cursor.push(0);
+            on_path.insert(next);
+        } else {
+            let finished = path.pop().expect("non-empty path");
+            on_path.remove(&finished);
+            done.insert(finished);
+            frontier.pop();
+            cursor.pop();
+        }
+    }
+
+    let id = graph[start].clone();
+    vec![id.clone(), id]
+}
+
 /// Build a directed graph from the project's tasks and dependencies.
 ///
 /// Edge weights are indices into `project.dependencies` for later lookup.
@@ -109,11 +165,15 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
 
     // Check for cycles via topological sort
     let topo_indices = toposort(&graph, None).map_err(|cycle_node| {
-        // Extract a cycle from the graph for the error message
-        let cycle_id = graph[cycle_node.node_id()].clone();
-        GraphBuildError::Cyclic(CyclicDependencyError {
-            cycle: vec![cycle_id.clone(), cycle_id],
-        })
+        // petgraph's `toposort` only hands back *one* node that participates in a
+        // cycle, so the message used to be a doubled single node ("B → B") while
+        // Python's networkx-backed engine reports the full cycle path
+        // ("A → B → A"). That was a cross-engine legibility mismatch (#1862): both
+        // engines correctly reject, but a user comparing the two saw different
+        // cycles. Reconstruct the full path here so the Rust message matches the
+        // informative Python form.
+        let cycle = reconstruct_cycle_path(&graph, cycle_node.node_id());
+        GraphBuildError::Cyclic(CyclicDependencyError { cycle })
     })?;
 
     // Dense node indices — the passes carry a parallel `Vec<Task>` and index it
@@ -181,7 +241,11 @@ pub fn lexicographical_topo_order(pg: &ProjectGraph, tasks: &[Task]) -> Vec<Node
             let d = &mut indegree[succ.index()];
             *d -= 1;
             if *d == 0 {
-                ready.push(Reverse((es_of(succ), tasks[succ.index()].id.as_str(), succ)));
+                ready.push(Reverse((
+                    es_of(succ),
+                    tasks[succ.index()].id.as_str(),
+                    succ,
+                )));
             }
         }
         order.push(idx);
@@ -240,7 +304,11 @@ mod tests {
             sprint_length_days: None,
         };
         let pg = build_graph(&project).unwrap();
-        let topo_ids: Vec<&str> = pg.topo_order.iter().map(|&i| pg.graph[i].as_str()).collect();
+        let topo_ids: Vec<&str> = pg
+            .topo_order
+            .iter()
+            .map(|&i| pg.graph[i].as_str())
+            .collect();
         assert_eq!(topo_ids, vec!["A", "B"]);
     }
 
@@ -271,7 +339,81 @@ mod tests {
             velocity_samples: None,
             sprint_length_days: None,
         };
-        assert!(build_graph(&project).is_err());
+        // The cycle must be reported as the full path (e.g. A → B → A), matching
+        // Python's networkx.find_cycle form, not a doubled single node (#1862).
+        match build_graph(&project) {
+            Err(GraphBuildError::Cyclic(err)) => {
+                assert_eq!(
+                    err.cycle.len(),
+                    3,
+                    "expected a full A→B→A cycle path, got {:?}",
+                    err.cycle
+                );
+                assert_eq!(
+                    err.cycle.first(),
+                    err.cycle.last(),
+                    "cycle must be closed (first id repeated at the end): {:?}",
+                    err.cycle
+                );
+                let unique: HashSet<&String> = err.cycle.iter().collect();
+                assert_eq!(
+                    unique,
+                    HashSet::from([&"A".to_string(), &"B".to_string()]),
+                    "cycle must name both A and B: {:?}",
+                    err.cycle
+                );
+            }
+            _ => panic!("expected a cyclic-dependency error"),
+        }
+    }
+
+    #[test]
+    fn test_cycle_detection_reports_full_three_node_path() {
+        // A → B → C → A: the reconstructed path must walk all three nodes and
+        // close on the entry, never collapse to a doubled single node (#1862).
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+            tasks: vec![make_task("A", 1), make_task("B", 1), make_task("C", 1)],
+            dependencies: vec![
+                Dependency {
+                    predecessor_id: "A".to_string(),
+                    successor_id: "B".to_string(),
+                    dep_type: DependencyType::FS,
+                    lag: 0.0,
+                },
+                Dependency {
+                    predecessor_id: "B".to_string(),
+                    successor_id: "C".to_string(),
+                    dep_type: DependencyType::FS,
+                    lag: 0.0,
+                },
+                Dependency {
+                    predecessor_id: "C".to_string(),
+                    successor_id: "A".to_string(),
+                    dep_type: DependencyType::FS,
+                    lag: 0.0,
+                },
+            ],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+        match build_graph(&project) {
+            Err(GraphBuildError::Cyclic(err)) => {
+                assert_eq!(err.cycle.len(), 4, "expected A→B→C→A, got {:?}", err.cycle);
+                assert_eq!(err.cycle.first(), err.cycle.last());
+                let unique: HashSet<&String> = err.cycle.iter().collect();
+                assert_eq!(
+                    unique,
+                    HashSet::from([&"A".to_string(), &"B".to_string(), &"C".to_string()])
+                );
+            }
+            _ => panic!("expected a cyclic-dependency error"),
+        }
     }
 
     #[test]

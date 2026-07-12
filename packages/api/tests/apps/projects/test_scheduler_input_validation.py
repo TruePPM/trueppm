@@ -16,11 +16,14 @@ from django.core.exceptions import ValidationError
 
 from trueppm_api.apps.projects.models import (
     MAX_DEPENDENCY_LAG_DAYS,
+    MAX_PROJECT_SPAN_DAYS,
     MAX_TASK_DURATION_DAYS,
     Calendar,
     Dependency,
     Project,
     Task,
+    project_span_days,
+    validate_project_span,
     validate_working_day_mask,
 )
 
@@ -32,10 +35,17 @@ class TestBoundParity:
         They are duplicated (not imported) so loading models doesn't pull
         numpy/networkx in via the engine; this test is the anti-drift guard.
         """
-        from trueppm_scheduler.engine import MAX_DURATION_DAYS, MAX_LAG_DAYS
+        from trueppm_scheduler.engine import (
+            MAX_DURATION_DAYS,
+            MAX_LAG_DAYS,
+        )
+        from trueppm_scheduler.engine import (
+            MAX_PROJECT_SPAN_DAYS as ENGINE_MAX_PROJECT_SPAN_DAYS,
+        )
 
         assert MAX_TASK_DURATION_DAYS == MAX_DURATION_DAYS
         assert MAX_DEPENDENCY_LAG_DAYS == MAX_LAG_DAYS
+        assert MAX_PROJECT_SPAN_DAYS == ENGINE_MAX_PROJECT_SPAN_DAYS
 
 
 class TestWorkingDayMaskValidator:
@@ -118,3 +128,67 @@ class TestDependencyLagValidation:
         with pytest.raises(ValidationError) as exc:
             dep.full_clean()
         assert "lag" in exc.value.message_dict
+
+
+class TestProjectSpanValidation:
+    """Cumulative MAX_PROJECT_SPAN_DAYS enforcement at the write boundary (#1862).
+
+    Each task's duration and each dependency's lag are individually bounded, but
+    their SUM must also fit within MAX_PROJECT_SPAN_DAYS or the CPM engine rejects
+    the whole project on every recalculate. These guards catch the oversized SUM
+    on the write that creates it, rather than after it has persisted.
+    """
+
+    def test_span_sums_durations_and_lags(self, project: Project) -> None:
+        a = Task.objects.create(project=project, name="A", duration=10)
+        b = Task.objects.create(project=project, name="B", duration=5)
+        Dependency.objects.create(predecessor=a, successor=b, lag=3)
+        # 10 + 5 durations + |3| lag.
+        assert project_span_days(project.pk) == 18
+
+    def test_span_counts_absolute_lag(self, project: Project) -> None:
+        a = Task.objects.create(project=project, name="A", duration=1)
+        b = Task.objects.create(project=project, name="B", duration=1)
+        Dependency.objects.create(predecessor=a, successor=b, lag=-7)
+        # A negative lead lag still consumes span in absolute terms.
+        assert project_span_days(project.pk) == 1 + 1 + 7
+
+    def test_span_excludes_soft_deleted_tasks(self, project: Project) -> None:
+        Task.objects.create(project=project, name="A", duration=10)
+        dead = Task.objects.create(project=project, name="B", duration=999)
+        dead.is_deleted = True
+        dead.save(update_fields=["is_deleted"])
+        assert project_span_days(project.pk) == 10
+
+    def test_added_duration_projects_post_write_state(self, project: Project) -> None:
+        Task.objects.create(project=project, name="A", duration=10)
+        # The new task's duration is folded in without it existing yet.
+        assert project_span_days(project.pk, added_task_duration_days=5) == 15
+
+    def test_exclude_task_measures_update_not_double_count(self, project: Project) -> None:
+        a = Task.objects.create(project=project, name="A", duration=10)
+        # Simulate editing A's duration to 3: exclude its stored 10, add 3.
+        assert project_span_days(project.pk, exclude_task_pk=a.pk, added_task_duration_days=3) == 3
+
+    def test_validate_under_cap_passes(self, project: Project) -> None:
+        Task.objects.create(project=project, name="A", duration=10)
+        validate_project_span(project.pk, added_task_duration_days=5)  # does not raise
+
+    def test_validate_over_cap_rejected_with_actionable_message(self, project: Project) -> None:
+        # 11 tasks at the per-task max exceed MAX_PROJECT_SPAN_DAYS in sum.
+        per_task = MAX_TASK_DURATION_DAYS
+        for i in range(10):
+            Task.objects.create(project=project, name=f"T{i}", duration=per_task)
+        assert project_span_days(project.pk) == 10 * per_task
+        with pytest.raises(ValidationError) as exc:
+            validate_project_span(project.pk, added_task_duration_days=per_task)
+        message = " ".join(exc.value.messages)
+        assert "Project span too large" in message
+        assert str(MAX_PROJECT_SPAN_DAYS) in message
+
+    def test_validate_over_cap_via_lag_rejected(self, project: Project) -> None:
+        # A task at the span cap plus any positive lag tips the sum over.
+        Task.objects.create(project=project, name="Big", duration=MAX_PROJECT_SPAN_DAYS)
+        a = Task.objects.create(project=project, name="A", duration=1)
+        with pytest.raises(ValidationError):
+            validate_project_span(a.project_id, added_lag_days=100)

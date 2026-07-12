@@ -182,11 +182,19 @@ class ScheduleResult:
     float, and an ``is_critical`` flag. ``free_float``, ``total_float``, and
     ``is_critical`` all account for every dependency type (FS/SS/FF/SF) per the
     standard critical-path float definitions.
+
+    Task ordering contract (#1862): **the order of tasks in** ``tasks`` **is
+    unspecified.** The Python engine happens to preserve input order and the
+    Rust/WASM engine emits topological order; neither is a promised part of the
+    contract, and callers must not depend on either. Look a task up by its ``id``
+    (e.g. ``{t.id: t for t in result.tasks}``), never by list position — position
+    is the one field that legitimately differs between the two engines.
     """
 
     project_id: str
     project_start: date
     project_finish: date
+    # Ordering is UNSPECIFIED — look up by id, not position (see class docstring, #1862).
     tasks: list[Task]  # copies with all CPM fields populated
     critical_path: list[str]  # task IDs in topological order along the critical path
 
@@ -1750,11 +1758,16 @@ def schedule(project: Project) -> ScheduleResult:
 
     Returns:
         ScheduleResult with ES/EF/LS/LF/float computed for every task
-        and the critical path identified.
+        and the critical path identified. The result contains exactly one entry
+        per input task.
 
         Note: ``free_float``, ``total_float``, and ``is_critical`` are all
         dependency-type complete — each accounts for FS/SS/FF/SF links per the
         standard free-/total-float definitions.
+
+        Note: the order of ``ScheduleResult.tasks`` is **unspecified** and differs
+        between the Python and Rust/WASM engines (#1862) — retrieve a task by its
+        ``id``, never by list position.
 
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.
