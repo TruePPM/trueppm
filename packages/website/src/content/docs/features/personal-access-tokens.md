@@ -50,13 +50,34 @@ SHA-256 hash of the token, never the token itself.
 2. Click **Create token**.
 3. Give it a descriptive **name** (e.g. "Power BI export") so you can tell your
    tokens apart later.
-4. Optionally set an **expiration** date. Leave it blank for a token that never
-   expires.
-5. Click **Create token**.
+4. Choose what the token is **for** (see [Token scope](#token-scope) below):
+   **Full access (acts as you)** for scripts and CI, or **Read-only for AI
+   assistants** to connect an MCP client.
+5. Set an **expiration** date. It is optional for a full-access token (leave it
+   blank for one that never expires) and **required** for a read-only AI token.
+6. Click **Create token**.
 
 The raw token is shown **exactly once**, with a copy button. Copy it now and
 store it somewhere safe — TruePPM cannot show it again, because it only keeps the
 hash. If you lose it, revoke the token and create a new one.
+
+## Token scope
+
+A personal token is minted with one of two scopes:
+
+- **Full access (`legacy:full`)** — the default. Reads and writes everything your
+  account can, for scripts, notebooks, or CI tooling that acts as you.
+- **Read-only for AI assistants (`mcp:read`)** — grants safe-method (`GET`) access
+  only and is rejected at every write path. This is the scope the
+  [MCP server](/features/mcp-server) accepts: the MCP read surface admits **only**
+  owner-scoped personal tokens, so this is the token you mint to point Claude
+  Desktop, Cursor, or Zed at your instance. A read-only AI token **must** carry an
+  expiry so a leaked read credential is self-limiting.
+
+When you create a read-only AI token, the one-time reveal also shows a
+ready-to-paste `claude_desktop_config.json` snippet built from it — copy that
+straight into your MCP client and skip the manual setup. See
+[Connect your MCP client](/administration/mcp-connect) for the full walkthrough.
 
 ## The 10-token cap
 

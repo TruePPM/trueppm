@@ -14,6 +14,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api';
 import type { PaginatedResponse } from '@/api/types';
+import type { ApiTokenScope } from '@/hooks/useApiTokens';
+
+export type { ApiTokenScope } from '@/hooks/useApiTokens';
 
 const BASE_PATH = '/me/api-tokens/';
 const TOKENS_KEY = ['me', 'api-tokens'] as const;
@@ -54,6 +57,13 @@ export interface MyApiTokenCreateBody {
   name: string;
   /** ISO-8601 timestamp; omit for a non-expiring token. */
   expires_at?: string | null;
+  /**
+   * Capability scopes to grant. Omit for the default `['legacy:full']` (a
+   * full-access PAT that acts as you). Send `['mcp:read']` to mint a read-only
+   * token for the MCP server — the read surface accepts only owner-scoped
+   * (personal) tokens, and an `mcp:read` token requires a non-null `expires_at`.
+   */
+  scopes?: ApiTokenScope[];
 }
 
 // ---------------------------------------------------------------------------

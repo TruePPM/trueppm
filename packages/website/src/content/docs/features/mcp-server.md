@@ -92,8 +92,9 @@ rather than letting every query fail later.
 
 stdio is the primary transport: the AI client launches the server as a
 subprocess and speaks MCP over the pipe. If you minted an `mcp:read` token
-from the Integrations settings page above, paste its generated snippet and
-you're done. Otherwise, add an entry to `claude_desktop_config.json` by hand:
+from the **Personal Settings → API tokens** page above, paste its generated
+snippet and you're done. Otherwise, add an entry to
+`claude_desktop_config.json` by hand:
 
 ```json
 {

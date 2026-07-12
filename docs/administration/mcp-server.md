@@ -72,9 +72,9 @@ pip install trueppm-mcp
 
 stdio is the primary transport: the AI client launches the server as a
 subprocess and speaks MCP over the pipe. If you minted an `mcp:read` token
-from the Integrations settings page, paste the snippet it gave you and skip
-ahead. Otherwise, for Claude Desktop, add an entry to `claude_desktop_config.json`
-by hand:
+from the **Personal Settings → API tokens** page, paste the snippet it gave you
+and skip ahead. Otherwise, for Claude Desktop, add an entry to
+`claude_desktop_config.json` by hand:
 
 ```json
 {
@@ -137,20 +137,23 @@ docker run --rm -p 8000:8000 \
 
 ## What it can answer
 
-The read-tool surface ships in 0.4: **15 read-only tools**, each mapping to one
+The read-tool surface ships in 0.4: **18 read-only tools**, each mapping to one
 existing REST endpoint and returning only what your role permits. Results are
 compacted for an LLM context budget (empty fields omitted, long free-text
 truncated), and project/program results carry a `caller_role` field passed
 straight through from the API.
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
-  `get_program_health` (single-program only; cross-program rollups are Enterprise).
+  `get_program_health` (single-program only; cross-program rollups are Enterprise),
+  `list_program_backlog` (a program's backlog intake pool; single-program only).
 - **Tasks & work** — `list_tasks` (filterable by status, assignee, sprint,
   criticality, type, and `updated_after`), `get_task`, `get_board_state`,
   `list_my_work`.
 - **Schedule & risk** — `get_schedule_summary` (CPM finish, P50/P80/P95, SPI,
   critical-task count), `get_monte_carlo_forecast` (latest persisted run;
-  read-only, never triggers a new simulation), `whatif` (perturb one task's
+  read-only, never triggers a new simulation), `get_release_forecast`
+  (velocity-based backlog delivery forecast — P50/P80 sprint counts and dates),
+  `whatif` (perturb one task's
   duration and recompute CPM + Monte Carlo in memory — persists nothing — for
   "what breaks if this task slips?"), `get_schedule_derivation` (the
   server-computed *why* behind a CPM value or Monte Carlo percentile — the driving
