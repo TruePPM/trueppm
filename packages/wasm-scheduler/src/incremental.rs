@@ -45,18 +45,10 @@ pub(crate) fn compute_downstream(
     pg: &ProjectGraph,
     changed_task_id: &str,
 ) -> Result<ScheduleResult, String> {
-    // A stale changed_task_id (e.g. the task was deleted while a drag-preview was
-    // in flight) would index-panic in bfs_downstream's `pg.node_index[&id]`,
-    // trapping the WASM module (#1087). Reject it as a clean Err first.
-    let Some(&changed_idx) = pg.node_index.get(changed_task_id) else {
-        return Err(format!(
-            "changed_task_id {changed_task_id:?} does not exist in the project."
-        ));
-    };
-
     // BFS to find downstream tasks (inclusive of the changed task) — a dense
-    // `Vec<bool>` visited mask indexed by node position (#1535).
-    let downstream = bfs_downstream(pg, changed_idx, project.tasks.len());
+    // `Vec<bool>` visited mask indexed by node position (#1535). A stale
+    // changed_task_id is rejected as a clean Err by `downstream_mask` (#1087).
+    let downstream = downstream_mask(pg, changed_task_id, project.tasks.len())?;
 
     // Run full CPM on a dense `Vec<Task>` indexed by node position (#1535).
     let mut tasks: Vec<crate::models::Task> = project.tasks.clone();
@@ -130,6 +122,26 @@ pub(crate) fn compute_downstream(
         tasks: task_results,
         critical_path,
     })
+}
+
+/// Resolve `changed_task_id` to its node and return the dense downstream mask
+/// (inclusive of the changed task), indexed by node position.
+///
+/// Shared by the JSON `compute_downstream` path and the typed-array drag path
+/// (#1856) so the "which tasks are downstream" logic lives in one place. A stale
+/// `changed_task_id` (deleted mid-drag) is rejected as a clean `Err` here rather
+/// than index-panicking and trapping the WASM module (#1087).
+pub(crate) fn downstream_mask(
+    pg: &ProjectGraph,
+    changed_task_id: &str,
+    node_count: usize,
+) -> Result<Vec<bool>, String> {
+    let Some(&changed_idx) = pg.node_index.get(changed_task_id) else {
+        return Err(format!(
+            "changed_task_id {changed_task_id:?} does not exist in the project."
+        ));
+    };
+    Ok(bfs_downstream(pg, changed_idx, node_count))
 }
 
 /// BFS forward from `start` to mark all downstream nodes (inclusive) in a dense
