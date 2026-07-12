@@ -311,6 +311,13 @@ test.describe('Project Integrations — CRUD UI', () => {
     await expect(snippet).toContainText('"command": "trueppm-mcp"');
     await expect(snippet).toContainText('"TRUEPPM_API_TOKEN": "tppm_MCP_RAW_SECRET"');
     await expect(page.getByRole('button', { name: 'Copy config' })).toBeVisible();
+
+    // "Try asking:" surfaces the curated starter prompts (#1847) so an evaluator
+    // knows what to type once the client is wired up.
+    await expect(page.getByText('Try asking')).toBeVisible();
+    await expect(
+      page.getByText('What breaks if I slip the integration task 5 days?'),
+    ).toBeVisible();
   });
 
   test('shows empty states when there are no integrations', async ({ page }) => {

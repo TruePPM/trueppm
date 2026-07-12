@@ -93,6 +93,13 @@ test.describe('Public schedule share viewer', () => {
     await expect(page.getByText('Dependency')).toBeVisible();
     // At least one dependency connector path is present in the timeline overlay.
     await expect(page.locator('svg polygon').first()).toBeVisible();
+    // #1847: the demo landing surfaces the curated MCP example prompts so a
+    // Claude Desktop evaluator knows what to ask — a link, not a write control.
+    await expect(page.getByRole('heading', { name: 'Ask this schedule anything' })).toBeVisible();
+    await expect(
+      page.getByText('What breaks if I slip the integration task 5 days?'),
+    ).toBeVisible();
+    await expect(page.getByRole('link', { name: /Connect an AI assistant/i })).toBeVisible();
     // Read-only: no create/edit affordances anywhere on the page.
     await expect(page.getByRole('button', { name: /add|create|new task|edit/i })).toHaveCount(0);
   });

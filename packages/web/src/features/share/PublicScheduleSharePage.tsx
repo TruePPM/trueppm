@@ -9,6 +9,7 @@ import {
 } from './scheduleShareApi';
 import { buildDependencyPaths, type DepAnchor, type DepSegment } from './scheduleSharePaths';
 import { useNoReferrer } from './useNoReferrer';
+import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
 
 // Fixed geometry so the label column, timeline column, and the SVG dependency
 // overlay share one coordinate space (rows never wrap — labels are truncated).
@@ -440,10 +441,60 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
         ) : null}
       </main>
 
+      <McpPromptsCallout />
+
       <footer className="py-6 text-center text-xs text-neutral-text-disabled">
         Shared via TruePPM · read-only
       </footer>
     </div>
+  );
+}
+
+/**
+ * "Ask this schedule anything" prompt callout (#1847). The hosted read-only demo
+ * is served through this public share page, so it is the first thing a Claude
+ * Desktop evaluator sees — but nothing here tells them what to type once they
+ * connect the MCP server. This surfaces the curated starter prompts from the
+ * shared single-source-of-truth constant (matched to the docs' "Example prompts"
+ * and the in-app connect dialog). Static, read-only copy: a labeled list and a
+ * docs link — no create/edit affordance, preserving the page's read-only
+ * contract. `MCP_EXAMPLE_PROMPTS` is never empty, so this always renders.
+ */
+function McpPromptsCallout() {
+  return (
+    <section
+      aria-label="Explore this schedule with an AI assistant"
+      className="mx-auto mt-6 max-w-6xl px-4"
+    >
+      <div className="rounded-card border border-brand-primary/20 bg-brand-primary/5 p-4">
+        <h2 className="text-sm font-semibold text-neutral-text-primary">
+          Ask this schedule anything
+        </h2>
+        <p className="mt-1 text-[12px] text-neutral-text-secondary">
+          Point an MCP client such as Claude Desktop at a TruePPM instance and ask the live
+          schedule real questions — answered server-side by the same CPM and Monte Carlo engine,
+          never guessed. Try asking:
+        </p>
+        <ul className="mt-2 space-y-1">
+          {MCP_EXAMPLE_PROMPTS.map((prompt) => (
+            <li key={prompt} className="flex gap-2 text-[12px] text-neutral-text-secondary">
+              <span aria-hidden="true" className="text-brand-primary">
+                &ldquo;
+              </span>
+              <span>{prompt}</span>
+            </li>
+          ))}
+        </ul>
+        <a
+          href="https://docs.trueppm.com/features/mcp-server"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-block rounded text-[12px] text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          Connect an AI assistant →
+        </a>
+      </div>
+    </section>
   );
 }
 

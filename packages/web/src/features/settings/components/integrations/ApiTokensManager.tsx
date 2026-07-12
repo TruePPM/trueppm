@@ -26,6 +26,7 @@ import {
   type CreatedApiToken,
 } from '@/hooks/useApiTokens';
 import type { IntegrationScope } from '@/hooks/useWebhooks';
+import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
 import { ConfirmDialog } from './WebhooksManager';
 
 export interface ApiTokensManagerProps {
@@ -470,6 +471,8 @@ function McpConnectPanel({ token, onClose }: { token: string; onClose: () => voi
         <CopyButton value={config} label="Copy config" accessibleName="Copy config" />
       </div>
 
+      <McpTryAsking />
+
       <div className="flex items-center justify-between">
         <a
           href="https://docs.trueppm.com/administration/mcp-server"
@@ -482,6 +485,36 @@ function McpConnectPanel({ token, onClose }: { token: string; onClose: () => voi
         <DoneButton onClose={onClose} />
       </div>
     </>
+  );
+}
+
+/**
+ * "Try asking:" — the curated example prompts (#1847). Once the client is wired
+ * up, an evaluator's biggest question is "what do I type?" This surfaces the
+ * canonical starter set from the shared single-source-of-truth constant, so the
+ * connect dialog, the demo landing, and the docs never drift apart. Static copy,
+ * no interaction — a labeled list, not a control.
+ */
+function McpTryAsking() {
+  return (
+    <div className="mb-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+          Try asking
+        </span>
+        <span className="h-px flex-1 bg-neutral-border/55" />
+      </div>
+      <ul className="space-y-1">
+        {MCP_EXAMPLE_PROMPTS.map((prompt) => (
+          <li key={prompt} className="flex gap-2 text-[12px] text-neutral-text-secondary">
+            <span aria-hidden="true" className="text-brand-primary">
+              &ldquo;
+            </span>
+            <span>{prompt}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
