@@ -43,6 +43,13 @@ describe('isPhaseTask', () => {
     expect(isPhaseTask(parent, [parent, child])).toBe(true);
   });
 
+  it('a mid-tree summary with a real child is a phase (broader than a WBS L1 root)', () => {
+    const root = makeTask({ id: 'r1' });
+    const mid = makeTask({ id: 'm1', parentId: 'r1' });
+    const grandchild = makeTask({ id: 'g1', parentId: 'm1' });
+    expect(isPhaseTask(mid, [root, mid, grandchild])).toBe(true);
+  });
+
   it('a childless task is not a phase (phase-in-waiting)', () => {
     const lone = makeTask({ id: 'p1' });
     expect(isPhaseTask(lone, [lone])).toBe(false);
