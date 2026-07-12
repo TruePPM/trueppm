@@ -189,9 +189,19 @@ fn incremental_matches_full_recompute() {
             let mut project = base.clone();
             for t in project.tasks.iter_mut() {
                 if &t.id == changed {
-                    // Perturb: extend this task by two working days so the
-                    // schedule genuinely shifts downstream.
-                    t.duration += 2.0 * 86_400.0;
+                    // Perturb: shift this task by two working days so the
+                    // schedule genuinely shifts downstream. Extend normally,
+                    // but shrink when extending would cross MAX_DURATION_DAYS
+                    // (mirrors validate::MAX_DURATION_DAYS = 36,525) — the
+                    // #1855 boundary fixture sits exactly at the cap, where a
+                    // +2d perturbation is validator-rejected, not
+                    // schedule-shifting.
+                    let two_days = 2.0 * 86_400.0;
+                    if t.duration + two_days > 36_525.0 * 86_400.0 {
+                        t.duration -= two_days;
+                    } else {
+                        t.duration += two_days;
+                    }
                 }
             }
 
