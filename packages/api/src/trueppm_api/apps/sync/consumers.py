@@ -10,6 +10,7 @@ from typing import Any, cast
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.observability.otel import metrics
 from trueppm_api.apps.sync.ws_auth import authenticate_scope, warn_if_legacy
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,11 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     #: close, so ``disconnect`` before ``connect`` is a safe no-op.
     _redis: Any = None
 
+    #: True once this socket was counted into the active-connections gauge (after
+    #: accept). Guards the disconnect decrement so an early-rejected connect — which
+    #: returns before the increment — never underflows the gauge (#1900).
+    _ws_counted: bool = False
+
     async def websocket_connect(self, message: dict[str, Any]) -> None:
         """Override to run sync DB queries before accepting the socket."""
         # Authenticate the handshake before calling super() which sends ACCEPT.
@@ -111,6 +117,13 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         await super().websocket_connect(message)
 
+        # Count this socket into the active-connections gauge only after accept, so
+        # rejected handshakes (which returned above) are never counted. The paired
+        # decrement in disconnect() is guarded by _ws_counted so the gauge balances
+        # even if the connection is torn down at any later point (#1900).
+        metrics.record_ws_connection_opened()
+        self._ws_counted = True
+
         # Replay events missed while this client was disconnected (ADR-0236).
         # Runs AFTER accept (send_json needs an open socket) but still inside
         # websocket_connect: AsyncJsonWebsocketConsumer's dispatch loop is blocked
@@ -126,6 +139,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             await self._replay_missed_events(since)
 
     async def disconnect(self, code: int) -> None:
+        # Balance the active-connections gauge: decrement only if this socket was
+        # actually counted at accept (early-rejected connects never were) (#1900).
+        if self._ws_counted:
+            metrics.record_ws_connection_closed()
+            self._ws_counted = False
+
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 

@@ -208,6 +208,89 @@ def test_broadcast_swallows_persist_failure_and_still_sends(replay_project: Any)
 
 
 # ---------------------------------------------------------------------------
+# Broadcast metric (#1900) — trueppm.ws.broadcast.count is bumped once per fan-out.
+# ---------------------------------------------------------------------------
+
+
+def _broadcast_count(reader: Any) -> float:
+    """Read the summed trueppm.ws.broadcast.count value from an in-memory reader."""
+    data = reader.get_metrics_data()
+    for resource_metric in data.resource_metrics:
+        for scope_metric in resource_metric.scope_metrics:
+            for metric in scope_metric.metrics:
+                if metric.name == "trueppm.ws.broadcast.count":
+                    return sum(point.value for point in metric.data.data_points)
+    return 0.0
+
+
+@pytest.mark.django_db
+def test_broadcast_increments_ws_broadcast_counter(replay_project: Any) -> None:
+    """A successful fan-out bumps trueppm.ws.broadcast.count exactly once (#1900)."""
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+    from trueppm_api.apps.observability import otel
+    from trueppm_api.apps.observability.otel import metrics
+    from trueppm_api.apps.observability.otel.provider import OTelBootstrapContext
+
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    ctx = OTelBootstrapContext(
+        schema_version=1,
+        enabled=True,
+        edition="community",
+        resource=None,
+        tracer_provider=None,
+        meter_provider=provider,
+    )
+
+    metrics.reset_for_testing()
+    try:
+        otel.install_metrics(ctx, meter_provider=provider)
+        layer = _FakeChannelLayer()
+        with patch(_GET_LAYER, return_value=layer):
+            broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
+        assert _broadcast_count(reader) == 1
+    finally:
+        metrics.reset_for_testing()
+
+
+@pytest.mark.django_db
+def test_failed_broadcast_does_not_increment_counter(replay_project: Any) -> None:
+    """A group_send failure is not counted — the metric rides the successful send only."""
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+    from trueppm_api.apps.observability import otel
+    from trueppm_api.apps.observability.otel import metrics
+    from trueppm_api.apps.observability.otel.provider import OTelBootstrapContext
+
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    ctx = OTelBootstrapContext(
+        schema_version=1,
+        enabled=True,
+        edition="community",
+        resource=None,
+        tracer_provider=None,
+        meter_provider=provider,
+    )
+
+    class _BoomLayer:
+        async def group_send(self, group: str, message: dict[str, Any]) -> None:
+            raise RuntimeError("channel layer down")
+
+    metrics.reset_for_testing()
+    try:
+        otel.install_metrics(ctx, meter_provider=provider)
+        with patch(_GET_LAYER, return_value=_BoomLayer()):
+            broadcast_board_event(str(replay_project.pk), "task_created", {"id": "t1"})
+        assert _broadcast_count(reader) == 0
+    finally:
+        metrics.reset_for_testing()
+
+
+# ---------------------------------------------------------------------------
 # WS event-type freeze (#1019) — the WebSocket analogue of test_event_type_cap.
 #
 # WS event types are scattered as string literals in broadcast_board_event() /

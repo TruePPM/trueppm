@@ -1044,3 +1044,74 @@ async def test_no_since_skips_replay_entirely(user: object, project: Project) ->
 
     sent = await _connect_capturing(str(project.pk), user, since=0)
     assert sent == []
+
+
+# ---------------------------------------------------------------------------
+# Active-connection gauge wiring (#1900) — connect counts, disconnect discounts.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_accepted_connect_and_disconnect_balance_connection_gauge(
+    user: object, project: Project
+) -> None:
+    """An accepted socket records +1 on connect and -1 on disconnect exactly once.
+
+    Spies on the record_* helpers the consumer calls (patched on the metrics module
+    it imports) rather than a live meter, so the wiring — increment after accept,
+    balanced decrement guarded by _ws_counted — is the code under test."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.close = AsyncMock()
+
+    opened = MagicMock()
+    closed = MagicMock()
+
+    with (
+        _stack(_connect_ctx(user)),
+        patch("trueppm_api.apps.observability.otel.metrics.record_ws_connection_opened", opened),
+        patch("trueppm_api.apps.observability.otel.metrics.record_ws_connection_closed", closed),
+    ):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+        opened.assert_called_once()
+        closed.assert_not_called()
+        assert consumer._ws_counted is True
+
+        await consumer.disconnect(1000)
+        closed.assert_called_once()
+        assert consumer._ws_counted is False
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_rejected_connect_does_not_discount_gauge(project: Project) -> None:
+    """A handshake rejected before accept never counted, so disconnect must not discount."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="")  # no credential → 4001
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer.close = AsyncMock()
+
+    opened = MagicMock()
+    closed = MagicMock()
+    with (
+        patch("trueppm_api.apps.observability.otel.metrics.record_ws_connection_opened", opened),
+        patch("trueppm_api.apps.observability.otel.metrics.record_ws_connection_closed", closed),
+    ):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+        opened.assert_not_called()
+        assert consumer._ws_counted is False
+
+        await consumer.disconnect(4001)
+        closed.assert_not_called()

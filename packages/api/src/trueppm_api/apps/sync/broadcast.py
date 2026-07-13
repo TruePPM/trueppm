@@ -58,6 +58,21 @@ def _group_name(project_id: str) -> str:
     return f"project_{project_id}"
 
 
+def _record_broadcast_metric() -> None:
+    """Best-effort increment of the WS broadcast counter (#1900).
+
+    Imported lazily (matching this module's lazy-import convention) and wrapped so a
+    telemetry error can never touch the latency-sensitive broadcast path — the
+    broadcast is best-effort, and so is its metric.
+    """
+    try:
+        from trueppm_api.apps.observability.otel import metrics
+
+        metrics.record_ws_broadcast()
+    except Exception:
+        logger.debug("broadcast metric increment skipped", exc_info=True)
+
+
 def _persist_board_event(project_id: str, event_type: str, payload: dict[str, Any]) -> int | None:
     """Persist a replayable event to the BoardEvent buffer; return its sequence.
 
@@ -206,6 +221,11 @@ def broadcast_board_event(
         async_to_sync(channel_layer.group_send)(group, _board_message(event_type, payload, seq))
     except Exception:
         logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
+    else:
+        # Count the successful fan-out (#1900). A strict no-op unless telemetry is
+        # on, self-guarding, and in the ``else`` branch so a failed send is not
+        # counted — this only observes the broadcast, never alters its semantics.
+        _record_broadcast_metric()
 
 
 async def abroadcast_board_event(
@@ -254,6 +274,9 @@ async def abroadcast_board_event(
         await channel_layer.group_send(group, _board_message(event_type, payload, seq))
     except Exception:
         logger.exception("abroadcast_board_event: failed to send %s to group %s", event_type, group)
+    else:
+        # Count the successful fan-out (#1900) — same contract as the sync helper.
+        _record_broadcast_metric()
 
 
 def evict_project_connection(project_id: str, user_id: str) -> None:
