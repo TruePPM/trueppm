@@ -7,6 +7,8 @@ from typing import Any, cast
 
 from rest_framework import serializers
 
+from trueppm_api.apps.projects.schema_migrations import migrate_payload
+
 from .categories import category_for
 from .models import (
     EmailSecurity,
@@ -20,6 +22,7 @@ from .models import (
     UserNotificationSettings,
     WorkspaceEmailSettings,
 )
+from .schema_migrations import SURFACE_PROJECT_NOTIFICATION_MATRIX
 
 # DKIM selector: a single DNS label component set (letters, digits, dot, dash,
 # underscore), capped to the model's 63-char column. Restricting this prevents
@@ -266,6 +269,15 @@ class ProjectNotificationPreferenceSerializer(
     The full matrix and quiet-hours window are returned in one document; the
     PATCH path merges the supplied matrix onto the stored one so a partial
     toggle does not have to repost the full 9×4 grid.
+
+    On read, matrix is run through the forward-migration registry
+    (``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204, #1916): a
+    stale stored payload is upgraded to the current shape before any client
+    sees it, mirroring ``BoardSavedViewSerializer``. The view layer's
+    ``_merge_matrix`` overlay still runs afterward (it also drops unknown
+    garbage keys, #675 — a distinct concern from the version upgrade), so this
+    is defense-in-depth for any caller that reads this serializer directly
+    rather than through ``ProjectNotificationPreferenceView``.
     """
 
     matrix = _ProjectNotificationMatrixField()
@@ -274,13 +286,38 @@ class ProjectNotificationPreferenceSerializer(
         model = ProjectNotificationPreference
         fields = [
             "matrix",
+            "schema_version",
             "paused",
             "quiet_hours_enabled",
             "quiet_hours_from",
             "quiet_hours_until",
             "updated_at",
         ]
-        read_only_fields = ["updated_at"]
+        read_only_fields = ["schema_version", "updated_at"]
+
+    def to_representation(self, instance: ProjectNotificationPreference) -> dict[str, Any]:
+        """Upgrade the stored matrix to the current shape on read.
+
+        The stored payload's version is the model's ``schema_version`` column
+        (rows predating the convention carry the migration default of 1 and
+        are already at the current 9-event shape, so the chain is a no-op for
+        them). Passing it explicitly keeps the column as the single source of
+        truth for "which shape is this" rather than sniffing the payload.
+        """
+        data = super().to_representation(instance)
+        matrix = data.get("matrix")
+        if isinstance(matrix, dict):
+            upgraded, version = migrate_payload(
+                SURFACE_PROJECT_NOTIFICATION_MATRIX,
+                matrix,
+                from_version=instance.schema_version,
+            )
+            # schema_version is exposed as a sibling metadata field, not mixed
+            # into the matrix event/channel grid — keep matrix the clean grid.
+            upgraded.pop("schema_version", None)
+            data["matrix"] = upgraded
+            data["schema_version"] = version
+        return data
 
 
 class UserNotificationSettingsSerializer(serializers.ModelSerializer[UserNotificationSettings]):

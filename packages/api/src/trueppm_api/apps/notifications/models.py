@@ -590,6 +590,19 @@ class ProjectNotificationPreference(models.Model):
     PATCH is a single UPDATE rather than a 36-row diff. Missing event/channel
     keys fall back to the default matrix on read, so a stale row won't break
     when the event set grows.
+
+    schema_version tracks the shape of ``matrix`` (ADR-0086 / ADR-0204, #1916 —
+    this surface was named by #522 but missed the #645 registry sweep). On read,
+    ``ProjectNotificationPreferenceSerializer`` runs the payload through the
+    forward-migration registry (``schema_migrations.migrate_payload``) keyed on
+    this column, mirroring ``BoardSavedView.schema_version``. Rows created before
+    this field existed are backfilled to ``schema_version=1`` by the migration
+    default; every event type in ``PROJECT_NOTIFICATION_DEFAULT_MATRIX`` shipped
+    together at #522, so no existing row is actually missing a key and the v0
+    path is a no-op for them today — it exists so a *future* event-type addition
+    (or an externally-imported row that skipped ``validate`` at write time) has a
+    forward-migration path instead of relying solely on the view-layer
+    ``_merge_matrix`` overlay.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -604,6 +617,10 @@ class ProjectNotificationPreference(models.Model):
         related_name="project_notification_preferences",
     )
     matrix = models.JSONField(default=_default_matrix)
+    schema_version = models.IntegerField(
+        default=1,
+        help_text="Matrix shape version; upgraded on read via the migration registry (ADR-0086).",
+    )
 
     # Per-user-per-project kill-switch (#589). When True, all notification
     # dispatch for this user on this project is suppressed regardless of the
