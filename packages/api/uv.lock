@@ -1817,6 +1817,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-json-logger"
+version = "2.0.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/da/95963cebfc578dabd323d7263958dfb68898617912bb09327dd30e9c8d13/python-json-logger-2.0.7.tar.gz", hash = "sha256:23e7ec02d34237c5aa1e29a070193a4ea87583bb4e7f8fd06d3de8264c4b2e1c", size = 10508, upload-time = "2023-02-21T17:40:06.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/35/a6/145655273568ee78a581e734cf35beb9e33a370b29c5d3c8fee3744de29f/python_json_logger-2.0.7-py3-none-any.whl", hash = "sha256:f380b826a991ebbe3de4d897aeec42760035ac760345e57b812938dc8b35e2bd", size = 8067, upload-time = "2023-02-21T17:40:05.117Z" },
+]
+
+[[package]]
 name = "pywin32"
 version = "312"
 source = { registry = "https://pypi.org/simple" }
@@ -2212,6 +2221,7 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "psycopg" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-json-logger" },
     { name = "redis" },
     { name = "trueppm-scheduler" },
     { name = "uvicorn", extra = ["standard"] },
@@ -2281,6 +2291,7 @@ requires-dist = [
     { name = "pytest-socket", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "pytest-split", marker = "extra == 'dev'", specifier = ">=0.9,<1.0" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.6,<4.0" },
+    { name = "python-json-logger", specifier = ">=2.0,<3.0" },
     { name = "redis", specifier = ">=7.0,<8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.7,<5.0" },
