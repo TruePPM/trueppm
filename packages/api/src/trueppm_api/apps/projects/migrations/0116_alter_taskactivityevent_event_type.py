@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0114_historicalproject_default_member_role_and_more"),
+        ("projects", "0115_historicalproject_end_date_shift_threshold_days_and_more"),
     ]
 
     operations = [
