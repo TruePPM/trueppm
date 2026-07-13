@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Any
 
 from django.db import connection, transaction
 from django.db.models import QuerySet, Sum
@@ -32,7 +33,7 @@ from trueppm_api.apps.access.permissions import (
     _membership_role,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Task
+from trueppm_api.apps.projects.models import Task, TaskActivityEvent, TaskActivityEventType
 from trueppm_api.apps.resources.models import (
     Proficiency,
     ProjectResource,
@@ -813,6 +814,46 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 # ---------------------------------------------------------------------------
 
 
+def _record_assignment_event(
+    *,
+    task_id: Any,
+    event_type: str,
+    resource: Resource,
+    actor: Any,
+    units_from: Decimal | None = None,
+    units_to: Decimal | None = None,
+) -> None:
+    """Write one task-activity audit row for a resource-assignment change (ADR-0394).
+
+    ``TaskResource`` is a through-table with no ``HistoricalRecords`` (like ``RiskTask``),
+    so assignment add/remove/re-allocation is recorded in ``TaskActivityEvent`` following
+    the ADR-0207 precedent. Written synchronously inside the request transaction so the
+    audit row commits or rolls back with the assignment mutation itself — it is a DB row,
+    not an external side effect, so (unlike the board broadcast) it is not deferred to
+    ``transaction.on_commit``. ``actor`` is the acting member (never null here — every
+    assignment change is made by a request user).
+
+    ``units`` carries the allocation: a single value for add/remove, or a
+    ``{"from", "to"}`` delta for ``assignee_units_changed`` (mirroring the
+    ``cpm_recalculated`` date-delta shape). Decimals are stringified so the JSON detail
+    is exact and stable.
+    """
+    detail: dict[str, object] = {
+        "resource_id": str(resource.pk),
+        "resource_name": resource.name,
+    }
+    if event_type == TaskActivityEventType.ASSIGNEE_UNITS_CHANGED:
+        detail["units"] = {
+            "from": str(units_from) if units_from is not None else None,
+            "to": str(units_to) if units_to is not None else None,
+        }
+    else:
+        detail["units"] = str(units_to) if units_to is not None else None
+    TaskActivityEvent.objects.create(
+        task_id=task_id, actor=actor, event_type=event_type, detail=detail
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -965,6 +1006,16 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # the project roster so they appear in Team → Roster / Heatmap.
         ensure_project_resource(obj.task.project, obj.resource)
 
+        # Task-activity audit row (ADR-0394, #1886): written synchronously in the
+        # request transaction so it commits/rolls back with the assignment itself.
+        _record_assignment_event(
+            task_id=obj.task_id,
+            event_type=TaskActivityEventType.ASSIGNEE_ADDED,
+            resource=obj.resource,
+            actor=self.request.user,
+            units_to=obj.units,
+        )
+
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -979,6 +1030,12 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
 
     def perform_update(self, serializer: BaseSerializer[TaskResource]) -> None:
         """Save the updated assignment and trigger CPM recalculation and broadcast."""
+        # Capture pre-save state so the audit row can distinguish a resource re-point
+        # (remove old + add new) from an allocation-only change (ADR-0394, #1886).
+        pre = serializer.instance
+        old_resource = pre.resource if pre is not None else None
+        old_units = pre.units if pre is not None else None
+
         obj = serializer.save()
         project_id = str(obj.task.project_id)
         task_id = str(obj.task.pk)
@@ -987,6 +1044,33 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         # Re-pointing an assignment to a different resource must roster the new
         # one — otherwise editing assignee leaves them invisible in Team views (#241).
         ensure_project_resource(obj.task.project, obj.resource)
+
+        # Task-activity audit (ADR-0394, #1886), synchronous in-transaction:
+        # a resource swap is an unassign+reassign; a units-only edit is a re-allocation.
+        if old_resource is not None and old_resource.pk != obj.resource_id:
+            _record_assignment_event(
+                task_id=obj.task_id,
+                event_type=TaskActivityEventType.ASSIGNEE_REMOVED,
+                resource=old_resource,
+                actor=self.request.user,
+                units_to=old_units,
+            )
+            _record_assignment_event(
+                task_id=obj.task_id,
+                event_type=TaskActivityEventType.ASSIGNEE_ADDED,
+                resource=obj.resource,
+                actor=self.request.user,
+                units_to=obj.units,
+            )
+        elif old_units != obj.units:
+            _record_assignment_event(
+                task_id=obj.task_id,
+                event_type=TaskActivityEventType.ASSIGNEE_UNITS_CHANGED,
+                resource=obj.resource,
+                actor=self.request.user,
+                units_from=old_units,
+                units_to=obj.units,
+            )
 
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -1005,6 +1089,17 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         project_id = str(instance.task.project_id)
         task_id = str(instance.task.pk)
         assignment_id = str(instance.pk)
+
+        # Task-activity audit row (ADR-0394, #1886) before the hard delete, while the
+        # resource/units are still readable; the task FK survives (only the assignment
+        # row is removed). Synchronous in-transaction, like the risk-link precedent.
+        _record_assignment_event(
+            task_id=instance.task_id,
+            event_type=TaskActivityEventType.ASSIGNEE_REMOVED,
+            resource=instance.resource,
+            actor=self.request.user,
+            units_to=instance.units,
+        )
         instance.delete()
 
         def _on_commit() -> None:

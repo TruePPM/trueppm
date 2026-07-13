@@ -28,6 +28,7 @@ The drawer already handles resource assignments and dependency management (DepRo
 **Change history:**
 - The `history` app provides `GET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/`
 - `HistoryRecordSerializer` returns `history_date`, `history_type`, `history_change_reason`, optionally `history_user` (hidden below Admin role server-side), and a `diff` list of `{field, old, new}` objects
+  - **Superseded for the task-drawer feed by ADR-0394 (#1881):** the per-task activity endpoint (`TaskHistoryView`, moved to the projects app in #781) shows `history_user` to **all** project members, aligning with the board activity feed (ADR-0160) rather than the Admin+ gate above. The Admin+ hiding rule (ADR-0201) still governs the separate project-level history surfaces in the `history` app.
 - CPM output fields are excluded from history records (no scheduler noise)
 - No new endpoint needed
 
@@ -45,7 +46,7 @@ The drawer already handles resource assignments and dependency management (DepRo
 **RBAC:**
 - `DependencyViewSet` restricts writes to `IsProjectScheduler` (Resource Manager+)
 - The task PATCH endpoint uses the same `IsProjectScheduler` gate for schedule-relevant field writes
-- History reads are open to all project members; `history_user` visibility is governed server-side
+- History reads are open to all project members; `history_user` visibility is governed server-side (for the task-drawer feed the actor is visible to all members — ADR-0394/#1881)
 
 ### VoC governance signals (panel avg 7.2/10 on estimate modes)
 - **Sarah (PM)**: wants `suggest_approve` as opt-in per project, approval as a one-tap inline banner

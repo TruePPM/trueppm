@@ -5305,6 +5305,11 @@ class TaskActivityEventType(models.TextChoices):
     BASELINE_DRIFT_DETECTED = "baseline_drift_detected", "Baseline Drift Detected"
     RISK_LINKED = "risk_linked", "Risk Linked"
     RISK_UNLINKED = "risk_unlinked", "Risk Unlinked"
+    # TaskResource is a through-table with no HistoricalRecords (like RiskTask), so the
+    # assignment change is recorded here rather than read from history (ADR-0394, #1886).
+    ASSIGNEE_ADDED = "assignee_added", "Assignee Added"
+    ASSIGNEE_REMOVED = "assignee_removed", "Assignee Removed"
+    ASSIGNEE_UNITS_CHANGED = "assignee_units_changed", "Assignee Allocation Changed"
 
 
 class TaskActivityEvent(models.Model):

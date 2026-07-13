@@ -309,18 +309,49 @@ class TestTaskHistoryAPI:
         # At least one record should have history_user populated.
         assert any(record.get("history_user") is not None for record in results)
 
-    def test_viewer_sees_null_history_user(
+    def test_viewer_sees_null_history_user_for_programmatic_write(
         self,
         viewer_client: APIClient,
         project: Project,
         task: Task,
         viewer_membership: ProjectMembership,
     ) -> None:
-        task.name = "Hidden author"
+        """A write with no ``_history_user`` records a null author, so the feed shows null.
+
+        This is authorless-write behavior, NOT a role gate — the actor is null because
+        the write had no request user, not because the viewer's role hid it. The
+        populated-author case (a Viewer DOES see the actor) is asserted below; the two
+        together pin down ADR-0394/#1881 policy (a): actors are visible to all members.
+        """
+        task.name = "No author set"
         task.save()
         r = viewer_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
         results = r.data.get("results", r.data)
         assert all(record.get("history_user") is None for record in results)
+
+    def test_viewer_sees_populated_history_user(
+        self,
+        viewer_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        """ADR-0394/#1881 policy (a): a Viewer sees the actor of a populated-author write.
+
+        The prior ``..._for_programmatic_write`` test only exercised a null author and so
+        gave false confidence that an Admin+ gate existed on this endpoint. It does not:
+        the per-task activity feed aligns with the board feed (ADR-0160) and shows the
+        actor to every member.
+        """
+        task._history_user = owner  # type: ignore[attr-defined]
+        task.name = "Authored change"
+        task.save()
+        r = viewer_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data.get("results", r.data)
+        assert any(record.get("history_user") is not None for record in results)
+        # history_user_display resolves to the actor's full name for the viewer too.
+        assert any(record.get("history_user_display") == "Owen" for record in results)
 
     def test_cpm_fields_absent_from_diff(
         self,
@@ -1282,3 +1313,183 @@ class TestTaskActivityKeyset:
         assert last.status_code == 200
         assert last.data["next"] is None
         assert last.data["next_until"] is None
+
+
+@pytest.mark.django_db
+class TestDependencyActivityStream:
+    """?include=dependencies surfaces dependency add/remove for edges touching a task.
+
+    Dependency IS history-tracked, so events are read from HistoricalDependency:
+    a `+` create row → dependency_added; a `~` row where is_deleted flips True →
+    dependency_removed (soft_delete writes `~`, never `-`). See ADR-0394 / #1887.
+    """
+
+    def _url(self, project: Project, task: Task) -> str:
+        return f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=dependencies"
+
+    def test_added_event_surfaces_with_direction_and_label(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        task2: Task,
+        dep: Dependency,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # task is the predecessor of the FS edge, so the OTHER task (task2) is downstream.
+        r = owner_client.get(self._url(project, task))
+        assert r.status_code == 200
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        assert added, "dependency_added missing from the feed"
+        detail = added[0]["detail"]
+        assert detail["dep_type"] == "FS"
+        assert detail["direction"] == "successor"  # other task is downstream of this one
+        assert detail["other_task_id"] == str(task2.pk)
+        assert detail["other_task_name"] == "Build"
+        assert detail["dependency_id"] == str(dep.pk)
+
+    def test_direction_is_predecessor_from_the_successor_side(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        task2: Task,
+        dep: Dependency,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # Reading task2's feed: task2 is the successor, so the other task is upstream.
+        r = owner_client.get(self._url(project, task2))
+        assert r.status_code == 200
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        assert added
+        assert added[0]["detail"]["direction"] == "predecessor"
+        assert added[0]["detail"]["other_task_name"] == "Design"
+
+    def test_soft_delete_emits_dependency_removed(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        dep: Dependency,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        dep._history_user = owner  # type: ignore[attr-defined]
+        dep.soft_delete()
+        r = owner_client.get(self._url(project, task))
+        assert r.status_code == 200
+        types = [e.get("event_type") for e in r.data["results"]]
+        assert "dependency_removed" in types
+        assert "dependency_added" in types  # the original create still shows
+        removed = next(e for e in r.data["results"] if e["event_type"] == "dependency_removed")
+        assert removed["actor"] is not None
+        assert removed["actor"]["display_name"] == "Owen"
+
+    def test_plain_field_edit_emits_no_dependency_event(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        dep: Dependency,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # A lag edit is a `~` row with is_deleted unchanged (False) — not a transition.
+        dep.lag = 3
+        dep.save()
+        r = owner_client.get(self._url(project, task))
+        assert r.status_code == 200
+        # Exactly one dependency_added (the create); the lag edit adds no event.
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        removed = [e for e in r.data["results"] if e.get("event_type") == "dependency_removed"]
+        assert len(added) == 1
+        assert len(removed) == 0
+
+    def test_cross_project_far_task_name_is_redacted(
+        self,
+        viewer_client: APIClient,
+        viewer: object,
+        calendar: Calendar,
+        project: Project,
+        task: Task,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        """ADR-0120 guard: the far endpoint's name is hidden when the caller cannot
+        access its project — direction + dep_type are still shown."""
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 1, 1), calendar=calendar
+        )
+        far_task = Task.objects.create(project=other_project, name="Secret Task", duration=1)
+        # Edge from task (viewer's project) to far_task (a project viewer can't see).
+        Dependency.objects.create(predecessor=task, successor=far_task, dep_type="FS")
+        r = viewer_client.get(self._url(project, task))
+        assert r.status_code == 200
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        assert added
+        detail = added[0]["detail"]
+        assert detail["other_task_id"] == str(far_task.pk)
+        assert detail["other_task_name"] is None  # name redacted across the boundary
+        assert detail["direction"] == "successor"
+
+
+@pytest.mark.django_db
+class TestResourceActivityStream:
+    """?include=resources surfaces assignment add/remove/re-allocation events.
+
+    TaskResource has no history (like RiskTask), so the events are read from
+    TaskActivityEvent rows written by TaskResourceViewSet. See ADR-0394 / #1886.
+    """
+
+    def test_resources_token_surfaces_assignment_events(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=owner,
+            event_type="assignee_added",
+            detail={"resource_id": "r1", "resource_name": "Ada", "units": "1.00"},
+        )
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=owner,
+            event_type="assignee_units_changed",
+            detail={
+                "resource_id": "r1",
+                "resource_name": "Ada",
+                "units": {"from": "1.00", "to": "0.50"},
+            },
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=resources"
+        )
+        assert r.status_code == 200
+        types = {e.get("event_type") for e in r.data["results"]}
+        assert "assignee_added" in types
+        assert "assignee_units_changed" in types
+        added = next(e for e in r.data["results"] if e["event_type"] == "assignee_added")
+        assert added["detail"]["resource_name"] == "Ada"
+        assert added["actor"]["display_name"] == "Owen"
+
+    def test_resources_token_excludes_other_event_types(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(
+            task=task, actor=None, event_type="cpm_recalculated", detail={}
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=resources"
+        )
+        assert r.status_code == 200
+        assert all(e.get("event_type") != "cpm_recalculated" for e in r.data["results"])
