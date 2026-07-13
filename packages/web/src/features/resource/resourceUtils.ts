@@ -374,3 +374,29 @@ export function detectOverallocatedAssignments(
   }
   return overloaded;
 }
+
+// ---------------------------------------------------------------------------
+// Partial-allocation hatch overlay (issue #1914)
+// ---------------------------------------------------------------------------
+
+/**
+ * Diagonal-stripe overlay for a partial-allocation (<100%) fill on
+ * `bg-brand-primary`. Mode-aware via the `--allocation-partial-stripe*`
+ * custom properties defined in `globals.css` — a hardcoded `rgba(0,0,0,…)`
+ * stripe doesn't adapt to the dark-mode surface (issue #1914, extends the
+ * #1638 dark-mode contrast sweep). `size` selects the pitch/token pair:
+ * `span` for the full-size AllocationSpan bar, `legend` for the smaller
+ * timeline status-bar legend swatch in ResourceView.
+ */
+export function partialAllocationStripeStyle(size: 'span' | 'legend'): { backgroundImage: string } {
+  if (size === 'span') {
+    return {
+      backgroundImage:
+        'repeating-linear-gradient(45deg, transparent, transparent 4px, var(--allocation-partial-stripe) 4px, var(--allocation-partial-stripe) 8px)',
+    };
+  }
+  return {
+    backgroundImage:
+      'repeating-linear-gradient(45deg, transparent, transparent 2px, var(--allocation-partial-stripe-legend) 2px, var(--allocation-partial-stripe-legend) 4px)',
+  };
+}

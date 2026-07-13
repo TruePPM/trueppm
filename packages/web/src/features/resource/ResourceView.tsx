@@ -26,6 +26,7 @@ import {
   formatISODate,
   parseUTCDate,
   detectOverallocatedAssignments,
+  partialAllocationStripeStyle,
 } from './resourceUtils';
 import { useResourceUtilization } from '@/hooks/useResourceUtilization';
 import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResourceAllocation';
@@ -314,7 +315,7 @@ export function ResourceView({
               <span className="flex items-center gap-1">
                 <span
                   className="w-2.5 h-2.5 rounded-chip bg-brand-primary inline-block"
-                  style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px)' }}
+                  style={partialAllocationStripeStyle('legend')}
                   aria-hidden="true"
                 />
                 Partial (&lt;100%)
