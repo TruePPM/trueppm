@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportError } from '@/lib/telemetry';
 
 interface Props {
   /** Section title — shown in the fallback so the user knows which one failed. */
@@ -35,6 +36,8 @@ export class SectionErrorBoundary extends Component<Props, State> {
         info.componentStack,
       );
     }
+    // Report to the operator's collector (no-op unless configured).
+    reportError(error, { boundary: `section:${this.props.sectionTitle}` });
   }
 
   handleRetry = (): void => {

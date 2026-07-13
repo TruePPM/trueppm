@@ -256,6 +256,38 @@ Two environment variables will control logging:
 |---|---|---|
 | `DJANGO_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `TRUEPPM_LOG_JSON` | `false` (base) / forced `true` in production | Emit JSON when `true`; human-readable console lines when `false`. Production always emits JSON. |
+## Browser (frontend) telemetry
+
+The sections above cover the **API's** server-side traces and metrics. The
+**web frontend** will gain its own opt-in, off-by-default client telemetry in
+0.4 (#1901), so a self-hoster can also see what breaks in the browser:
+
+- **Uncaught render errors** — when a route or section error boundary catches a
+  crash, it will report the error message, stack, and route to your collector
+  (alongside the console log it already writes). No user tokens, form contents,
+  or URL query strings are ever included.
+- **Core Web Vitals** — CLS, LCP, INP, FCP, and TTFB, collected from the browser's
+  native `PerformanceObserver` (no third-party script and no added bundle
+  dependency) and sent with `navigator.sendBeacon`.
+
+Like the API export, frontend telemetry will be a **strict no-op until you
+configure an endpoint** — no observers are registered, and nothing leaves the
+browser. Point it at a collector that accepts a JSON `POST` (for example an
+OpenTelemetry Collector's OTLP/HTTP receiver) in one of two ways:
+
+- **Runtime config** (no rebuild) — inject a global into `index.html` at deploy
+  time:
+
+  ```html
+  <script>
+    window.__TRUEPPM_CONFIG__ = {
+      telemetryEndpoint: 'https://collector.example.com/v1/client',
+    };
+  </script>
+  ```
+
+- **Build-time variable** — set `VITE_TELEMETRY_ENDPOINT` when building the web
+  bundle. Runtime config, when present, takes precedence.
 
 ## Enterprise
 

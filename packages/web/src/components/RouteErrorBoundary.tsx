@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useRouteError } from 'react-router';
 import { WarningIcon } from '@/components/Icons';
 import { Button } from '@/components/Button';
+import { reportError } from '@/lib/telemetry';
 
 /**
  * True when the error is a failed dynamic `import()` of a route chunk — the most
@@ -55,6 +56,15 @@ export function RouteErrorBoundary() {
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
+
+  // Report to the operator's collector (no-op unless configured) once per
+  // distinct error — keyed on `error` so a re-render doesn't re-send.
+  useEffect(() => {
+    reportError(error, {
+      boundary: 'route',
+      route: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    });
+  }, [error]);
 
   const chunkFailure = isChunkLoadError(error);
 
