@@ -3,9 +3,10 @@ import { Outlet, useMatch } from 'react-router';
 /**
  * /programs/:programId — minimal layout shell (ADR-0095).
  *
- * Program navigation (Overview · Backlog · Projects · Members · Settings) lives
- * in the global `TopBar` via `ProgramTabs`, mirroring how the project `ViewTabs`
- * work — so this shell adds no in-content chrome (no header, no second tab
+ * Program navigation (Overview · Backlog · Projects · Schedule · Resources ·
+ * Members · Assets · Settings) lives in the left rail's "This program" tier
+ * (`Sidebar.tsx`), mirroring how the project views live in its "This project"
+ * tier — so this shell adds no in-content chrome (no header, no second tab
  * strip). That keeps the program's settings sub-pages top-aligned and makes
  * settings reachable from a Settings tab, consistent with projects. Program
  * delete lives at Settings → Archive/Close; the program name shows in the left

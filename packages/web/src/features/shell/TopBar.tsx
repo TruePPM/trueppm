@@ -3,8 +3,6 @@ import { useShellStore } from '@/stores/shellStore';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { modifierKeyLabel } from '@/lib/platform';
 import { Logo } from './Logo';
-import { ProgramTabs } from './ProgramTabs';
-import { ShellNavScroller } from './ShellNavScroller';
 import { LocationSwitcher } from './LocationSwitcher';
 import { HealthCluster } from './HealthCluster';
 import { MethodologyIndicator } from './MethodologyIndicator';
@@ -125,13 +123,10 @@ export function TopBar({ onHamburgerClick }: Props) {
           on settings routes and collapses to leaf-only off a project. */}
       <LocationSwitcher />
 
-      {/* Program view nav (ADR-0095) — self-gates to program routes (renders nothing
-          on project/global routes). Project views moved to the left rail in #1642,
-          but program views have no rail home yet, so the program tab strip stays in
-          the bar. Scrolls horizontally on overflow; the right cluster stays pinned. */}
-      <ShellNavScroller>
-        <ProgramTabs />
-      </ShellNavScroller>
+      {/* Program view nav moved to the left rail's "This program" tier (#1920,
+          resolving the #1643 deferral): the rail now owns view switching for both
+          projects (#1642) and programs, so the bar no longer carries either tab
+          strip. The location switcher's leaf stays a plain "you are here" label. */}
 
       {/* Right cluster — pinned, never compresses. Tighter gap below md so the
           phone-surfaced controls (#1770 quick-log, +New, sync, bell, user) fit a

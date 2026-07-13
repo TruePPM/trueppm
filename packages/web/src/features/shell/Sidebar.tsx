@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import { useMemo, useRef, useState, useEffect, useCallback, type ComponentType } from 'react';
 import { NavLink, useNavigate } from 'react-router';
 
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
@@ -10,6 +10,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProgramId } from '@/hooks/useProgramId';
 import { useEdition } from '@/hooks/useEdition';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { toast } from '@/components/Toast';
@@ -17,7 +18,20 @@ import { AvatarInitials } from '@/components/AvatarInitials';
 import { modifierKeyLabel } from '@/lib/platform';
 import { initialsForUser, labelForUser } from '@/lib/userIdentity';
 import { registry } from '@/lib/widget-registry';
-import { LogoMark, SearchIcon, ChevronRightIcon, PlusIcon, SettingsIcon } from '@/components/Icons';
+import {
+  LogoMark,
+  SearchIcon,
+  ChevronRightIcon,
+  PlusIcon,
+  SettingsIcon,
+  OverviewIcon,
+  ListIcon,
+  WbsIcon,
+  GanttIcon,
+  ResourcesIcon,
+  BarChartIcon,
+  InboxIcon,
+} from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
 import { NewProgramModal } from '@/features/programs/NewProgramModal';
 import { ImportProjectModal } from '@/components/import/ImportProjectModal';
@@ -89,6 +103,27 @@ function rowClass(active: boolean): string {
   ].join(' ');
 }
 
+// The fixed program view surface (ADR-0095) — the SAME set and order the removed
+// TopBar `ProgramTabs` strip carried, relocated here as the rail's "This program"
+// tier (#1920). No methodology/role gating: the program tab set is short and
+// fixed, and each page gates its own writes (like the project Settings tab).
+const PROGRAM_VIEWS: {
+  view: string;
+  label: string;
+  Icon: ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
+}[] = [
+  { view: 'overview', label: 'Overview', Icon: OverviewIcon },
+  { view: 'backlog', label: 'Backlog', Icon: ListIcon },
+  { view: 'projects', label: 'Projects', Icon: WbsIcon },
+  { view: 'schedule', label: 'Schedule', Icon: GanttIcon },
+  { view: 'resources', label: 'Resources', Icon: BarChartIcon },
+  { view: 'members', label: 'Members', Icon: ResourcesIcon },
+  // Unified Assets surface — files + external links across the program's
+  // readable member projects (ADR-0215, issue 971).
+  { view: 'assets', label: 'Assets', Icon: InboxIcon },
+  { view: 'settings', label: 'Settings', Icon: SettingsIcon },
+];
+
 // The "You" card's personal rows use a raised active treatment instead of the
 // rule-37 sage tint: the active row reads as a lifted neutral surface via a
 // BORDER, never a shadow (rule 1). Idle rows match `rowClass` so the card and
@@ -146,6 +181,15 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // collapsing to the pinned list rather than showing a stale/blank role.
   const { roleLabel } = useCurrentUserRole(projectId);
   const { count: unreadCount } = useUnreadNotificationCount();
+  // Program context is detected the same way project context is: `useProgramId`
+  // reads the `:programId` path param, so it is defined only on `/programs/:id/*`
+  // routes (undefined on project and global routes). A URL is either
+  // `/projects/:id/*` or `/programs/:id/*`, never both, so `projectId` and
+  // `programId` are mutually exclusive — Tier 2 renders the project views, the
+  // program views, or (off both) the pinned list. Detecting program context here
+  // is what lets the rail become the sole nav home for program views after
+  // `ProgramTabs` left the TopBar (#1920).
+  const programId = useProgramId();
 
   // The gear under the signed-in identity opens the user's *personal* settings
   // (#1793), which every role can reach. It deliberately does not target the
@@ -622,6 +666,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             {showFull &&
               (projectId ? (
                 <ProjectViewsTier projectId={projectId} isDrawer={isDrawer} onClose={onClose} />
+              ) : programId ? (
+                <ProgramViewsTier programId={programId} isDrawer={isDrawer} onClose={onClose} />
               ) : (
                 <>
                   <h2 className={GROUP_LABEL}>Pinned</h2>
@@ -930,6 +976,78 @@ function ProjectViewsTier({
               );
             })}
           </div>
+        ))}
+      </nav>
+    </>
+  );
+}
+
+/**
+ * Tier 2 "This program" — the program analog of `ProjectViewsTier`. When the URL
+ * is `/programs/:id/*` the rail owns program-view switching, exactly as it owns
+ * project-view switching on `/projects/:id/*`. It sits in the SAME Tier-2 slot,
+ * directly below the "You" card and above the "Jump"/Browse tier — so it reads as
+ * the in-context sibling of "This project", not a new nav pattern (reuses
+ * `rowClass`, `GROUP_LABEL`, and the header-card treatment). The Programs tree
+ * itself stays in Tier 3's Browse switcher; this tier is the *active* program's
+ * views, the tree is the cross-program jump list.
+ *
+ * The view set is the fixed program surface (ADR-0095) — Overview · Backlog ·
+ * Projects · Schedule · Resources · Members · Assets · Settings — driven from the
+ * shared `PROGRAM_VIEWS` const so it can never drift from what the routes expose.
+ *
+ * This tier is the sole navigation home for these views after `ProgramTabs` was
+ * removed from the TopBar (#1920, resolving the #1643 deferral); before it,
+ * backlog/schedule/resources/members/assets had no non-URL entry point on desktop.
+ * The nav landmark keeps the `Program` accessible name the removed strip carried,
+ * so it stays the one canonical `Program` nav in the tree and existing
+ * `getByRole('navigation', { name: 'Program' })` locators still resolve — just
+ * relocated to the rail.
+ */
+function ProgramViewsTier({
+  programId,
+  isDrawer,
+  onClose,
+}: {
+  programId: string;
+  isDrawer: boolean;
+  onClose?: () => void;
+}) {
+  const { data: programs } = usePrograms();
+  const program = programs?.find((p) => p.id === programId) ?? null;
+  const name = program?.name ?? 'Program';
+  const closeDrawer = () => {
+    if (isDrawer) onClose?.();
+  };
+
+  return (
+    <>
+      <h2 className={GROUP_LABEL}>This program</h2>
+      {/* Program header card — identity SQUARE (rule 158) + name, raised by a
+          BORDER not a shadow (rule 1), mirroring the project header card so the
+          two in-context tiers read as siblings. */}
+      <div className="mb-1 flex items-center gap-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
+        <ProgramIdentitySquare program={program ?? { color: null, code: '', name }} size="sm" />
+        <p className="min-w-0 flex-1 truncate text-sm font-medium text-chrome-text-primary">
+          {name}
+        </p>
+      </div>
+
+      {/* Program view links — the sole nav home for these views since #1920 moved
+          them off the TopBar. Keeps the `Program` landmark name (see the tier
+          docstring). Settings stays active across its `/settings/*` sub-routes via
+          NavLink's default prefix matching (no `end`), matching the old tab. */}
+      <nav aria-label="Program">
+        {PROGRAM_VIEWS.map(({ view, label, Icon }) => (
+          <NavLink
+            key={view}
+            to={`/programs/${programId}/${view}`}
+            onClick={closeDrawer}
+            className={({ isActive }) => rowClass(isActive)}
+          >
+            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 truncate">{label}</span>
+          </NavLink>
         ))}
       </nav>
     </>

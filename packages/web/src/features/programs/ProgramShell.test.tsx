@@ -17,8 +17,9 @@ function renderShell(path: string) {
 }
 
 describe('<ProgramShell>', () => {
-  // #790 / ADR-0095: program navigation moved into the global TopBar (ProgramTabs),
-  // so the shell renders no in-content header or tab strip — only the routed outlet.
+  // #790 / ADR-0095 / #1920: program navigation lives in the left rail's "This
+  // program" tier (it was briefly in the TopBar via ProgramTabs), so the shell
+  // renders no in-content header or tab strip — only the routed outlet.
   it('renders only the routed outlet, with no in-content program nav or header', () => {
     renderShell('/programs/p-1/overview');
     expect(screen.getByText('OVERVIEW_OUTLET')).toBeInTheDocument();

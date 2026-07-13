@@ -58,6 +58,8 @@ vi.mock('@/hooks/useCurrentUser', () => ({
 vi.mock('@/hooks/useEdition', () => ({ useEdition: () => ({ edition: 'community' }) }));
 // Default: off a project. Tier-2 tests override to a project id.
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: vi.fn(() => undefined) }));
+// Default: off a program. The "This program" tier tests override to a program id.
+vi.mock('@/hooks/useProgramId', () => ({ useProgramId: vi.fn(() => undefined) }));
 // Default: a HYBRID project with a program. Methodology tests override per-case.
 vi.mock('@/hooks/useProject', () => ({
   useProject: vi.fn(() => ({
@@ -92,11 +94,13 @@ vi.mock('./ViewsMenu', () => ({
 }));
 
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProgramId } from '@/hooks/useProgramId';
 import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
+const mockUseProgramId = useProgramId as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
 const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
@@ -141,6 +145,7 @@ beforeEach(() => {
   });
   useCommandPaletteStore.setState({ open: false });
   mockUseProjectId.mockReturnValue(undefined);
+  mockUseProgramId.mockReturnValue(undefined);
   mockUseProject.mockReturnValue({ data: HYBRID_PROJECT, isLoading: false, error: null });
   mockUseRole.mockReturnValue({ role: 200, roleLabel: 'Resource Manager', isLoading: false });
   mockUseCurrentUser.mockReturnValue(DEFAULT_USER);
@@ -446,6 +451,72 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     renderRail();
     expect(screen.getByText('Waterfall workspace')).toBeInTheDocument();
     expect(screen.queryByText('Agile workspace')).not.toBeInTheDocument();
+  });
+});
+
+describe('Sidebar rail — Tier 2 "This program" (#1920)', () => {
+  // The program analog of "This project". It is the sole nav home for the program
+  // views after ProgramTabs was removed from the TopBar — the rail must list every
+  // one, or backlog/schedule/resources/members/assets become URL-only dead ends.
+  const PROGRAM_VIEWS = [
+    'Overview',
+    'Backlog',
+    'Projects',
+    'Schedule',
+    'Resources',
+    'Members',
+    'Assets',
+    'Settings',
+  ] as const;
+
+  beforeEach(() => {
+    mockUseProgramId.mockReturnValue('prog1');
+  });
+
+  it('renders the "This program" header card + ALL eight program-view links', () => {
+    renderRail();
+    expect(screen.getByText('This program')).toBeInTheDocument();
+    // Header card shows the active program's name (from usePrograms).
+    expect(screen.getByText('Artemis')).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: 'Program' });
+    for (const label of PROGRAM_VIEWS) {
+      expect(within(nav).getByRole('link', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('links each program view to its /programs/:id/:view segment', () => {
+    renderRail();
+    const nav = screen.getByRole('navigation', { name: 'Program' });
+    expect(within(nav).getByRole('link', { name: 'Backlog' })).toHaveAttribute(
+      'href',
+      '/programs/prog1/backlog',
+    );
+    expect(within(nav).getByRole('link', { name: 'Schedule' })).toHaveAttribute(
+      'href',
+      '/programs/prog1/schedule',
+    );
+    expect(within(nav).getByRole('link', { name: 'Settings' })).toHaveAttribute(
+      'href',
+      '/programs/prog1/settings',
+    );
+  });
+
+  it('does not render the "This program" tier off a program route', () => {
+    mockUseProgramId.mockReturnValue(undefined);
+    renderRail();
+    expect(screen.queryByText('This program')).not.toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Program' })).not.toBeInTheDocument();
+  });
+
+  it('a project context takes precedence over a program context (mutually exclusive URLs)', () => {
+    // Defense-in-depth: a URL is either /projects/:id or /programs/:id, never both,
+    // but if both hooks somehow resolved the project tier must win (it is checked
+    // first) so the rail never double-renders.
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseProgramId.mockReturnValue('prog1');
+    renderRail();
+    expect(screen.getByText('This project')).toBeInTheDocument();
+    expect(screen.queryByText('This program')).not.toBeInTheDocument();
   });
 });
 

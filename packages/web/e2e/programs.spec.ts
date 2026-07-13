@@ -314,22 +314,24 @@ test.describe('Programs — "Use program defaults" on project create (#1909)', (
   });
 });
 
-test.describe('Programs — shell tabs', () => {
-  // #790 / ADR-0095: program navigation lives in the global TopBar (mirroring
-  // project ViewTabs) and now includes a discoverable Settings tab.
-  test('program nav is in the top bar and includes a Settings tab', async ({ page }) => {
+test.describe('Programs — shell nav', () => {
+  // #790 / ADR-0095 / #1920: program navigation lives in the left rail's "This
+  // program" tier (mirroring the project "This project" tier) and includes a
+  // discoverable Settings entry. Detailed reachability of all 8 views lives in
+  // program-rail-nav.spec.ts.
+  test('program nav is in the rail and includes a Settings entry', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/overview`);
 
     const nav = page.getByRole('navigation', { name: 'Program' });
     await expect(nav).toBeVisible();
     await expect(nav.getByRole('link', { name: /Backlog/i })).toBeVisible();
-    // Assets tab (ADR-0215, #971) is a discoverable top-bar tab too.
+    // Assets (ADR-0215, #971) is a discoverable rail entry too.
     await expect(nav.getByRole('link', { name: /Assets/i })).toBeVisible();
     await nav.getByRole('link', { name: /Settings/i }).click();
 
     // Lands on the consolidated program settings page (ADR-0146; no per-section
-    // route redirect anymore), and the Settings tab stays active there.
+    // route redirect anymore), and the Settings entry stays active there.
     await page.waitForURL(`**/programs/${PROGRAM_ID}/settings`);
     await expect(
       page.getByRole('navigation', { name: 'Program' }).getByRole('link', { name: /Settings/i }),
