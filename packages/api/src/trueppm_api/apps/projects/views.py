@@ -6667,6 +6667,14 @@ class RiskViewSet(
 
         project_id = str(instance.project_id)
         risk_id = str(instance.pk)
+        # Deleting a risk severs every task link, so each linked task's feed gets a
+        # risk_unlinked event (ADR-0207, #1877) — mirrors perform_create/perform_update.
+        _record_risk_link_events(
+            instance,
+            added=[],
+            removed=list(instance.tasks.values_list("id", flat=True)),
+            actor=self.request.user,
+        )
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
@@ -8087,14 +8095,22 @@ def _build_activity_events(
             )
 
     if "attachments" in include:
+        # Append-only feed (#1879): soft-deleted attachments keep their upload
+        # event (the label is non-sensitive metadata, mirroring the comments
+        # stream above) and gain an attachment_deleted event from deleted_at.
         attachments = list(
-            task.attachments.select_related("uploaded_by")
-            .filter(is_deleted=False)
-            .order_by("-created_at")[: cap + 1]
+            task.attachments.select_related("uploaded_by", "deleted_by").order_by("-created_at")[
+                : cap + 1
+            ]
         )
         truncated = truncated or len(attachments) > cap
         for a in attachments[:cap]:
             is_url = bool(a.external_url)
+            detail = {
+                "attachment_id": str(a.id),
+                "kind": "url" if is_url else "file",
+                "label": a.external_title if is_url else a.file_name,
+            }
             events.append(
                 (
                     a.created_at,
@@ -8102,14 +8118,24 @@ def _build_activity_events(
                         "event_type": "attachment_uploaded",
                         "actor": _activity_actor(a.uploaded_by),
                         "timestamp": a.created_at.isoformat(),
-                        "detail": {
-                            "attachment_id": str(a.id),
-                            "kind": "url" if is_url else "file",
-                            "label": a.external_title if is_url else a.file_name,
-                        },
+                        "detail": detail,
                     },
                 )
             )
+            # Rows deleted before deleted_at was stamped (legacy null) contribute
+            # only their retained upload event — no timestamp to anchor a delete.
+            if a.is_deleted and a.deleted_at is not None:
+                events.append(
+                    (
+                        a.deleted_at,
+                        {
+                            "event_type": "attachment_deleted",
+                            "actor": _activity_actor(a.deleted_by),
+                            "timestamp": a.deleted_at.isoformat(),
+                            "detail": dict(detail),
+                        },
+                    )
+                )
 
     # schedule + risks share the TaskActivityEvent source (ADR-0207); each token
     # selects its own event_type subset so the per-source cap semantics match the
