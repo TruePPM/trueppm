@@ -7,6 +7,7 @@ import urllib.parse
 
 import environ
 
+from trueppm_api.apps.observability.logging import build_logging_config
 from trueppm_api.core.security_checks import (
     validate_attachment_storage,
     validate_integration_encryption_key,
@@ -18,6 +19,7 @@ from .base import (
     ALLOW_LOCAL_ATTACHMENT_STORAGE,
     ALLOW_UNENCRYPTED_DB,
     DATABASES,
+    DJANGO_LOG_LEVEL,
     INTEGRATION_ENCRYPTION_KEY,
     STORAGES,
 )
@@ -25,6 +27,13 @@ from .base import (
 env = environ.Env()
 
 DEBUG = False
+
+# Force single-line JSON logs in production so a collector (Loki/ELK/CloudWatch)
+# can index each record's fields — including the OTel trace_id/span_id/request_id
+# the filter injects (ADR-0223, #1899) — for log-to-trace correlation. The base
+# config defaults to human-readable console output for dev; here we always emit
+# JSON regardless of TRUEPPM_LOG_JSON, while still honouring DJANGO_LOG_LEVEL.
+LOGGING = build_logging_config(level=DJANGO_LOG_LEVEL, json_output=True)
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 

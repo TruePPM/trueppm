@@ -212,6 +212,41 @@ service:
       exporters: [prometheus]
 ```
 
+## Structured logging & trace correlation
+
+Alongside OTLP export, TruePPM 0.4 **will emit structured application logs**
+correlated with the traces above. In production the API will write **single-line
+JSON** to stdout — one object per log record — so your log stack (Loki,
+Elasticsearch, CloudWatch) can index the fields directly instead of parsing free
+text. Development keeps human-readable console output.
+
+Every record will carry three correlation fields:
+
+| Field | Value |
+|---|---|
+| `trace_id` | The active OpenTelemetry trace id (32-hex), or `null` when no span is active |
+| `span_id` | The active span id (16-hex), or `null` |
+| `request_id` | A per-request id, adopted from an inbound `X-Request-ID` header when present and otherwise generated, and echoed back on the response `X-Request-ID` header |
+
+Because `trace_id` / `span_id` are formatted identically to the ids on the exported
+spans, a slow request seen in Tempo/Jaeger can be pivoted straight to the exact log
+lines emitted while that trace was active — and a user quoting the `X-Request-ID`
+from their browser's network tab lets an operator find that request's logs directly.
+
+:::note[Log correlation, not log export]
+0.4 will ship structured logs to **stdout** for your existing log collector to
+scrape. Shipping these records to the OTLP collector as OpenTelemetry log signals
+is planned for a later release; for now, collect logs the way you already collect
+container stdout.
+:::
+
+Two environment variables will control logging:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DJANGO_LOG_LEVEL` | `INFO` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `TRUEPPM_LOG_JSON` | `false` (base) / forced `true` in production | Emit JSON when `true`; human-readable console lines when `false`. Production always emits JSON. |
+
 ## Enterprise
 
 The provider is an OSS extension point. The TruePPM Enterprise edition attaches

@@ -95,6 +95,12 @@ MIDDLEWARE = [
     # fail. WhiteNoise must sit immediately after SecurityMiddleware (its documented
     # position) so it can short-circuit static requests before the rest of the stack.
     "whitenoise.middleware.WhiteNoiseMiddleware",
+    # Assign each request a correlation id and bind it to the logging contextvar
+    # (#1899) so every log record emitted while handling the request carries it,
+    # and echo it back on the response. Placed high — but after WhiteNoise, which
+    # short-circuits static requests that need no id — so the id is set before any
+    # downstream middleware or view can log.
+    "trueppm_api.apps.observability.logging.RequestIDMiddleware",
     # CSP header on every response (#897). Placed high so the header is attached
     # even for early short-circuit responses (redirects, errors).
     "trueppm_api.core.csp.ContentSecurityPolicyMiddleware",
@@ -668,6 +674,28 @@ TRUEPPM_OTEL_METRICS_ENABLED: bool = env.bool("TRUEPPM_OTEL_METRICS_ENABLED", de
 # The arg carries the ratio (0.0–1.0) for the ratio-based samplers.
 OTEL_TRACES_SAMPLER: str = env("OTEL_TRACES_SAMPLER", default="parentbased_always_on")
 OTEL_TRACES_SAMPLER_ARG: str = env("OTEL_TRACES_SAMPLER_ARG", default="")
+
+# ---------------------------------------------------------------------------
+# Structured logging + trace correlation (ADR-0223, #1899)
+#
+# The base config emits human-readable console lines that still carry the OTel
+# trace_id/span_id/request_id inline, so a developer sees the same correlation
+# context locally. prod.py flips this to single-line JSON (TRUEPPM_LOG_JSON) for a
+# collector to index. The level honours DJANGO_LOG_LEVEL (default INFO) — the same
+# well-known name operators set on every other Django service. Trace correlation
+# (not OTLP log export, which is #711) means a log line can be pivoted straight to
+# the trace exported for the same request.
+# ---------------------------------------------------------------------------
+
+DJANGO_LOG_LEVEL: str = env("DJANGO_LOG_LEVEL", default="INFO")
+# JSON is opt-in in the base config so dev stays readable; prod.py sets this True.
+TRUEPPM_LOG_JSON: bool = env.bool("TRUEPPM_LOG_JSON", default=False)
+
+from trueppm_api.apps.observability.logging import (  # noqa: E402
+    build_logging_config,
+)
+
+LOGGING = build_logging_config(level=DJANGO_LOG_LEVEL, json_output=TRUEPPM_LOG_JSON)
 
 # ---------------------------------------------------------------------------
 # Integration credential encryption key (ADR-0049 §3)
