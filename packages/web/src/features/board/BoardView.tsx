@@ -33,7 +33,6 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
-import { usePageTitle } from '@/hooks/usePageTitle';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import {
   DndContext,
@@ -1550,7 +1549,8 @@ function MobileBoard({
 // ---------------------------------------------------------------------------
 
 export function BoardView() {
-  usePageTitle('Board');
+  // document.title for this route is set at the router level (router.tsx
+  // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectId = useProjectId() ?? '';
   // Public board share (#1486): mint/manage is Admin+; the toolbar item is hidden
   // for lower roles and the dialog surfaces the server kill-switch 403 verbatim.

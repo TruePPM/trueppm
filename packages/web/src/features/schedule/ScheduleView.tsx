@@ -9,7 +9,6 @@ import {
 } from 'react';
 import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
-import { usePageTitle } from '@/hooks/usePageTitle';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
@@ -298,7 +297,8 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 // ---------------------------------------------------------------------------
 
 export function ScheduleView() {
-  usePageTitle('Schedule');
+  // document.title for this route is set at the router level (router.tsx
+  // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectId = useProjectId() ?? null;
   const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
