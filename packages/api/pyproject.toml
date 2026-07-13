@@ -98,6 +98,13 @@ dependencies = [
     "opentelemetry-instrumentation-celery>=0.64b0,<1",
     "opentelemetry-instrumentation-psycopg>=0.64b0,<1",
     "opentelemetry-instrumentation-asgi>=0.64b0,<1",
+    # Structured JSON log formatter (#1899). MIT — permissive, Apache-2.0 compatible,
+    # so license:check:py stays green. Pure-Python, no runtime transitive deps. Emits
+    # single-line JSON so log records carry the OTel trace_id/span_id/request_id as
+    # first-class fields a collector can index (ADR-0223 correlation; OTLP log *export*
+    # is deferred to #711). Pinned to the 2.x line where `pythonjsonlogger.jsonlogger`
+    # is the canonical, non-deprecated formatter path referenced in settings LOGGING.
+    "python-json-logger>=2.0,<3.0",
 ]
 
 [project.optional-dependencies]
