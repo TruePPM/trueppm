@@ -422,8 +422,9 @@ class Calendar:
             The reconstructed :class:`Calendar`.
 
         Raises:
-            InvalidScheduleInput: If ``data`` is not a mapping or ``working_days``
-                is not an integer bitmask in range.
+            InvalidScheduleInput: If ``data`` is not a mapping, ``working_days``
+                is not an integer bitmask in range, ``hours_per_day`` is not a
+                number, or ``timezone`` is not a string.
         """
         from trueppm_scheduler.engine import InvalidScheduleInput
 
@@ -441,11 +442,25 @@ class Calendar:
             raise InvalidScheduleInput(
                 f"working_days must be an integer bitmask in [0, 127] (got {wd!r})."
             )
+        # The reserved-but-inert hours_per_day/timezone fields were duck-typed here
+        # (any value passed straight through) while the Rust engine's serde is
+        # type-strict — ``hours_per_day: f64`` accepts only a JSON number and
+        # ``timezone: String`` only a JSON string. A document with
+        # ``{"hours_per_day": "eight"}`` therefore parsed in Python and failed in
+        # Rust: a silent cross-engine divergence (#1862). Validate the types here to
+        # match serde's acceptance exactly. bool is an int subclass in Python but is
+        # not a JSON number to serde, so reject it explicitly.
+        hpd = data.get("hours_per_day", 8.0)
+        if isinstance(hpd, bool) or not isinstance(hpd, (int, float)):
+            raise InvalidScheduleInput(f"hours_per_day must be a number (got {hpd!r}).")
+        tz = data.get("timezone", "UTC")
+        if not isinstance(tz, str):
+            raise InvalidScheduleInput(f"timezone must be a string (got {tz!r}).")
         return cls(
             working_days=wd,
             exceptions=[DateRange.from_dict(e) for e in data.get("exceptions", [])],
-            hours_per_day=data.get("hours_per_day", 8.0),
-            timezone=data.get("timezone", "UTC"),
+            hours_per_day=hpd,
+            timezone=tz,
         )
 
     @classmethod
@@ -666,7 +681,11 @@ class Project:
         from trueppm_scheduler.engine import InvalidScheduleInput
 
         try:
-            data = json.loads(s, parse_constant=_reject_nonfinite)
+            data = json.loads(
+                s,
+                parse_constant=_reject_nonfinite,
+                object_pairs_hook=_reject_duplicate_keys,
+            )
         except (ValueError, TypeError) as err:  # JSONDecodeError is a ValueError
             raise InvalidScheduleInput(f"Invalid project JSON: {err}") from err
         except RecursionError as err:
@@ -684,6 +703,25 @@ class Project:
 def _reject_nonfinite(token: str) -> Any:
     """parse_constant hook: reject NaN / Infinity / -Infinity in a project document."""
     raise ValueError(f"Non-finite JSON literal {token!r} is not allowed in a project document.")
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """object_pairs_hook: reject a JSON object with a repeated key (#1862).
+
+    ``json.loads`` silently keeps the *last* value for a duplicate key, so a
+    document carrying (say) ``"duration"`` twice would schedule with the second
+    value with no diagnostic. The Rust/WASM engine's serde deserializer rejects
+    the identical document with a ``duplicate field`` error, so the lenient Python
+    side is a silent cross-engine divergence: the same JSON schedules in one engine
+    and fails to parse in the other. Reject a repeated key here so both engines
+    agree that a duplicate key is malformed input, not a merge.
+    """
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key {key!r} is not allowed in a project document.")
+        result[key] = value
+    return result
 
 
 def _serialize(obj: Any) -> Any:
@@ -752,4 +790,24 @@ def _parse_timedelta(val: Any) -> timedelta:
     seconds = float(val)
     if not math.isfinite(seconds):
         raise ValueError(f"Duration must be a finite number of seconds, got {val!r}.")
-    return timedelta(seconds=seconds)
+    td = timedelta(seconds=seconds)
+    # Quantization guard (#1862). ``timedelta`` has microsecond resolution, so a
+    # raw seconds value with a sub-microsecond fraction — e.g. 86400.0000001 s
+    # (1 day + 100 ns) — is silently *rounded* to the nearest microsecond here
+    # (→ exactly 1 day) and then passes the downstream whole-day check. The Rust
+    # engine instead validates the *raw* f64 (``seconds % 86400.0 == 0``) and
+    # rejects the same value, so the sub-µs fraction was a silent cross-engine
+    # divergence. Detect the quantization by round-tripping: any timedelta that
+    # ``to_dict`` ever emits is an exact microsecond multiple, so ``total_seconds()``
+    # reproduces the input exactly; a value that does not round-trip carried
+    # sub-µs precision that would be lost. Rejecting it here — before the timedelta
+    # erases the evidence — is what item #1818 (which caught only the ≥0.5 µs,
+    # representable half) could not, and it does not regress #1818: whole-day
+    # multiples within the duration/lag caps are exactly representable in f64 and
+    # round-trip cleanly, so a legitimate whole-day duration is never over-rejected.
+    if td.total_seconds() != seconds:
+        raise ValueError(
+            f"Duration {seconds!r}s carries sub-microsecond precision that would be "
+            "silently quantized; the Rust engine rejects it, so it is rejected here too."
+        )
+    return td

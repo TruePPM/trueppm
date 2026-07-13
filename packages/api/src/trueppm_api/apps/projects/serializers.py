@@ -81,6 +81,7 @@ from trueppm_api.apps.projects.models import (
     TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
+    validate_project_span,
 )
 from trueppm_api.apps.projects.schema_migrations import (
     SURFACE_BOARD_SAVED_VIEW,
@@ -2741,6 +2742,31 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # project start" invariant holds because the project start moved. The
         # shift is a side effect, so it runs at save time, not in validate().
 
+        # Cumulative project-span guard (#1862): the model field caps a single
+        # task's duration, but the CPM engine also rejects a project whose task
+        # durations + dependency lags SUM past MAX_PROJECT_SPAN_DAYS. Without a
+        # write-boundary check ~11 max-duration tasks persist fine and then every
+        # recalculate_schedule throws (run FAILED, Monte Carlo 400) until the data
+        # is hand-corrected. Fail early here so the error lands on the offending
+        # write. Enforced on create, and on any update that changes this task's
+        # duration (an unrelated PATCH must not be blocked by pre-existing data).
+        project = self.instance.project if self.instance is not None else attrs.get("project")
+        if project is not None and (self.instance is None or "duration" in attrs):
+            from django.core.exceptions import ValidationError as DjangoValidationError
+
+            effective_duration = attrs.get(
+                "duration",
+                self.instance.duration if self.instance is not None else 1,
+            )
+            try:
+                validate_project_span(
+                    project.pk,
+                    exclude_task_pk=self.instance.pk if self.instance is not None else None,
+                    added_task_duration_days=effective_duration,
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"duration": exc.messages}) from exc
+
         self._validate_product_backlog(attrs)
 
         return attrs
@@ -4304,6 +4330,25 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
 
         if predecessor and successor:
             self._check_no_cycle(predecessor, successor)
+
+        # Cumulative project-span guard (#1862): a same-project edge's lag adds to
+        # the project's total span, which the CPM engine caps at
+        # MAX_PROJECT_SPAN_DAYS. Validate the projected sum at the write boundary so
+        # an oversized lag fails here rather than breaking every later recalculate.
+        # Cross-project edges are scheduled in the program graph, not one project's
+        # span, so they are left to that path.
+        if predecessor and successor and not cross_project:
+            from django.core.exceptions import ValidationError as DjangoValidationError
+
+            effective_lag = attrs.get("lag", self.instance.lag if self.instance is not None else 0)
+            try:
+                validate_project_span(
+                    predecessor.project_id,
+                    exclude_dependency_pk=self.instance.pk if self.instance is not None else None,
+                    added_lag_days=effective_lag,
+                )
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"lag": exc.messages}) from exc
         return attrs
 
     def _resolve_cross_project_consent(

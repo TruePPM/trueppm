@@ -27,6 +27,16 @@ from trueppm_api.fields import LtreeField
 # lockstep with the engine's exported values. See issue #749.
 MAX_TASK_DURATION_DAYS = 36_525
 MAX_DEPENDENCY_LAG_DAYS = 36_525
+# Cumulative span cap — mirror of trueppm_scheduler.engine.MAX_PROJECT_SPAN_DAYS
+# (366 * 1000). Per-task duration and per-lag are each capped above, but the CPM
+# engine *also* rejects a project whose durations + lags SUM past this ceiling
+# (the schedule cannot be represented within the date range). Without a
+# write-boundary check for the sum, ~11 tasks at the per-task max persist fine and
+# then every recalculate_schedule throws InvalidScheduleInput → the run goes
+# FAILED and Monte Carlo returns 400 until the data is hand-corrected (#1862). The
+# sum is validated at write time so the failure surfaces on the offending write.
+# test_scheduler_bound_parity asserts this stays in lockstep with the engine.
+MAX_PROJECT_SPAN_DAYS = 366 * 1000
 
 
 def validate_working_day_mask(value: int) -> None:
@@ -39,6 +49,99 @@ def validate_working_day_mask(value: int) -> None:
     """
     if value & 0b111_1111 == 0:
         raise ValidationError("working_days must set at least one weekday bit (Mon=1 … Sun=64).")
+
+
+def project_span_days(
+    project_id: Any,
+    *,
+    exclude_task_pk: Any = None,
+    exclude_dependency_pk: Any = None,
+    added_task_duration_days: int = 0,
+    added_lag_days: int = 0,
+) -> int:
+    """Return an upper bound (working days) on a project's cumulative schedule span.
+
+    Sums the durations of every live task and the absolute lag of every live
+    same-project dependency — the two quantities the CPM engine adds up when it
+    guards :data:`MAX_PROJECT_SPAN_DAYS`. ``added_*`` and ``exclude_*`` let a
+    write path model the *post-write* state: exclude the row being edited from the
+    stored sum and add the incoming value, so an update is measured against what
+    it would become, not what it currently is.
+
+    This is a deliberately conservative mirror of the engine's span bound (it does
+    not fold in PERT/velocity worst-cases or planned-start offsets, which the
+    engine also counts) — it exists to catch the common, high-value case (many
+    max-duration tasks summing past the ceiling) at the write boundary. The engine
+    remains the exhaustive backstop.
+
+    Args:
+        project_id: The project whose span to measure.
+        exclude_task_pk: A task to omit from the stored duration sum (the task
+            being created/updated), or ``None``.
+        exclude_dependency_pk: A dependency to omit from the stored lag sum, or
+            ``None``.
+        added_task_duration_days: Duration (days) of the incoming/updated task to
+            add to the sum.
+        added_lag_days: Lag (days, signed) of the incoming/updated dependency;
+            counted by absolute value like the engine.
+
+    Returns:
+        The projected total span in working days.
+    """
+    from django.db.models import Sum
+
+    task_qs = Task.objects.filter(project_id=project_id, is_deleted=False)
+    if exclude_task_pk is not None:
+        task_qs = task_qs.exclude(pk=exclude_task_pk)
+    duration_sum = task_qs.aggregate(total=Sum("duration"))["total"] or 0
+
+    # Only same-project edges contribute to a single project's span: a
+    # cross-project edge is scheduled in the program graph, not this project's
+    # recalculate, so folding its lag in here would over-count.
+    dep_qs = Dependency.objects.filter(
+        predecessor__project_id=project_id,
+        successor__project_id=project_id,
+        is_deleted=False,
+    )
+    if exclude_dependency_pk is not None:
+        dep_qs = dep_qs.exclude(pk=exclude_dependency_pk)
+    lag_sum = sum(abs(lag) for lag in dep_qs.values_list("lag", flat=True))
+
+    return duration_sum + max(0, added_task_duration_days) + lag_sum + abs(added_lag_days)
+
+
+def validate_project_span(
+    project_id: Any,
+    *,
+    exclude_task_pk: Any = None,
+    exclude_dependency_pk: Any = None,
+    added_task_duration_days: int = 0,
+    added_lag_days: int = 0,
+) -> None:
+    """Reject a write whose projected project span exceeds :data:`MAX_PROJECT_SPAN_DAYS`.
+
+    Fails early at the write boundary with an actionable message, rather than
+    letting the oversized project persist and break every subsequent
+    ``recalculate_schedule`` / Monte Carlo run (#1862). See
+    :func:`project_span_days` for the span definition and its ``added_*`` /
+    ``exclude_*`` semantics.
+
+    Raises:
+        ValidationError: If the projected span is over the cap.
+    """
+    span = project_span_days(
+        project_id,
+        exclude_task_pk=exclude_task_pk,
+        exclude_dependency_pk=exclude_dependency_pk,
+        added_task_duration_days=added_task_duration_days,
+        added_lag_days=added_lag_days,
+    )
+    if span > MAX_PROJECT_SPAN_DAYS:
+        raise ValidationError(
+            f"Project span too large: the sum of task durations and dependency lags "
+            f"({span} days) exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days. Shorten "
+            "task durations or reduce lags so the schedule fits within the supported range."
+        )
 
 
 # CPM output fields and sync internals — excluded from history tracking.
