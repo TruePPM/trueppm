@@ -1,20 +1,30 @@
 ---
 title: Baselines
-description: Capture an immutable snapshot of your schedule and compare planned dates against where the project actually stands. Capturing and managing baselines is currently API-driven.
+description: Capture an immutable snapshot of your schedule and compare planned dates against where the project actually stands.
 ---
 
 A **baseline** is a frozen snapshot of your project's schedule at a point in time. Capture
 one when you commit a plan to stakeholders, then compare it against the live schedule to
 see exactly how far — and which tasks — have drifted.
 
-:::caution[Capture & management are API-only today]
-The baseline **data model and endpoints are fully available**, but capturing, activating,
-and deleting baselines is currently done **through the REST API** — there is no in-app
-"Capture baseline" button yet. Once an active baseline exists, TruePPM shows a read-only
-baseline-vs-current comparison in the task detail drawer (see
-[Comparing against the plan](#comparing-against-the-plan)). A capture/manage UI and
-structured rebaseline reasons are planned for 0.5.
-:::
+## Capturing and managing baselines in the app
+
+From the **Schedule** view, open the Actions (**···**) menu:
+
+- **Capture baseline** takes a snapshot of every task's current planned dates. It
+  requires the Project Manager role, auto-names the snapshot (`Baseline N`), and makes it
+  active. A short confirmation first explains what a baseline is and — if one is already
+  active — reminds you that capturing a new one keeps the previous baseline in the
+  project's history rather than overwriting it. You can also capture from the **Baseline**
+  section of a task's detail drawer when no baseline exists yet.
+- **Baselines…** opens the baseline manager, where any project member can see every
+  baseline (name, capture date, and task count) and which one is active. A Project
+  Manager can **Set active** to switch the comparison baseline, and a Project Owner can
+  **Delete** one.
+
+The same operations are available through the [REST API](#capturing-and-managing-baselines-via-the-api)
+for automation. Baseline ghost bars drawn directly on the Gantt canvas and structured
+rebaseline reasons are planned for 0.5.
 
 ## What a baseline captures
 

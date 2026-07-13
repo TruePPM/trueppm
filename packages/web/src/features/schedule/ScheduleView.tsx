@@ -36,8 +36,11 @@ import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useCreateBaseline } from '@/hooks/useBaselines';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
+import { BaselineManagerModal } from './BaselineManagerModal';
+import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
@@ -905,6 +908,33 @@ export function ScheduleView() {
   // verbatim 403 detail if sharing is off, so the button never silently no-ops.
   const [shareOpen, setShareOpen] = useState(false);
   const canShare = currentRole !== null && currentRole >= ROLE_ADMIN;
+
+  // Baselines (#1864, ADR-0376) — capture is an Admin+ Actions-menu action;
+  // the manager (list/activate/delete) is reachable by any project member. The
+  // client gate is UX only; the server is authoritative (create → IsProjectAdmin).
+  const [baselineManagerOpen, setBaselineManagerOpen] = useState(false);
+  const [captureBaselineConfirmOpen, setCaptureBaselineConfirmOpen] = useState(false);
+  const canCaptureBaseline = currentRole !== null && currentRole >= ROLE_ADMIN;
+  const createBaselineMut = useCreateBaseline(projectId ?? undefined);
+  const handleCaptureBaseline = useCallback(() => {
+    // The overflow menu closes on select, so the educational confirm dialog
+    // (not the menu item) carries the in-flight "Capturing…" state (web-rule
+    // 209); the toast carries the end state (web-rule 183).
+    if (!navigator.onLine) {
+      toast.info("You're offline — reconnect to capture a baseline.");
+      return;
+    }
+    createBaselineMut.mutate(
+      {},
+      {
+        onSuccess: (b) => {
+          toast.success(`Captured ${b.name}`);
+          setCaptureBaselineConfirmOpen(false);
+        },
+        onError: () => toast.error("Couldn't capture baseline — try again."),
+      },
+    );
+  }, [createBaselineMut]);
   const { exportProject, isExporting, error: exportError } = useExportMsProject(projectId);
 
   // Schedule PDF export (issue 1438, ADR-0233; builds on issue 1437). The button,
@@ -1638,6 +1668,28 @@ export function ScheduleView() {
                         },
                       ]
                     : []),
+                  // Baselines (#1864) — capture (Admin+) then the manager. Capture
+                  // stays ≤2 clicks (··· → Capture); the manager lists/activates/deletes.
+                  ...(projectId && canCaptureBaseline
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'capture-baseline',
+                          label: 'Capture baseline',
+                          onSelect: () => setCaptureBaselineConfirmOpen(true),
+                        },
+                      ]
+                    : []),
+                  ...(projectId
+                    ? [
+                        {
+                          kind: 'action' as const,
+                          id: 'manage-baselines',
+                          label: 'Baselines…',
+                          onSelect: () => setBaselineManagerOpen(true),
+                        },
+                      ]
+                    : []),
                 ] as ToolbarOverflowItem[]
               }
             />
@@ -1930,6 +1982,26 @@ export function ScheduleView() {
           projectId={projectId}
           contentKind="schedule"
           onClose={() => setShareOpen(false)}
+        />
+      )}
+
+      {/* Baseline manager (#1864, ADR-0376) — list / activate / delete. */}
+      {baselineManagerOpen && projectId && (
+        <BaselineManagerModal
+          projectId={projectId}
+          currentRole={currentRole}
+          onClose={() => setBaselineManagerOpen(false)}
+        />
+      )}
+
+      {/* "You're about to baseline" educational confirm for the quick-capture path (#1864). */}
+      {captureBaselineConfirmOpen && projectId && (
+        <CaptureBaselineConfirmDialog
+          isPending={createBaselineMut.isPending}
+          onCancel={() => {
+            if (!createBaselineMut.isPending) setCaptureBaselineConfirmOpen(false);
+          }}
+          onConfirm={handleCaptureBaseline}
         />
       )}
 
