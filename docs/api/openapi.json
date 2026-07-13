@@ -25956,6 +25956,48 @@
                 }
             }
         },
+        "/api/v1/readyz": {
+            "get": {
+                "operationId": "v1_readyz_retrieve",
+                "description": "Returns **200** with `{\"status\": \"ok\", \"checks\": {...}}` only when every hard dependency answers a live round-trip: the primary database (a bounded `SELECT 1`) and the Valkey/Redis cache (a write-then-read). Returns **503** with the failing dependency marked `fail` otherwise. Unlike the shallow `/api/v1/health/` liveness probe — which always returns 200 while the process is up — this endpoint gates a pod out of the Service's endpoints when its database or cache is dead. No authentication required, so kubelet can call it; the body carries only coarse `ok`/`fail` per dependency and never any connection string, host, or driver error text.",
+                "summary": "Readiness probe (dependency-aware)",
+                "tags": [
+                    "meta"
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReadyzResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "503": {
+                        "description": "One or more dependencies are unavailable."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": []
+            }
+        },
         "/api/v1/recurrence-rules/": {
             "get": {
                 "operationId": "v1_recurrence_rules_list",
@@ -46976,6 +47018,24 @@
                 "required": [
                     "ceiling",
                     "signal"
+                ]
+            },
+            "ReadyzResponse": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    },
+                    "checks": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "checks",
+                    "status"
                 ]
             },
             "RecurrenceFrequencyEnum": {

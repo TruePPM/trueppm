@@ -11,12 +11,12 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
-from trueppm_api.apps.observability.selectors import get_system_health
+from trueppm_api.apps.observability.selectors import get_readiness, get_system_health
 from trueppm_api.apps.observability.serializers import (
     PurgeRunQueuedSerializer,
     PurgeRunRequestSerializer,
@@ -46,6 +46,50 @@ _DEAD_LETTER_METRIC = "trueppm_task_dead_letter_parked"
 def _escape_label_value(value: str) -> str:
     """Escape a Prometheus label value (backslash, double-quote, newline)."""
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+@extend_schema(
+    summary="Readiness probe (dependency-aware)",
+    description=(
+        'Returns **200** with `{"status": "ok", "checks": {...}}` only when every '
+        "hard dependency answers a live round-trip: the primary database (a bounded "
+        "`SELECT 1`) and the Valkey/Redis cache (a write-then-read). Returns **503** "
+        "with the failing dependency marked `fail` otherwise. Unlike the shallow "
+        "`/api/v1/health/` liveness probe — which always returns 200 while the process "
+        "is up — this endpoint gates a pod out of the Service's endpoints when its "
+        "database or cache is dead. No authentication required, so kubelet can call it; "
+        "the body carries only coarse `ok`/`fail` per dependency and never any "
+        "connection string, host, or driver error text."
+    ),
+    responses={
+        200: inline_serializer(
+            "ReadyzResponse",
+            {
+                "status": serializers.CharField(),
+                "checks": serializers.DictField(child=serializers.CharField()),
+            },
+        ),
+        503: OpenApiResponse(description="One or more dependencies are unavailable."),
+    },
+    auth=[],
+    tags=["meta"],
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def readyz(_request: Request) -> Response:
+    """Report dependency-aware readiness for Kubernetes readiness/startup probes.
+
+    Deliberately unauthenticated: kubelet issues probe requests with no
+    credentials, and the dependency-aware ``/health/system/`` endpoint is
+    ``IsAdminUser``-gated so it cannot serve as a probe (#1894). Safe to expose
+    because the response is coarse — ``ok``/``fail`` per dependency with no
+    infrastructure detail — and the probes themselves are read-only round-trips.
+    """
+    ready, checks = get_readiness()
+    return Response(
+        {"status": "ok" if ready else "fail", "checks": checks},
+        status=status.HTTP_200_OK if ready else status.HTTP_503_SERVICE_UNAVAILABLE,
+    )
 
 
 @extend_schema(
