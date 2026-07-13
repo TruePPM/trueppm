@@ -258,9 +258,9 @@ Two environment variables will control logging:
 | `TRUEPPM_LOG_JSON` | `false` (base) / forced `true` in production | Emit JSON when `true`; human-readable console lines when `false`. Production always emits JSON. |
 ## Browser (frontend) telemetry
 
-The sections above cover the **API's** server-side traces and metrics. In 0.4 the
-**web frontend** will gain its own opt-in, off-by-default client telemetry
-(#1901), so a self-hoster can also see what breaks in the browser:
+The sections above cover the **API's** server-side traces and metrics. The
+**web frontend** will gain its own opt-in, off-by-default client telemetry in
+0.4 (#1901), so a self-hoster can also see what breaks in the browser:
 
 - **Uncaught render errors** — when a route or section error boundary catches a
   crash, it will report the error message, stack, and route to your collector
