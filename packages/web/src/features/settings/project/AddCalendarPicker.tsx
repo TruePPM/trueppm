@@ -3,6 +3,7 @@ import type { Calendar } from '@/hooks/useProjectCalendars';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SearchIcon, CloseIcon } from '@/components/Icons';
 import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
+import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import { summarizeCalendar } from './calendarDisplay';
 
 /** Enterprise-only picker affordances — rendered disabled, never functional. */
@@ -61,7 +62,11 @@ function LockGlyph() {
  * Both share the same list, search, and Enterprise-gated section.
  *
  * Focus is trapped while open and restored to the trigger on close (WCAG
- * 2.4.3); Escape and (for the sheet) a scrim tap dismiss it.
+ * 2.4.3). Escape, the scrim tap (sheet), the header close button (sheet), and
+ * the footer Cancel button all route through the standard dismiss-guard
+ * (web-rule 217, issue #1913): with one or more calendars selected the picker
+ * prompts "Discard unsaved changes?" instead of silently dropping the
+ * selection; with nothing selected it closes immediately.
  */
 export function AddCalendarPicker({
   library,
@@ -74,7 +79,15 @@ export function AddCalendarPicker({
 }: AddCalendarPickerProps) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const containerRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  // A non-empty selection is unsaved input — dismissing without confirming
+  // would silently drop it (issue #1913). The guard owns its own Escape
+  // listener, so the focus trap below is not given an onEscape handler.
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty: selected.size > 0,
+    onClose,
+  });
+  const containerRef = useFocusTrap<HTMLDivElement>(!guardOpen);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -202,7 +215,7 @@ export function AddCalendarPicker({
       </span>
       <button
         type="button"
-        onClick={onClose}
+        onClick={requestClose}
         className="min-h-[44px] rounded-control px-3 text-[13px] font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
       >
         Cancel
@@ -220,59 +233,65 @@ export function AddCalendarPicker({
 
   if (variant === 'sheet') {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col justify-end">
-        {/* Scrim — a real button so dismiss-on-tap has keyboard parity (Enter/Space);
-            Escape also closes via the focus trap. */}
-        <button
-          type="button"
-          aria-label="Close"
-          onClick={onClose}
-          className="absolute inset-0 bg-neutral-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
-        />
-        <div
-          ref={containerRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Add calendars to this project"
-          className="relative flex max-h-[88%] flex-col overflow-hidden rounded-t-[20px] bg-neutral-surface shadow-pop"
-        >
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-neutral-border" aria-hidden="true" />
-          <div className="flex items-center gap-2 px-4 pb-2 pt-1.5">
-            <h2 className="flex-1 text-[15px] font-semibold text-neutral-text-primary">
-              Add calendars to this project
-            </h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              <CloseIcon aria-hidden="true" />
-            </button>
+      <>
+        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Scrim — a real button so dismiss-on-tap has keyboard parity (Enter/Space);
+              Escape also routes through the dismiss-guard (web-rule 217). */}
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={requestClose}
+            className="absolute inset-0 bg-neutral-overlay focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+          />
+          <div
+            ref={containerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add calendars to this project"
+            className="relative flex max-h-[88%] flex-col overflow-hidden rounded-t-[20px] bg-neutral-surface shadow-pop"
+          >
+            <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-neutral-border" aria-hidden="true" />
+            <div className="flex items-center gap-2 px-4 pb-2 pt-1.5">
+              <h2 className="flex-1 text-[15px] font-semibold text-neutral-text-primary">
+                Add calendars to this project
+              </h2>
+              <button
+                type="button"
+                onClick={requestClose}
+                aria-label="Close"
+                className="flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                <CloseIcon aria-hidden="true" />
+              </button>
+            </div>
+            <div className="px-4 pb-3">{search}</div>
+            <div className="flex-1 overflow-auto">{list}</div>
+            {footer}
           </div>
-          <div className="px-4 pb-3">{search}</div>
-          <div className="flex-1 overflow-auto">{list}</div>
-          {footer}
         </div>
-      </div>
+        {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
+      </>
     );
   }
 
   return (
-    <div
-      ref={containerRef}
-      role="dialog"
-      aria-label="Add calendars to this project"
-      className="mt-2.5 w-full max-w-[380px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop"
-    >
-      <div className="border-b border-neutral-border px-3.5 pb-2.5 pt-3">
-        <div className="mb-2.5 text-[13px] font-semibold text-neutral-text-primary">
-          Add calendars to this project
+    <>
+      <div
+        ref={containerRef}
+        role="dialog"
+        aria-label="Add calendars to this project"
+        className="mt-2.5 w-full max-w-[380px] overflow-hidden rounded-card border border-neutral-border bg-neutral-surface shadow-pop"
+      >
+        <div className="border-b border-neutral-border px-3.5 pb-2.5 pt-3">
+          <div className="mb-2.5 text-[13px] font-semibold text-neutral-text-primary">
+            Add calendars to this project
+          </div>
+          {search}
         </div>
-        {search}
+        {list}
+        {footer}
       </div>
-      {list}
-      {footer}
-    </div>
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
+    </>
   );
 }
