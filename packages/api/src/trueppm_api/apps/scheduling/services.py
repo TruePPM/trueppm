@@ -783,6 +783,97 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     )
 
 
+def notify_project_end_date_shift(snapshot: Any) -> None:
+    """Notify the project's PM/Owner cohort when the CPM finish moves by more
+    than the project's configurable threshold (#1911, the third #82 schedule-
+    notification rule — companion to #1668's dependency-slip / became-critical
+    pair, and the ``ProjectForecastSnapshot`` analog of
+    ``projects.services.notify_milestone_forecast_shift`` (#861)).
+
+    Compares ``snapshot`` (the just-captured row) against the immediately-prior
+    ``ProjectForecastSnapshot`` for the same project. Material shift = the
+    absolute day delta between the two ``cpm_finish`` values is strictly
+    greater than ``Project.end_date_shift_threshold_days``. A project with no
+    prior snapshot (or no cpm_finish on either side) has nothing to compare
+    against and is skipped — the first-ever finish is not a "shift".
+
+    Debounce (issue AC) is structural, not a separate guard here: this is
+    called once per *newly created* snapshot, and ``capture_forecast_snapshot``
+    already no-ops (creates no row) when the forecast is unchanged within
+    ``FORECAST_DEDUP_WINDOW_SECONDS`` — so a recompute that doesn't move the
+    finish produces no new snapshot and therefore no repeat notification for
+    the same shift.
+
+    Role targeting mirrors ``notify_milestone_forecast_shift``: PM/Owner cohort
+    is ``role >= Role.ADMIN``, ``is_deleted=False``. The ``is_deleted=False``
+    filter is load-bearing for privacy — member removal is a soft delete that
+    leaves the row (with its role) intact, so without it a revoked PM would
+    keep receiving end-date-shift digests for a project they no longer belong
+    to (rbac-check).
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications
+    from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.scheduling.models import ProjectForecastSnapshot
+
+    if snapshot.cpm_finish is None:
+        return
+
+    prior = (
+        ProjectForecastSnapshot.objects.filter(project_id=snapshot.project_id)
+        .exclude(pk=snapshot.pk)
+        .order_by("-captured_at")
+        .first()
+    )
+    if prior is None or prior.cpm_finish is None:
+        return  # no prior finish to compare against — not a "shift"
+
+    delta_days = abs((snapshot.cpm_finish - prior.cpm_finish).days)
+
+    project_row = (
+        Project.objects.filter(pk=snapshot.project_id)
+        .values("name", "end_date_shift_threshold_days")
+        .first()
+    )
+    if project_row is None or delta_days <= project_row["end_date_shift_threshold_days"]:
+        return
+
+    # rbac-check: recipients are computed server-side from role, never taken from
+    # request input or filtered client-side — a plain member can never end up in
+    # this list regardless of what the caller passes.
+    recipient_ids = list(
+        ProjectMembership.objects.filter(
+            project_id=snapshot.project_id, role__gte=Role.ADMIN, is_deleted=False
+        ).values_list("user_id", flat=True)
+    )
+    if not recipient_ids:
+        return
+
+    direction = "pushed out" if snapshot.cpm_finish > prior.cpm_finish else "pulled in"
+    day_word = "day" if delta_days == 1 else "days"
+    subject = f"Project end date shifted — {project_row['name']}"
+    body = (
+        f"The project finish {direction} by {delta_days} {day_word}: "
+        f"{prior.cpm_finish.isoformat()} → {snapshot.cpm_finish.isoformat()}."
+    )
+
+    project_id_str = str(snapshot.project_id)
+    # Deferred like every other event-notification write in this codebase
+    # (notify_milestone_forecast_shift, notify_carryover_assignees): on_commit
+    # is safe to call even with no active transaction (runs immediately), and
+    # protects a future caller that invokes this from inside an open one.
+    transaction.on_commit(
+        lambda: create_event_notifications(
+            event_type=NotificationEventType.PROJECT_END_DATE_SHIFTED,
+            recipient_ids=recipient_ids,
+            subject=subject,
+            body=body,
+            project_id=project_id_str,
+        )
+    )
+
+
 def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> None:
     """Best-effort wrapper around :func:`capture_forecast_snapshot` (ADR-0154 §3).
 
@@ -790,8 +881,26 @@ def safe_capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) ->
     back or block the CPM write (we are strictly post-commit), and the data is
     fully reconstructable, so any exception is logged and discarded — the daily
     floor task backfills the miss.
+
+    Also fires the project end-date shift notification (#1911) whenever a new
+    snapshot is actually captured. Wiring it here — rather than at each of the
+    three call sites (recompute, program recompute, daily floor) — is the
+    single hook point that covers every trigger uniformly. Wrapped in its own
+    try/except so a notification bug can never surface as (or mask) a snapshot
+    capture failure.
     """
     try:
-        capture_forecast_snapshot(project_id, trigger)
+        snapshot = capture_forecast_snapshot(project_id, trigger)
     except Exception:
         logger.warning("forecast snapshot capture failed for project %s", project_id, exc_info=True)
+        return
+
+    if snapshot is not None:
+        try:
+            notify_project_end_date_shift(snapshot)
+        except Exception:
+            logger.warning(
+                "project end-date shift notification failed for project %s",
+                project_id,
+                exc_info=True,
+            )

@@ -111,6 +111,13 @@ class NotificationEventType(models.TextChoices):
     # task.assigned), so the inbox row reaches the assignee off-session without
     # interrupting. In-app ON, email opt-in OFF (Priya's un-opted-email hard-NO).
     TASK_MOVED_SPRINT = "task.moved_sprint", "A task I own was carried to another sprint"
+    # Project-finish shift (#1911, third #82 schedule-notification rule — companion
+    # to #1668's dependency-slip / became-critical pair). Fires when a
+    # ProjectForecastSnapshot's cpm_finish moves by more than the project's
+    # configurable Project.end_date_shift_threshold_days versus the immediately
+    # prior snapshot. Reaches the PM/Owner cohort (role >= ADMIN), same targeting
+    # as MILESTONE_FORECAST_SHIFTED (#861) — see notify_project_end_date_shift.
+    PROJECT_END_DATE_SHIFTED = "project.end_date_shifted", "Project end date shifted"
 
 
 class NotificationChannel(models.TextChoices):
@@ -442,6 +449,11 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # opt-in OFF (Priya's un-opted-email hard-NO).
     (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.IN_APP, True),
     (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.EMAIL, False),
+    # #1911 — project end-date shift. In-app ON so the PM/Owner cohort sees the
+    # slip in their inbox; email opt-in OFF (Priya's un-opted-email hard-NO),
+    # matching every other schedule-drift signal in this table.
+    (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.PROJECT_END_DATE_SHIFTED, NotificationChannel.EMAIL, False),
 ]
 
 

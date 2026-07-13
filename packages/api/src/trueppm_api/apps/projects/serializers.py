@@ -435,6 +435,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Admin-only write by the allowlist default (deliberately NOT in
             # _SCHEDULER_WRITABLE_FIELDS — it governs notifications, not scheduling).
             "stale_task_threshold_days",
+            # Project end-date shift notification threshold in days (#1911). Same
+            # shape and gating as stale_task_threshold_days above: Admin-only write
+            # by the allowlist default (deliberately NOT in _SCHEDULER_WRITABLE_FIELDS
+            # — it governs notifications, not scheduling).
+            "end_date_shift_threshold_days",
             # Read-only server-resolved methodology (ADR-0107) — what clients render
             # for tab visibility — and the value inherited if the override were ignored.
             "effective_methodology",
@@ -811,6 +816,21 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         if value < 1 or value > 365:
             raise serializers.ValidationError(
                 "Stale-task threshold must be between 1 and 365 days."
+            )
+        return value
+
+    def validate_end_date_shift_threshold_days(self, value: int) -> int:
+        """Bound the project end-date shift threshold to a sane 1–365 day range (#1911).
+
+        Same rationale as :meth:`validate_stale_task_threshold_days`: zero would
+        notify the PM/Owner cohort on any recompute-to-recompute float noise (a
+        nonsense firehose), and ``PositiveIntegerField`` already blocks negatives
+        at the DB, so this only enforces the lower floor of 1 and an upper ceiling
+        of a year.
+        """
+        if value < 1 or value > 365:
+            raise serializers.ValidationError(
+                "End-date shift threshold must be between 1 and 365 days."
             )
         return value
 
