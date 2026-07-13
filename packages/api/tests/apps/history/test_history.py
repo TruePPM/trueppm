@@ -1430,6 +1430,41 @@ class TestDependencyActivityStream:
         assert detail["other_task_name"] is None  # name redacted across the boundary
         assert detail["direction"] == "successor"
 
+    def test_far_task_name_shown_only_for_active_membership(
+        self,
+        viewer_client: APIClient,
+        viewer: object,
+        calendar: Calendar,
+        project: Project,
+        task: Task,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        """A REVOKED (soft-deleted) far-project membership must not re-expose the name.
+
+        Regression for the M1 revocation-bypass class: the membership guard filters
+        is_deleted=False, so once the far-project membership is soft-deleted the name
+        is redacted again even though the row persists.
+        """
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 1, 1), calendar=calendar
+        )
+        far_task = Task.objects.create(project=other_project, name="Secret Task", duration=1)
+        Dependency.objects.create(predecessor=task, successor=far_task, dep_type="FS")
+
+        far_membership = ProjectMembership.objects.create(
+            project=other_project, user=viewer, role=Role.VIEWER
+        )
+        # Active membership → name is visible.
+        r = viewer_client.get(self._url(project, task))
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        assert added[0]["detail"]["other_task_name"] == "Secret Task"
+
+        # Revoke (soft-delete) the membership → name is redacted again.
+        far_membership.soft_delete()
+        r = viewer_client.get(self._url(project, task))
+        added = [e for e in r.data["results"] if e.get("event_type") == "dependency_added"]
+        assert added[0]["detail"]["other_task_name"] is None
+
 
 @pytest.mark.django_db
 class TestResourceActivityStream:

@@ -8100,6 +8100,10 @@ def _dependency_activity_events(
             ProjectMembership.objects.filter(
                 user=request.user,  # type: ignore[misc]
                 project_id__in=far_project_ids,
+                # Revoked memberships are soft-deleted (access/views.py soft_delete),
+                # so exclude them — a removed member must not regain the far task's
+                # name. Matches the M1 contract in access.permissions._membership_role.
+                is_deleted=False,
             ).values_list("project_id", flat=True)
         )
 
@@ -8486,7 +8490,8 @@ def _build_activity_events(
                     "(`comment_added`, `comment_edited`, `comment_deleted`, "
                     "`time_logged`, `attachment_uploaded`, `attachment_deleted`, "
                     "`cpm_recalculated`, `baseline_drift_detected`, `risk_linked`, "
-                    "`risk_unlinked`) "
+                    "`risk_unlinked`, `dependency_added`, `dependency_removed`, "
+                    "`assignee_added`, `assignee_removed`, `assignee_units_changed`) "
                     "carry only that unified shape, with `actor` null for "
                     "system/authorless events. `count_truncated` is true when any "
                     "source exceeded the row cap and only the most recent events "
