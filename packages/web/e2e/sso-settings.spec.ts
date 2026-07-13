@@ -124,4 +124,106 @@ test.describe('Workspace Single sign-on — admin', () => {
     // Scopes are fixed to the OSS set — no groups scope.
     await expect(page.getByText('openid email profile')).toBeVisible();
   });
+
+  test('test connection: a reachable issuer reports success inline', async ({ page }) => {
+    await setup(page, CONFIGURED_SSO);
+    // POST /workspace/sso/test-connection/ returns the structured probe result.
+    await page.route('**/api/v1/workspace/sso/test-connection/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ok: true, issuer: CONFIGURED_SSO.issuer_url }),
+      }),
+    );
+    await page.goto('/settings#sso');
+
+    // Gate on a "page rendered" signal (the live-status banner) before touching chrome.
+    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Test connection' }).click();
+    await expect(page.getByText('✓ Reachable.')).toBeVisible();
+  });
+
+  test('test connection: an unreachable issuer surfaces the failure detail', async ({ page }) => {
+    await setup(page, CONFIGURED_SSO);
+    // The endpoint returns 200 with { ok: false } in the reachable-but-invalid /
+    // unreachable case — the hook renders detail inline rather than throwing.
+    await page.route('**/api/v1/workspace/sso/test-connection/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ok: false, error: 'discovery_unreachable', detail: 'Discovery timed out' }),
+      }),
+    );
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Test connection' }).click();
+    await expect(page.getByText('✗ Discovery timed out')).toBeVisible();
+  });
+
+  test('save: editing a field and saving persists via PUT', async ({ page }) => {
+    await setup(page, CONFIGURED_SSO);
+    let putBody: Record<string, unknown> | null = null;
+    // PUT /workspace/sso/ returns the updated config; capture the body to assert
+    // the form serialized correctly. Registered AFTER setup's GET route so this
+    // PUT-specific handler wins (last-registered wins; reverse-order match).
+    await page.route('**/api/v1/workspace/sso/', (r) => {
+      const req = r.request();
+      if (req.method() === 'PUT') {
+        putBody = req.postDataJSON() as Record<string, unknown>;
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...CONFIGURED_SSO, display_name: 'Renamed SSO' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(CONFIGURED_SSO) });
+    });
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+
+    const displayName = page.getByLabel('Display name', { exact: true });
+    await displayName.fill('Renamed SSO');
+    // The shell save-bar arms once the section is dirty; its action is "Save changes".
+    await page.getByRole('button', { name: 'Save changes' }).click();
+
+    await expect.poll(() => putBody).not.toBeNull();
+    expect(putBody).toMatchObject({ display_name: 'Renamed SSO' });
+  });
+
+  test('disable-SSO confirm: the styled dialog confirms and issues DELETE', async ({ page }) => {
+    await setup(page, CONFIGURED_SSO);
+    let deleteFired = false;
+    await page.route('**/api/v1/workspace/sso/', (r) => {
+      const req = r.request();
+      if (req.method() === 'DELETE') {
+        deleteFired = true;
+        return r.fulfill({ status: 204, body: '' });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(CONFIGURED_SSO) });
+    });
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+
+    // Opening the confirm is a styled dialog, not window.confirm.
+    await page.getByRole('button', { name: 'Disable SSO' }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Disable SSO?' });
+    await expect(dialog).toBeVisible();
+
+    // Cancel first — DELETE must not fire.
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    expect(deleteFired).toBe(false);
+
+    // Re-open and confirm.
+    await page.getByRole('button', { name: 'Disable SSO' }).click();
+    const dialog2 = page.getByRole('alertdialog', { name: 'Disable SSO?' });
+    await dialog2.getByRole('button', { name: 'Disable SSO' }).click();
+
+    await expect.poll(() => deleteFired).toBe(true);
+  });
 });

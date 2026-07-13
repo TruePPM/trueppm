@@ -74,4 +74,44 @@ test.describe('SSO completion', () => {
 
     await expect(page.getByRole('heading', { name: 'Sign-in was canceled' })).toBeVisible();
   });
+
+  test('error path: invalid_state renders the un-verifiable-link state', async ({ page }) => {
+    await setupCatchAll(page);
+    await page.goto('/auth/sso/complete?error=invalid_state');
+
+    await expect(
+      page.getByRole('heading', { name: 'Sign-in could not be verified' }),
+    ).toBeVisible();
+    await expect(page.getByTestId('sso-error-code')).toContainText('SSO_INVALID_STATE');
+  });
+
+  test('error path: sso_not_configured points the user back to password sign-in', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await page.goto('/auth/sso/complete?error=sso_not_configured');
+
+    await expect(page.getByRole('heading', { name: 'SSO is not configured' })).toBeVisible();
+    await expect(page.getByTestId('sso-error-code')).toContainText('SSO_NOT_CONFIGURED');
+  });
+
+  test('error path: bootstrap failure (no refresh cookie) falls to the generic error', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    // No ?error in the URL → the page attempts to bootstrap. The refresh cookie
+    // never arrived, so the token-refresh exchange fails and the page must show
+    // the generic error rather than spinning forever.
+    await page.route('**/api/v1/auth/token/refresh/', (r) =>
+      r.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: pj({ detail: 'No valid refresh token found.' }),
+      }),
+    );
+    await page.goto('/auth/sso/complete');
+
+    await expect(page.getByRole('heading', { name: "We couldn't complete sign-in" })).toBeVisible();
+    await expect(page.getByTestId('sso-error-code')).toContainText('SSO_ERROR');
+  });
 });
