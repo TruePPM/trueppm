@@ -1,0 +1,26 @@
+# Prometheus config for the local dev o11y stack (docker-compose.o11y.yml).
+# Scrapes TruePPM's metrics off the OpenTelemetry Collector's Prometheus exporter.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: trueppm-otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+  # Optional: a Blackbox Exporter probe of the beat-health endpoint powers the
+  # beat-liveness panel and the TruePPMBeatStale alert. Uncomment and add a
+  # blackbox-exporter service to wire it up.
+  # - job_name: trueppm-beat-health
+  #   metrics_path: /probe
+  #   params:
+  #     module: [http_2xx]
+  #   static_configs:
+  #     - targets: ["http://api:8000/api/v1/health/beat/"]
+  #   relabel_configs:
+  #     - source_labels: [__address__]
+  #       target_label: __param_target
+  #     - source_labels: [__param_target]
+  #       target_label: instance
+  #     - target_label: __address__
+  #       replacement: blackbox-exporter:9115

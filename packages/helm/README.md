@@ -71,7 +71,17 @@ kubectl get secret <release>-trueppm-connection \
 | `networkPolicy.enabled` | `true` | Default-on; requires a NetworkPolicy-enforcing CNI. |
 | `podSecurityContext` | `runAsNonRoot`, uid 1000 | Pod-level security context for API/worker. |
 | `containerSecurityContext` | restricted profile | Container-level hardening for API/worker. |
-| `resources.api` / `resources.worker` | 512Mi req / 2Gi limit | Per-container resources. |
+| `resources.api` / `resources.worker` / `resources.beat` / `resources.web` | see values.yaml | Per-container resources. |
+| `web.enabled` | `true` | Render the nginx-served React SPA tier + `Service`. |
+| `image.webRepository` | `.../web` | Web tier image (shares `image.tag`/`pullPolicy` with the API). |
+| `probes.api.readinessPath` | `/api/v1/readyz` | Deep API readiness check; liveness stays on `probes.api.livenessPath` (`/api/v1/health/`). |
+| `probes.worker.enabled` / `probes.beat.enabled` | `true` | `celery inspect ping` exec probe on the worker/beat tiers. |
+| `logging.level` | `""` | Root Django log level (`DJANGO_LOG_LEVEL`) for api/worker/beat. Empty = app default. |
+| `observability.otlp.tracesSampler` / `tracesSamplerArg` | `""` | Trace sampling → `OTEL_TRACES_SAMPLER[_ARG]`. |
+| `podDisruptionBudget.enabled` | `false` | PDB for api + worker (meaningful at `replicaCount >= 2`). |
+| `autoscaling.enabled` | `false` | Optional HPA for the API (and `autoscaling.worker.enabled` for the worker). Needs metrics-server. |
+| `dashboards.enabled` | `false` | Ship the starter Grafana dashboard as a labeled ConfigMap. |
+| `alerts.enabled` | `false` | Ship async/outbox `PrometheusRule` alerts. Requires the Prometheus Operator CRDs. |
 | `env.DATABASE_URL` / `env.REDIS_URL` | unset (built by chart) | Required only when the bundled datastores are disabled. |
 | `global.trueppm.connectionSecretName` | `""` (derived) | Override only if you renamed the connection Secret. |
 | `backup.enabled` | `false` | Opt-in scheduled `pg_dump` backup CronJob (see below). |
@@ -95,9 +105,11 @@ Restore.
 The chart ships a chart-managed `Ingress`, **off by default** — the correct
 ingress class, hostnames, and certificate source are cluster-specific, so a
 default-on ingress would render a broken object. Enable it and supply your
-host(s) and a TLS Secret to expose the API over HTTPS at the edge. The API
-`Service` stays `ClusterIP`; the `Ingress` is the sole externally-facing object
-and the TLS termination point.
+host(s) and a TLS Secret to expose TruePPM over HTTPS at the edge. Each path routes
+by its `service:` key — `/api` and `/ws` to the API, `/` to the web SPA (the
+default `ingress.hosts` below already encodes that split). Both `Service`s stay
+`ClusterIP`; the `Ingress` is the sole externally-facing object and the TLS
+termination point.
 
 ```yaml
 ingress:
@@ -108,8 +120,15 @@ ingress:
   hosts:
     - host: trueppm.example.com
       paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /ws
+          pathType: Prefix
+          service: api
         - path: /
           pathType: Prefix
+          service: web
   tls:
     - secretName: trueppm-tls
       hosts:

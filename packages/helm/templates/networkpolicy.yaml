@@ -48,6 +48,10 @@ spec:
             matchLabels:
               {{- include "trueppm.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: celery-worker
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: celery-beat
       ports:
         - protocol: TCP
           port: 5432
@@ -80,6 +84,10 @@ spec:
             matchLabels:
               {{- include "trueppm.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: celery-worker
+        - podSelector:
+            matchLabels:
+              {{- include "trueppm.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: celery-beat
       ports:
         - protocol: TCP
           port: 6379

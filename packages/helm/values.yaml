@@ -12,6 +12,9 @@ global:
 
 image:
   repository: registry.gitlab.com/trueppm/trueppm/api
+  # Web tier image: an nginx build of the compiled React SPA (#1896). Shares the
+  # tag and pullPolicy below with the API so a release deploys a matching pair.
+  webRepository: registry.gitlab.com/trueppm/trueppm/web
   # Empty by default so the chart pins itself to its own appVersion
   # (reproducible rollbacks). Override per-deploy with a concrete tag.
   tag: ""
@@ -20,6 +23,22 @@ image:
 service:
   type: ClusterIP
   port: 8000
+
+# Web tier (#1896) — the nginx-served React SPA. On by default so a stock
+# `helm install` renders a complete, browsable instance (there was no web tier
+# before 0.4). Disable it if you front the SPA from your own CDN / static host and
+# only want the API + workers from this chart.
+web:
+  enabled: true
+  # Independent replica count; falls back to the top-level replicaCount when unset.
+  replicaCount: 1
+  # Port nginx listens on inside the container. The stock unprivileged nginx SPA
+  # image serves on 8080 as a non-root user, which satisfies the restricted
+  # podSecurityContext (runAsNonRoot).
+  containerPort: 8080
+  service:
+    type: ClusterIP
+    port: 80
 
 # Chart-managed Ingress + edge TLS (#1714). Off by default: the ingress class,
 # hostnames, and certificate source are cluster-specific, so a default-on ingress
@@ -34,13 +53,25 @@ ingress:
   # Controller / cert-manager annotations. Example for cert-manager:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   annotations: {}
-  # One or more virtual hosts. Each host lists the paths routed to the API
-  # Service. pathType defaults to Prefix when omitted.
+  # One or more virtual hosts. Each path routes to either the web SPA or the API,
+  # selected by its `service:` key (`web` or `api`, default `api`). The default
+  # below sends /api and /ws to the Django API Service and everything else (/) to
+  # the nginx web tier. List the API prefixes BEFORE / so they win the
+  # longest-prefix match on controllers that honor path order. pathType defaults to
+  # Prefix when omitted. When web.enabled is false, a `service: web` path falls
+  # back to the API Service automatically.
   hosts:
     - host: trueppm.example.com
       paths:
+        - path: /api
+          pathType: Prefix
+          service: api
+        - path: /ws
+          pathType: Prefix
+          service: api
         - path: /
           pathType: Prefix
+          service: web
   # TLS termination. Each entry names a Kubernetes TLS Secret and the host(s) it
   # covers. With cert-manager the named Secret is provisioned automatically from
   # the issuer annotation above. LEAVE EMPTY only for a dev/demo cluster — an
@@ -129,6 +160,88 @@ resources:
     limits:
       cpu: "1"
       memory: 2Gi
+  # Celery Beat is the single scheduler process — light CPU, small memory. It only
+  # dispatches; the actual work runs on the worker.
+  beat:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # Web tier is static nginx — very light.
+  web:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Health probes (#1904, #1894). The API uses HTTP probes; the Celery worker and
+# beat use a `celery inspect ping` exec probe (a control-plane round-trip catches a
+# wedged event loop that a bare process-alive check would miss). Every field is
+# tunable so operators can loosen timings on constrained clusters.
+probes:
+  api:
+    # Readiness points at the deep /readyz check (#1894) so a pod only joins the
+    # Service once its DB/cache dependencies are reachable; liveness stays on the
+    # shallow /health/ so a transient dependency blip cannot restart-loop the pod.
+    readinessPath: /api/v1/readyz
+    readinessInitialDelaySeconds: 10
+    readinessPeriodSeconds: 10
+    livenessPath: /api/v1/health/
+    livenessInitialDelaySeconds: 30
+    livenessPeriodSeconds: 30
+  worker:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 10
+    failureThreshold: 3
+  beat:
+    enabled: true
+    # Beat has no worker control plane, so its ping targets the fleet (broker
+    # reachability). A generous failureThreshold avoids restarting beat over a
+    # brief worker blip.
+    initialDelaySeconds: 30
+    periodSeconds: 60
+    timeoutSeconds: 10
+    failureThreshold: 5
+
+# Root Django log level threaded into the api, worker, and beat containers via
+# DJANGO_LOG_LEVEL (#1899). Empty = leave the app default. Set to DEBUG/INFO/
+# WARNING/ERROR to tune verbosity fleet-wide from one knob.
+logging:
+  level: ""
+
+# PodDisruptionBudgets for the API and worker tiers (#1904). OFF by default — a PDB
+# is only meaningful at replicaCount >= 2 (the production posture); on a
+# single-replica dev install it adds nothing. Expressed as maxUnavailable so it
+# never wedges a node drain. Beat is excluded (pinned singleton).
+podDisruptionBudget:
+  enabled: false
+  api:
+    maxUnavailable: 1
+  worker:
+    maxUnavailable: 1
+
+# Optional HorizontalPodAutoscaler (#1904). OFF by default: an HPA overrides the
+# static replicaCount and needs metrics-server (or a custom metrics adapter)
+# installed. Enable to scale the API (and optionally the worker) on CPU/memory.
+autoscaling:
+  enabled: false
+  api:
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
+    # Set to add a memory target; leave empty for CPU-only scaling.
+    targetMemoryUtilizationPercentage: ""
+  worker:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 75
 
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
@@ -243,6 +356,14 @@ observability:
     # Per-signal toggles (only consulted when enabled and an endpoint is set).
     tracesEnabled: true
     metricsEnabled: true
+    # Trace sampling (#1903). These render into the standard OTEL_TRACES_SAMPLER /
+    # OTEL_TRACES_SAMPLER_ARG env vars honored by the OpenTelemetry SDK, so a busy
+    # instance can sample a fraction of traces instead of exporting every request.
+    # Leave both empty to keep the SDK default (parentbased_always_on). Common:
+    #   tracesSampler: "parentbased_traceidratio"
+    #   tracesSamplerArg: "0.1"   # keep 10% of root traces
+    tracesSampler: ""
+    tracesSamplerArg: ""
     # Optional OTLP headers (e.g. auth) as comma-separated key=value pairs.
     # Prefer headersSecret for tokens so they never render into a plaintext
     # manifest; `headers` is the inline fallback for non-secret values.
@@ -250,6 +371,56 @@ observability:
     headersSecret:
       name: ""
       key: "headers"
+
+# Starter Grafana dashboard shipped as a labeled ConfigMap (#1905). OFF by default:
+# it is only useful where a Grafana sidecar (kube-prometheus-stack / grafana chart)
+# is watching for the `grafana_dashboard` label to auto-import dashboards. Enable it
+# on such a cluster to get the "TruePPM — Async & Outbox Health" dashboard (outbox
+# depth/age, dead-letter, beat liveness) with zero manual upload.
+dashboards:
+  enabled: false
+  # The label key/value your Grafana sidecar watches. Defaults match the upstream
+  # kube-prometheus-stack sidecar convention.
+  label: grafana_dashboard
+  labelValue: "1"
+  annotations: {}
+
+# Starter alerting rules as a Prometheus Operator PrometheusRule (#1905). OFF by
+# default: the object is a monitoring.coreos.com/v1 CRD, so it REQUIRES the
+# Prometheus Operator (kube-prometheus-stack) installed — on a cluster without
+# those CRDs the apply is rejected. Enable it alongside the operator to ship the
+# async/outbox alerts (beat staleness 503, outbox depth/age rising, dead-letter).
+# Thresholds are tunable below. The beat-staleness and dead-letter rules read
+# Blackbox-Exporter probe series of /api/v1/health/beat/ and the dead-letter gauge;
+# see docs → Administration → Observability for the probe wiring.
+alerts:
+  enabled: false
+  # Extra labels stamped on the PrometheusRule (e.g. `release: kube-prometheus-stack`
+  # so the operator's ruleSelector picks it up).
+  labels: {}
+  thresholds:
+    beatStaleFor: "2m"
+    outboxDepth: 500
+    outboxDepthFor: "10m"
+    outboxOldestAgeSeconds: 900
+    outboxOldestAgeFor: "10m"
+    deadLetter: 0
+    deadLetterFor: "5m"
+
+# OPTIONAL in-cluster OpenTelemetry Collector guidance (#1905). This chart does NOT
+# bundle a Collector subchart — running one is a deliberate operational choice with
+# its own lifecycle. The recommended path is the upstream
+# `open-telemetry/opentelemetry-collector` Helm chart (or the OpenTelemetry
+# Operator). Deploy it as a sibling release, then point observability.otlp.endpoint
+# (above) at its in-cluster Service, e.g.:
+#   observability.otlp.endpoint: "http://otel-collector:4317"
+# A minimal Collector pipeline that fans TruePPM's OTLP metrics into Prometheus and
+# traces into Tempo/Jaeger is documented at docs → Administration → Observability.
+# This block is documentation-only; it renders no Kubernetes objects.
+otelCollector:
+  # Set true only as a reminder in your own values overlay; the chart reads nothing
+  # from here — deploy the Collector as a separate release (see comment above).
+  enabled: false
 
 # Scheduled logical backups (issue #320). OFF by default: a backup CronJob is an
 # opt-in operational choice — it needs somewhere durable to write (a PVC or an

@@ -1,0 +1,38 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- /*
+PodDisruptionBudgets for the API and Celery worker tiers (#1904). Both express the
+budget as maxUnavailable so a single-replica install stays drain-able (a
+minAvailable PDB would wedge node drains when replicaCount is 1); the protection
+only becomes meaningful once replicaCount >= 2, which is the production posture
+(values-prod sets replicaCount: 2). Off by default — enable alongside a
+multi-replica deployment. Beat is deliberately excluded: it is a pinned singleton,
+so any PDB on it would only block voluntary node drains.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "trueppm.fullname" . }}-api
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.api.maxUnavailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.worker.maxUnavailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-worker
+{{- end }}

@@ -43,6 +43,25 @@ spec:
       http:
         paths:
           {{- range .paths }}
+          {{- /*
+            Each path routes to either the web SPA or the API. `service: web`
+            targets the nginx web tier (the SPA + its own /api,/ws reverse proxy
+            fallback); `service: api` (the default) targets the Django API Service
+            directly. List /api and /ws before / so the API routes win the
+            longest-prefix match on controllers that honor path order. When the web
+            tier is disabled, a `service: web` path falls back to the API Service so
+            the Ingress never references a Service that was not rendered.
+          */}}
+          {{- $svc := .service | default "api" }}
+          {{- if and (eq $svc "web") $.Values.web.enabled }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ include "trueppm.fullname" $ }}-web
+                port:
+                  number: {{ $.Values.web.service.port }}
+          {{- else }}
           - path: {{ .path }}
             pathType: {{ .pathType | default "Prefix" }}
             backend:
@@ -50,6 +69,7 @@ spec:
                 name: {{ include "trueppm.fullname" $ }}-api
                 port:
                   number: {{ $.Values.service.port }}
+          {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

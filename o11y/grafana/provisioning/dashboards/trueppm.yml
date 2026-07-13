@@ -1,0 +1,11 @@
+apiVersion: 1
+providers:
+  - name: trueppm
+    orgId: 1
+    folder: TruePPM
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      # Mounts the same starter dashboard the Helm chart ships as a ConfigMap.
+      path: /var/lib/grafana/dashboards
