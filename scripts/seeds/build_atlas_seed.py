@@ -203,10 +203,22 @@ FORECAST_HISTORY = {
 }
 
 
-def three_point(most_likely: int) -> dict:
-    """A plausible optimistic/most-likely/pessimistic spread around a midpoint."""
+def three_point(most_likely: int, risk: float = 1.0) -> dict:
+    """A plausible optimistic/most-likely/pessimistic spread around a midpoint.
+
+    ``risk`` widens the pessimistic (right) tail for high-uncertainty work while
+    leaving the optimistic side anchored — the honest shape of migration/cutover
+    risk, where activities slip late but rarely finish early. ``risk=1.0`` (the
+    default) reproduces the original centered spread byte-for-byte, so every
+    estimate that does not opt in is unchanged. The tail is capped at 3x the
+    most-likely so even the riskiest task stays a believable three-point range
+    rather than a runaway outlier. Concentrating this widened spread on the
+    *incomplete* critical path is what lets Monte Carlo demonstrate a real band:
+    a COMPLETE task is pinned to zero variance by the engine (#1827), so a wide
+    estimate on already-done work never reaches the finish distribution (#1891).
+    """
     optimistic = max(1, round(most_likely * 0.7))
-    pessimistic = round(most_likely * 1.8)
+    pessimistic = round(most_likely * min(3.0, 1.8 + 1.2 * (risk - 1.0)))
     return {
         "optimistic": optimistic,
         "most_likely": most_likely,
@@ -529,7 +541,7 @@ def build_platform_core() -> dict:
 
 # --- Project 2: Migration Tooling (waterfall) ------------------------------
 
-# (phase, [(task, most_likely_days, [dep wbs], dep_type, original_start, slip)])
+# (phase, [(task, most_likely_days, [dep wbs], dep_type, original_start, slip, risk)])
 #
 # `original_start` is the project-day the Kickoff baseline recorded for the
 # task; `slip` is the realized slip on the *current* plan. Phases 1-2 executed
@@ -539,14 +551,25 @@ def build_platform_core() -> dict:
 # Execution front: 3.1 is mid-flight (55%), everything after it NOT_STARTED
 # with future planned starts. 3.2 ("Performance tuning") starts A+11 — after
 # Platform Core's active sprint closes (A+7), the #372 at-risk arrangement.
+#
+# `risk` (#1891) right-skews the three-point pessimistic tail on the *incomplete*
+# critical path so, once the finish is driven by that work (see the unpinned
+# milestone below), Monte Carlo shows a demonstrable P50->P95 band. Completed
+# tasks keep risk=1.0 (their estimate is inert — the engine pins a COMPLETE task
+# to zero variance, #1827), so their seeded values are unchanged; only phases 3-5
+# opt into a wider tail. Values are calibrated per task: high for first-time /
+# irreversible steps (dry-run, delta sync, final cutover ~3x), modest for routine
+# ones (freeze prep, sign-off). NB: widening estimates alone does nothing while
+# the finish is a pinned milestone — the intervening float absorbs the variance;
+# unpinning the milestone is the primary fix, this is the amplitude.
 MT_PHASES = [
     (
         "Assess",
         [
-            ("Inventory legacy schemas", 5, [], None, 0, 0),
-            ("Profile data quality", 4, ["1.1"], "FS", 7, 0),
-            ("Map field semantics", 6, ["1.1"], "SS", 2, 0),
-            ("Risk & cutover plan", 3, ["1.2", "1.3"], "FS", 13, 0),
+            ("Inventory legacy schemas", 5, [], None, 0, 0, 1.0),
+            ("Profile data quality", 4, ["1.1"], "FS", 7, 0, 1.0),
+            ("Map field semantics", 6, ["1.1"], "SS", 2, 0, 1.0),
+            ("Risk & cutover plan", 3, ["1.2", "1.3"], "FS", 13, 0, 1.0),
         ],
     ),
     (
@@ -554,44 +577,44 @@ MT_PHASES = [
         [
             # Waits on Platform Core's Tenant model (cross-project FS, Sprint 1)
             # — hence the gap after Assess closed out around day 16.
-            ("ETL framework", 8, ["1.4"], "FS", 44, 0),
-            ("Schema transformer", 7, ["2.1"], "SS", 48, 0),
-            ("Validation harness", 6, ["2.1"], "FS", 54, 0),
-            ("Reconciliation reports", 4, ["2.3"], "FS", 62, 0),
+            ("ETL framework", 8, ["1.4"], "FS", 44, 0, 1.0),
+            ("Schema transformer", 7, ["2.1"], "SS", 48, 0, 1.0),
+            ("Validation harness", 6, ["2.1"], "FS", 54, 0, 1.0),
+            ("Reconciliation reports", 4, ["2.3"], "FS", 62, 0, 1.0),
         ],
     ),
     (
         "Migrate",
         [
-            ("Dry-run migration", 5, ["2.2", "2.3"], "FS", 72, 7),
-            ("Performance tuning", 4, ["3.1"], "FS", 94, 7),
-            ("Delta sync", 6, ["3.1"], "SS", 84, 7),
-            ("Production rehearsal", 5, ["3.2", "3.3"], "FS", 101, 7),
+            ("Dry-run migration", 5, ["2.2", "2.3"], "FS", 72, 7, 2.0),
+            ("Performance tuning", 4, ["3.1"], "FS", 94, 7, 1.9),
+            ("Delta sync", 6, ["3.1"], "SS", 84, 7, 2.0),
+            ("Production rehearsal", 5, ["3.2", "3.3"], "FS", 101, 7, 1.9),
         ],
     ),
     (
         "Validate",
         [
-            ("Row-count reconciliation", 3, ["3.4"], "FS", 116, 6),
-            ("Business sign-off pack", 4, ["4.1"], "FS", 121, 6),
-            ("Rollback drill", 3, ["3.4"], "FS", 118, 6),
+            ("Row-count reconciliation", 3, ["3.4"], "FS", 116, 6, 1.4),
+            ("Business sign-off pack", 4, ["4.1"], "FS", 121, 6, 1.3),
+            ("Rollback drill", 3, ["3.4"], "FS", 118, 6, 1.7),
         ],
     ),
     (
         "Cutover",
         [
-            ("Freeze window prep", 2, ["4.2", "4.3"], "FS", 130, 8),
-            ("Final cutover", 3, ["5.1"], "FS", 134, 8),
-            ("Decommission legacy", 4, ["5.2"], "FS", 139, 8),
+            # The freeze window opens late (the approved maintenance slot), so the
+            # cutover tail runs right up to the committed go-live — its variance,
+            # not a pinned date, is what the milestone forecast now reflects (#1891).
+            ("Freeze window prep", 2, ["4.2", "4.3"], "FS", 145, 6, 1.4),
+            # slip=None -> no SNET floor: FS-driven so the freeze/cutover/decommission
+            # tail compounds its three-point variance into the finish milestone.
+            ("Final cutover", 3, ["5.1"], "FS", 150, None, 3.0),
+            ("Decommission legacy", 4, ["5.2"], "FS", 153, None, 2.6),
         ],
     ),
 ]
 MT_DEVS = ["yuki", "omar", "raj", "tom"]
-
-# "Migration complete" milestone: baselined at day 157 (A+67), now A+74 after
-# the realized slip — the buffer to the GTM public launch (A+80, FS+3) is thin.
-MT_MILESTONE_ORIGINAL = 157
-MT_MILESTONE_SLIP = 7
 
 
 def build_migration_tooling() -> dict:
@@ -609,7 +632,7 @@ def build_migration_tooling() -> dict:
                 "delivery_mode": "waterfall",
             }
         )
-        for t_idx, (name, ml, dep_paths, dep_type, original, slip) in enumerate(
+        for t_idx, (name, ml, dep_paths, dep_type, original, slip, risk) in enumerate(
             items, start=1
         ):
             wbs = f"{p_idx}.{t_idx}"
@@ -632,13 +655,19 @@ def build_migration_tooling() -> dict:
             task.update(
                 {
                     "duration": ml,
-                    "planned_start": d(original + slip),
-                    "estimate": three_point(ml),
+                    "estimate": three_point(ml, risk),
                     "assignee": MT_DEVS[(p_idx + t_idx) % len(MT_DEVS)],
                     "governance_class": "gated",
                     "delivery_mode": "waterfall",
                 }
             )
+            # slip is None -> no SNET floor: the task is purely FS-driven by its
+            # predecessor, so predecessor variance chains straight through it to
+            # the finish. Used for the tail cutover tasks (#1891) so the last two
+            # steps compound their three-point variance into the milestone instead
+            # of each being decoupled by its own fixed planned_start.
+            if slip is not None:
+                task["planned_start"] = d(original + slip)
             tasks.append(task)
             # The baseline keeps the ORIGINAL (pre-slip) window.
             baseline_rows.append(
@@ -659,14 +688,20 @@ def build_migration_tooling() -> dict:
                     }
                 )
 
-    # Cutover milestone.
+    # Cutover milestone. Deliberately carries NO planned_start pin: a fixed SNET
+    # floor here would clamp the project finish to a constant date, and because
+    # the migrate/validate/cutover chain finishes with ~2 weeks of float before
+    # the old pin, every task's sampled duration was absorbed by that float —
+    # Monte Carlo collapsed to a flat P50=P80=P95 (#1891). Driving the milestone
+    # off its FS predecessor (5.3, Decommission legacy) lets the incomplete
+    # cutover chain's three-point variance reach the finish, so the forecast
+    # shows a real P50->P95 band whose top driver is the remaining cutover work.
     tasks.append(
         {
             "wbs_path": "6",
             "name": "Migration complete",
             "is_milestone": True,
             "delivery_mode": "milestone",
-            "planned_start": d(MT_MILESTONE_ORIGINAL + MT_MILESTONE_SLIP),
         }
     )
     deps.append({"predecessor": "5.3", "successor": "6", "dep_type": "FS", "lag": 0})
