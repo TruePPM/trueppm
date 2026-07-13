@@ -842,14 +842,18 @@ function BoardCardImpl({
           )}
           <span
             className={[
-              'text-xs font-medium truncate min-w-0',
+              // line-clamp-2 (not truncate): comfortable/detailed cards wrap the
+              // title to a second row so longer task names stay readable without
+              // opening the card (issue #1924). Compact density keeps its
+              // single-line bar (see the isCompact branch above).
+              'text-xs font-medium line-clamp-2 min-w-0',
               showCriticalState
                 ? 'text-semantic-critical font-semibold'
                 : isIdea
                   ? 'text-neutral-text-disabled italic'
                   : 'text-neutral-text-primary',
             ].join(' ')}
-            title={showCriticalState ? cpTooltip(task) : undefined}
+            title={showCriticalState ? cpTooltip(task) : task.name}
           >
             {task.name}
           </span>

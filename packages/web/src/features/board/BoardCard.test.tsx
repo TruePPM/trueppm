@@ -315,6 +315,34 @@ describe('BoardCard', () => {
   // Card density (issue #193)
   // ---------------------------------------------------------------------------
 
+  it('comfortable: title wraps to a second row (line-clamp-2, not single-line truncate) so long names stay readable (#1924)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' });
+    const title = screen.getByText('Backend Implementation');
+    expect(title.className).toContain('line-clamp-2');
+    expect(title.className).not.toContain('truncate');
+  });
+
+  it('detailed: title also wraps to a second row (#1924)', () => {
+    renderCard({ task: baseTask, density: 'detailed' });
+    const title = screen.getByText('Backend Implementation');
+    expect(title.className).toContain('line-clamp-2');
+  });
+
+  it('comfortable: full task name is exposed via the title attribute when clamped (#1924)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' });
+    expect(screen.getByText('Backend Implementation')).toHaveAttribute(
+      'title',
+      'Backend Implementation',
+    );
+  });
+
+  it('compact: title stays a single-line bar (truncate, not line-clamp-2) (#1924)', () => {
+    renderCard({ task: baseTask, density: 'compact' });
+    const title = screen.getByText('Backend Implementation');
+    expect(title.className).toContain('truncate');
+    expect(title.className).not.toContain('line-clamp-2');
+  });
+
   it('compact: renders task name and worst-offender badge for critical task (#1305)', () => {
     renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
     expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
