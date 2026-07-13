@@ -233,19 +233,42 @@ describe('ActivityTimeline', () => {
     expect(screen.getByText('2h ago')).toBeInTheDocument();
   });
 
-  it('shows Load more only on the unfiltered view and calls fetchNextPage', () => {
+  it('shows Load more whenever more pages exist and calls fetchNextPage', () => {
     const mock = makeHistory([statusRecord], true);
     historySpy.mockReturnValue(mock);
     renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
-    const loadMore = screen.getByRole('button', { name: /Load more/i });
-    expect(loadMore).toBeInTheDocument();
-    // Hidden once a group filter is active.
-    fireEvent.click(screen.getByRole('radio', { name: 'Status' }));
-    expect(screen.queryByRole('button', { name: /Load more/i })).not.toBeInTheDocument();
-    // Back to All → visible again, and the click dispatches.
-    fireEvent.click(screen.getByRole('radio', { name: /^All/ }));
+    expect(screen.getByRole('button', { name: /Load more/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Load more/i }));
     expect(mock.fetchNextPage).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Load more visible while a group filter is active (#1880)', () => {
+    const mock = makeHistory([statusRecord, multiRecord], true);
+    historySpy.mockReturnValue(mock);
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    // A filtered view still paginates over the full feed — hiding the button
+    // silently truncated results to the already-loaded pages (#1880).
+    fireEvent.click(screen.getByRole('radio', { name: 'Status' }));
+    const loadMore = screen.getByRole('button', { name: /Load more/i });
+    expect(loadMore).toBeInTheDocument();
+    fireEvent.click(loadMore);
+    expect(mock.fetchNextPage).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Load more visible while a person filter is active (#1880)', () => {
+    const mock = makeHistory([statusRecord, multiRecord], true);
+    historySpy.mockReturnValue(mock);
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    fireEvent.change(screen.getByLabelText(/Filter activity by person/i), {
+      target: { value: 'bob' },
+    });
+    expect(screen.getByRole('button', { name: /Load more/i })).toBeInTheDocument();
+  });
+
+  it('hides Load more when there are no further pages', () => {
+    historySpy.mockReturnValue(makeHistory([statusRecord], false));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.queryByRole('button', { name: /Load more/i })).not.toBeInTheDocument();
   });
 
   it('degrades to history-only when the comments feed errors (non-fatal)', () => {

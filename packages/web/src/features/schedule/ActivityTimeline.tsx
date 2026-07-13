@@ -562,8 +562,6 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
     );
   }
 
-  const isUnfiltered = effectiveGroup === 'all' && effectivePerson === null;
-
   return (
     <div className="flex flex-col gap-3">
       {/* Filters */}
@@ -609,8 +607,7 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
         </div>
       )}
 
-      {/* Load more — only on the unfiltered view (pagination over the full feed) */}
-      {isUnfiltered && hasNextPage && (
+      {hasNextPage && (
         <button
           type="button"
           onClick={() => void fetchNextPage()}

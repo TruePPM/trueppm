@@ -141,6 +141,24 @@ describe('useRescheduleTask', () => {
     });
   });
 
+  it('invalidates only the dragged task-history key on success, never tasks (#1867)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({
+      id: 't1',
+      projectId: 'proj1',
+      planned_start: '2026-01-05',
+      optimistic: { start: '2026-01-05' },
+    });
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'proj1', 't1'] }),
+    );
+    // ['tasks'] stays poll-driven — invalidating it here would snap the bar back.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj1'] });
+  });
+
   // -------------------------------------------------------------------------
   // Optimistic mirror of the server-side date-gated NOT_STARTED → IN_PROGRESS
   // rule (#336). Without this the board card would flicker NOT_STARTED →
@@ -387,6 +405,15 @@ describe('useUpdateTask', () => {
       }),
     );
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
+  });
+
+  it('invalidates the edited task-history key on success (#1867)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'Renamed' });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'p1', 't1'] }),
+    );
   });
 
   it('optimistically maps snake_case payload to the cached camelCase task (#965)', async () => {
