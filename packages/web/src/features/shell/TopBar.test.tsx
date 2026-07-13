@@ -101,11 +101,29 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
   it('renders the health cluster and no longer carries the relocated affordances (#1680)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByTestId('health-cluster')).toBeInTheDocument();
-    // Customize-views (→ rail), current-sprint jump (→ health popover), and the
-    // methodology tag (→ subtitles) all left the bar's right cluster in #1680.
+    // Customize-views (→ rail) and the current-sprint jump (→ health popover) left
+    // the bar's right cluster in #1680. The methodology tag also left for the rail
+    // subtitle, but only while the rail is expanded — this test's default
+    // `sidebarCollapsed: false` state is exactly that, so the bar's restored
+    // `MethodologyIndicator` (#1907) correctly renders nothing here too; see the
+    // dedicated `MethodologyIndicator` describe block below for the collapsed case.
     expect(screen.queryByRole('button', { name: 'Customize views' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /current sprint/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/workspace/i)).not.toBeInTheDocument();
+  });
+
+  describe('MethodologyIndicator wiring (issue #1907)', () => {
+    it('shows the always-visible methodology badge while the rail is collapsed', () => {
+      useShellStore.setState({ sidebarCollapsed: true, sidebarUserControlled: false });
+      renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      expect(screen.getByRole('img', { name: 'Hybrid workspace' })).toHaveTextContent('HY');
+    });
+
+    it('hides the bar badge once the rail is expanded, so the rail subtitle is the sole signal', () => {
+      useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
+      renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+      expect(screen.queryByRole('img', { name: /workspace$/i })).not.toBeInTheDocument();
+    });
   });
 
   it('renders hamburger + account menu', () => {

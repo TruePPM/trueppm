@@ -436,7 +436,8 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
 
   it('shows the effective_methodology as the card subtitle, not the raw override (#1680, rule 196)', () => {
     // Raw AGILE but server-resolved WATERFALL — the resolved label must win (the
-    // coverage the removed bar `MethodWorkspaceLabel` used to carry).
+    // coverage the pre-#1680 bar `MethodWorkspaceLabel` used to carry, now shared
+    // with the restored bar `MethodologyIndicator`, #1907).
     mockUseProject.mockReturnValue({
       data: { ...HYBRID_PROJECT, methodology: 'AGILE', effective_methodology: 'WATERFALL' },
       isLoading: false,
