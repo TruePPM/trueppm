@@ -77,6 +77,36 @@ def test_atlas_demo_runs_cpm_and_monte_carlo(owner: Any, capsys: Any) -> None:
     # Confidence percentiles are monotonic — a later finish is more certain.
     assert p50 <= p80 <= p95
 
+    # The forecast must show a *usable* uncertainty band, not a near-flat spike.
+    # Regression guard for #1891: the "Migration complete" milestone used to carry
+    # a fixed planned_start (a hard SNET floor) ~2 weeks after the incomplete
+    # migrate/cutover work was forecast to finish. That pin clamped the project
+    # finish to a constant date and every incomplete task's sampled duration was
+    # absorbed by the intervening float, so Monte Carlo collapsed to a flat
+    # P50=P80=P95 (0-day band) — the feature demoed as a certainty, not a forecast.
+    # The milestone is now driven off its FS predecessor (the last cutover task),
+    # so the incomplete critical path's right-skewed three-point variance reaches
+    # the finish and the band spans several working days.
+    from datetime import date as _date
+
+    band_days = (_date.fromisoformat(p95) - _date.fromisoformat(p50)).days
+    sensitivity = resp.data.get("sensitivity") or []
+    driver_id = sensitivity[0]["task_id"] if sensitivity else None
+    print(f"  MC   band P50->P95 = {band_days}d, top-driver task={driver_id}")
+    assert band_days >= 5, (
+        f"{waterfall.name}: waterfall MC band collapsed to {band_days}d — the "
+        "finish is pinned or the remaining-work variance is absorbed by float (#1891)"
+    )
+    # The sensitivity tornado must be driven by the incomplete critical path
+    # (phases 3-5), not a completed task — otherwise the band, even if wide, is
+    # not the *actionable* remaining risk the demo is meant to show.
+    assert driver_id is not None, "no MC sensitivity drivers returned"
+    driver = Task.objects.get(id=driver_id)
+    assert driver.status != "COMPLETE", (
+        f"top MC driver {driver.wbs_path} is COMPLETE — variance is not on the "
+        "remaining critical path (#1891)"
+    )
+
     # 3. Velocity history: the agile stream has closed sprints with completed points.
     agile = next(p for p in projects if p.methodology == "AGILE")
     closed_with_velocity = agile.sprints.filter(state="COMPLETED", completed_points__isnull=False)
