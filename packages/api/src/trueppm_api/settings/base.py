@@ -717,6 +717,18 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
     default="",
 )
 
+# Age in seconds past which a connected external-source connection's cache is
+# "stale" for the My Work on-open refresh (ADR-0097 §4 "on-open refresh-if-
+# stale"; #1921). Reuses the same order of magnitude as the manual-refresh
+# cooldown (ADR-0097 §Resolution #5, `services.MANUAL_SYNC_COOLDOWN_SECONDS`)
+# rather than inventing an unrelated number — a connection synced within this
+# window is fresh enough that another My Work load should not re-trigger a
+# pull. Configurable per-operator: a slower Jira instance or a rate-sensitive
+# token may want a wider floor.
+TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS: int = env.int(
+    "TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS", default=300
+)
+
 # ---------------------------------------------------------------------------
 # Monte Carlo simulation caps (OSS tier)
 # Set to None for unlimited (Enterprise overrides these in enterprise settings).
