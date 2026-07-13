@@ -175,7 +175,8 @@ under the `trueppm.*` namespace.
 |---|---|---|---|
 | `http.server.request.duration` | histogram | API request latency | `http.*` semantic conventions |
 | `http.server.active_requests` | up/down counter | In-flight API requests | `http.*` semantic conventions |
-| `flower.task.runtime.seconds` | histogram | Celery task duration | task name, worker |
+| `flower.task.runtime.seconds` | histogram | Celery task duration, from the auto-instrumentor | task name, worker |
+| `trueppm.task.duration_seconds` | histogram | Celery task duration, from `task_prerun` to `task_postrun` | `trueppm.celery.task_name`, `trueppm.celery.outcome` (`success` \| `failure` \| `retry` \| etc.) |
 | `trueppm.outbox.depth` | gauge | Live backlog of a transactional outbox (rows not yet done) | `trueppm.outbox.name` (`schedule` \| `workflow`), `trueppm.outbox.state` (`pending` \| `dispatched`) |
 | `trueppm.outbox.oldest_age_seconds` | gauge | Age of the oldest not-yet-done outbox row — the dispatch **lag** (0 when empty) | `trueppm.outbox.name` |
 | `trueppm.db.connections` | gauge | Server-side PostgreSQL backend count for the current database | `trueppm.db.state` (`active` \| `idle` \| `idle_in_transaction` \| `other`) |
@@ -192,6 +193,17 @@ worker has yet picked up — so a healthy outbox paired with a rising broker dep
 points at under-scaled workers rather than a stuck dispatcher. The two `trueppm.ws.*`
 instruments give WebSocket real-time collaboration its first quantitative signal:
 how many live sockets a node holds and how much it is fanning out.
+
+:::note[Two Celery duration metrics, on purpose]
+`flower.task.runtime.seconds` comes from the Celery auto-instrumentor
+(`CeleryInstrumentor`), so it exists only once that instrumentor is wired *and* a
+meter provider is bound. `trueppm.task.duration_seconds` is timed independently off
+TruePPM's own Celery-signal bridge and additionally carries an `outcome` dimension
+(`success` \| `failure` \| `retry`), so a stuck retry loop or a rising failure rate
+is visible in the histogram itself, not only inferable from a separate task-count
+series. Use whichever your dashboards already key off; both report the same
+underlying task executions.
+:::
 
 :::caution[Aggregate the `trueppm.*` gauges with `max`/`last`, never `sum`]
 The `trueppm.outbox.*` and `trueppm.db.connections` gauges read **shared database

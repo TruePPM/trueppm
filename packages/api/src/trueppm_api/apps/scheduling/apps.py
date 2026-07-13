@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from django.apps import AppConfig
 
 logger = logging.getLogger(__name__)
+
+# Wall-clock start time (time.monotonic(), immune to system clock adjustments) for
+# each in-flight Celery task execution, keyed by task_id. Populated in
+# _on_task_prerun and consumed (popped) in _on_task_postrun — that pair always
+# brackets one execution 1:1, including retried and failed ones, so duration is
+# available for every outcome, not just success (#1917). Celery itself does not
+# set a usable `.runtime` attribute on the request for anything but the success
+# path, which is why this is timed here instead of read off `task.request`.
+_task_start_times: dict[str, float] = {}
 
 
 class SchedulingConfig(AppConfig):
@@ -19,11 +29,29 @@ class SchedulingConfig(AppConfig):
 
         Enterprise packages connect receivers to the Django signals in
         scheduling.signals — they never need to import from Celery directly.
+
+        Every ``.connect(...)`` below now passes ``weak=False`` (#1917 fix). Celery's
+        ``Signal.connect`` defaults to a *weak* reference to the receiver, and the
+        four ``_on_task_*`` functions are closures local to this method call — with
+        no other strong reference anywhere, they were garbage-collected the moment
+        ``ready()`` returned, silently turning the whole Celery→Django task-lifecycle
+        bridge into dead code (confirmed via ``task_prerun.receivers`` showing a
+        dead weakref immediately after startup). None of ``celery_task_started`` /
+        ``_succeeded`` / ``_failed`` / ``_retried`` were ever actually being sent in
+        a real worker, which is why #1917 found no start/success/retry log lines to
+        begin with — this was the root cause, not just a missing receiver. A stable
+        ``dispatch_uid`` per connect call is required alongside ``weak=False``: without
+        it, a second ``ready()`` call (the test runner / autoreloader can trigger one)
+        would register a *second*, now-permanent strong-ref closure rather than being
+        recognized as the same receiver, doubling every log line and metric sample
+        from then on.
         """
         from celery.signals import task_failure, task_postrun, task_prerun, task_retry
 
-        # Register the OSS dead-letter alerting receiver (ADR-0084). Side-effect
-        # import: the @receiver decorator in receivers.py connects on load.
+        # Register the OSS dead-letter alerting receiver (ADR-0084) and the
+        # start/success/retry structured-log receivers (#1917). Side-effect
+        # import: the @receiver decorators in receivers.py connect on load.
+        from trueppm_api.apps.observability.otel.metrics import record_task_duration
         from trueppm_api.apps.scheduling import receivers  # noqa: F401
         from trueppm_api.apps.scheduling.signals import (
             celery_task_failed,
@@ -34,8 +62,9 @@ class SchedulingConfig(AppConfig):
 
         self._register_workflows()
 
-        @task_prerun.connect  # type: ignore[untyped-decorator]
+        @task_prerun.connect(weak=False, dispatch_uid="scheduling.on_task_prerun")  # type: ignore[untyped-decorator]
         def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
+            _task_start_times[task_id] = time.monotonic()
             celery_task_started.send(
                 sender=type(task).__name__,
                 task_id=task_id,
@@ -44,21 +73,32 @@ class SchedulingConfig(AppConfig):
                 kwargs=kwargs.get("kwargs", {}),
             )
 
-        @task_postrun.connect  # type: ignore[untyped-decorator]
+        @task_postrun.connect(weak=False, dispatch_uid="scheduling.on_task_postrun")  # type: ignore[untyped-decorator]
         def _on_task_postrun(
             sender: Any, task_id: str, task: Any, retval: Any, **kwargs: Any
         ) -> None:
-            # task_postrun fires on success and failure; only emit succeeded on success
-            state = kwargs.get("state", "")
+            # task_postrun fires for every terminal state (success, failure, retry,
+            # rejected, ignored) — unlike celery_task_succeeded below, the duration
+            # metric is recorded for all of them so a stuck/slow retry loop is
+            # visible in the histogram too, not just clean runs.
+            state = kwargs.get("state", "") or ""
+            task_name = getattr(task, "name", "")
+            start = _task_start_times.pop(task_id, None)
+            duration = time.monotonic() - start if start is not None else 0.0
+            record_task_duration(
+                task_name=task_name,
+                duration_seconds=duration,
+                outcome=state.lower() or "unknown",
+            )
             if state == "SUCCESS":
                 celery_task_succeeded.send(
                     sender=type(task).__name__,
                     task_id=task_id,
-                    task_name=getattr(task, "name", ""),
-                    runtime_seconds=getattr(task.request, "runtime", 0) or 0,
+                    task_name=task_name,
+                    runtime_seconds=duration,
                 )
 
-        @task_failure.connect  # type: ignore[untyped-decorator]
+        @task_failure.connect(weak=False, dispatch_uid="scheduling.on_task_failure")  # type: ignore[untyped-decorator]
         def _on_task_failure(
             sender: Any, task_id: str, exception: BaseException, **kwargs: Any
         ) -> None:
@@ -74,7 +114,7 @@ class SchedulingConfig(AppConfig):
                 ),
             )
 
-        @task_retry.connect  # type: ignore[untyped-decorator]
+        @task_retry.connect(weak=False, dispatch_uid="scheduling.on_task_retry")  # type: ignore[untyped-decorator]
         def _on_task_retry(sender: Any, request: Any, reason: Any, **kwargs: Any) -> None:
             celery_task_retried.send(
                 sender=type(sender).__name__,

@@ -39482,6 +39482,13 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Project the failing task acted on, when known.",
+                        "readOnly": true
+                    },
                     "args": {
                         "readOnly": true
                     },
@@ -39550,6 +39557,7 @@
                     "id",
                     "kwargs",
                     "last_failed_at",
+                    "project_id",
                     "resolution_note",
                     "resolved_at",
                     "resolved_by_display",

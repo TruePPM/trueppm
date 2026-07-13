@@ -85,6 +85,7 @@ class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):
             "id",
             "task_name",
             "task_id",
+            "project_id",
             "args",
             "kwargs",
             "exception_type",

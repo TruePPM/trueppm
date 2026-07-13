@@ -74,6 +74,13 @@ BROKER_QUEUE = "messaging.destination.name"
 A broker queue is not a TruePPM-owned business fact, so per the namespace rule at
 the top of this module it uses the OTel ``messaging.*`` semantic-convention key
 rather than being forced under ``trueppm.*``."""
+# Distinct from TASK_ID (``trueppm.task.id``, a domain project Task row) — these
+# dimension a Celery task *execution*, not a project Task (#1917).
+CELERY_TASK_NAME = "trueppm.celery.task_name"
+"""Celery task's registered name, e.g. ``scheduling.recalculate``."""
+CELERY_TASK_OUTCOME = "trueppm.celery.outcome"
+"""Lower-cased terminal Celery state for one execution: ``success`` | ``failure`` |
+``retry`` | etc."""
 
 # --- Agent / MCP span attributes (OSS-owned, ADR-0112 RC1, #1805) ----------
 # Set on the request span when an MCP/agent token acts, so an operator can attribute
@@ -95,6 +102,8 @@ __all__ = [
     "AGENT_VERDICT",
     "BOARD_ID",
     "BROKER_QUEUE",
+    "CELERY_TASK_NAME",
+    "CELERY_TASK_OUTCOME",
     "DB_STATE",
     "NAMESPACE",
     "OUTBOX_NAME",

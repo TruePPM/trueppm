@@ -133,6 +133,21 @@ class FailedTask(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task_name = models.CharField(max_length=255, db_index=True)
     task_id = models.CharField(max_length=255, unique=True)
+    # Attribution for the dead-letter queue (#1917). Nullable: not every
+    # dead-lettered task is project-scoped (e.g. the nightly cross-project purge
+    # tasks), and existing rows predate this column. SET_NULL rather than CASCADE
+    # — deleting a project must never delete the failure audit trail that explains
+    # what it was doing when it broke; the row just loses its project reference.
+    # Populated by ``deadletter.record_failed_task`` from whatever ``project_id``
+    # the failing task already knew (most scheduling tasks take one as an arg).
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="failed_tasks",
+        help_text="Project the failing task acted on, when known.",
+    )
     args = models.JSONField(default=list)
     kwargs = models.JSONField(default=dict)
     exception_type = models.CharField(max_length=255)
