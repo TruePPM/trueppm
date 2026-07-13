@@ -167,6 +167,75 @@ describe('PlanSprintModal', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Issue #1913 — dismiss-guard (web-rule 217) on Escape / scrim / Cancel
+  // -------------------------------------------------------------------------
+
+  describe('dismiss-guard (#1913)', () => {
+    it('Escape with a dirty form opens the discard prompt instead of closing', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+
+      await user.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 14');
+      await user.keyboard('{Escape}');
+
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('Keep editing dismisses the prompt and leaves the form open', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+
+      await user.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 14');
+      await user.keyboard('{Escape}');
+      await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: /Name/i })).toHaveValue('Sprint 14');
+    });
+
+    it('Discard changes closes the modal', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+
+      await user.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 14');
+      await user.keyboard('{Escape}');
+      await user.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('scrim-click with a dirty form opens the discard prompt instead of closing', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+
+      await user.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 14');
+      await user.click(screen.getByRole('button', { name: 'Close dialog' }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('Cancel with a dirty form opens the discard prompt instead of closing', async () => {
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(<PlanSprintModal projectId="proj-1" onClose={onClose} />);
+
+      await user.type(screen.getByRole('textbox', { name: /Name/i }), 'Sprint 14');
+      await user.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Issue #299 — Edit mode
   // -------------------------------------------------------------------------
 

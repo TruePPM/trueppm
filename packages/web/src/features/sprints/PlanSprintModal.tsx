@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSprintMutations } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 
 export interface ExistingSprintForEdit {
   id: string;
@@ -65,8 +66,10 @@ export function PlanSprintModal({
   const isEdit = existingSprint !== undefined;
   const initialStart = existingSprint?.start_date ?? defaultStart ?? todayIso();
   const initialFinish = existingSprint?.finish_date ?? addDaysIso(initialStart, 13);
-  const [name, setName] = useState(existingSprint?.name ?? '');
-  const [goal, setGoal] = useState(existingSprint?.goal ?? '');
+  const initialName = existingSprint?.name ?? '';
+  const initialGoal = existingSprint?.goal ?? '';
+  const [name, setName] = useState(initialName);
+  const [goal, setGoal] = useState(initialGoal);
   const [startDate, setStartDate] = useState(initialStart);
   const [finishDate, setFinishDate] = useState(initialFinish);
 
@@ -86,13 +89,29 @@ export function PlanSprintModal({
     };
   }, []);
 
-  // Escape closes; Tab cycles within the dialog.
+  // Dirty check — by-value comparison against the values the modal opened
+  // with (issue #1913, matching web-rule 217's dismiss-guard contract).
+  const isDirty =
+    name !== initialName ||
+    goal !== initialGoal ||
+    startDate !== initialStart ||
+    finishDate !== initialFinish;
+
+  // Dismiss-guard: Escape / scrim / Cancel route through requestClose, which
+  // opens the styled, focus-trapped UnsavedChangesDialog when dirty instead of
+  // silently discarding the draft sprint (issue #1913). The guard owns its own
+  // Escape listener, so the Tab-cycling effect below no longer handles Escape.
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty: isDirty,
+    onClose,
+  });
+
+  // Tab cycles within the dialog. Suspended while the discard prompt is open
+  // so its own focus trap (UnsavedChangesDialog) doesn't fight this one for
+  // the same Tab cycle.
   useEffect(() => {
+    if (guardOpen) return undefined;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
       if (e.key !== 'Tab' || !dialogRef.current) return;
       const focusable = getFocusable(dialogRef.current);
       if (focusable.length === 0) return;
@@ -110,7 +129,7 @@ export function PlanSprintModal({
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [guardOpen]);
 
   const trimmedName = name.trim();
   const datesValid =
@@ -168,7 +187,7 @@ export function PlanSprintModal({
         aria-label="Close dialog"
         tabIndex={-1}
         className="fixed inset-0 z-50 bg-neutral-overlay cursor-default"
-        onClick={onClose}
+        onClick={requestClose}
       />
       <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
         <div
@@ -267,7 +286,7 @@ export function PlanSprintModal({
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={requestClose}
                 disabled={activeMutation.isPending}
                 className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
                   text-neutral-text-secondary hover:text-neutral-text-primary
@@ -295,6 +314,7 @@ export function PlanSprintModal({
           </form>
         </div>
       </div>
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </>
   );
 }

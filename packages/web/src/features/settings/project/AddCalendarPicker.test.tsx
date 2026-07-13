@@ -114,4 +114,59 @@ describe('AddCalendarPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  // ---------------------------------------------------------------------
+  // Issue #1913 — dismiss-guard (web-rule 217) on Escape / scrim / Cancel
+  // ---------------------------------------------------------------------
+
+  describe('dismiss-guard (#1913)', () => {
+    it('Cancel with a selection made opens the discard prompt instead of closing', () => {
+      const { onClose } = renderPicker();
+      fireEvent.click(screen.getByRole('option', { name: /UK Bank Holidays 2026/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('Keep editing dismisses the prompt and preserves the selection', () => {
+      const { onClose } = renderPicker();
+      fireEvent.click(screen.getByRole('option', { name: /UK Bank Holidays 2026/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByText('1 selected')).toBeInTheDocument();
+    });
+
+    it('Discard changes closes the picker', () => {
+      const { onClose } = renderPicker();
+      fireEvent.click(screen.getByRole('option', { name: /UK Bank Holidays 2026/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('scrim-click on the mobile sheet with a selection made opens the discard prompt', () => {
+      const { onClose } = renderPicker({ variant: 'sheet' });
+      fireEvent.click(screen.getByRole('option', { name: /UK Bank Holidays 2026/ }));
+      // Two elements share the accessible name "Close" (scrim + header button) —
+      // the scrim is the first in document order.
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Discard unsaved changes?');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('scrim-click on the mobile sheet with no selection closes immediately', () => {
+      const { onClose } = renderPicker({ variant: 'sheet' });
+      fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0]);
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+  });
 });
