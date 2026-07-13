@@ -1,6 +1,7 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query';
 import axios from 'axios';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
+import { useAuthStore } from '@/stores/authStore';
 
 export const queryClient = new QueryClient({
   // Every successful write stamps the session "last synced" time that powers the
@@ -9,6 +10,17 @@ export const queryClient = new QueryClient({
   mutationCache: new MutationCache({
     onSuccess: () => {
       useSyncStatusStore.getState().markSynced();
+    },
+    // A mutation attempted while the user is in the read-only escape hatch
+    // (#1922) is always doomed: the apiClient request interceptor rejects it
+    // synchronously before anything reaches the network, since `sessionExpired`
+    // is still true underneath. Rather than let that surface as a bare mutation
+    // error (or, worse, let the user retry the same control in a silent loop),
+    // re-engage the blocking re-auth modal so the next action they take is
+    // "sign in", not another doomed write. No-ops once the modal is already
+    // showing (sessionExpiredReadOnly is false) or the session is fine.
+    onError: () => {
+      useAuthStore.getState().reassertSessionExpired();
     },
   }),
   defaultOptions: {

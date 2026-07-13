@@ -94,3 +94,27 @@ permissions or what anyone else sees.
 The whole interface supports Light, Dark, and Auto themes via a single toggle in
 your account menu. Chrome and content adapt together — there is never a dark
 sidebar stranded on a light app.
+
+## When your session expires
+
+:::note[Ships in 0.4]
+The read-only escape hatch (issue #1922) ships in the 0.4 milestone.
+:::
+
+If your session expires while you're working — a timed-out token, a signed-out
+tab left open — TruePPM shows a "Your session expired" prompt rather than
+silently dropping you onto the login screen with no explanation. From there you
+can:
+
+- **Sign in** to re-authenticate immediately, or
+- **Continue viewing (read-only)** to keep looking at whatever the app already
+  has loaded in this tab — the schedule, a board, a report — without losing your
+  place. This dismisses the blocking prompt in favor of a slim banner pinned to
+  the top of the screen that stays visible while you browse.
+
+Read-only mode never fetches new data (nothing more can load until you sign in
+again) and never sends writes: if you try to save, complete, or otherwise change
+anything while read-only, TruePPM blocks the attempt before it reaches the
+server and brings the sign-in prompt back rather than failing silently. Sign in
+again from either the original prompt or the persistent banner to resume normal
+work.
