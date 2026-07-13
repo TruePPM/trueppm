@@ -40,6 +40,7 @@ interface ConnReturn {
   connection: {
     account_email: string;
     base_url?: string;
+    status?: string;
     last_synced_at: string | null;
   } | null;
   isConnected: boolean;
@@ -66,11 +67,39 @@ const NOT_CONNECTED: ConnReturn = {
   isLoading: false,
 };
 
+// Relative to test-run time (not a fixed date) so freshness/staleness assertions
+// stay correct regardless of when the suite runs — see #1910.
+const FIVE_MINUTES_AGO = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+const THREE_DAYS_AGO = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+
 const CONNECTED_JIRA: ConnReturn = {
   connection: {
     account_email: 'p.patel@acme.com',
     base_url: 'https://acme.atlassian.net',
-    last_synced_at: '2026-05-20T14:00:00Z',
+    status: 'connected',
+    last_synced_at: FIVE_MINUTES_AGO,
+  },
+  isConnected: true,
+  isLoading: false,
+};
+
+const CONNECTED_JIRA_STALE: ConnReturn = {
+  connection: {
+    account_email: 'p.patel@acme.com',
+    base_url: 'https://acme.atlassian.net',
+    status: 'connected',
+    last_synced_at: THREE_DAYS_AGO,
+  },
+  isConnected: true,
+  isLoading: false,
+};
+
+const CONNECTED_JIRA_AUTH_FAILED: ConnReturn = {
+  connection: {
+    account_email: 'p.patel@acme.com',
+    base_url: 'https://acme.atlassian.net',
+    status: 'auth_failed',
+    last_synced_at: THREE_DAYS_AGO,
   },
   isConnected: true,
   isLoading: false,
@@ -410,6 +439,47 @@ describe('ConnectedAccountsPage — Available sources (#1420)', () => {
     expect(
       card.getByRole('link', { name: /Open RIV-482 in Jira/i }),
     ).toBeInTheDocument();
+  });
+
+  it('renders an auth_failed Reconnect banner and reopens the connect flow', async () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA_AUTH_FAILED : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    const banner = card.getByRole('status');
+    expect(banner).toHaveTextContent(/needs reauthorization/i);
+    expect(banner).toHaveAttribute('aria-live', 'polite');
+
+    // A stale last_synced_at is also true on this fixture, but the auth_failed
+    // banner takes precedence — no separate staleness note.
+    expect(card.queryByText(/^Last synced/i)).not.toBeInTheDocument();
+
+    // "Reconnect" reuses the same PAT wizard as the initial Connect — no new flow.
+    fireEvent.click(card.getByRole('button', { name: 'Reconnect' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: /Connect Jira/i })).toBeInTheDocument();
+  });
+
+  it('shows a quiet "Last synced … ago" note for a stale connection', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA_STALE : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.getByText(/^Last synced 3d ago$/)).toBeInTheDocument();
+    expect(card.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('renders neither banner nor staleness note for a healthy, fresh connection', () => {
+    useExternalConnection.mockImplementation((source: string) =>
+      source === 'jira' ? CONNECTED_JIRA : NOT_CONNECTED,
+    );
+    renderPage();
+    const card = within(document.getElementById('source-jira') as HTMLElement);
+    expect(card.queryByRole('status')).not.toBeInTheDocument();
+    expect(card.queryByText(/^Last synced/i)).not.toBeInTheDocument();
+    expect(card.queryByRole('button', { name: 'Reconnect' })).not.toBeInTheDocument();
   });
 
   it('fetches connection state only for available sources', () => {
