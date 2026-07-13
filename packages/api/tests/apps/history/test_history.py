@@ -883,6 +883,72 @@ class TestTaskActivityInclude:
         assert str(theirs.id) not in ids
         assert time_events[0]["detail"]["minutes"] == 30
 
+    def test_time_soft_delete_keeps_logged_and_adds_deleted_event(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A soft-deleted time entry keeps its time_logged event and gains a
+        time_deleted event from deleted_at (#1888) — logged hours must leave a
+        trace when revised or removed (EVM/billing integrity). Legacy rows with no
+        deleted_at contribute only the retained log event, mirroring attachments."""
+        from trueppm_api.apps.timetracking.models import TimeEntry
+
+        deleted = TimeEntry.objects.create(task=task, user=owner, minutes=45, note="scrapped")
+        deleted.soft_delete(actor=owner)
+        # Legacy soft-delete (before deleted_at existed): flag only, no timestamp.
+        legacy = TimeEntry.objects.create(task=task, user=owner, minutes=15, note="old")
+        legacy.is_deleted = True
+        legacy.save(update_fields=["is_deleted"])
+        live = TimeEntry.objects.create(task=task, user=owner, minutes=60, note="kept")
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=time")
+        assert r.status_code == 200
+        results = r.data["results"]
+        logged_ids = {
+            e["detail"]["time_entry_id"] for e in results if e.get("event_type") == "time_logged"
+        }
+        # Every entry — deleted, legacy, live — keeps its time_logged event.
+        assert {str(deleted.id), str(legacy.id), str(live.id)} <= logged_ids
+
+        deleted_events = [e for e in results if e.get("event_type") == "time_deleted"]
+        assert len(deleted_events) == 1  # legacy row has no deleted_at to anchor one
+        ev = deleted_events[0]
+        assert ev["detail"]["time_entry_id"] == str(deleted.id)
+        assert ev["detail"]["minutes"] == 45
+        assert ev["actor"]["display_name"] == "Owen"
+        # The note is intentionally omitted — the entry is gone, don't resurface it.
+        assert "note" not in ev["detail"]
+
+    def test_time_deleted_stays_scoped_to_requesting_user(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        member: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+        member_membership: ProjectMembership,
+    ) -> None:
+        """Including soft-deleted entries must not widen the privacy boundary:
+        another member's deleted entry yields no time_deleted event in my feed."""
+        from trueppm_api.apps.timetracking.models import TimeEntry
+
+        theirs = TimeEntry.objects.create(task=task, user=member, minutes=90, note="theirs")
+        theirs.soft_delete(actor=member)
+
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=time")
+        assert r.status_code == 200
+        deleted_ids = {
+            e["detail"]["time_entry_id"]
+            for e in r.data["results"]
+            if e.get("event_type") == "time_deleted"
+        }
+        assert str(theirs.id) not in deleted_ids
+
     def test_attachment_uploaded_and_null_actor(
         self,
         owner_client: APIClient,

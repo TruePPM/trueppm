@@ -10,6 +10,7 @@ not soft-deleted. Nothing here broadcasts — a time entry mutates no shared boa
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -62,6 +63,23 @@ class TimeEntry(VersionedModel):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Soft-delete accountability (issue #1888). The base ``VersionedModel.soft_delete()``
+    # only flips ``is_deleted``, so a removed entry left no trace of *when* or *by whom*
+    # — and the task activity stream, which filtered ``is_deleted=False``, silently
+    # dropped its ``time_logged`` event too. That is an EVM/billing integrity gap: logged
+    # hours could be revised or removed with no record. These fields let the stream
+    # synthesize a ``time_deleted`` event, mirroring the ``TaskComment``/``TaskAttachment``
+    # soft-delete precedent. ``deleted_by`` is the acting user (always the owner — entries
+    # are self-scoped) and SET_NULLs on account deletion, so the event actor goes null.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_time_entries",
+    )
+
     class Meta:
         db_table = "timetracking_time_entry"
         indexes = [
@@ -75,6 +93,19 @@ class TimeEntry(VersionedModel):
 
     def __str__(self) -> str:
         return f"TimeEntry({self.user_id}, {self.minutes}m, {self.entry_date})"
+
+    def soft_delete(self, *, actor: Any | None = None) -> None:
+        """Stamp ``deleted_at``/``deleted_by`` before delegating to the base soft-delete.
+
+        Mirrors ``Dependency.soft_delete()``'s stamping (issue #1888): the base
+        ``VersionedModel.soft_delete()`` persists the whole row, so setting these two
+        fields first writes them in the same UPDATE that flips ``is_deleted``. Without
+        the timestamp the activity stream could not order or surface the ``time_deleted``
+        event, so a removed entry vanished from the ``time_logged`` feed with no trace.
+        """
+        self.deleted_at = timezone.now()
+        self.deleted_by = actor
+        super().soft_delete()
 
 
 class ActiveTimer(models.Model):
