@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import F
+from simple_history.utils import get_history_manager_for_model
 
 from trueppm_api.apps.projects.models import (
     ApiTokenAuditAction,
@@ -315,6 +316,28 @@ def upsert_inbound_task(
         Task.objects.filter(pk=task.pk).update(**update_fields)
         # Refresh task to get post-update field values for downstream callers.
         task.refresh_from_db()
+
+        # The bulk .update() above is deliberate (single server_version bump,
+        # externally-supplied status_changed_at preserved — see the write-through
+        # comment), but it also bypasses django-simple-history's post_save
+        # receiver, so without this no HistoricalTask row is written and
+        # external-system/agent edits are invisible in every activity/history
+        # surface (#1876). Record the post-update state explicitly through
+        # simple_history's own bulk machinery (the same path
+        # bulk_update_with_history uses): it respects the model's
+        # excluded_fields and only INSERTs a history row — the task row itself
+        # is untouched, so server_version is not double-bumped and
+        # status_changed_at keeps its .update() semantics. history_user resolves
+        # through simple_history's middleware context to request.user, which
+        # ProjectApiTokenAuthentication sets to token.created_by — identical to
+        # the attribution the create branch's post_save "+" row already gets
+        # (and None outside a request). The change reason carries the external
+        # source tag so the feed can tell an inbound edit from a direct one.
+        get_history_manager_for_model(Task).bulk_history_create(
+            [task],
+            update=True,
+            default_change_reason=f"inbound sync: {source}",
+        )
 
         if status_changed:
             # task_status_changed is the OSS extension point Task.save() emits on a

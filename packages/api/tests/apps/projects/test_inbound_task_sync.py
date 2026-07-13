@@ -13,6 +13,8 @@ Covers:
   - Status_map immutability — change requires new token.
   - broadcast_board_event fires on inbound upsert (transaction.on_commit).
   - pending-assignee count surfaced on project detail.
+  - HistoricalTask row written on the bulk-.update() branch (#1876) and
+    surfaced by the task history endpoint.
 """
 
 from __future__ import annotations
@@ -951,3 +953,110 @@ def test_external_reopen_from_complete_clears_finish_and_restores_remaining(
     assert task.status == TaskStatus.IN_PROGRESS
     assert task.actual_finish is None
     assert task.remaining_points == 8
+
+
+# ---------------------------------------------------------------------------
+# History rows for inbound updates (#1876)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_external_update_writes_historical_task_row(project: Project, admin_user: Any) -> None:
+    """The bulk-.update() path writes an explicit HistoricalTask row so
+    external-system/agent edits appear in activity and history surfaces (#1876).
+    The row must reflect POST-update values (including the #1767 coercions)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    resp1 = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "todo"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp1.data["task_id"])
+    rows_before = task.history.count()
+
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v2", "status": "done"},
+        format="json",
+    )
+
+    assert task.history.count() == rows_before + 1
+    record = task.history.order_by("-history_date").first()
+    assert record is not None
+    assert record.history_type == "~"
+    # simple_history's middleware context resolves request.user, which the token
+    # auth class sets to token.created_by — the same attribution the create
+    # branch's post_save "+" row gets.
+    assert record.history_user == admin_user
+    assert record.history_change_reason == "inbound sync: jira"
+    # Post-update field values, including the status-transition coercions.
+    assert record.name == "v2"
+    assert record.status == TaskStatus.COMPLETE.value
+    assert record.percent_complete == 100.0
+    assert record.actual_finish == timezone.localdate()
+    assert record.remaining_points == 0
+    assert record.id == task.pk
+    assert record.project_id == project.pk
+
+
+@pytest.mark.django_db
+def test_external_update_does_not_double_bump_server_version(
+    project: Project, admin_user: Any
+) -> None:
+    """Writing the explicit history row must not touch the task row itself —
+    server_version increments exactly once per inbound update (#1876)."""
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    resp1 = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "todo"},
+        format="json",
+    )
+    task = Task.objects.get(pk=resp1.data["task_id"])
+    version_before = task.server_version
+
+    client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v2", "status": "todo"},
+        format="json",
+    )
+
+    task.refresh_from_db()
+    assert task.server_version == version_before + 1
+
+
+@pytest.mark.django_db
+def test_task_history_endpoint_surfaces_inbound_diff(project: Project, admin_user: Any) -> None:
+    """The task history endpoint diffs the inbound-update row against the
+    previous state, so external edits are visible to project members (#1876)."""
+    _token, raw = _mint_token(project, admin_user)
+    sync_client = _bearer(APIClient(), raw)
+    resp1 = sync_client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v1", "status": "todo"},
+        format="json",
+    )
+    task_id = resp1.data["task_id"]
+    sync_client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-1", "name": "v2", "status": "in_progress"},
+        format="json",
+    )
+
+    member_client = APIClient()
+    member_client.force_authenticate(admin_user)
+    resp = member_client.get(f"/api/v1/projects/{project.pk}/tasks/{task_id}/history/")
+    assert resp.status_code == 200
+    entries = resp.data["results"]
+    # Newest first: the inbound update row, then the creation (+) row.
+    change = entries[0]
+    assert change["history_type"] == "~"
+    # Attributed to the token's creator (request.user on the token-auth path),
+    # matching the creation row's attribution.
+    assert change["history_user"] == admin_user.username
+    diff_by_field = {d["field"]: d for d in change["diff"]}
+    assert diff_by_field["name"]["old"] == "v1"
+    assert diff_by_field["name"]["new"] == "v2"
+    assert diff_by_field["status"]["old"] == TaskStatus.NOT_STARTED.value
+    assert diff_by_field["status"]["new"] == TaskStatus.IN_PROGRESS.value
