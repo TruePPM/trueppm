@@ -26,7 +26,9 @@ from trueppm_api.apps.projects.attachment_policy import (
     SYSTEM_DEFAULT_ATTACHMENT_TYPES,
 )
 from trueppm_api.apps.projects.models import (
+    _VALID_DUE_WINDOWS,
     _VALID_EVM_MODES,
+    _VALID_PRIORITY_BANDS,
     _VALID_SORT_KEYS,
     API_TOKEN_SCOPES,
     PROJECT_CUSTOM_FIELD_MAX,
@@ -4707,9 +4709,12 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
     On read, config is run through the forward-migration registry
     (``schema_migrations.migrate_payload``, ADR-0086 / ADR-0204): a stale stored
     payload is upgraded to the current shape before any client sees it, and the
-    resolved ``schema_version`` is returned alongside. New writes are born at the
-    current version (the model column defaults to it), so the upgrade is a no-op
-    for them and only rewrites genuinely older rows.
+    resolved ``schema_version`` is returned alongside. New writes are stamped at
+    the current version explicitly by the view layer (mirroring how it also
+    stamps ``server_version`` rather than trusting a model default — see
+    ``BoardSavedView``'s docstring for why the field default itself stays put),
+    so the migration chain is a no-op for them and only rewrites genuinely
+    older rows.
 
     created_by is set automatically from request.user on create and is
     read-only thereafter.
@@ -4744,6 +4749,33 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
             data["schema_version"] = version
         return data
 
+    def _validate_facet_list(
+        self, value: dict[str, Any], key: str, valid_values: frozenset[str] | None
+    ) -> list[str]:
+        """Validate and normalize one ``filter_*`` facet key (#1918).
+
+        ``filter_assignees`` carries opaque resource ids (plus the client's
+        "unassigned" sentinel) with no fixed enum — ``valid_values=None`` skips
+        the membership check and only enforces "list of strings". The priority
+        and due-window facets *do* have a closed vocabulary (mirrors the web
+        ``PriorityBand`` / ``DueWindow`` unions in ``boardFacets.ts``), so those
+        reject unknown tokens rather than silently dropping them: a typo'd or
+        stale token should surface as a 400, not vanish.
+        """
+        raw = value.get(key, [])
+        if not isinstance(raw, list) or not all(isinstance(v, str) for v in raw):
+            raise serializers.ValidationError(f"config.{key} must be a list of strings")
+        if valid_values is not None:
+            unknown = [v for v in raw if v not in valid_values]
+            if unknown:
+                raise serializers.ValidationError(
+                    f"config.{key} contains unknown value(s) {unknown}; "
+                    f"must be a subset of {sorted(valid_values)}"
+                )
+        # De-dupe while preserving order — a repeated token is a no-op client
+        # bug, not something worth rejecting.
+        return list(dict.fromkeys(raw))
+
     def validate_config(self, value: Any) -> dict[str, Any]:
         if not isinstance(value, dict):
             raise serializers.ValidationError("config must be an object")
@@ -4761,6 +4793,9 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
             v = value.get(bool_key)
             if v is not None and not isinstance(v, bool):
                 raise serializers.ValidationError(f"config.{bool_key} must be a boolean")
+        filter_assignees = self._validate_facet_list(value, "filter_assignees", None)
+        filter_priority = self._validate_facet_list(value, "filter_priority", _VALID_PRIORITY_BANDS)
+        filter_due = self._validate_facet_list(value, "filter_due", _VALID_DUE_WINDOWS)
         return {
             "sort": sort,
             "show_wip": bool(value.get("show_wip", True)),
@@ -4768,6 +4803,9 @@ class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
             "evm_mode": evm_mode,
             "show_cost": bool(value.get("show_cost", False)),
             "risk_linked_only": bool(value.get("risk_linked_only", False)),
+            "filter_assignees": filter_assignees,
+            "filter_priority": filter_priority,
+            "filter_due": filter_due,
         }
 
     class Meta:

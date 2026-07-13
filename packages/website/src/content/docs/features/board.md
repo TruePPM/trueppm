@@ -100,6 +100,7 @@ Facets combine as you would expect: a card must match **every** group you have n
 - The **Filters** button shows a badge with the number of active facet values, and an **active-filter bar** below the toolbar lists each one as a removable chip so the lens is always visible. Remove a chip, or press **Clear all**, to widen the board again.
 - If nothing matches, a **No cards match these filters** banner replaces the board with a one-click **Clear filters** action.
 - The active facets are reflected in the URL (`?fa=…&fp=…&fd=…`), so a filtered board is a **shareable link**, and your selection is also remembered per project in this browser.
+- Saving the current board as a named view captures the active facets along with sort and display settings; loading that view restores them, so a saved view carries its filter state rather than leaving it stranded in the URL or this browser's storage.
 
 Filters compose with the **My tasks** and **At-risk** quiet toggles — those remain independent one-tap lenses alongside the facet panel.
 

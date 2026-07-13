@@ -173,5 +173,31 @@ def _board_view_v0_to_v1(payload: Mapping[str, Any]) -> dict[str, Any]:
     return upgraded
 
 
-register_surface(SURFACE_BOARD_SAVED_VIEW, current_version=1)
+# The three filter-facet keys added in v2 (#1918) and their defaults — an empty
+# list means "no constraint", matching boardFacets.EMPTY_FACETS on the web side.
+# Kept in sync with BoardSavedViewSerializer.validate_config (the write-side
+# normalizer).
+_BOARD_VIEW_FACET_DEFAULTS: dict[str, Any] = {
+    "filter_assignees": [],
+    "filter_priority": [],
+    "filter_due": [],
+}
+
+
+def _board_view_v1_to_v2(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Backfill the three filter-facet keys onto a pre-#1918 board view.
+
+    A v1 payload predates the board filter-bar facets (issue 1091) being
+    persisted into saved views. Fill any absent facet key with its empty-list
+    default ("no constraint") rather than inferring a value — a saved view
+    created before this feature shipped never had an opinion about facets.
+    """
+    upgraded = dict(payload)
+    for key, default in _BOARD_VIEW_FACET_DEFAULTS.items():
+        upgraded.setdefault(key, default)
+    return upgraded
+
+
+register_surface(SURFACE_BOARD_SAVED_VIEW, current_version=2)
 register_migration(SURFACE_BOARD_SAVED_VIEW, 0, _board_view_v0_to_v1)
+register_migration(SURFACE_BOARD_SAVED_VIEW, 1, _board_view_v1_to_v2)

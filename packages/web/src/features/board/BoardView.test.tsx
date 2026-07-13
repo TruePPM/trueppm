@@ -65,6 +65,7 @@ vi.stubGlobal('matchMedia', vi.fn().mockImplementation(makeMq(false)));
 import { FIXTURE_TASKS } from '@/fixtures/tasks';
 import type { Task, TaskStatus } from '@/types';
 import type { FlowMetrics } from '@/hooks/useSprints';
+import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 
 // ---------------------------------------------------------------------------
 // Mocks — module-scope mutable state lets each test choose which tasks /
@@ -204,11 +205,15 @@ vi.mock('@/hooks/usePhaseReorder', () => ({
 }));
 
 // Board batch 6 — stub saved views hook so BoardViewDropdown doesn't make network calls.
+// mockSavedViews / mockCreateMutate are mutable (issue 1918) so individual tests can
+// inject a saved view with filter facets and assert on what "Save current view" sends.
+let mockSavedViews: import('@/hooks/useBoardSavedViews').BoardSavedView[] = [];
+const mockCreateMutate = vi.fn();
 vi.mock('@/hooks/useBoardSavedViews', () => ({
   useBoardSavedViews: () => ({
-    views: [],
+    views: mockSavedViews,
     isLoading: false,
-    create: { mutate: vi.fn(), isPending: false },
+    create: { mutate: mockCreateMutate, isPending: false },
     update: { mutate: vi.fn(), isPending: false },
     remove: { mutate: vi.fn(), isPending: false },
   }),
@@ -307,6 +312,8 @@ function resetMocks() {
     { status: 'COMPLETE', label: 'DONE', visible: true },
   ];
   mockFlowMetrics = undefined;
+  mockSavedViews = [];
+  mockCreateMutate.mockReset();
   updateMutate.mockReset();
   startWorkshopMutate.mockReset();
   endWorkshopMutate.mockReset();
@@ -1249,6 +1256,97 @@ describe('BoardView', () => {
       renderBoard();
       const pill = screen.getByRole('button', { name: 'My tasks' });
       expect(pill).toBeDisabled();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Saved-view filter facets (issue #1918) — save captures the active
+  // assignee/priority/due facets; applying a saved view restores them.
+  // -------------------------------------------------------------------------
+  describe('saved view filter facets (issue #1918)', () => {
+    it('saving the current view includes the active facets in config.filters', async () => {
+      const user = userEvent.setup();
+      renderBoard();
+
+      // Activate an assignee facet via the filter panel.
+      await user.click(screen.getByTestId('board-filter-trigger'));
+      await user.click(screen.getByTestId('facet-assignee-r1'));
+      expect(screen.getByTestId('board-filter-count')).toHaveTextContent('1');
+
+      // Save the current view.
+      await user.click(screen.getByRole('button', { name: /board view/i }));
+      await user.click(screen.getByText('+ Save current view…'));
+      await user.type(screen.getByLabelText('View name'), 'My filtered view');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      // Assert on the captured call args directly rather than a nested
+      // expect.objectContaining (which loses type information here) — the
+      // saved payload's name and its full config.filters must both land.
+      expect(mockCreateMutate).toHaveBeenCalledTimes(1);
+      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
+      expect(firstCallArgs.name).toBe('My filtered view');
+      expect(firstCallArgs.config.filters).toEqual({ assignees: ['r1'], priority: [], due: [] });
+    });
+
+    it('saving with no active facets includes an explicit empty filter set', async () => {
+      const user = userEvent.setup();
+      renderBoard();
+
+      await user.click(screen.getByRole('button', { name: /board view/i }));
+      await user.click(screen.getByText('+ Save current view…'));
+      await user.type(screen.getByLabelText('View name'), 'Unfiltered view');
+      await user.click(screen.getByRole('button', { name: /^save$/i }));
+
+      expect(mockCreateMutate).toHaveBeenCalledTimes(1);
+      const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
+      expect(firstCallArgs.config.filters).toEqual({ assignees: [], priority: [], due: [] });
+    });
+
+    it('applying a saved view restores its stored facets and dims non-matching cards', async () => {
+      const user = userEvent.setup();
+      mockSavedViews = [
+        {
+          id: 'sv-1',
+          name: 'Alice only',
+          config: {
+            sort: 'priority',
+            showWip: true,
+            showColTints: true,
+            evmMode: 'off',
+            showCost: false,
+            riskLinkedOnly: false,
+            filters: { assignees: ['r1'], priority: [], due: [] },
+          },
+          schemaVersion: 2,
+          createdBy: null,
+          serverVersion: 1,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ];
+      renderBoard();
+
+      await user.click(screen.getByRole('button', { name: /board view/i }));
+      await user.click(screen.getByText('Alice only'));
+
+      // The restored facet shows up as an active-filter chip and the count badge.
+      expect(screen.getByTestId('board-filter-chips')).toBeInTheDocument();
+      expect(screen.getByTestId('board-filter-count')).toHaveTextContent('1');
+    });
+
+    it('applying a built-in quick filter clears any previously active facets', async () => {
+      const user = userEvent.setup();
+      renderBoard();
+
+      await user.click(screen.getByTestId('board-filter-trigger'));
+      await user.click(screen.getByTestId('facet-assignee-r1'));
+      expect(screen.getByTestId('board-filter-count')).toHaveTextContent('1');
+
+      await user.click(screen.getByRole('button', { name: /board view/i }));
+      await user.click(screen.getByText('⚠ At risk'));
+
+      expect(screen.queryByTestId('board-filter-chips')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('board-filter-count')).not.toBeInTheDocument();
     });
   });
 

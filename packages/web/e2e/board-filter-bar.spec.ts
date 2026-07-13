@@ -219,3 +219,62 @@ test.describe('Board filter bar (issue 1091)', () => {
     await expect(card(page, 'Bob Low')).toHaveCount(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Saved-view filter facet persistence (issue #1918)
+// ---------------------------------------------------------------------------
+
+test.describe('Saved board views persist filter facets (issue #1918)', () => {
+  test('applying a saved view restores its stored assignee facet', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+      // A view saved before this spec's golden path — its config carries the
+      // assignee facet (r1 = Alice) the way a real save would have written it.
+      boardViews: [
+        {
+          id: 'sv-alice',
+          name: 'Alice only',
+          config: {
+            sort: 'priority',
+            show_wip: true,
+            show_col_tints: true,
+            evm_mode: 'off',
+            show_cost: false,
+            risk_linked_only: false,
+            filter_assignees: ['r1'],
+            filter_priority: [],
+            filter_due: [],
+          },
+          schema_version: 2,
+          created_by: 'e2e-user',
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+    });
+    await page.goto(ROUTE);
+
+    // Board rendered signal.
+    await expect(card(page, 'Alice High')).toBeVisible({ timeout: 10_000 });
+    await expect(card(page, 'Bob Low')).toBeVisible();
+
+    // No facets active yet.
+    await expect(page.getByTestId('board-filter-chips')).toHaveCount(0);
+
+    // Open the "View" dropdown and select the saved view.
+    await page.getByRole('button', { name: /board view/i }).click();
+    await page.getByText('Alice only').click();
+
+    // Its stored assignee facet is now applied: Bob drops out, count badge shows 1.
+    await expect(page.getByTestId('board-filter-count')).toHaveText('1');
+    await expect(page.getByTestId('board-filter-chips')).toBeVisible();
+    await expect(card(page, 'Alice High')).toBeVisible();
+    await expect(card(page, 'Alice Low')).toBeVisible();
+    await expect(card(page, 'Bob Low')).toHaveCount(0);
+  });
+});

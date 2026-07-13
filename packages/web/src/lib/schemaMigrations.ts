@@ -129,5 +129,28 @@ function boardViewV0ToV1(payload: Record<string, unknown>): Record<string, unkno
   return upgraded;
 }
 
-registerSurface(SURFACE_BOARD_SAVED_VIEW, 1);
+/**
+ * The three filter-facet keys added in v2 (issue 1918) — mirror of the API-side
+ * `_BOARD_VIEW_FACET_DEFAULTS`. An empty list means "no constraint", matching
+ * `boardFacets.EMPTY_FACETS`.
+ */
+const BOARD_VIEW_FACET_DEFAULTS: Record<string, unknown> = {
+  filter_assignees: [],
+  filter_priority: [],
+  filter_due: [],
+};
+
+/** Backfill the filter-facet keys onto a pre-#1918 (v1) board view payload. */
+function boardViewV1ToV2(payload: Record<string, unknown>): Record<string, unknown> {
+  const upgraded = { ...payload };
+  for (const [key, value] of Object.entries(BOARD_VIEW_FACET_DEFAULTS)) {
+    if (upgraded[key] === undefined) {
+      upgraded[key] = value;
+    }
+  }
+  return upgraded;
+}
+
+registerSurface(SURFACE_BOARD_SAVED_VIEW, 2);
 registerMigration(SURFACE_BOARD_SAVED_VIEW, 0, boardViewV0ToV1);
+registerMigration(SURFACE_BOARD_SAVED_VIEW, 1, boardViewV1ToV2);
