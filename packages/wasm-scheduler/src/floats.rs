@@ -37,7 +37,13 @@ pub fn compute_floats(
 
         // Total float: working days between ES and LS.
         let tf_days = counter.between(es, ls)?;
-        let is_critical = tf_days == 0;
+        // A completed task is never on the critical path. The backward pass pins a
+        // done task to late == early (ADR-0132/0136), mechanically yielding zero
+        // total float — but a finished task has no remaining work and no slack to
+        // manage, so it cannot drive the project finish and must not be reported as
+        // critical. Completion overrides the zero-float rule; total_float stays 0
+        // because the task genuinely has no slack. Mirrors the Python guard (#1863).
+        let is_critical = tf_days == 0 && !tasks[i].is_complete();
 
         // Free float (standard critical-path definition, #825): the largest slip
         // this task can absorb before it pushes the early date of any live

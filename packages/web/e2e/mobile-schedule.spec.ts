@@ -26,7 +26,8 @@ const TASKS = [
     planned_start: '2026-10-05',
     duration: 10,
     percent_complete: 100,
-    is_critical: true,
+    // Completed task → never critical (#1863).
+    is_critical: false,
     is_milestone: false,
     status: 'COMPLETE',
     is_summary: false,

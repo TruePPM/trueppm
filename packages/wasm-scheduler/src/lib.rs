@@ -641,6 +641,43 @@ mod tests {
     }
 
     #[test]
+    fn test_completed_task_on_driving_chain_is_not_critical() {
+        // A -> B -> C on the single zero-float chain, A and B are 100% done.
+        // Both completed tasks carry zero total float but must NOT be critical;
+        // only the live task C drives the finish (#1863). Mirrors the Python
+        // TestCompletedNotCritical case to keep the two engines in conformance.
+        let mut a = make_task("A", 5);
+        a.percent_complete = 100.0;
+        let mut b = make_task("B", 5);
+        b.percent_complete = 100.0;
+        let c = make_task("C", 5);
+        let project = Project {
+            id: "p1".to_string(),
+            name: "Test".to_string(),
+            start_date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(),
+            tasks: vec![a, b, c],
+            dependencies: vec![dep("A", "B"), dep("B", "C")],
+            calendar: Calendar::default(),
+            status_date: None,
+            calendars: None,
+            velocity_samples: None,
+            sprint_length_days: None,
+        };
+
+        let result = schedule_impl(&project).unwrap();
+        let a = result.tasks.iter().find(|t| t.id == "A").unwrap();
+        let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+        let c = result.tasks.iter().find(|t| t.id == "C").unwrap();
+
+        // Completed tasks: zero slack (done) but off the critical path.
+        assert_eq!((a.total_float / 86400.0).round() as i32, 0);
+        assert!(!a.is_critical);
+        assert!(!b.is_critical);
+        // The live driver is the only critical task.
+        assert!(c.is_critical);
+    }
+
+    #[test]
     fn test_milestone_zero_duration() {
         // A(5d) -> M(0d milestone) -> B(3d)
         let project = Project {
