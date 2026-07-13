@@ -1146,6 +1146,17 @@ class Project(VersionedModel):
     # project's tasks. Default 7. Distinct from the 3-day is_stalled board-card chip
     # (ADR-0115), which is a synchronous visual verdict, not an opt-in notification.
     stale_task_threshold_days = models.PositiveIntegerField(default=7)
+    # Project-finish shift notification threshold in whole days (#1911, the third
+    # #82 schedule-notification rule — companion to #1668's dependency-slip /
+    # became-critical pair). notify_project_end_date_shift (scheduling app)
+    # compares each ProjectForecastSnapshot's cpm_finish against the immediately
+    # prior snapshot for this project; a delta strictly greater than this many
+    # days notifies the project's PM/Owner cohort (role >= ADMIN). Same
+    # per-project scalar-column shape as stale_task_threshold_days above (ADR-0200)
+    # — no settings side-table. Default 5: material enough to skip routine
+    # day-to-day float absorption, tight enough that a real multi-day slip is
+    # still caught before it compounds.
+    end_date_shift_threshold_days = models.PositiveIntegerField(default=5)
     # Product-backlog prioritization model (ADR-0105, #922). Drives which distinct input
     # columns on ``Task`` are read for the computed score. Scalar column (matches
     # ``methodology`` / ``estimation_mode``) — no settings side table needed. NONE hides

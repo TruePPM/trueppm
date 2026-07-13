@@ -76,6 +76,23 @@ The threshold is a board-level setting on the project, editable by a **Project M
 today it is set through the API. Unassigned stale cards are surfaced by the board card's
 *stalled* chip rather than a notification, since there is no single owner to nudge.
 
+### Project end-date shift threshold
+
+When a schedule recompute moves the project's overall finish date by more than the
+project's **end-date shift threshold** — `end_date_shift_threshold_days`, default
+**5 days** — the project's **Project Manager (Admin)** and **Owner** members are
+notified. The comparison is against the project's most recently recorded forecast
+snapshot (a background record of the project's schedule finish over time, captured on
+every recompute), so a slip is reported once, not once per recompute — a recompute
+that leaves the finish unchanged produces no repeat notification. Notifies only
+PM/Owner-role members; Scheduler, Member, and Viewer roles do not receive this digest.
+
+The threshold is a board-level setting on the project, editable by a **Project Manager
+(Admin)** or **Owner** via `PATCH /api/v1/projects/{id}/` with
+`{"end_date_shift_threshold_days": <1–365>}`. A dedicated settings-page control is
+planned; today it is set through the API, the same way as the stale-task threshold
+above.
+
 ## Lifecycle
 
 The **Lifecycle** page handles a project's end-of-life:
