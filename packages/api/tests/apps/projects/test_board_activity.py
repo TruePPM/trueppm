@@ -299,3 +299,17 @@ def test_viewer_can_read_feed(project: Project, viewer: Any, dev: Any) -> None:
 def test_non_member_is_forbidden(project: Project, outsider: Any) -> None:
     resp = _client(outsider).get(_url(project))
     assert resp.status_code in (403, 404)
+
+
+def test_member_can_read_feed_on_archived_project(project: Project, dev: Any) -> None:
+    """The activity feed stays readable after archiving (#1890) —
+    IsProjectNotArchived is deliberately omitted: history/activity is a read-only
+    audit surface that must stay accessible after a project is archived."""
+    task = Task.objects.create(project=project, name="Card", duration=5)
+    task.status = TaskStatus.IN_PROGRESS
+    _save(task, dev)
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+    resp = _client(dev).get(_url(project))
+    assert resp.status_code == 200
+    assert any(e["event_type"] == "task_updated" for e in resp.data["results"])

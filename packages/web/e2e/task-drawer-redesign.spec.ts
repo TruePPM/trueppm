@@ -92,6 +92,7 @@ const FIXTURE_HISTORY = {
       history_date: '2026-04-25T10:00:00Z',
       history_type: '~',
       history_user: 'alice',
+      history_user_display: null,
       diff: [{ field: 'duration', old: '8', new: '10' }],
     },
   ],

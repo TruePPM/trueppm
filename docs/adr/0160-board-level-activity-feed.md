@@ -80,6 +80,14 @@ All filtering happens server-side over the merged list before the `limit` is app
 - `permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]` — any
   project member (Viewer+) reads the feed, mirroring `TaskHistoryView`. A non-member is
   404/403; archived projects are read-blocked consistently.
+
+  > **Amendment (2026-07-13, #1890):** the "archived projects are read-blocked" claim
+  > above was never true — `IsProjectNotArchived` passes all `SAFE_METHODS`, so it was a
+  > no-op on these GET-only views. The permission has been removed from both
+  > `BoardActivityView` and `TaskHistoryView`: history/activity is a read-only audit
+  > surface that deliberately stays accessible after a project is archived, matching the
+  > history app's views. The effective permissions are
+  > `[IsAuthenticated, IsProjectMember]`.
 - **Field-level cost gating** (#325 AC: "Viewer doesn't see cost-field deltas"): there are
   **no cost/budget fields on `Task` yet** (intentionally absent until the cost model #73
   ships). So the allowlist carries none today, and the gate is implemented as a

@@ -431,6 +431,75 @@ class TestTaskHistoryAPI:
             "vendor" in (d.get("new") or "") for record in results for d in record["diff"]
         )
 
+    def test_history_user_display_prefers_full_name(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """history_user_display carries the full name (#1878) while history_user
+        stays the bare username (backward compat)."""
+        task._history_user = owner  # type: ignore[attr-defined]
+        task.name = "Named change"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        attributed = [rec for rec in results if rec["history_user"] is not None]
+        assert attributed, "expected an attributed history record"
+        assert attributed[0]["history_user"] == "owner"
+        assert attributed[0]["history_user_display"] == "Owen"
+
+    def test_history_user_display_falls_back_to_username(
+        self,
+        owner_client: APIClient,
+        viewer: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """A user with no name set falls back to the username in the display field."""
+        task._history_user = viewer  # type: ignore[attr-defined]
+        task.name = "Anon-named change"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        attributed = [rec for rec in results if rec["history_user"] is not None]
+        assert attributed, "expected an attributed history record"
+        assert attributed[0]["history_user_display"] == "viewer"
+
+    def test_history_user_display_null_for_programmatic_writes(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """No _history_user on the save => both identity fields are null."""
+        task.name = "Programmatic change"
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        for rec in r.data["results"]:
+            assert rec["history_user"] is None
+            assert rec["history_user_display"] is None
+
+    def test_sprint_rank_change_produces_no_diff_row(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """sprint_rank is sprint-backlog reorder bookkeeping (#1885): a rank-only
+        change record is dropped entirely — no bare 'Updated' pill, no diff row."""
+        task.sprint_rank = 3
+        task.save()
+        r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        results = r.data["results"]
+        assert all(record["history_type"] != "~" for record in results)
+        assert not any(d["field"] == "sprint_rank" for record in results for d in record["diff"])
+
 
 # ---------------------------------------------------------------------------
 # Project history API
@@ -576,6 +645,60 @@ class TestHistoryCap:
         assert r.status_code == 200
         assert r.data.get("count_truncated") is True
 
+    def test_task_history_oldest_kept_record_still_renders_diff_when_truncated(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Cap-boundary regression (#1889): the one-past-the-cap row is kept as a
+        diff seed, so the oldest kept '~' record still gets a real diff instead of
+        an empty one (which the bare-'Updated' filter would silently drop)."""
+        task.name = "Rev 1"
+        task.save()
+        task.name = "Rev 2"
+        task.save()
+        task.name = "Rev 3"
+        task.save()  # 4 records total: create + 3 updates
+
+        with patch("trueppm_api.apps.projects.views._MAX_HISTORY_ROWS", 2):
+            r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
+        assert r.status_code == 200
+        assert r.data["count_truncated"] is True
+        results = r.data["results"]
+        # Both kept records (Rev 3 and Rev 2) must survive with a rendered diff —
+        # before the fix, Rev 2 (the cap-boundary record) had no older row, produced
+        # an empty diff, and vanished from the feed.
+        assert len(results) == 2
+        name_news = [d["new"] for record in results for d in record["diff"] if d["field"] == "name"]
+        assert name_news == ["Rev 3", "Rev 2"]
+
+    def test_project_history_oldest_kept_record_still_renders_diff_when_truncated(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Same cap-boundary seed fix (#1889) for the history app's
+        ProjectHistoryListView (_compute_diffs receives the untrimmed batch)."""
+        project.description = "Rev 1"
+        project.save()
+        project.description = "Rev 2"
+        project.save()
+        project.description = "Rev 3"
+        project.save()  # 4 records total: create + 3 updates
+
+        with patch("trueppm_api.apps.history.views._MAX_HISTORY_ROWS", 2):
+            r = owner_client.get(f"/api/v1/projects/{project.pk}/history/")
+        assert r.status_code == 200
+        assert r.data["count_truncated"] is True
+        results = r.data["results"]
+        desc_news = [
+            d["new"] for record in results for d in record["diff"] if d["field"] == "description"
+        ]
+        assert desc_news == ["Rev 3", "Rev 2"]
+
 
 # ---------------------------------------------------------------------------
 # Task activity feed — opt-in ?include= sources (issue #413)
@@ -624,6 +747,7 @@ class TestTaskActivityInclude:
                 "history_date",
                 "history_type",
                 "history_user",
+                "history_user_display",
                 "diff",
             }
 

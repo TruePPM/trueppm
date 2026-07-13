@@ -13,7 +13,10 @@ export interface TaskHistoryRecord {
   history_date: string;
   /** '+' = created, '~' = changed, '-' = deleted */
   history_type: '+' | '~' | '-';
+  /** Username of the author; null for programmatic writes. Stable identity key. */
   history_user: string | null;
+  /** Human label to render: full name, username fallback; null when history_user is null. */
+  history_user_display: string | null;
   diff: TaskHistoryDiff[];
 }
 

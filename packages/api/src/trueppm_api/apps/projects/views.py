@@ -7922,6 +7922,11 @@ _HISTORY_DIFF_DISPLAY_EXCLUDED = frozenset(
         "status_changed_at",  # derived bookkeeping timestamp
         "blocked_since",  # derived bookkeeping timestamp
         "sprint_pending",  # transient ADR-0102 scope-injection flag
+        # sprint-backlog reorder bookkeeping: drag-reorder rewrites the team's
+        # within-sprint sequence on every affected sibling, so surfacing it would
+        # flood the timeline with integer noise — mirrors the other rank/bookkeeping
+        # exclusions (#1885). Deliberate ordering signals (priority_rank) stay visible.
+        "sprint_rank",
         "parent_governance_inherited",  # internal inheritance bookkeeping
         "recurrence_occurrence_date",  # system-set during recurrence expansion
         "recurrence_rule",  # FK to the rule object; recurrence shown via is_recurring
@@ -7959,7 +7964,14 @@ def _history_fk_label(obj: Any) -> str:
 
 # P18: cap the in-memory history load for a single task. Loading the full history
 # for a long-running task (potentially thousands of edits) would OOM the worker on
-# page-1 requests. Mirrors the history app's ProjectHistorySummaryView cap.
+# page-1 requests.
+#
+# NOTE(#1889): this cap intentionally differs from the history app's
+# ``apps.history.views._MAX_HISTORY_ROWS`` (5000). This view backs the wired
+# ``/projects/<pk>/tasks/<pk>/history/`` route (the history app's
+# ``TaskHistoryListView`` is deliberately unwired — see ``apps/history/urls.py``)
+# and serves the task drawer, so it uses the tighter per-task bound. Do not "sync"
+# the two numbers; cross-reference comments live at both constants.
 _MAX_HISTORY_ROWS = 2000
 
 # Opt-in activity sources for the ``?include=`` query param on TaskHistoryView
@@ -8196,13 +8208,18 @@ def _build_activity_events(
                 required=False,
                 description=(
                     "Comma-separated opt-in activity sources to merge into the feed "
-                    "(issue 413). Valid tokens: `comments`, `time`, `attachments`, or "
+                    "(issue 413). Valid tokens: "
+                    # Interpolated from _ACTIVITY_SOURCES so the docs cannot drift
+                    # from the tokens the view actually accepts (#1884) — this is the
+                    # same source of truth the 400 error message is built from.
+                    f"{', '.join(f'`{tok}`' for tok in sorted(_ACTIVITY_SOURCES))}, or "
                     "`all`. When omitted the response is the legacy field-diff feed, "
                     "byte-identical to prior releases (backward compatible). When "
                     "present, `results` becomes a timestamp-desc merged feed where "
                     "every entry carries the unified `{event_type, actor, timestamp, "
                     "detail}` shape (field-diff entries also retain their legacy "
-                    "`{id, history_date, history_type, history_user, diff}` keys). "
+                    "`{id, history_date, history_type, history_user, "
+                    "history_user_display, diff}` keys). "
                     "`time` is scoped to the requesting user's own entries."
                 ),
             )
@@ -8213,15 +8230,23 @@ def _build_activity_events(
                 description=(
                     "Page-number-paginated envelope `{count, next, previous, "
                     "results, count_truncated}`. Without `include`, each `results` "
-                    "entry is `{id, history_date, history_type, history_user, diff}`, "
-                    "where `diff` is a list of `{field, old, new}` changes. With "
-                    "`include`, each entry additionally carries `{event_type, actor, "
-                    "timestamp, detail}`; non-diff events (`comment_added`, "
-                    "`comment_edited`, `comment_deleted`, `time_logged`, "
-                    "`attachment_uploaded`) carry only that unified shape, with "
-                    "`actor` null for system/authorless events. `count_truncated` is "
-                    "true when any source exceeded the row cap and only the most "
-                    "recent events are returned."
+                    "entry is `{id, history_date, history_type, history_user, "
+                    "history_user_display, diff}`, where `diff` is a list of "
+                    "`{field, old, new}` changes, `history_user` is the author's "
+                    "username, and `history_user_display` is their full name "
+                    "(username fallback; both null for programmatic writes). With "
+                    "`include` "
+                    f"({', '.join(f'`{tok}`' for tok in sorted(_ACTIVITY_SOURCES))}), "
+                    "each entry additionally carries `{event_type, actor, timestamp, "
+                    "detail}`; field-diff entries emit `task_created`, "
+                    "`fields_changed`, or `task_deleted`, and non-diff events "
+                    "(`comment_added`, `comment_edited`, `comment_deleted`, "
+                    "`time_logged`, `attachment_uploaded`, `cpm_recalculated`, "
+                    "`baseline_drift_detected`, `risk_linked`, `risk_unlinked`) "
+                    "carry only that unified shape, with `actor` null for "
+                    "system/authorless events. `count_truncated` is true when any "
+                    "source exceeded the row cap and only the most recent events "
+                    "are returned."
                 ),
             )
         },
@@ -8238,12 +8263,17 @@ class TaskHistoryView(APIView):
     "Updated" pill with no diff rows.
 
     Accessible to all project members (Viewer+). history_user is the username of
-    the user who made the change; null for programmatic writes. FK values
+    the user who made the change; history_user_display is their full name with a
+    username fallback (both null for programmatic writes). FK values
     (assignee, sprint, …) are resolved to human-readable labels via a single
     batched query per related model (no N+1 over the history).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # IsProjectNotArchived is deliberately omitted: history/activity is a read-only
+    # audit surface that must stay accessible after a project is archived. (It was
+    # also a no-op here — the permission passes all SAFE_METHODS and this view is
+    # GET-only — so listing it only misdocumented the RBAC contract; #1890.)
+    permission_classes = [IsAuthenticated, IsProjectMember]
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
@@ -8283,6 +8313,12 @@ class TaskHistoryView(APIView):
             ]
         )
         count_truncated: bool = len(records) > _MAX_HISTORY_ROWS
+        # When truncated, keep the one-past-the-cap row PURELY as a diff seed for the
+        # oldest kept record (#1889). Without it that record has no older row to
+        # compare against, yields an empty diff, and is silently dropped by the
+        # bare-"Updated" filter below — the change at the cap boundary vanishes from
+        # the feed. The seed row is never rendered and never counted.
+        diff_seed = records[_MAX_HISTORY_ROWS] if count_truncated else None
         records = records[:_MAX_HISTORY_ROWS]
         diff_fields = _history_diff_fields()
 
@@ -8291,7 +8327,7 @@ class TaskHistoryView(APIView):
         fk_ids: dict[str, set[Any]] = {}
         raw_changes: list[list[tuple[Any, Any, Any]]] = []
         for i, record in enumerate(records):
-            older = records[i + 1] if i + 1 < len(records) else None
+            older = records[i + 1] if i + 1 < len(records) else diff_seed
             changes: list[tuple[Any, Any, Any]] = []
             if older is not None:
                 for field in diff_fields:
@@ -8347,6 +8383,15 @@ class TaskHistoryView(APIView):
                 "history_date": record.history_date.isoformat(),
                 "history_type": record.history_type,
                 "history_user": (record.history_user.username if record.history_user else None),
+                # Additive (#1878): the human label the UI should render, so change
+                # events and comment events resolve to the SAME person label instead
+                # of username-vs-display-name splitting one human into two actors.
+                # history_user stays the bare username for backward compatibility.
+                "history_user_display": (
+                    (record.history_user.get_full_name() or record.history_user.username)
+                    if record.history_user
+                    else None
+                ),
                 "diff": diff,
             }
             result.append(item)

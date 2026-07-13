@@ -43,6 +43,7 @@ const createdRecord: TaskHistoryRecord = {
   history_date: '2026-05-01T10:00:00Z',
   history_type: '+',
   history_user: 'alice',
+  history_user_display: null,
   diff: [],
 };
 
@@ -51,6 +52,7 @@ const statusRecord: TaskHistoryRecord = {
   history_date: '2026-05-02T10:00:00Z',
   history_type: '~',
   history_user: 'bob',
+  history_user_display: null,
   diff: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
 };
 
@@ -59,6 +61,7 @@ const multiRecord: TaskHistoryRecord = {
   history_date: '2026-05-03T10:00:00Z',
   history_type: '~',
   history_user: 'carol',
+  history_user_display: null,
   diff: [
     { field: 'name', old: 'Old name', new: 'New name' },
     { field: 'percent_complete', old: '0', new: '25' },
@@ -72,6 +75,7 @@ const emptyChange: TaskHistoryRecord = {
   history_date: '2026-05-04T10:00:00Z',
   history_type: '~',
   history_user: 'dave',
+  history_user_display: null,
   diff: [],
 };
 
@@ -276,5 +280,95 @@ describe('ActivityTimeline', () => {
     setComments([], new Error('boom'));
     renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
     expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Actor identity + rank taxonomy (#1878 / #1885) — kept in a separate describe
+// block from the core suite above.
+// ---------------------------------------------------------------------------
+
+describe('ActivityTimeline — actor identity and rank taxonomy (#1878 / #1885)', () => {
+  // One human, two feeds: the history record carries the username + the new
+  // display field; the comment carries the author object with the same username.
+  const yukiChange: TaskHistoryRecord = {
+    id: 20,
+    history_date: '2026-05-06T10:00:00Z',
+    history_type: '~',
+    history_user: 'atlas-yuki',
+    history_user_display: 'Yuki Tanaka',
+    diff: [{ field: 'status', old: 'NOT_STARTED', new: 'IN_PROGRESS' }],
+  };
+  const bobChange: TaskHistoryRecord = {
+    id: 21,
+    history_date: '2026-05-07T10:00:00Z',
+    history_type: '~',
+    history_user: 'bob',
+    history_user_display: null,
+    diff: [{ field: 'duration', old: '5', new: '7' }],
+  };
+  const yukiComment = makeComment({
+    id: 'c-yuki',
+    author: { id: 'u-yuki', username: 'atlas-yuki', display_name: 'Yuki Tanaka' },
+    body: 'On it.',
+    created_at: '2026-05-08T10:00:00Z',
+  });
+
+  beforeEach(() => {
+    historySpy.mockReset();
+    commentsSpy.mockReset();
+    historySpy.mockReturnValue(makeHistory([]));
+    setComments([]);
+  });
+
+  it('dedupes the same human across history and comment feeds in the person filter', () => {
+    historySpy.mockReturnValue(makeHistory([yukiChange, bobChange]));
+    setComments([yukiComment]);
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    // Exactly ONE option for Yuki, labeled by display name — not one per feed,
+    // and no raw-username duplicate.
+    expect(screen.getAllByRole('option', { name: 'Yuki Tanaka' })).toHaveLength(1);
+    expect(screen.queryByRole('option', { name: 'atlas-yuki' })).not.toBeInTheDocument();
+  });
+
+  it('filtering by the deduped person shows both their change and comment events', () => {
+    historySpy.mockReturnValue(makeHistory([yukiChange, bobChange]));
+    setComments([yukiComment]);
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    fireEvent.change(screen.getByLabelText(/Filter activity by person/i), {
+      target: { value: 'atlas-yuki' },
+    });
+    expect(screen.getByText(/changed status/i)).toBeInTheDocument();
+    expect(screen.getByText('commented')).toBeInTheDocument();
+    // Bob's event is filtered out.
+    expect(screen.queryByText(/changed duration/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the display name (not the username) on change-event rows', () => {
+    historySpy.mockReturnValue(makeHistory([yukiChange]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('Yuki Tanaka', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByText('atlas-yuki')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the username when history_user_display is null', () => {
+    historySpy.mockReturnValue(makeHistory([bobChange]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('bob', { selector: 'span' })).toBeInTheDocument();
+  });
+
+  it('gives priority_rank changes the Estimates filter chip (#1885)', () => {
+    const rankChange: TaskHistoryRecord = {
+      id: 22,
+      history_date: '2026-05-09T10:00:00Z',
+      history_type: '~',
+      history_user: 'bob',
+      history_user_display: null,
+      diff: [{ field: 'priority_rank', old: '3', new: '1' }],
+    };
+    historySpy.mockReturnValue(makeHistory([rankChange]));
+    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByRole('radio', { name: 'Estimates' })).toBeInTheDocument();
+    expect(screen.getByText(/changed priority/i)).toBeInTheDocument();
   });
 });
