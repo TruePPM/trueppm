@@ -98,25 +98,33 @@ def test_missing_step_in_chain_raises():
 
 
 def test_board_view_v0_backfills_canonical_keys():
-    """A pre-convention (v0) board view payload gains the six canonical keys."""
-    stale = {"sort": "start_date"}  # missing five keys, no schema_version
+    """A pre-convention (v0) board view payload gains the six canonical keys
+
+    plus the three filter-facet keys added in v2 (#1918) — the chain runs
+    v0->v1->v2 in one pass.
+    """
+    stale = {"sort": "start_date"}  # missing eight keys, no schema_version
 
     result, version = sm.migrate_payload(sm.SURFACE_BOARD_SAVED_VIEW, stale)
 
-    assert version == 1
+    assert version == 2
     assert result == {
-        "schema_version": 1,
+        "schema_version": 2,
         "sort": "start_date",  # existing value preserved
         "show_wip": True,
         "show_col_tints": True,
         "evm_mode": "off",
         "show_cost": False,
         "risk_linked_only": False,
+        "filter_assignees": [],
+        "filter_priority": [],
+        "filter_due": [],
     }
 
 
-def test_board_view_current_payload_unchanged():
-    current = {
+def test_board_view_v1_backfills_empty_filter_facets():
+    """A pre-#1918 (v1) board view payload gains the three empty filter_* keys."""
+    v1 = {
         "schema_version": 1,
         "sort": "priority",
         "show_wip": False,
@@ -125,8 +133,32 @@ def test_board_view_current_payload_unchanged():
         "show_cost": True,
         "risk_linked_only": True,
     }
+    result, version = sm.migrate_payload(sm.SURFACE_BOARD_SAVED_VIEW, v1)
+    assert version == 2
+    assert result == {
+        **v1,
+        "schema_version": 2,
+        "filter_assignees": [],
+        "filter_priority": [],
+        "filter_due": [],
+    }
+
+
+def test_board_view_current_payload_unchanged():
+    current = {
+        "schema_version": 2,
+        "sort": "priority",
+        "show_wip": False,
+        "show_col_tints": False,
+        "evm_mode": "both",
+        "show_cost": True,
+        "risk_linked_only": True,
+        "filter_assignees": ["res-1"],
+        "filter_priority": ["high"],
+        "filter_due": ["overdue"],
+    }
     result, version = sm.migrate_payload(sm.SURFACE_BOARD_SAVED_VIEW, current)
-    assert version == 1
+    assert version == 2
     assert result == current
 
 
@@ -163,7 +195,8 @@ def _url(project_id):
     return f"/api/v1/projects/{project_id}/board-views/"
 
 
-def test_create_defaults_schema_version_to_one(pm_client, project):
+def test_create_defaults_schema_version_to_current(pm_client, project):
+    """A fresh write is stamped at the surface's current version (2, #1918)."""
     resp = pm_client.post(
         _url(project.pk),
         {
@@ -181,9 +214,9 @@ def test_create_defaults_schema_version_to_one(pm_client, project):
     )
     assert resp.status_code == 201
     body = resp.json()
-    assert body["schema_version"] == 1
+    assert body["schema_version"] == 2
     row = BoardSavedView.objects.get(pk=body["id"])
-    assert row.schema_version == 1
+    assert row.schema_version == 2
 
 
 def test_read_upgrades_stale_row_to_current_shape(pm_client, pm, project):
@@ -200,8 +233,9 @@ def test_read_upgrades_stale_row_to_current_shape(pm_client, pm, project):
     assert resp.status_code == 200
     view = next(v for v in resp.json() if v["id"] == str(row.id))
 
-    assert view["schema_version"] == 1
-    # The five missing keys are backfilled with their documented defaults.
+    assert view["schema_version"] == 2
+    # The eight missing keys are backfilled with their documented defaults
+    # (six from v0->v1, three filter_* from v1->v2, #1918).
     assert view["config"] == {
         "sort": "start_date",
         "show_wip": True,
@@ -209,6 +243,9 @@ def test_read_upgrades_stale_row_to_current_shape(pm_client, pm, project):
         "evm_mode": "off",
         "show_cost": False,
         "risk_linked_only": False,
+        "filter_assignees": [],
+        "filter_priority": [],
+        "filter_due": [],
     }
     # schema_version is a sibling field, not mixed into the config blob.
     assert "schema_version" not in view["config"]
@@ -225,14 +262,17 @@ def test_read_leaves_current_row_config_intact(pm_client, pm, project):
             "evm_mode": "spi",
             "show_cost": True,
             "risk_linked_only": False,
+            "filter_assignees": [],
+            "filter_priority": [],
+            "filter_due": [],
         },
         created_by=pm,
-        schema_version=1,
+        schema_version=2,
     )
 
     resp = pm_client.get(_url(project.pk))
     view = next(v for v in resp.json() if v["id"] == str(row.id))
 
-    assert view["schema_version"] == 1
+    assert view["schema_version"] == 2
     assert view["config"]["sort"] == "percent_complete"
     assert view["config"]["evm_mode"] == "spi"

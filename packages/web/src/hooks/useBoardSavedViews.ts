@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { EvmMode } from '@/features/board/BoardCard';
+import { EMPTY_FACETS, type FacetFilters, type PriorityBand, type DueWindow } from '@/features/board/boardFacets';
 import {
   SURFACE_BOARD_SAVED_VIEW,
   migratePayload,
@@ -30,6 +31,12 @@ export interface BoardViewConfig {
   cpOnly?: boolean;
   /** Only tasks with finish within N calendar days. */
   dueSoonDays?: number | null;
+  /**
+   * Board filter-bar facets (assignee/priority/due-window; issue 1091/1918).
+   * Persisted into `config.filter_*` on the wire so a saved view carries its
+   * filter state instead of leaving it stranded in the URL/localStorage.
+   */
+  filters?: FacetFilters;
 }
 
 export interface BoardSavedView {
@@ -52,6 +59,9 @@ interface ApiViewConfig {
   evm_mode: EvmMode;
   show_cost: boolean;
   risk_linked_only: boolean;
+  filter_assignees?: string[];
+  filter_priority?: string[];
+  filter_due?: string[];
 }
 
 interface ApiSavedView {
@@ -86,6 +96,11 @@ function fromApi(v: ApiSavedView): BoardSavedView {
       evmMode: c.evm_mode,
       showCost: c.show_cost,
       riskLinkedOnly: c.risk_linked_only,
+      filters: {
+        assignees: c.filter_assignees ?? [],
+        priority: (c.filter_priority ?? []) as PriorityBand[],
+        due: (c.filter_due ?? []) as DueWindow[],
+      },
     },
     schemaVersion: version,
     createdBy: v.created_by,
@@ -96,6 +111,7 @@ function fromApi(v: ApiSavedView): BoardSavedView {
 }
 
 function toApiConfig(config: BoardViewConfig): ApiViewConfig {
+  const filters = config.filters ?? EMPTY_FACETS;
   return {
     sort: config.sort,
     show_wip: config.showWip,
@@ -103,6 +119,9 @@ function toApiConfig(config: BoardViewConfig): ApiViewConfig {
     evm_mode: config.evmMode,
     show_cost: config.showCost,
     risk_linked_only: config.riskLinkedOnly,
+    filter_assignees: filters.assignees,
+    filter_priority: filters.priority,
+    filter_due: filters.due,
   };
 }
 

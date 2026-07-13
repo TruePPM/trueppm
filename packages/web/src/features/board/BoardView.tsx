@@ -1920,6 +1920,9 @@ export function BoardView() {
   const toggleFilterPanel = useCallback(() => setFilterPanelOpen((v) => !v), []);
 
   // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
+  // filters always carries the live facet state (never `undefined`) so saving
+  // captures "no filters active" as explicitly as it captures an active set —
+  // the round trip must be lossless in both directions (#1918).
   const currentViewConfig: BoardViewConfig = useMemo(
     () => ({
       sort,
@@ -1930,8 +1933,9 @@ export function BoardView() {
       riskLinkedOnly,
       cpOnly: cpOnly || undefined,
       dueSoonDays: dueSoonDays ?? undefined,
+      filters: facetFilters,
     }),
-    [sort, showWip, showColTints, evmMode, showCost, riskLinkedOnly, cpOnly, dueSoonDays],
+    [sort, showWip, showColTints, evmMode, showCost, riskLinkedOnly, cpOnly, dueSoonDays, facetFilters],
   );
 
   const applyViewConfig = useCallback(
@@ -1944,6 +1948,11 @@ export function BoardView() {
       if (config.riskLinkedOnly !== undefined) setRiskLinkedOnly(config.riskLinkedOnly);
       setCpOnly(config.cpOnly ?? false);
       setDueSoonDays(config.dueSoonDays ?? null);
+      // Facets are reset unconditionally on every view switch (like cpOnly /
+      // dueSoonDays above), not merged: a built-in quick filter has no opinion
+      // on facets and should clear whatever was active, while a saved view's
+      // config.filters is the sole source of truth for what to restore (#1918).
+      onFacetsChange(config.filters ?? EMPTY_FACETS);
       setActiveViewId(viewId);
       // Sync view ID to URL for deep links
       if (viewId) {
@@ -1964,7 +1973,7 @@ export function BoardView() {
         );
       }
     },
-    [setSearchParams],
+    [setSearchParams, onFacetsChange],
   );
 
   const {

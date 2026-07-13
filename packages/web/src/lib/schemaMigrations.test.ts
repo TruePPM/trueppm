@@ -10,7 +10,7 @@ import {
 
 describe('schemaMigrations registry', () => {
   it('reports the current version for a registered surface', () => {
-    expect(currentVersion(SURFACE_BOARD_SAVED_VIEW)).toBe(1);
+    expect(currentVersion(SURFACE_BOARD_SAVED_VIEW)).toBe(2);
   });
 
   it('defaults an unregistered surface to version 1', () => {
@@ -24,24 +24,27 @@ describe('schemaMigrations registry', () => {
   });
 
   describe('board_saved_view surface', () => {
-    it('backfills the six canonical keys on a stale (v0) payload', () => {
+    it('backfills the six canonical keys plus empty filter facets on a stale (v0) payload', () => {
       const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, {
         sort: 'start_date',
       });
-      expect(version).toBe(1);
+      expect(version).toBe(2);
       expect(payload).toEqual({
-        schema_version: 1,
+        schema_version: 2,
         sort: 'start_date', // existing value preserved
         show_wip: true,
         show_col_tints: true,
         evm_mode: 'off',
         show_cost: false,
         risk_linked_only: false,
+        filter_assignees: [],
+        filter_priority: [],
+        filter_due: [],
       });
     });
 
-    it('leaves an already-current (v1) payload untouched except stamping the version', () => {
-      const current = {
+    it('backfills empty filter facets on a v1 payload (pre-#1918)', () => {
+      const v1 = {
         schema_version: 1,
         sort: 'priority',
         show_wip: false,
@@ -50,8 +53,32 @@ describe('schemaMigrations registry', () => {
         show_cost: true,
         risk_linked_only: true,
       };
+      const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, v1);
+      expect(version).toBe(2);
+      expect(payload).toEqual({
+        ...v1,
+        schema_version: 2,
+        filter_assignees: [],
+        filter_priority: [],
+        filter_due: [],
+      });
+    });
+
+    it('leaves an already-current (v2) payload untouched except stamping the version', () => {
+      const current = {
+        schema_version: 2,
+        sort: 'priority',
+        show_wip: false,
+        show_col_tints: false,
+        evm_mode: 'both',
+        show_cost: true,
+        risk_linked_only: true,
+        filter_assignees: ['res-1'],
+        filter_priority: ['high'],
+        filter_due: ['overdue'],
+      };
       const { payload, version } = migratePayload(SURFACE_BOARD_SAVED_VIEW, current);
-      expect(version).toBe(1);
+      expect(version).toBe(2);
       expect(payload).toEqual(current);
     });
   });

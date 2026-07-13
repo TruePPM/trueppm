@@ -121,6 +121,10 @@ from trueppm_api.apps.projects.models import (
     TaskRecurrenceRule,
     TaskStatus,
 )
+from trueppm_api.apps.projects.schema_migrations import (
+    SURFACE_BOARD_SAVED_VIEW,
+    current_version,
+)
 from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
     AcceptanceCriterionSerializer,
@@ -7290,6 +7294,11 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
                     project=project,
                     created_by=request.user,
                     server_version=1,
+                    # Stamp the current schema version explicitly (mirrors
+                    # server_version above) rather than relying on the model
+                    # column's default — see BoardSavedView's docstring for why
+                    # a version bump must not require a migration (#1918).
+                    schema_version=current_version(SURFACE_BOARD_SAVED_VIEW),
                 )
                 view_id = str(view.id)
                 project_id = str(pk)
@@ -7346,8 +7355,18 @@ class BoardSavedViewDetailView(IdempotencyMixin, APIView):
         saved_view = self._get_view_or_403(request, pk, view_pk)
         serializer = BoardSavedViewSerializer(saved_view, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+        save_kwargs: dict[str, Any] = {"server_version": saved_view.server_version + 1}
+        if "config" in request.data:
+            # Only stamp schema_version when this PATCH actually rewrites
+            # config: validate_config only ran (and only emitted the full
+            # current-shape key set) because "config" was present. A name-only
+            # rename leaves the stored config untouched, so bumping the version
+            # column here would falsely claim a v1 payload is v2-shaped and the
+            # migration chain would skip backfilling the newer keys on the next
+            # read (#1918).
+            save_kwargs["schema_version"] = current_version(SURFACE_BOARD_SAVED_VIEW)
         with transaction.atomic():
-            saved_view = serializer.save(server_version=saved_view.server_version + 1)
+            saved_view = serializer.save(**save_kwargs)
             view_id = str(saved_view.id)
             project_id = str(pk)
             transaction.on_commit(

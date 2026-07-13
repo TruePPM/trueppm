@@ -2993,6 +2993,8 @@ class BoardColumnConfig(models.Model):
 
 _VALID_SORT_KEYS = frozenset({"priority", "start_date", "percent_complete"})
 _VALID_EVM_MODES = frozenset({"off", "spi", "cpi", "both"})
+_VALID_PRIORITY_BANDS = frozenset({"high", "medium", "low", "unranked"})
+_VALID_DUE_WINDOWS = frozenset({"overdue", "this_week"})
 
 
 class BoardSavedView(models.Model):
@@ -3002,13 +3004,24 @@ class BoardSavedView(models.Model):
     quickly restore it. Views are project-scoped and visible to all members.
     Only the creator or a Scheduler-role member may rename or delete a view.
 
-    config JSON schema:
-        sort:            "priority" | "start_date" | "percent_complete"
-        show_wip:        bool
-        show_col_tints:  bool
-        evm_mode:        "off" | "spi" | "cpi" | "both"
-        show_cost:       bool
+    config JSON schema (v2, #1918):
+        sort:             "priority" | "start_date" | "percent_complete"
+        show_wip:         bool
+        show_col_tints:   bool
+        evm_mode:         "off" | "spi" | "cpi" | "both"
+        show_cost:        bool
         risk_linked_only: bool
+        filter_assignees: list[str]   -- resource ids, or the client's "unassigned" sentinel
+        filter_priority:  list["high" | "medium" | "low" | "unranked"]
+        filter_due:       list["overdue" | "this_week"]
+
+    The three ``filter_*`` keys (#1918) mirror the board filter-bar facets
+    (issue 1091, ADR-0199) so a saved view carries its filter state instead of
+    leaving it stranded in the URL/localStorage. They are opaque filter
+    *criteria*, not access grants: an assignee id that is not a current
+    project member is a harmless no-op match, never a permission escalation,
+    so ``validate_config`` checks shape/membership-in-enum only and does not
+    cross-reference project membership.
 
     schema_version tracks the shape of ``config`` (ADR-0086 / ADR-0204). On read,
     ``BoardSavedViewSerializer`` runs the payload through the forward-migration
@@ -3016,9 +3029,23 @@ class BoardSavedView(models.Model):
     stale payload is upgraded to the current shape before any client sees it.
     Rows created before this field existed are backfilled to ``schema_version=1``
     by the migration default; they already passed through ``validate_config`` on
-    their last write, so they are at the current 6-key shape and the chain is a
-    no-op. The ``v0`` path is defensive — reserved for payloads that never went
-    through ``validate_config`` (e.g. externally imported state).
+    their last write, so they were at the (then-current) 6-key shape and the v0
+    chain is a no-op for them. The ``v0`` path is defensive — reserved for
+    payloads that never went through ``validate_config`` (e.g. externally
+    imported state).
+
+    #1918 bumped the surface to schema_version=2 (registered in
+    ``schema_migrations.py``) to add the three ``filter_*`` keys. This field's
+    Python-level ``default=1`` is deliberately left unchanged rather than
+    migrated to 2: per the schema_migrations module contract ("writes always
+    emit the current version"), the view layer (``BoardSavedViewListView.post``
+    / ``BoardSavedViewDetailView.patch``) stamps ``schema_version`` explicitly
+    from ``schema_migrations.current_version()`` on every write, the same way
+    it already stamps ``server_version`` explicitly rather than trusting a
+    model default. That keeps a schema-version bump a pure Python/data change
+    with **no migration** — the JSONField has no declared shape for Django to
+    track, and the IntegerField's Python-only default (no ``db_default``) never
+    reaches the database schema either way.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
