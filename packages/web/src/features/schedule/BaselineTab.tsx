@@ -1,6 +1,15 @@
+import { useState } from 'react';
+
+import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
 import { BarChartIcon } from '@/components/Icons';
+import { toast } from '@/components/Toast';
+import { useCreateBaseline } from '@/hooks/useBaselines';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useTaskBaseline } from '@/hooks/useTaskBaseline';
 import type { BaselineComparison } from '@/hooks/useTaskBaseline';
+import { ROLE_ADMIN } from '@/lib/roles';
+import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 
 interface BaselineTabProps {
   projectId: string;
@@ -9,6 +18,27 @@ interface BaselineTabProps {
 
 export function BaselineTab({ projectId, taskId }: BaselineTabProps) {
   const { data, isLoading } = useTaskBaseline(projectId, taskId);
+  const { role } = useCurrentUserRole(projectId);
+  const createBaseline = useCreateBaseline(projectId);
+  const canCapture = role != null && role >= ROLE_ADMIN;
+  const [showCaptureConfirm, setShowCaptureConfirm] = useState(false);
+
+  function handleCapture() {
+    if (!navigator.onLine) {
+      toast.info("You're offline — reconnect to capture a baseline.");
+      return;
+    }
+    createBaseline.mutate(
+      {},
+      {
+        onSuccess: (b) => {
+          toast.success(`Captured ${b.name}`);
+          setShowCaptureConfirm(false);
+        },
+        onError: () => toast.error("Couldn't capture baseline — try again."),
+      },
+    );
+  }
 
   if (isLoading) {
     return <BaselineSkeleton />;
@@ -17,14 +47,44 @@ export function BaselineTab({ projectId, taskId }: BaselineTabProps) {
   if (!data) return null;
 
   if (!data.has_baseline) {
+    // No active baseline yet. Admins get a real capture action (#1864); a
+    // capture snapshots the whole project, after which this tab shows the
+    // planned-vs-current comparison. Non-admins get guidance, not a dead
+    // button (web-rule 122/241). Shared EmptyState anatomy (web-rule 177),
+    // matching the sibling ActivityTimeline empty state in the same drawer.
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-        <BarChartIcon className="h-7 w-7 text-neutral-text-secondary" aria-hidden="true" />
-        <p className="text-sm font-medium text-neutral-text-primary">No baseline set</p>
-        <p className="text-xs text-neutral-text-secondary">
-          Take a baseline snapshot on this project to enable plan vs. actual tracking.
-        </p>
-      </div>
+      <>
+        <EmptyState
+          icon={BarChartIcon}
+          title="No active baseline"
+          description={
+            canCapture
+              ? "Capture a baseline to compare this task's planned dates against where it stands now."
+              : 'No baseline has been captured yet. A project admin can capture one from the Schedule view.'
+          }
+          action={
+            canCapture ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowCaptureConfirm(true)}
+                disabled={createBaseline.isPending}
+              >
+                Capture baseline
+              </Button>
+            ) : undefined
+          }
+        />
+        {showCaptureConfirm && (
+          <CaptureBaselineConfirmDialog
+            isPending={createBaseline.isPending}
+            onCancel={() => {
+              if (!createBaseline.isPending) setShowCaptureConfirm(false);
+            }}
+            onConfirm={handleCapture}
+          />
+        )}
+      </>
     );
   }
 
@@ -179,7 +239,9 @@ function ComparisonTable({ data }: ComparisonTableProps) {
 
 function DeltaChip({ delta }: { delta: number }) {
   if (delta === 0) {
-    return <span className="text-neutral-text-disabled">0d</span>;
+    // 0d is a real value (on plan), not a "no value" placeholder — readable
+    // secondary ink, never the sub-AA disabled token (web-rule 169).
+    return <span className="text-neutral-text-secondary">0d</span>;
   }
   if (delta > 0) {
     return (
@@ -212,7 +274,7 @@ function formatDateCell(value: string | null) {
 
 function BaselineSkeleton() {
   return (
-    <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading baseline">
+    <div role="status" className="flex flex-col gap-3" aria-busy="true" aria-label="Loading baseline">
       <div className="rounded-card border border-neutral-border bg-neutral-surface-raised p-3 motion-safe:animate-pulse">
         <div className="h-3 w-32 rounded-chip bg-neutral-border mb-1" />
         <div className="h-3 w-48 rounded-chip bg-neutral-border" />
