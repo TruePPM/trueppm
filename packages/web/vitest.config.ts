@@ -108,6 +108,11 @@ export default defineConfig({
         // imported, and check-added-files-covered.mjs would flag it forever.
         // Its re-exports are validated by tsc; the underlying modules are tested.
         'src/components/dialog/index.ts',
+        // Type-only module: exports a single `interface RouteHandle` and no
+        // executable statements, so istanbul never records it in lcov even when
+        // imported, and check-added-files-covered.mjs would flag it forever.
+        // Its shape is validated by tsc; its consumer (RouteTitle) is tested.
+        'src/router/routeHandle.ts',
       ],
       // No per-process thresholds: web:test is sharded (vitest --shard), so each
       // process only loads ~1/3 of the suite and would measure a partial coverage

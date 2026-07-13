@@ -32,7 +32,6 @@ import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResou
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
-import { usePageTitle } from '@/hooks/usePageTitle';
 import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 
 
@@ -56,7 +55,8 @@ export function ResourceView({
   currentUserResourceId,
   highlightResourceId: _highlightResourceId,
 }: Props) {
-  usePageTitle('Resources');
+  // document.title for this route is set at the router level (router.tsx
+  // `handle.title`) — see RouteTitle (issue 1915, completes #1327 A4).
   const projectIdFromUrl = useProjectId();
   const projectId = projectIdProp ?? projectIdFromUrl;
   const triggerScheduler = useTriggerScheduler(projectId);

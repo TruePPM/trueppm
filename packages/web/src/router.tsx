@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useNavigate } from 'react-router';
+import { createBrowserRouter, Navigate, Outlet, useNavigate } from 'react-router';
 import { lazy, Suspense, useEffect } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
@@ -10,6 +10,8 @@ import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
 import { SectionRedirect } from '@/features/settings/SectionRedirect';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
+import { RouteTitle } from '@/components/RouteTitle';
+import type { RouteHandle } from '@/router/routeHandle';
 
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.
@@ -310,688 +312,800 @@ function ProjectIndexRedirect() {
   return <Navigate to={lensDefaultView(user.role_context)} replace />;
 }
 
+/**
+ * Root layout mounted above every route, public and authed alike (issue
+ * 1915). Hosts `RouteTitle` so `document.title` is set from the deepest
+ * matched route's `handle.title` on every navigation — a single router-level
+ * mechanism instead of per-page `usePageTitle()` calls.
+ */
+function RootLayout() {
+  return (
+    <>
+      <RouteTitle />
+      <Outlet />
+    </>
+  );
+}
+
 export const router = createBrowserRouter([
   {
-    path: '/login',
-    errorElement: <RouteErrorBoundary />,
-    element: <LoginPage />,
-  },
-  // Public route — no auth required. Handles workspace invite token redemption.
-  {
-    path: '/invite/accept',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <InviteAcceptPage />
-      </Suspense>
-    ),
-  },
-  // Public routes — no auth required (issue 765, ADR-0209). Self-service password reset:
-  // a user who has forgotten their password cannot authenticate, so the whole flow
-  // sits outside RequireAuth.
-  {
-    path: '/forgot-password',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <ForgotPasswordPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/forgot-password/sent',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <ForgotPasswordSentPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/reset-password/confirm/:uid/:token',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <ResetPasswordConfirmPage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/reset-password/done',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <ResetPasswordDonePage />
-      </Suspense>
-    ),
-  },
-  {
-    path: '/reset-password/expired',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <ResetPasswordExpiredPage />
-      </Suspense>
-    ),
-  },
-  // Public route — no auth required (#1392, ADR-0187). SSO completion landing:
-  // the OIDC callback 302s here (success mints the session from the refresh
-  // cookie; failure arrives as ?error=<code>). Must sit outside RequireAuth so a
-  // not-yet-member (sso_no_member) can see the error instead of being bounced.
-  {
-    path: '/auth/sso/complete',
-    errorElement: <RouteErrorBoundary />,
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <SsoCompletePage />
-      </Suspense>
-    ),
-  },
-  // Public route — no auth required (#283, ADR-0245). Read-only board share viewer.
-  {
-    path: '/share/board/:token',
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <PublicBoardSharePage />
-      </Suspense>
-    ),
-  },
-  // Public route — no auth required (#1486, ADR-0265). Read-only schedule share viewer.
-  {
-    path: '/share/schedule/:token',
-    element: (
-      <Suspense fallback={<RouteLoadingFallback />}>
-        <PublicScheduleSharePage />
-      </Suspense>
-    ),
-  },
-  {
-    element: <RequireAuth />,
-    // Whole-app safety net (issue 1654): any lazy-chunk load failure or render
-    // throw in an authed route degrades to the branded RouteErrorBoundary instead
-    // of React Router's raw "Unexpected Application Error" screen. The ProjectShell
-    // / ProgramShell boundaries below catch closer (keeping the sidebar) first.
-    errorElement: <RouteErrorBoundary />,
+    element: <RootLayout />,
     children: [
       {
-        path: '/',
-        element: <AppShell />,
+        path: '/login',
+        errorElement: <RouteErrorBoundary />,
+        element: <LoginPage />,
+        handle: { title: 'Log In' } satisfies RouteHandle,
+      },
+      // Public route — no auth required. Handles workspace invite token redemption.
+      {
+        path: '/invite/accept',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <InviteAcceptPage />
+          </Suspense>
+        ),
+        handle: { title: 'Accept Invite' } satisfies RouteHandle,
+      },
+      // Public routes — no auth required (issue 765, ADR-0209). Self-service password reset:
+      // a user who has forgotten their password cannot authenticate, so the whole flow
+      // sits outside RequireAuth.
+      {
+        path: '/forgot-password',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ForgotPasswordPage />
+          </Suspense>
+        ),
+        handle: { title: 'Forgot Password' } satisfies RouteHandle,
+      },
+      {
+        path: '/forgot-password/sent',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ForgotPasswordSentPage />
+          </Suspense>
+        ),
+        handle: { title: 'Reset Link Sent' } satisfies RouteHandle,
+      },
+      {
+        path: '/reset-password/confirm/:uid/:token',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ResetPasswordConfirmPage />
+          </Suspense>
+        ),
+        handle: { title: 'Reset Password' } satisfies RouteHandle,
+      },
+      {
+        path: '/reset-password/done',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ResetPasswordDonePage />
+          </Suspense>
+        ),
+        handle: { title: 'Password Reset' } satisfies RouteHandle,
+      },
+      {
+        path: '/reset-password/expired',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <ResetPasswordExpiredPage />
+          </Suspense>
+        ),
+        handle: { title: 'Reset Link Expired' } satisfies RouteHandle,
+      },
+      // Public route — no auth required (#1392, ADR-0187). SSO completion landing:
+      // the OIDC callback 302s here (success mints the session from the refresh
+      // cookie; failure arrives as ?error=<code>). Must sit outside RequireAuth so a
+      // not-yet-member (sso_no_member) can see the error instead of being bounced.
+      {
+        path: '/auth/sso/complete',
+        errorElement: <RouteErrorBoundary />,
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <SsoCompletePage />
+          </Suspense>
+        ),
+        handle: { title: 'Signing You In' } satisfies RouteHandle,
+      },
+      // Public route — no auth required (#283, ADR-0245). Read-only board share viewer.
+      {
+        path: '/share/board/:token',
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <PublicBoardSharePage />
+          </Suspense>
+        ),
+        handle: { title: 'Shared Board' } satisfies RouteHandle,
+      },
+      // Public route — no auth required (#1486, ADR-0265). Read-only schedule share viewer.
+      {
+        path: '/share/schedule/:token',
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <PublicScheduleSharePage />
+          </Suspense>
+        ),
+        handle: { title: 'Shared Schedule' } satisfies RouteHandle,
+      },
+      {
+        element: <RequireAuth />,
+        // Whole-app safety net (issue 1654): any lazy-chunk load failure or render
+        // throw in an authed route degrades to the branded RouteErrorBoundary instead
+        // of React Router's raw "Unexpected Application Error" screen. The ProjectShell
+        // / ProgramShell boundaries below catch closer (keeping the sidebar) first.
+        errorElement: <RouteErrorBoundary />,
         children: [
-          // Project-scoped routes — projectId in path for shareable URLs (ADR-0030)
           {
-            path: 'projects/:projectId',
-            element: <ProjectShell />,
-            // Shell-preserving boundary (issue 1654): a single project view failing
-            // (e.g. a stale lazy chunk) is caught here, so AppShell's sidebar stays
-            // painted and the user can navigate away rather than losing the whole app.
-            errorElement: <RouteErrorBoundary />,
+            path: '/',
+            element: <AppShell />,
             children: [
-              // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
-              // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
-              { index: true, element: <ProjectIndexRedirect /> },
+              // Project-scoped routes — projectId in path for shareable URLs (ADR-0030)
               {
-                path: 'overview',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProjectOverviewPage />
-                  </Suspense>
-                ),
-              },
-              {
-                // Unified Today split view (ADR-0180) — the `unified` lens lands here.
-                path: 'today',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <TodayView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'schedule',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ScheduleView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'grid',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <GridView />
-                  </Suspense>
-                ),
-              },
-              {
-                // Expand-to-full-page focus view of a single task (handoff #13).
-                path: 'tasks/:taskId',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <TaskDetailPage />
-                  </Suspense>
-                ),
-              },
-              // Legacy routes — redirect to /grid so old bookmarks and shared
-              // links keep working after the WBS / Table consolidation (#334).
-              { path: 'wbs', element: <Navigate to="../grid" replace /> },
-              { path: 'list', element: <Navigate to="../grid" replace /> },
-              {
-                path: 'board',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <BoardView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'sprints',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <SprintsView />
-                  </Suspense>
-                ),
-              },
-              {
-                // ADR-0105 — Product-Owner backlog / grooming view (#494).
-                path: 'product-backlog',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProductBacklogPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'calendar',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <CalendarView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'resources',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <TeamView />
-                  </Suspense>
-                ),
+                path: 'projects/:projectId',
+                element: <ProjectShell />,
+                // Shell-preserving boundary (issue 1654): a single project view failing
+                // (e.g. a stale lazy chunk) is caught here, so AppShell's sidebar stays
+                // painted and the user can navigate away rather than losing the whole app.
+                errorElement: <RouteErrorBoundary />,
                 children: [
-                  { index: true, element: <Navigate to="roster" replace /> },
-                  { path: 'roster', element: <RosterPage /> },
-                  { path: 'allocation', element: <ResourceView /> },
-                  { path: 'heatmap', element: <HeatmapPage /> },
+                  // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
+                  // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
+                  { index: true, element: <ProjectIndexRedirect /> },
+                  {
+                    path: 'overview',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectOverviewPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Overview' } satisfies RouteHandle,
+                  },
+                  {
+                    // Unified Today split view (ADR-0180) — the `unified` lens lands here.
+                    path: 'today',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <TodayView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Today' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'schedule',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ScheduleView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Schedule' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'grid',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <GridView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Grid' } satisfies RouteHandle,
+                  },
+                  {
+                    // Expand-to-full-page focus view of a single task (handoff #13).
+                    path: 'tasks/:taskId',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <TaskDetailPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Task' } satisfies RouteHandle,
+                  },
+                  // Legacy routes — redirect to /grid so old bookmarks and shared
+                  // links keep working after the WBS / Table consolidation (#334).
+                  { path: 'wbs', element: <Navigate to="../grid" replace /> },
+                  { path: 'list', element: <Navigate to="../grid" replace /> },
+                  {
+                    path: 'board',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <BoardView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Board' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'sprints',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <SprintsView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Sprints' } satisfies RouteHandle,
+                  },
+                  {
+                    // ADR-0105 — Product-Owner backlog / grooming view (#494).
+                    path: 'product-backlog',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProductBacklogPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Product Backlog' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'calendar',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <CalendarView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Calendar' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'resources',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <TeamView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Team' } satisfies RouteHandle,
+                    children: [
+                      { index: true, element: <Navigate to="roster" replace /> },
+                      {
+                        path: 'roster',
+                        element: <RosterPage />,
+                        handle: { title: 'Roster' } satisfies RouteHandle,
+                      },
+                      {
+                        path: 'allocation',
+                        element: <ResourceView />,
+                        handle: { title: 'Resources' } satisfies RouteHandle,
+                      },
+                      {
+                        path: 'heatmap',
+                        element: <HeatmapPage />,
+                        handle: { title: 'Heatmap' } satisfies RouteHandle,
+                      },
+                    ],
+                  },
+                  {
+                    path: 'risk',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <RiskRegisterView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Risk Register' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'reports',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ReportsView />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Reports' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'activity',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectActivityPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Activity' } satisfies RouteHandle,
+                  },
+                  {
+                    // Unified Assets surface — task files + external links (ADR-0215, issue 971).
+                    path: 'assets',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectAssetsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Assets' } satisfies RouteHandle,
+                  },
+                  {
+                    // Consolidated single scrolling page (ADR-0146, #1248). The shell
+                    // renders every section inline on one mounted page (no Outlet).
+                    path: 'settings',
+                    element: (
+                      <RequireAdminSettings>
+                        <Suspense fallback={<RouteLoadingFallback />}>
+                          <ProjectSettingsPage />
+                        </Suspense>
+                      </RequireAdminSettings>
+                    ),
+                    handle: { title: 'Project Settings' } satisfies RouteHandle,
+                  },
+                  // Legacy per-section paths (pre-0146) redirect to the consolidated
+                  // page at the matching anchor so bookmarks, emails, and old e2e
+                  // specs keep working. SIBLINGS of `settings` — the consolidated
+                  // page renders no Outlet, so these can't be nested under it.
+                  {
+                    path: 'settings/general',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="general" />
+                    ),
+                  },
+                  {
+                    path: 'settings/access',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="access" />
+                    ),
+                  },
+                  {
+                    path: 'settings/methodology',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" />
+                    ),
+                  },
+                  {
+                    path: 'settings/team',
+                    element: <SectionRedirect base="/projects/:projectId/settings" anchor="team" />,
+                  },
+                  {
+                    path: 'settings/signal-privacy',
+                    element: (
+                      <SectionRedirect
+                        base="/projects/:projectId/settings"
+                        anchor="signal-privacy"
+                      />
+                    ),
+                  },
+                  {
+                    path: 'settings/workflow',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" />
+                    ),
+                  },
+                  {
+                    path: 'settings/calendars',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="calendars" />
+                    ),
+                  },
+                  {
+                    path: 'settings/guardrails',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" />
+                    ),
+                  },
+                  {
+                    path: 'settings/attachments',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" />
+                    ),
+                  },
+                  {
+                    path: 'settings/surfaces',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" />
+                    ),
+                  },
+                  {
+                    path: 'settings/integrations',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" />
+                    ),
+                  },
+                  {
+                    path: 'settings/notifications',
+                    element: (
+                      <SectionRedirect
+                        base="/projects/:projectId/settings"
+                        anchor="notifications"
+                      />
+                    ),
+                  },
+                  {
+                    path: 'settings/lifecycle',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" />
+                    ),
+                  },
+                  // Pre-0061 alias: /settings/members → Access section.
+                  {
+                    path: 'settings/members',
+                    element: (
+                      <SectionRedirect base="/projects/:projectId/settings" anchor="access" />
+                    ),
+                  },
                 ],
               },
-              {
-                path: 'risk',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <RiskRegisterView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'reports',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ReportsView />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'activity',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProjectActivityPage />
-                  </Suspense>
-                ),
-              },
-              {
-                // Unified Assets surface — task files + external links (ADR-0215, issue 971).
-                path: 'assets',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProjectAssetsPage />
-                  </Suspense>
-                ),
-              },
-              {
-                // Consolidated single scrolling page (ADR-0146, #1248). The shell
-                // renders every section inline on one mounted page (no Outlet).
-                path: 'settings',
-                element: (
-                  <RequireAdminSettings>
-                    <Suspense fallback={<RouteLoadingFallback />}>
-                      <ProjectSettingsPage />
-                    </Suspense>
-                  </RequireAdminSettings>
-                ),
-              },
-              // Legacy per-section paths (pre-0146) redirect to the consolidated
-              // page at the matching anchor so bookmarks, emails, and old e2e
-              // specs keep working. SIBLINGS of `settings` — the consolidated
-              // page renders no Outlet, so these can't be nested under it.
-              {
-                path: 'settings/general',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="general" />,
-              },
-              {
-                path: 'settings/access',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" />,
-              },
-              {
-                path: 'settings/methodology',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="methodology" />
-                ),
-              },
-              {
-                path: 'settings/team',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="team" />,
-              },
-              {
-                path: 'settings/signal-privacy',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="signal-privacy" />
-                ),
-              },
-              {
-                path: 'settings/workflow',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="workflow" />,
-              },
-              {
-                path: 'settings/calendars',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="calendars" />
-                ),
-              },
-              {
-                path: 'settings/guardrails',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="guardrails" />
-                ),
-              },
-              {
-                path: 'settings/attachments',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="attachments" />
-                ),
-              },
-              {
-                path: 'settings/surfaces',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="surfaces" />,
-              },
-              {
-                path: 'settings/integrations',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="integrations" />
-                ),
-              },
-              {
-                path: 'settings/notifications',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="notifications" />
-                ),
-              },
-              {
-                path: 'settings/lifecycle',
-                element: (
-                  <SectionRedirect base="/projects/:projectId/settings" anchor="lifecycle" />
-                ),
-              },
-              // Pre-0061 alias: /settings/members → Access section.
-              {
-                path: 'settings/members',
-                element: <SectionRedirect base="/projects/:projectId/settings" anchor="access" />,
-              },
-            ],
-          },
-          // Org-level resource catalog
-          {
-            path: 'resources',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <ResourcesPage />
-              </Suspense>
-            ),
-          },
-          // My Work — cross-project contributor surface (#499, ADR-0065 Gap 2)
-          {
-            path: 'me/work',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <MyWorkPage />
-              </Suspense>
-            ),
-          },
-          // Timesheet — weekly cross-project entry + submit (#1435, ADR-0224).
-          {
-            path: 'me/timesheet',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <TimesheetPage />
-              </Suspense>
-            ),
-          },
-          // Notification inbox — mobile-primary, desktop secondary (#311 phase 3).
-          {
-            path: 'me/notifications',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <NotificationListPage />
-              </Suspense>
-            ),
-          },
-          // Per-user general preferences — default landing screen (ADR-0129, #1181).
-          // Flat route like the other /me/settings/* pages (no SettingsShell).
-          {
-            path: 'me/settings/general',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <MyGeneralPreferencesPage />
-              </Suspense>
-            ),
-          },
-          // Per-user notification preference matrix (#311 phase 4).
-          {
-            path: 'me/settings/notifications',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <NotificationPreferencesPage />
-              </Suspense>
-            ),
-          },
-          // Per-user IntegrationCredential listing (#587, ADR-0049 §3).
-          {
-            path: 'me/settings/connected-accounts',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <ConnectedAccountsPage />
-              </Suspense>
-            ),
-          },
-          // Per-user Personal Access Tokens (issue 648, ADR-0214).
-          {
-            path: 'me/settings/api-tokens',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <PersonalAccessTokensPage />
-              </Suspense>
-            ),
-          },
-          // Programs (ADR-0070) — OSS coordination unit for a PM with several
-          // related projects. Lives between project (lower) and Enterprise
-          // portfolio (higher); see ADR-0030 navigation amendment.
-          {
-            path: 'programs',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <ProgramListPage />
-              </Suspense>
-            ),
-          },
-          {
-            path: 'programs/:programId',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <ProgramShell />
-              </Suspense>
-            ),
-            // Shell-preserving boundary (issue 1654) — see the ProjectShell note.
-            errorElement: <RouteErrorBoundary />,
-            children: [
-              { index: true, element: <Navigate to="overview" replace /> },
-              {
-                path: 'overview',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramOverviewPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'backlog',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramBacklogPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'projects',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramViewProjectsPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'schedule',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramSchedulePage />
-                  </Suspense>
-                ),
-              },
+              // Org-level resource catalog
               {
                 path: 'resources',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramResourcesPage />
+                    <ResourcesPage />
                   </Suspense>
                 ),
+                handle: { title: 'Resource Catalog' } satisfies RouteHandle,
               },
+              // My Work — cross-project contributor surface (#499, ADR-0065 Gap 2)
               {
-                path: 'members',
+                path: 'me/work',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramMembersTab />
+                    <MyWorkPage />
                   </Suspense>
                 ),
+                handle: { title: 'My Work' } satisfies RouteHandle,
               },
+              // Timesheet — weekly cross-project entry + submit (#1435, ADR-0224).
               {
-                // Unified Assets surface across the program's readable member
-                // projects — files + external links (ADR-0215, issue 971).
-                path: 'assets',
+                path: 'me/timesheet',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramAssetsPage />
+                    <TimesheetPage />
                   </Suspense>
                 ),
+                handle: { title: 'Timesheet' } satisfies RouteHandle,
               },
+              // Notification inbox — mobile-primary, desktop secondary (#311 phase 3).
+              {
+                path: 'me/notifications',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <NotificationListPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Notifications' } satisfies RouteHandle,
+              },
+              // Per-user general preferences — default landing screen (ADR-0129, #1181).
+              // Flat route like the other /me/settings/* pages (no SettingsShell).
+              {
+                path: 'me/settings/general',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <MyGeneralPreferencesPage />
+                  </Suspense>
+                ),
+                handle: { title: 'My Preferences' } satisfies RouteHandle,
+              },
+              // Per-user notification preference matrix (#311 phase 4).
+              {
+                path: 'me/settings/notifications',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <NotificationPreferencesPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Notification Preferences' } satisfies RouteHandle,
+              },
+              // Per-user IntegrationCredential listing (#587, ADR-0049 §3).
+              {
+                path: 'me/settings/connected-accounts',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ConnectedAccountsPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Connected Accounts' } satisfies RouteHandle,
+              },
+              // Per-user Personal Access Tokens (issue 648, ADR-0214).
+              {
+                path: 'me/settings/api-tokens',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <PersonalAccessTokensPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Personal Access Tokens' } satisfies RouteHandle,
+              },
+              // Programs (ADR-0070) — OSS coordination unit for a PM with several
+              // related projects. Lives between project (lower) and Enterprise
+              // portfolio (higher); see ADR-0030 navigation amendment.
+              {
+                path: 'programs',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramListPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Programs' } satisfies RouteHandle,
+              },
+              {
+                path: 'programs/:programId',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramShell />
+                  </Suspense>
+                ),
+                // Shell-preserving boundary (issue 1654) — see the ProjectShell note.
+                errorElement: <RouteErrorBoundary />,
+                children: [
+                  { index: true, element: <Navigate to="overview" replace /> },
+                  {
+                    path: 'overview',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramOverviewPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Overview' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'backlog',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramBacklogPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Backlog' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'projects',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramViewProjectsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Projects' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'schedule',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramSchedulePage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Schedule' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'resources',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramResourcesPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Resources' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'members',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramMembersTab />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Members' } satisfies RouteHandle,
+                  },
+                  {
+                    // Unified Assets surface across the program's readable member
+                    // projects — files + external links (ADR-0215, issue 971).
+                    path: 'assets',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramAssetsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Assets' } satisfies RouteHandle,
+                  },
+                  {
+                    // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
+                    path: 'settings',
+                    element: (
+                      <RequireAdminSettings>
+                        <Suspense fallback={<RouteLoadingFallback />}>
+                          <ProgramSettingsPage />
+                        </Suspense>
+                      </RequireAdminSettings>
+                    ),
+                    handle: { title: 'Program Settings' } satisfies RouteHandle,
+                  },
+                  // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
+                  {
+                    path: 'settings/general',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="general" />
+                    ),
+                  },
+                  {
+                    path: 'settings/projects',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="projects" />
+                    ),
+                  },
+                  {
+                    path: 'settings/access',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="access" />
+                    ),
+                  },
+                  {
+                    path: 'settings/stakeholders',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="stakeholders" />
+                    ),
+                  },
+                  {
+                    path: 'settings/rollup',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="rollup" />
+                    ),
+                  },
+                  {
+                    path: 'settings/cadence',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="cadence" />
+                    ),
+                  },
+                  {
+                    path: 'settings/risk',
+                    element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" />,
+                  },
+                  {
+                    path: 'settings/attachments',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="attachments" />
+                    ),
+                  },
+                  {
+                    path: 'settings/integrations',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="integrations" />
+                    ),
+                  },
+                  {
+                    path: 'settings/lifecycle',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" />
+                    ),
+                  },
+                ],
+              },
+              // Workspace settings — ONE consolidated scrolling page (ADR-0146, #1248).
+              // System Health is a separate multi-route tool area, so it lives on its
+              // own shell route below; everything else redirects to an anchor.
               {
                 // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
                 path: 'settings',
                 element: (
                   <RequireAdminSettings>
                     <Suspense fallback={<RouteLoadingFallback />}>
-                      <ProgramSettingsPage />
+                      <WorkspaceSettingsPage />
                     </Suspense>
                   </RequireAdminSettings>
                 ),
+                handle: { title: 'Workspace Settings' } satisfies RouteHandle,
               },
               // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
               {
                 path: 'settings/general',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="general" />,
+                element: <SectionRedirect base="/settings" anchor="general" />,
               },
               {
-                path: 'settings/projects',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="projects" />,
+                path: 'settings/members',
+                element: <SectionRedirect base="/settings" anchor="members" />,
               },
               {
-                path: 'settings/access',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="access" />,
+                path: 'settings/groups',
+                element: <SectionRedirect base="/settings" anchor="groups" />,
               },
               {
-                path: 'settings/stakeholders',
-                element: (
-                  <SectionRedirect base="/programs/:programId/settings" anchor="stakeholders" />
-                ),
+                path: 'settings/roles',
+                element: <SectionRedirect base="/settings" anchor="roles" />,
+              },
+              { path: 'settings/sso', element: <SectionRedirect base="/settings" anchor="sso" /> },
+              {
+                path: 'settings/methodology',
+                element: <SectionRedirect base="/settings" anchor="methodology" />,
               },
               {
-                path: 'settings/rollup',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="rollup" />,
+                path: 'settings/schedule',
+                element: <SectionRedirect base="/settings" anchor="schedule" />,
               },
               {
-                path: 'settings/cadence',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="cadence" />,
-              },
-              {
-                path: 'settings/risk',
-                element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" />,
+                path: 'settings/programs',
+                element: <SectionRedirect base="/settings" anchor="programs" />,
               },
               {
                 path: 'settings/attachments',
-                element: (
-                  <SectionRedirect base="/programs/:programId/settings" anchor="attachments" />
-                ),
+                element: <SectionRedirect base="/settings" anchor="attachments" />,
               },
+              {
+                path: 'settings/email',
+                element: <SectionRedirect base="/settings" anchor="email" />,
+              },
+              {
+                path: 'settings/danger',
+                element: <SectionRedirect base="/settings" anchor="danger" />,
+              },
+              // OSS-removed Connections routes (ADR-0076) — kept as redirect shims.
               {
                 path: 'settings/integrations',
                 element: (
-                  <SectionRedirect base="/programs/:programId/settings" anchor="integrations" />
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <IntegrationsRedirect />
+                  </Suspense>
                 ),
               },
               {
-                path: 'settings/lifecycle',
+                path: 'settings/webhooks',
                 element: (
-                  <SectionRedirect base="/programs/:programId/settings" anchor="lifecycle" />
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <IntegrationsRedirect />
+                  </Suspense>
                 ),
               },
+              // Trash (issue 1113, ADR-0202) — recoverable soft-deleted projects. Renders its
+              // own SettingsShell (like the System Health area). Any member may view; the
+              // per-row Restore is Owner-gated by the API.
+              {
+                path: 'settings/trash',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceTrashPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Trash' } satisfies RouteHandle,
+              },
+              // System Health tools — separate multi-route area with its own shell
+              // (ADR-0146). Not part of the consolidated scroll page.
+              {
+                path: 'settings/health',
+                element: (
+                  <RequireAdminSettings>
+                    <Suspense fallback={<RouteLoadingFallback />}>
+                      <WorkspaceSystemHealthShell />
+                    </Suspense>
+                  </RequireAdminSettings>
+                ),
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <SystemHealthOverviewPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'System Health' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'dead-letters',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <DeadLetterInspectorPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Dead Letter Queue' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'retention',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <RetentionPurgePage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Retention & Purge' } satisfies RouteHandle,
+                  },
+                ],
+              },
+              // Root: redirect to first project overview, or prompt to select one.
+              { index: true, element: <RootRedirect /> },
             ],
           },
-          // Workspace settings — ONE consolidated scrolling page (ADR-0146, #1248).
-          // System Health is a separate multi-route tool area, so it lives on its
-          // own shell route below; everything else redirects to an anchor.
-          {
-            // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
-            path: 'settings',
-            element: (
-              <RequireAdminSettings>
-                <Suspense fallback={<RouteLoadingFallback />}>
-                  <WorkspaceSettingsPage />
-                </Suspense>
-              </RequireAdminSettings>
-            ),
-          },
-          // Legacy per-section redirects — SIBLINGS of `settings` (no Outlet).
-          {
-            path: 'settings/general',
-            element: <SectionRedirect base="/settings" anchor="general" />,
-          },
-          {
-            path: 'settings/members',
-            element: <SectionRedirect base="/settings" anchor="members" />,
-          },
-          {
-            path: 'settings/groups',
-            element: <SectionRedirect base="/settings" anchor="groups" />,
-          },
-          { path: 'settings/roles', element: <SectionRedirect base="/settings" anchor="roles" /> },
-          { path: 'settings/sso', element: <SectionRedirect base="/settings" anchor="sso" /> },
-          {
-            path: 'settings/methodology',
-            element: <SectionRedirect base="/settings" anchor="methodology" />,
-          },
-          {
-            path: 'settings/schedule',
-            element: <SectionRedirect base="/settings" anchor="schedule" />,
-          },
-          {
-            path: 'settings/programs',
-            element: <SectionRedirect base="/settings" anchor="programs" />,
-          },
-          {
-            path: 'settings/attachments',
-            element: <SectionRedirect base="/settings" anchor="attachments" />,
-          },
-          { path: 'settings/email', element: <SectionRedirect base="/settings" anchor="email" /> },
-          {
-            path: 'settings/danger',
-            element: <SectionRedirect base="/settings" anchor="danger" />,
-          },
-          // OSS-removed Connections routes (ADR-0076) — kept as redirect shims.
-          {
-            path: 'settings/integrations',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <IntegrationsRedirect />
-              </Suspense>
-            ),
-          },
-          {
-            path: 'settings/webhooks',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <IntegrationsRedirect />
-              </Suspense>
-            ),
-          },
-          // Trash (issue 1113, ADR-0202) — recoverable soft-deleted projects. Renders its
-          // own SettingsShell (like the System Health area). Any member may view; the
-          // per-row Restore is Owner-gated by the API.
-          {
-            path: 'settings/trash',
-            element: (
-              <Suspense fallback={<RouteLoadingFallback />}>
-                <WorkspaceTrashPage />
-              </Suspense>
-            ),
-          },
-          // System Health tools — separate multi-route area with its own shell
-          // (ADR-0146). Not part of the consolidated scroll page.
-          {
-            path: 'settings/health',
-            element: (
-              <RequireAdminSettings>
-                <Suspense fallback={<RouteLoadingFallback />}>
-                  <WorkspaceSystemHealthShell />
-                </Suspense>
-              </RequireAdminSettings>
-            ),
-            children: [
-              {
-                index: true,
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <SystemHealthOverviewPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'dead-letters',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <DeadLetterInspectorPage />
-                  </Suspense>
-                ),
-              },
-              {
-                path: 'retention',
-                element: (
-                  <Suspense fallback={<RouteLoadingFallback />}>
-                    <RetentionPurgePage />
-                  </Suspense>
-                ),
-              },
-            ],
-          },
-          // Root: redirect to first project overview, or prompt to select one.
-          { index: true, element: <RootRedirect /> },
         ],
       },
+      {
+        path: '*',
+        element: (
+          <div className="min-h-screen flex items-center justify-center bg-neutral-surface-raised">
+            <div className="text-center">
+              <p className="text-4xl font-semibold text-neutral-text-primary">404</p>
+              <p className="mt-2 text-sm text-neutral-text-secondary">Page not found</p>
+            </div>
+          </div>
+        ),
+        handle: { title: 'Page Not Found' } satisfies RouteHandle,
+      },
     ],
-  },
-  {
-    path: '*',
-    element: (
-      <div className="min-h-screen flex items-center justify-center bg-neutral-surface-raised">
-        <div className="text-center">
-          <p className="text-4xl font-semibold text-neutral-text-primary">404</p>
-          <p className="mt-2 text-sm text-neutral-text-secondary">Page not found</p>
-        </div>
-      </div>
-    ),
   },
 ]);
