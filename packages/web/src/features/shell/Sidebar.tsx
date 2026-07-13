@@ -843,8 +843,10 @@ function ProjectViewsTier({
   const program = programs?.find((p) => p.id === programId) ?? null;
   const programName = project.data?.program_detail?.name ?? null;
   const health = PROJECT_HEALTH_STATE[project.data?.health ?? 'AUTO'] ?? 'unknown';
-  // Server-resolved preset (web-rule 196) — the same value the removed bar
-  // `MethodWorkspaceLabel` showed (#1680); rides the card subtitle here now.
+  // Server-resolved preset (web-rule 196) — the same value the bar's
+  // `MethodologyIndicator` reads (#1907, restoring the signal #1680 relocated here);
+  // that bar indicator only renders while this card subtitle is hidden (collapsed
+  // rail), so the two never show the methodology twice at once.
   const effectiveMethodology = project.data?.effective_methodology ?? 'HYBRID';
   const OverviewIcon = VIEW_TAB_META[standaloneLeading].Icon;
   const closeDrawer = () => {

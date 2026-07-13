@@ -7,6 +7,7 @@ import { ProgramTabs } from './ProgramTabs';
 import { ShellNavScroller } from './ShellNavScroller';
 import { LocationSwitcher } from './LocationSwitcher';
 import { HealthCluster } from './HealthCluster';
+import { MethodologyIndicator } from './MethodologyIndicator';
 import { CreateMenu } from './CreateMenu';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { TimerChip } from '@/features/timer/TimerChip';
@@ -31,13 +32,18 @@ interface Props {
  * and the in-chrome `ProjectSwitcher`, and the view/program tab scroller is gone.
  *
  * Left → right: mobile hamburger / desktop rail re-open ≡ · mobile brand ·
- * `LocationSwitcher` · pinned right cluster (health chip · timer · quick-log ·
- * + New · run indicator · presence · sync · notifications · user menu, which is
- * the single home for the theme toggle).
+ * `LocationSwitcher` · pinned right cluster (methodology indicator · health chip ·
+ * timer · quick-log · + New · run indicator · presence · sync · notifications ·
+ * user menu, which is the single home for the theme toggle).
  *
  * The right cluster was trimmed in #1680: Customize-views moved to the rail's
  * "This project" band, the current-sprint jump folded into the health popover's
- * sprint row, and the methodology label became a picker/rail subtitle.
+ * sprint row, and the methodology label became a picker/rail subtitle. #1907
+ * restored a compact bar indicator (`MethodologyIndicator`) because that rail
+ * subtitle only renders while the rail is expanded, and the rail auto-collapses
+ * below 1023px — leaving 768–1023px with no methodology signal on a fresh
+ * session. The bar indicator self-gates to a collapsed rail so it never doubles
+ * up with the subtitle.
  *
  * The location switcher's leaf is a plain `aria-current` label, not a dropdown —
  * the rail owns view switching, so the leaf is the one deliberate dedup.
@@ -131,6 +137,12 @@ export function TopBar({ onHamburgerClick }: Props) {
           phone-surfaced controls (#1770 quick-log, +New, sync, bell, user) fit a
           375px width without clipping (#1788); full gap-3 rhythm returns at md+. */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-3">
+        {/* Always-visible methodology indicator (issue #1907) — fills the 768–1023px
+            gap left when #1680 moved the signal to the rail subtitle, which only
+            renders while the rail is expanded. Self-gates to project routes and to
+            a collapsed rail, so it never doubles up with that subtitle. */}
+        <MethodologyIndicator />
+
         {/* v2 health status chip + popover (ADR-0128, #1644) — project routes only;
             one all-width chip (dot + worst-state word + neutral P80) opening a
             role="dialog" health popover. Stays pinned, never behind a tab scroll. */}
