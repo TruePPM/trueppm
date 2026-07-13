@@ -7,8 +7,11 @@ Two groups:
   ``callback`` (validate, mint the existing cookie-JWT session, 302 to the SPA).
   These set ``permission_classes = [AllowAny]`` and ``authentication_classes =
   []`` because the caller has no session yet — authentication *is* the flow.
-- **Admin config** (``IsWorkspaceAdmin``): the singleton ``/workspace/sso/``
+- **Admin config** (``IsWorkspaceAdminStrict``): the singleton ``/workspace/sso/``
   provider config (GET/PUT/DELETE, secret write-only) and ``test-connection``.
+  Strict (ADMIN on *all* methods, reads included) because even a GET exposes the
+  org's IdP configuration — issuer, client_id, allowed email domains — which a
+  plain member must not be able to read.
 
 The callback never puts a token in the URL: it sets the hardened httpOnly refresh
 cookie via the existing ``_set_refresh_cookie`` and 302s the browser to the SPA
@@ -42,7 +45,7 @@ from trueppm_api.apps.sso.serializers import (
     OIDCTestConnectionResponseSerializer,
 )
 from trueppm_api.apps.workspace.models import Workspace
-from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
+from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 from trueppm_api.core.auth_views import _set_refresh_cookie
 
 # Trailing slash matches the route in ``urls.py`` so the IdP returns straight to
@@ -249,13 +252,18 @@ class OIDCCallbackView(APIView):
 class OIDCProviderView(IdempotencyMixin, APIView):
     """Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).
 
-    Mirrors ``WorkspaceSettingsView``: ``IsWorkspaceAdmin``, singleton row via
-    ``OIDCProvider.load()``. The client secret is write-only (providing it on PUT
-    rotates it) and never returned. DELETE removes the config row entirely
-    (a subsequent GET lazily re-materializes a blank, disabled provider).
+    Singleton row via ``OIDCProvider.load()``. The client secret is write-only
+    (providing it on PUT rotates it) and never returned. DELETE removes the config
+    row entirely (a subsequent GET lazily re-materializes a blank, disabled
+    provider).
     """
 
-    permission_classes = [IsWorkspaceAdmin]
+    # Strict ADMIN on *every* method, reads included. The plain ``IsWorkspaceAdmin``
+    # admits any authenticated member on safe methods, but the read serializer
+    # exposes the org's IdP configuration — issuer URL, client_id, allowed email
+    # domains, redirect_uri — which discloses org structure and identity-provider
+    # topology. That must be gated exactly like the writes: ADMIN, all methods.
+    permission_classes = [IsWorkspaceAdminStrict]
     # Exempt from the generic Idempotency-Key path (ADR-0170): this is a singleton
     # config row, so PUT (full replace) and DELETE (clear) are naturally idempotent
     # — replaying converges to the same state with no resource multiplication.
@@ -304,7 +312,10 @@ class OIDCProviderView(IdempotencyMixin, APIView):
 class OIDCTestConnectionView(IdempotencyMixin, APIView):
     """``POST /workspace/sso/test-connection`` — probe discovery + JWKS (admin)."""
 
-    permission_classes = [IsWorkspaceAdmin]
+    # Strict ADMIN, all methods: the request body echoes the configured issuer and
+    # the probe confirms IdP topology, so — like the provider config read — it must
+    # not be reachable by a plain member.
+    permission_classes = [IsWorkspaceAdminStrict]
     # Exempt from the generic Idempotency-Key path (ADR-0170): a read-only
     # reachability probe that mutates nothing — POST is the verb only because the
     # candidate issuer is supplied in the body, not because it creates a resource.

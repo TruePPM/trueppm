@@ -6,8 +6,9 @@ ADR-0187. Two models:
   ``Workspace`` pattern (``apps/workspace/models.py``) — it is *not* a
   ``VersionedModel``, carries **no** ``server_version``, and never enters the
   WatermelonDB sync delta. It is admin, secret-bearing configuration read only
-  over a dedicated ``IsWorkspaceAdmin`` endpoint; putting it in the client sync
-  stream would risk leaking config to every device.
+  over a dedicated ``IsWorkspaceAdminStrict`` endpoint (ADMIN on every method,
+  reads included); putting it in the client sync stream would risk leaking config
+  to every device.
 - :class:`OIDCIdentity` is the **durable identity binding** keyed on
   ``(issuer, subject)``. Once an SSO login is bound to a local user, later logins
   resolve by the stable IdP subject — never the mutable email — which is the
@@ -37,8 +38,8 @@ class OIDCProvider(models.Model):
 
     One row per workspace. OSS has exactly one workspace (the singleton), so this
     is effectively installation-wide config; the workspace FK keeps enterprise
-    multi-tenancy open without an OSS schema change. Edited only through the
-    ``IsWorkspaceAdmin``-gated ``/api/v1/workspace/sso/`` endpoint.
+    multi-tenancy open without an OSS schema change. Read and edited only through
+    the ``IsWorkspaceAdminStrict``-gated ``/api/v1/workspace/sso/`` endpoint.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
