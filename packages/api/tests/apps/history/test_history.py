@@ -764,6 +764,58 @@ class TestTaskActivityInclude:
         assert events[str(with_actor.id)]["detail"]["label"] == "Spec"
         assert events[str(authorless.id)]["actor"] is None
 
+    def test_attachment_soft_delete_keeps_upload_and_adds_deleted_event(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The feed is append-only (#1879): a soft-deleted attachment keeps its
+        attachment_uploaded event and gains an attachment_deleted event; legacy
+        rows with no deleted_at contribute only the retained upload event."""
+        from trueppm_api.apps.projects.models import TaskAttachment
+
+        deleted = TaskAttachment.objects.create(
+            task=task,
+            external_url="https://example.com/gone",
+            external_title="Gone doc",
+            uploaded_by=owner,
+        )
+        deleted.soft_delete(actor=owner)
+        # Legacy soft-delete (before deleted_at existed): flag only, no timestamp.
+        legacy = TaskAttachment.objects.create(
+            task=task,
+            external_url="https://example.com/old",
+            external_title="Old doc",
+            uploaded_by=owner,
+        )
+        legacy.is_deleted = True
+        legacy.save(update_fields=["is_deleted"])
+
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=attachments"
+        )
+        assert r.status_code == 200
+        results = r.data["results"]
+        uploaded_ids = {
+            e["detail"]["attachment_id"]
+            for e in results
+            if e.get("event_type") == "attachment_uploaded"
+        }
+        # Both soft-deleted rows keep their upload event.
+        assert str(deleted.id) in uploaded_ids
+        assert str(legacy.id) in uploaded_ids
+
+        deleted_events = [e for e in results if e.get("event_type") == "attachment_deleted"]
+        assert len(deleted_events) == 1  # legacy row has no deleted_at to anchor one
+        ev = deleted_events[0]
+        assert ev["detail"]["attachment_id"] == str(deleted.id)
+        assert ev["detail"]["kind"] == "url"
+        assert ev["detail"]["label"] == "Gone doc"
+        assert ev["actor"]["display_name"] == "Owen"
+
     def test_merged_feed_sorted_newest_first(
         self,
         owner_client: APIClient,
