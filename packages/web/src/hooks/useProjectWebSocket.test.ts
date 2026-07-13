@@ -511,6 +511,55 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     // First event invalidates; the replay at the same version is a no-op.
     expect(tasksInvalidationCount(invalidateSpy.mock.calls)).toBe(1);
   });
+
+  // --- Drawer Activity feed freshness (#1867) ----------------------------
+
+  function taskHistoryCalls(calls: unknown[][]): unknown[][] {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return Array.isArray(arg?.queryKey) && arg.queryKey[0] === 'task-history';
+    });
+  }
+
+  it('invalidates the per-task history key on a remote task_updated (#1867)', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchTaskUpdated({ id: 't1', actor_id: 'someone-else', version: 5 });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'proj-1', 't1'] });
+  });
+
+  it('skips the task-history invalidation for a duplicate/replayed task_updated', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchTaskUpdated({ id: 't1', actor_id: 'someone-else', version: 7 });
+    dispatchTaskUpdated({ id: 't1', actor_id: 'someone-else', version: 7 });
+
+    expect(taskHistoryCalls(invalidateSpy.mock.calls)).toHaveLength(1);
+  });
+
+  it('invalidates the per-task history key on task_created and task_deleted (#1867)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // dispatchEvent sends payload { id: 'dep-1' } — the broadcast's task id.
+    dispatchEvent('task_created');
+    dispatchEvent('task_deleted');
+
+    const calls = taskHistoryCalls(invalidateSpy.mock.calls);
+    expect(calls).toHaveLength(2);
+    for (const call of calls) {
+      expect((call[0] as { queryKey: unknown[] }).queryKey).toEqual([
+        'task-history',
+        'proj-1',
+        'dep-1',
+      ]);
+    }
+  });
 });
 
 describe('useProjectWebSocket — auth close-code handling (#352)', () => {

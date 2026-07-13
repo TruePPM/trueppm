@@ -353,9 +353,26 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
           // same card state, so a status/assignee/blocker move refetches it too
           // (inactive → marked stale while standup mode is closed; ADR-0166).
           scheduleInvalidate('board-activity', 'standup');
+          // The task drawer's Activity tab merges the per-task history feed
+          // (useTaskHistory), so a remote edit must refresh it too (#1867).
+          void queryClient.invalidateQueries({
+            queryKey:
+              taskId !== null
+                ? ['task-history', projectIdRef.current, taskId]
+                : ['task-history', projectIdRef.current],
+          });
         }
       } else if (event_type === 'task_created' || event_type === 'task_deleted') {
         scheduleInvalidate('tasks', 'board-activity', 'standup');
+        // The drawer Activity tab merges the per-task history feed (#1867) —
+        // create/delete both append a history record for the affected task.
+        const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
+        void queryClient.invalidateQueries({
+          queryKey:
+            historyTaskId !== null
+              ? ['task-history', projectIdRef.current, historyTaskId]
+              : ['task-history', projectIdRef.current],
+        });
       } else if (
         event_type === 'dependency_created' ||
         event_type === 'dependency_updated' ||

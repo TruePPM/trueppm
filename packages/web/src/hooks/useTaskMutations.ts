@@ -72,6 +72,9 @@ export function useCreateTask(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Prefix invalidation (#1867): the new task's id isn't in the variables
+      // shape, so refresh all task-history queries in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
     },
   });
 }
@@ -207,6 +210,10 @@ export function useUpdateTask() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      // Refresh the drawer Activity feed so the edit appears immediately (#1867).
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', variables.projectId, variables.id],
+      });
     },
   });
 }
@@ -216,9 +223,10 @@ export function useUpdateTask() {
 //
 // Unlike useUpdateTask (which invalidates immediately), this hook applies an
 // optimistic patch to the React Query cache in onMutate so both the canvas
-// and task list update instantly. It does NOT call invalidateQueries — instead
+// and task list update instantly. It does NOT invalidate ['tasks'] — instead
 // useScheduleTasks polls every 2 s, which picks up CPM-computed dates once Celery
-// finishes without causing a stale-data snap-back.
+// finishes without causing a stale-data snap-back. Only the dragged task's
+// task-history key is invalidated on success (#1867).
 // ---------------------------------------------------------------------------
 
 export interface RescheduleTaskPayload {
@@ -237,7 +245,7 @@ export interface RescheduleTaskPayload {
 
 /**
  * PATCH /api/v1/tasks/{id}/ for drag/resize — applies an optimistic cache update
- * so the Gantt reflects the new position instantly. Does not invalidate the cache on
+ * so the Gantt reflects the new position instantly. Does not invalidate the tasks cache on
  * success; useScheduleTasks' refetchInterval picks up CPM-computed dates once Celery finishes.
  */
 export function useRescheduleTask() {
@@ -280,7 +288,13 @@ export function useRescheduleTask() {
         queryClient.setQueryData(['tasks', projectId], context.snapshot);
       }
     },
-    // No onSuccess invalidation — useScheduleTasks refetchInterval picks up CPM results
+    onSuccess: (_data, { id, projectId }) => {
+      // Deliberately no ['tasks'] invalidation — useScheduleTasks' refetchInterval
+      // picks up CPM results without a stale snap-back. Task-history is a separate
+      // key with no optimistic state, so refreshing the dragged task's Activity
+      // feed here is safe (#1867).
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId, id] });
+    },
   });
 }
 
@@ -306,6 +320,9 @@ export function useIndentTask(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Prefix invalidation (#1867): a WBS restructure rewrites paths across a
+      // broad set of tasks, so refresh every task-history query in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
     },
   });
 }
@@ -327,6 +344,9 @@ export function useOutdentTask(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Prefix invalidation (#1867): a WBS restructure rewrites paths across a
+      // broad set of tasks, so refresh every task-history query in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
     },
   });
 }
@@ -355,6 +375,9 @@ export function useReparentTask(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Prefix invalidation (#1867): a WBS restructure rewrites paths across a
+      // broad set of tasks, so refresh every task-history query in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
     },
   });
 }
@@ -439,6 +462,10 @@ export function usePromoteTask() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      // Refresh the promoted task's Activity feed (#1867).
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', variables.projectId, variables.id],
+      });
     },
   });
 }
@@ -455,8 +482,13 @@ export function useDeleteTask(projectId: string | null) {
     mutationFn: async (taskId: string) => {
       await apiClient.delete(`/tasks/${taskId}/`);
     },
-    onSuccess: () => {
+    onSuccess: (_data, taskId) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Refresh the deleted task's Activity feed so an open drawer shows the
+      // deletion record instead of going stale (#1867).
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', projectId ?? undefined, taskId],
+      });
     },
   });
 }
@@ -475,8 +507,14 @@ export function useBulkDeleteTasks(projectId: string | null) {
         operations: taskIds.map((id) => ({ op: 'delete', id })),
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, taskIds) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Refresh the Activity feed of each deleted task (#1867).
+      for (const taskId of taskIds) {
+        void queryClient.invalidateQueries({
+          queryKey: ['task-history', projectId ?? undefined, taskId],
+        });
+      }
     },
   });
 }
@@ -505,6 +543,9 @@ export function useReorderTasks(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      // Prefix invalidation (#1867): a WBS restructure rewrites paths across a
+      // broad set of tasks, so refresh every task-history query in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', projectId ?? undefined] });
     },
   });
 }
@@ -851,6 +892,10 @@ export function useToggleComplete() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      // Refresh the toggled task's Activity feed (#1867).
+      void queryClient.invalidateQueries({
+        queryKey: ['task-history', variables.projectId, variables.id],
+      });
     },
   });
 }
@@ -917,6 +962,9 @@ export function useDuplicateTask() {
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+      // Prefix invalidation (#1867): the clone's id isn't known to the caller's
+      // variables shape, so refresh all task-history queries in the project.
+      void queryClient.invalidateQueries({ queryKey: ['task-history', variables.projectId] });
     },
   });
 }
