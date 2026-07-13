@@ -63,6 +63,28 @@ describe('useCurrentUserRole', () => {
     });
   });
 
+  // #1919: the rail identity block reads roleLabel off this same hook/fetch
+  // rather than a new request — verify the server's role_label passes through
+  // untouched (never reformatted client-side).
+  it('reads roleLabel from the same self-membership row (#1919)', async () => {
+    getMock.mockResolvedValue({
+      data: [{ id: 'm1', role: ROLE_ADMIN, role_label: 'Project Manager' }],
+    });
+    const { result } = renderHook(() => useCurrentUserRole('proj-1'), {
+      wrapper: makeWrapper(freshClient()),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.roleLabel).toBe('Project Manager');
+  });
+
+  it('returns roleLabel null while loading and when projectId is undefined (#1919)', () => {
+    getMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useCurrentUserRole(undefined), {
+      wrapper: makeWrapper(freshClient()),
+    });
+    expect(result.current.roleLabel).toBeNull();
+  });
+
   it('returns role null (not a crash) when the membership list is empty', async () => {
     getMock.mockResolvedValue({ data: [] });
     const { result } = renderHook(() => useCurrentUserRole('proj-1'), {
@@ -70,6 +92,7 @@ describe('useCurrentUserRole', () => {
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.role).toBeNull();
+    expect(result.current.roleLabel).toBeNull();
   });
 
   it('returns role null when the request errors (fail-closed, no retry)', async () => {

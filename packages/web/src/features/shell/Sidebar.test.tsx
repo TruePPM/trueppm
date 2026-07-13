@@ -76,7 +76,10 @@ vi.mock('@/hooks/useProject', () => ({
 }));
 // Default: SCHEDULER so the Team view is visible. Role-gate test overrides.
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: vi.fn(() => ({ role: 200, isLoading: false })),
+  useCurrentUserRole: vi.fn(() => ({ role: 200, roleLabel: 'Resource Manager', isLoading: false })),
+}));
+vi.mock('@/hooks/useNotifications', () => ({
+  useUnreadNotificationCount: vi.fn(() => ({ count: 0, isLoading: false })),
 }));
 vi.mock('./NewProjectModal', () => ({ NewProjectModal: () => null }));
 vi.mock('@/features/programs/NewProgramModal', () => ({ NewProgramModal: () => null }));
@@ -92,10 +95,12 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 const mockUseRole = useCurrentUserRole as ReturnType<typeof vi.fn>;
 const mockUseCurrentUser = useCurrentUser as ReturnType<typeof vi.fn>;
+const mockUseUnreadCount = useUnreadNotificationCount as ReturnType<typeof vi.fn>;
 
 function renderRail(props = {}) {
   return render(
@@ -137,8 +142,9 @@ beforeEach(() => {
   useCommandPaletteStore.setState({ open: false });
   mockUseProjectId.mockReturnValue(undefined);
   mockUseProject.mockReturnValue({ data: HYBRID_PROJECT, isLoading: false, error: null });
-  mockUseRole.mockReturnValue({ role: 200, isLoading: false });
+  mockUseRole.mockReturnValue({ role: 200, roleLabel: 'Resource Manager', isLoading: false });
   mockUseCurrentUser.mockReturnValue(DEFAULT_USER);
+  mockUseUnreadCount.mockReturnValue({ count: 0, isLoading: false });
 });
 
 describe('Sidebar rail — Tier 1 "You"', () => {
@@ -151,6 +157,46 @@ describe('Sidebar rail — Tier 1 "You"', () => {
     expect(screen.getByRole('link', { name: /My Work, 3 due today/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Timesheet' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+  });
+
+  it('shows the role label under the name, sourced from useCurrentUserRole (#1919)', () => {
+    mockUseProjectId.mockReturnValue('p1');
+    mockUseRole.mockReturnValue({ role: 300, roleLabel: 'Project Manager', isLoading: false });
+    renderRail();
+    expect(screen.getByText('Project Manager')).toBeInTheDocument();
+  });
+
+  it('omits the role line off a project, where useCurrentUserRole resolves to null (#1919)', () => {
+    mockUseProjectId.mockReturnValue(undefined);
+    mockUseRole.mockReturnValue({ role: null, roleLabel: null, isLoading: true });
+    renderRail();
+    expect(screen.queryByText('Project Manager')).not.toBeInTheDocument();
+    expect(screen.queryByText('Resource Manager')).not.toBeInTheDocument();
+  });
+
+  it('shows an unread-count badge on the Notifications row (#1919)', () => {
+    mockUseUnreadCount.mockReturnValue({ count: 5, isLoading: false });
+    renderRail();
+    expect(
+      screen.getByRole('link', { name: 'Notifications, 5 unread' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+  });
+
+  it('hides the Notifications badge at zero unread (#1919)', () => {
+    mockUseUnreadCount.mockReturnValue({ count: 0, isLoading: false });
+    renderRail();
+    expect(screen.getByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it('caps the Notifications badge display at 99+ (#1919)', () => {
+    mockUseUnreadCount.mockReturnValue({ count: 150, isLoading: false });
+    renderRail();
+    expect(
+      screen.getByRole('link', { name: 'Notifications, 150 unread' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('99+')).toBeInTheDocument();
   });
 });
 

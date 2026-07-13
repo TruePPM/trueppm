@@ -6,6 +6,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useMyWork } from '@/hooks/useMyWork';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useEdition } from '@/hooks/useEdition';
@@ -138,6 +140,12 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { user } = useCurrentUser();
   const { edition } = useEdition();
   const projectId = useProjectId();
+  // Project-scoped role for the "You" card's identity line (#1919). Same
+  // `role_label` source the settings team/member rows render — off a project
+  // the hook resolves to null and the line is simply omitted, matching Tier 2
+  // collapsing to the pinned list rather than showing a stale/blank role.
+  const { roleLabel } = useCurrentUserRole(projectId);
+  const { count: unreadCount } = useUnreadNotificationCount();
 
   // The gear under the signed-in identity opens the user's *personal* settings
   // (#1793), which every role can reach. It deliberately does not target the
@@ -517,9 +525,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             <div className="m-2 rounded-card border border-chrome-border/15 bg-app-canvas p-2">
               <div className="flex items-center gap-2 px-1 pb-1.5">
                 <AvatarInitials initials={initialsForUser(user)} size="md" />
-                <span className="min-w-0 truncate text-sm font-medium text-chrome-text-primary">
-                  {labelForUser(user)}
-                </span>
+                <div className="min-w-0">
+                  <span className="block min-w-0 truncate text-sm font-medium text-chrome-text-primary">
+                    {labelForUser(user)}
+                  </span>
+                  {roleLabel && (
+                    <span className="block min-w-0 truncate text-xs text-chrome-text-secondary">
+                      {roleLabel}
+                    </span>
+                  )}
+                </div>
               </div>
               <NavLink
                 to="/me/work"
@@ -567,7 +582,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               </NavLink>
               <NavLink
                 to="/me/notifications"
-                aria-label="Notifications"
+                aria-label={
+                  unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'
+                }
                 onClick={closeDrawer}
                 className={({ isActive }) => youRowClass(isActive)}
               >
@@ -582,6 +599,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                   <path d="M7 1a3 3 0 0 0-3 3v2.5L2.5 9h9L10 6.5V4a3 3 0 0 0-3-3Zm0 12a2 2 0 0 0 2-2H5a2 2 0 0 0 2 2Z" />
                 </svg>
                 <span className="min-w-0 truncate">Notifications</span>
+                {unreadCount > 0 && (
+                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </NavLink>
             </div>
           )}
