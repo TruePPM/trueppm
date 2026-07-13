@@ -101,9 +101,17 @@ def instrument(
 
     try:
         # Django: server span per HTTP request, plus http.server.duration /
-        # http.server.active_requests metrics when a meter provider is bound.
+        # http.server.active_requests metrics when a meter provider is bound. The
+        # request_hook scrubs sensitive query params (OAuth code/state, tokens,
+        # secrets) out of the URL-bearing span attributes before export (#1895,
+        # extends #1723) — otherwise GET /auth/oidc/callback/?code=...&state=...
+        # would ship a live authorization code to the trace store.
         django = DjangoInstrumentor()
-        django.instrument(tracer_provider=tracer, meter_provider=meter)
+        django.instrument(
+            tracer_provider=tracer,
+            meter_provider=meter,
+            request_hook=_redact_http_credential_span,
+        )
         _installed.append(django)
 
         # Celery: task span + trace-context propagation via task headers
@@ -136,8 +144,89 @@ def instrument(
     logger.info("OpenTelemetry auto-instrumentation installed (%d libraries)", len(_installed))
 
 
-#: Value substituted for the credential-bearing WebSocket handshake query string.
-_WS_REDACTED_QUERY = "REDACTED"
+#: Value substituted for a redacted query string or query-parameter value.
+_REDACTED = "REDACTED"
+
+#: Backwards-compatible alias — the WS handshake query is fully redacted to this.
+_WS_REDACTED_QUERY = _REDACTED
+
+#: Query-parameter keys whose *values* are credentials/secrets and must never
+#: reach the trace store. Matched case-insensitively. Covers the OIDC/OAuth2
+#: authorization-code callback (``code``/``state``) plus the token and secret
+#: families an IdP or client may append to a URL (#1895).
+_SENSITIVE_QUERY_KEYS = frozenset(
+    {
+        "code",
+        "state",
+        "token",
+        "access_token",
+        "id_token",
+        "refresh_token",
+        "client_secret",
+        "password",
+        "secret",
+    }
+)
+
+
+def _scrub_query_string(query: str) -> str:
+    """Return *query* with sensitive parameter values replaced by ``REDACTED``.
+
+    Splits on ``&``/``=`` by hand rather than round-tripping through
+    :func:`urllib.parse.parse_qsl` + :func:`~urllib.parse.urlencode` so the
+    non-sensitive portion of the query is preserved byte-for-byte (order,
+    percent-encoding, and valueless flags are untouched). Only the value of a key
+    in :data:`_SENSITIVE_QUERY_KEYS` is rewritten; everything else passes through.
+    """
+    scrubbed: list[str] = []
+    for part in query.split("&"):
+        key, sep, _value = part.partition("=")
+        if sep and key.lower() in _SENSITIVE_QUERY_KEYS:
+            scrubbed.append(f"{key}={_REDACTED}")
+        else:
+            scrubbed.append(part)
+    return "&".join(scrubbed)
+
+
+def _redact_query_bearing_attrs(span: Any, scrub: Any, *, drop_query_from_url: bool) -> None:
+    """Rewrite a span's URL/query attributes in place via *scrub*.
+
+    Shared by the WebSocket (:func:`_redact_ws_credential_span`) and HTTP
+    (:func:`_redact_http_credential_span`) hooks so there is a single walk over
+    the SDK's live ``BoundedAttributes`` mapping. The instrumentation records the
+    query in two shapes: a bare ``url.query`` attribute (the query alone) and the
+    path/URL attributes (``http.target``, ``http.url``, ``url.full`` — shaped
+    ``<path-or-url>?<query>``).
+
+    Args:
+        span: The recording span to mutate.
+        scrub: ``(query_str) -> str`` returning the replacement query. The WS hook
+            passes a function that discards the whole query; the HTTP hook passes
+            :func:`_scrub_query_string` to keep the non-sensitive parameters.
+        drop_query_from_url: When ``True`` the path/URL attributes are truncated at
+            ``?`` (query dropped entirely — the WS handshake query *is* the
+            credential). When ``False`` the query substring is passed through
+            *scrub* and re-attached, preserving the non-sensitive params on an
+            HTTP request URL.
+    """
+    # span.attributes is the live BoundedAttributes mapping; snapshot before we
+    # mutate it via set_attribute (which overwrites in place).
+    for key, value in list((span.attributes or {}).items()):
+        if not isinstance(value, str):
+            continue
+        lkey = key.lower()
+        if lkey.endswith("query"):
+            new = scrub(value)
+            if new != value:
+                span.set_attribute(key, new)
+        elif lkey.endswith(("target", "url", "full")) and "?" in value:
+            path, _, query = value.partition("?")
+            if drop_query_from_url:
+                span.set_attribute(key, path)
+            else:
+                new_query = scrub(query)
+                if new_query != query:
+                    span.set_attribute(key, f"{path}?{new_query}")
 
 
 def _redact_ws_credential_span(span: Any, scope: dict[str, Any]) -> None:
@@ -154,8 +243,7 @@ def _redact_ws_credential_span(span: Any, scope: dict[str, Any]) -> None:
     This ``server_request_hook`` fires after attribute collection but before the
     span is exported, so overwriting the offending attributes redacts them from
     every exporter. It replaces the dedicated ``url.query`` attribute outright and
-    truncates the path/URL attributes (``http.target``, ``http.url``, ``url.full``
-    — shaped ``<path-or-url>?<query>``) at the ``?``. Wired onto the
+    truncates the path/URL attributes at the ``?``. Wired onto the
     websocket-branch middleware only, so HTTP request spans are untouched.
     """
     if span is None or not span.is_recording():
@@ -163,16 +251,30 @@ def _redact_ws_credential_span(span: Any, scope: dict[str, Any]) -> None:
     # Nothing to redact when the handshake carried no query string.
     if not scope.get("query_string"):
         return
-    # span.attributes is the live BoundedAttributes mapping; snapshot before we
-    # mutate it via set_attribute (which overwrites in place).
-    for key, value in list((span.attributes or {}).items()):
-        if not isinstance(value, str):
-            continue
-        lkey = key.lower()
-        if lkey.endswith("query"):
-            span.set_attribute(key, _WS_REDACTED_QUERY)
-        elif lkey.endswith(("target", "url", "full")) and "?" in value:
-            span.set_attribute(key, value.split("?", 1)[0])
+    # The whole WS handshake query is a credential: replace it wholesale and drop
+    # it from the URL attributes rather than scrubbing individual parameters.
+    _redact_query_bearing_attrs(span, lambda _query: _WS_REDACTED_QUERY, drop_query_from_url=True)
+
+
+def _redact_http_credential_span(span: Any, request: Any) -> None:
+    """Scrub sensitive query parameters from an HTTP request span (#1895).
+
+    ``DjangoInstrumentor`` records the request query into the span's URL-bearing
+    attributes just like the ASGI middleware does for WebSockets. HTTP requests
+    carry OAuth2/OIDC callbacks such as
+    ``GET /auth/oidc/callback/?code=<authz-code>&state=<state>`` whose ``code`` is
+    a live, single-use authorization credential — exporting it to the trace store
+    leaks it to anyone with read access, extending the #1723 WS leak to HTTP.
+
+    Unlike the WS hook (where the entire query is a credential), an HTTP query
+    legitimately carries non-sensitive params (``?page=2``), so this scrubs only
+    the values of :data:`_SENSITIVE_QUERY_KEYS`, leaving the rest intact. Wired as
+    the Django ``request_hook``, which fires after attribute collection but before
+    the span is exported.
+    """
+    if span is None or not span.is_recording():
+        return
+    _redact_query_bearing_attrs(span, _scrub_query_string, drop_query_from_url=False)
 
 
 def wrap_asgi_app(app: Any) -> Any:
