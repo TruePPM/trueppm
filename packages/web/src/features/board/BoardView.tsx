@@ -692,19 +692,27 @@ function BoardCellImpl({
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
 
-  // Phase-grid quieting (epic #361 child E, issue #385). At rest with no
-  // committed cards, the cell collapses to a 16px tick — no card outline,
-  // no surface fill, no "drop here" hint. The droppable is still wired up,
-  // so during drag (`isDragActive`) the cell expands back to a full slot
-  // so the user has a target. The tick line is `aria-hidden`; the column
-  // header's count chip already announces "0 tasks" to assistive tech.
+  // Empty cell (epic #361 child E, issue #385; regridded in #1866). At rest with
+  // no committed cards the cell stays quiet — no card outline, no surface fill,
+  // no "drop here" hint — but it now reads as a *grid cell*: it carries the
+  // shared column rule (`border-l`) and stretches to fill its grid track (grid
+  // `align-items: stretch`, with a small floor for an all-empty phase) so the
+  // phase×column grid is legible instead of the cards floating on a flat
+  // surface. The droppable is still wired up, so during drag (`isDragActive`)
+  // the cell expands back to a full slot so the user has a target. The tick
+  // line is `aria-hidden`; the column header's count chip already announces
+  // "0 tasks" to assistive tech.
   const isEmpty = tasks.length === 0;
   const showRestingTick = isEmpty && !isDragActive;
 
   if (showRestingTick) {
     return (
-      <div ref={setNodeRef} data-empty-cell="true" className="h-4 flex items-center justify-center">
-        <div aria-hidden="true" className="w-8 h-px bg-neutral-border/60" />
+      <div
+        ref={setNodeRef}
+        data-empty-cell="true"
+        className="flex items-center justify-center border-l border-neutral-border min-h-[2rem]"
+      >
+        <div aria-hidden="true" className="w-8 h-px bg-neutral-border" />
       </div>
     );
   }
@@ -716,7 +724,7 @@ function BoardCellImpl({
         'rounded-card p-2 min-h-[120px] flex flex-col gap-[var(--board-card-gap,0.375rem)] transition-colors duration-100',
         over
           ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
-          : `${restingBg} border-l-2 border-transparent`,
+          : `${restingBg} border-l border-neutral-border`,
       ].join(' ')}
     >
       {wipBand === 'over' && (
@@ -974,7 +982,7 @@ function PhaseLaneImpl({
     <div
       role="group"
       aria-label={`${phase.name} swimlane`}
-      className="relative border-b border-neutral-border/60 last:border-b-0"
+      className="relative border-b border-neutral-border last:border-b-0"
     >
       {!collapsed && milestones.length > 0 && (
         <PhaseMilestoneRail
@@ -1039,7 +1047,7 @@ function PhaseLaneImpl({
                 title={`Expand ${col.label}`}
                 aria-label={`Expand ${col.label} column`}
                 data-testid={`lane-stub-${phase.id}-${col.status}`}
-                className="bg-neutral-surface-sunken/60 border-l border-neutral-border/30
+                className="bg-neutral-surface-sunken/60 border-l border-neutral-border
                   hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-brand-primary focus-visible:ring-inset"
               >
@@ -1056,7 +1064,7 @@ function PhaseLaneImpl({
             return (
               <div
                 key={col.status}
-                className="bg-neutral-surface-sunken rounded-card p-2 min-h-[56px] flex items-center justify-center"
+                className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center"
               >
                 <span className="text-xs text-neutral-text-disabled">
                   {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
@@ -3227,7 +3235,10 @@ export function BoardView() {
                             : 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
                         }`}
                     >
-                      <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+                      <WarningIcon
+                        className="inline-block h-3 w-3 align-[-0.125em]"
+                        aria-hidden="true"
+                      />
                       {breachLabel}
                     </button>
                   )}
@@ -3450,7 +3461,7 @@ export function BoardView() {
                     fixed-width tracks overflow the scroll container
                     horizontally rather than squishing. */}
                 <div
-                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
+                  className="grid gap-[var(--board-col-gap,0.5rem)] px-2 py-1.5 border-b-2 border-neutral-border bg-neutral-surface sticky top-0 z-10 w-max min-w-full"
                   style={{
                     gridTemplateColumns: boardGridTemplate(COLUMNS, collapsedColumns, columnWidths),
                   }}
@@ -3505,7 +3516,12 @@ export function BoardView() {
                     return (
                       <div
                         key={col.status}
-                        className={`relative flex items-center gap-2 px-2 ${headerTint}`}
+                        // The per-column left rule (#1866) makes the header align with
+                        // the body grid's vertical column rules; a WIP at/over tint
+                        // supplies its own `border-l-2 border-semantic-*` and wins.
+                        className={`relative flex items-center gap-2 px-2 ${
+                          headerTint || 'border-l border-neutral-border'
+                        }`}
                         data-wip-state={state}
                       >
                         <span
