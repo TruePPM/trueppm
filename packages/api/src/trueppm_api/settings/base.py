@@ -659,6 +659,15 @@ TRUEPPM_OTEL_ENABLED: bool = env.bool("TRUEPPM_OTEL_ENABLED", default=True)
 # Independent signal toggles (only consulted when telemetry is enabled overall).
 TRUEPPM_OTEL_TRACES_ENABLED: bool = env.bool("TRUEPPM_OTEL_TRACES_ENABLED", default=True)
 TRUEPPM_OTEL_METRICS_ENABLED: bool = env.bool("TRUEPPM_OTEL_METRICS_ENABLED", default=True)
+# Trace sampler selection, using the standard upstream env var names. Because the
+# TracerProvider is built by hand (not via the SDK auto-config path), these would
+# otherwise be silently ignored; the bootstrap reads them to build a Sampler so
+# operators can throttle DB-span-dominated trace volume without a code change.
+# Recognized samplers: always_on (default), always_off, traceidratio,
+# parentbased_always_on, parentbased_always_off, parentbased_traceidratio.
+# The arg carries the ratio (0.0–1.0) for the ratio-based samplers.
+OTEL_TRACES_SAMPLER: str = env("OTEL_TRACES_SAMPLER", default="parentbased_always_on")
+OTEL_TRACES_SAMPLER_ARG: str = env("OTEL_TRACES_SAMPLER_ARG", default="")
 
 # ---------------------------------------------------------------------------
 # Integration credential encryption key (ADR-0049 §3)

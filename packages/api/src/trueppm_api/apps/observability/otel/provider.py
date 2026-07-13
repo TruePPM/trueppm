@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.sampling import Sampler
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +279,55 @@ def _is_http_protocol() -> bool:
     return str(settings.OTEL_EXPORTER_OTLP_PROTOCOL).lower().startswith("http")
 
 
+def _build_sampler() -> Sampler:
+    """Build a trace ``Sampler`` from ``OTEL_TRACES_SAMPLER`` / ``_ARG``.
+
+    The ``TracerProvider`` in :func:`_build_tracer_provider` is constructed by
+    hand rather than through the SDK's ``opentelemetry.sdk.trace.TracerProvider``
+    auto-configuration entrypoint. That auto-config path is the *only* thing that
+    reads the standard ``OTEL_TRACES_SAMPLER`` / ``OTEL_TRACES_SAMPLER_ARG`` env
+    vars, so building the provider manually silently drops them and pins the
+    process to the SDK default (``ParentBased(ALWAYS_ON)``) — full-rate export.
+    For an API whose span volume is dominated by high-cardinality psycopg DB
+    spans, that leaves an operator no knob to throttle trace cost short of
+    turning tracing off entirely. This helper re-implements the standard env-var
+    contract so those knobs work again.
+
+    The default (unset env) is ``parentbased_always_on``, which is exactly the
+    prior hard-coded behavior — so existing deployments see no change. The ratio
+    argument for the ratio-based samplers is read from ``OTEL_TRACES_SAMPLER_ARG``
+    and defaults to ``1.0`` (sample everything) when unset or unparseable.
+    """
+    from opentelemetry.sdk.trace.sampling import (
+        ALWAYS_OFF,
+        ALWAYS_ON,
+        ParentBased,
+        TraceIdRatioBased,
+    )
+
+    name = str(settings.OTEL_TRACES_SAMPLER).strip().lower()
+    raw_arg = str(settings.OTEL_TRACES_SAMPLER_ARG).strip()
+    try:
+        ratio = float(raw_arg) if raw_arg else 1.0
+    except ValueError:
+        logger.warning("Invalid OTEL_TRACES_SAMPLER_ARG %r; falling back to 1.0", raw_arg)
+        ratio = 1.0
+
+    samplers: dict[str, Sampler] = {
+        "always_on": ALWAYS_ON,
+        "always_off": ALWAYS_OFF,
+        "traceidratio": TraceIdRatioBased(ratio),
+        "parentbased_always_on": ParentBased(ALWAYS_ON),
+        "parentbased_always_off": ParentBased(ALWAYS_OFF),
+        "parentbased_traceidratio": ParentBased(TraceIdRatioBased(ratio)),
+    }
+    sampler = samplers.get(name)
+    if sampler is None:
+        logger.warning("Unrecognized OTEL_TRACES_SAMPLER %r; using parentbased_always_on", name)
+        sampler = ParentBased(ALWAYS_ON)
+    return sampler
+
+
 def _build_tracer_provider(resource: Resource) -> TracerProvider:
     """Build a ``TracerProvider`` with a batched OTLP span exporter."""
     from opentelemetry.sdk.trace import TracerProvider
@@ -299,7 +349,7 @@ def _build_tracer_provider(resource: Resource) -> TracerProvider:
 
         exporter = GRPCSpanExporter(endpoint=endpoint, headers=headers)
 
-    provider = TracerProvider(resource=resource)
+    provider = TracerProvider(resource=resource, sampler=_build_sampler())
     # BatchSpanProcessor exports on its own background thread and is fire-and-forget:
     # export failures are logged and dropped by the SDK and never reach a request.
     provider.add_span_processor(BatchSpanProcessor(exporter))

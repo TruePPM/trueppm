@@ -290,3 +290,79 @@ class TestHeaderParsing:
 
     def test_malformed_pairs_are_skipped(self) -> None:
         assert provider._parse_headers("a=1,garbage,b=2") == {"a": "1", "b": "2"}
+
+
+class TestSamplerSelection:
+    """OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG → Sampler (#1903)."""
+
+    def test_default_is_parent_based_always_on(self) -> None:
+        """No env override must preserve the prior hard-coded behavior."""
+        from opentelemetry.sdk.trace.sampling import (
+            ALWAYS_ON,
+            ParentBased,
+        )
+
+        # settings.base defaults OTEL_TRACES_SAMPLER to "parentbased_always_on".
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, ParentBased)
+        assert sampler._root is ALWAYS_ON
+
+    @override_settings(OTEL_TRACES_SAMPLER="always_on")
+    def test_always_on(self) -> None:
+        from opentelemetry.sdk.trace.sampling import ALWAYS_ON, StaticSampler
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, StaticSampler)
+        assert sampler is ALWAYS_ON
+
+    @override_settings(OTEL_TRACES_SAMPLER="always_off")
+    def test_always_off(self) -> None:
+        from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, StaticSampler
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, StaticSampler)
+        assert sampler is ALWAYS_OFF
+
+    @override_settings(OTEL_TRACES_SAMPLER="traceidratio", OTEL_TRACES_SAMPLER_ARG="0.25")
+    def test_traceidratio_parses_arg(self) -> None:
+        from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, TraceIdRatioBased)
+        assert sampler.rate == pytest.approx(0.25)
+
+    @override_settings(
+        OTEL_TRACES_SAMPLER="parentbased_traceidratio",
+        OTEL_TRACES_SAMPLER_ARG="0.1",
+    )
+    def test_parentbased_traceidratio_parses_arg(self) -> None:
+        from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, ParentBased)
+        assert isinstance(sampler._root, TraceIdRatioBased)
+        assert sampler._root.rate == pytest.approx(0.1)
+
+    @override_settings(OTEL_TRACES_SAMPLER="parentbased_always_off")
+    def test_parentbased_always_off(self) -> None:
+        from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, ParentBased
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, ParentBased)
+        assert sampler._root is ALWAYS_OFF
+
+    @override_settings(OTEL_TRACES_SAMPLER="not_a_real_sampler")
+    def test_unrecognized_falls_back_to_parent_based_always_on(self) -> None:
+        from opentelemetry.sdk.trace.sampling import ALWAYS_ON, ParentBased
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, ParentBased)
+        assert sampler._root is ALWAYS_ON
+
+    @override_settings(OTEL_TRACES_SAMPLER="traceidratio", OTEL_TRACES_SAMPLER_ARG="oops")
+    def test_unparseable_arg_defaults_to_full_rate(self) -> None:
+        from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
+
+        sampler = provider._build_sampler()
+        assert isinstance(sampler, TraceIdRatioBased)
+        assert sampler.rate == pytest.approx(1.0)
