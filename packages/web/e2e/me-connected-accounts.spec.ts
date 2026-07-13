@@ -307,4 +307,57 @@ test.describe('Available sources section (#1420)', () => {
     await expect(jiraCard.getByText('Active', { exact: true })).toBeVisible();
     await expect(jiraCard.getByText(/Linked as alice@example\.com/i)).toBeVisible();
   });
+
+  test('shows a Reconnect banner when the connection is auth_failed and reopens the connect wizard (#1910)', async ({
+    page,
+  }) => {
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'auth_failed',
+        last_synced_at: '2026-05-20T14:00:00Z',
+        jql: '',
+        project_keys: [],
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    const banner = jiraCard.getByRole('status');
+    await expect(banner).toContainText(/needs reauthorization/i);
+
+    // The banner takes precedence over the staleness note — one signal, not two.
+    await expect(jiraCard.getByText(/^Last synced/i)).toHaveCount(0);
+
+    // "Reconnect" reopens the same PAT wizard used for the initial Connect.
+    await jiraCard.getByRole('button', { name: 'Reconnect' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: 'Connect Jira' })).toBeVisible();
+  });
+
+  test('shows a stale "Last synced … ago" note for an old sync with no reconnect banner (#1910)', async ({
+    page,
+  }) => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    await setup(page, defaultCredentials(), {
+      jira: {
+        name: 'Jira',
+        exists: true,
+        base_url: 'https://acme.atlassian.net',
+        account_email: 'alice@example.com',
+        status: 'connected',
+        last_synced_at: threeDaysAgo,
+        jql: '',
+        project_keys: [],
+      },
+    });
+    await page.goto('/me/settings/connected-accounts');
+
+    const jiraCard = page.locator('#source-jira');
+    await expect(jiraCard.getByText(/^Last synced 3d ago$/)).toBeVisible();
+    await expect(jiraCard.getByRole('button', { name: 'Reconnect' })).toHaveCount(0);
+  });
 });

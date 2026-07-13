@@ -27,6 +27,7 @@ import {
 } from '@/features/integrations/registry';
 import { SourceMark } from '@/features/integrations/SourceMark';
 import { safeExternalHref } from '@/lib/safeExternalHref';
+import { formatRelative } from '@/lib/formatRelative';
 import {
   type ExternalWorkItem,
   extractConnectionError,
@@ -617,6 +618,17 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
         </div>
       </div>
 
+      {isConnected && connection?.status === 'auth_failed' ? (
+        <ReconnectBanner
+          sourceName={source.name}
+          onReconnect={() => setShowConnect(true)}
+        />
+      ) : isConnected && isStaleSync(connection?.last_synced_at ?? null) ? (
+        <p className="text-[11px] text-neutral-text-secondary">
+          Last synced {formatRelative(new Date(connection?.last_synced_at as string))}
+        </p>
+      ) : null}
+
       {isConnected && sourceItems.length > 0 ? (
         <RecentlyPulled items={sourceItems} sourceName={source.name} />
       ) : null}
@@ -634,6 +646,49 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
         />
       ) : null}
     </li>
+  );
+}
+
+/**
+ * Auth-failed → Reconnect banner (#1910, ADR-0097 §5).
+ *
+ * The pull worker flips a connection to `auth_failed` on a 401/403 (see
+ * `tasks.py::_mark_dead`) rather than retrying a dead token forever. My Work
+ * already surfaces this via `MyWorkSourceFreshness` with a link back to this
+ * page — but a user who lands here directly had no equivalent affordance
+ * (#1420/#1421 shipped without it). "Reconnect" reopens the same PAT wizard
+ * used for the initial connect (`ExternalSourceConnectDialog`) rather than a
+ * new flow: a `PUT /me/connections/<source>/` with a fresh token clears the
+ * `auth_failed` state on the backend. Amber (recoverable), never red — this
+ * mirrors the tone of the My Work freshness line.
+ */
+function ReconnectBanner({
+  sourceName,
+  onReconnect,
+}: {
+  sourceName: string;
+  onReconnect: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-[12px] text-neutral-text-primary"
+    >
+      <span>
+        <span aria-hidden="true" className="font-semibold text-semantic-at-risk">
+          ⚠{' '}
+        </span>
+        {sourceName} needs reauthorization — items stopped pulling into My Work.
+      </span>
+      <button
+        type="button"
+        onClick={onReconnect}
+        className="h-7 shrink-0 rounded-control border border-semantic-at-risk/50 bg-transparent px-3 text-[12px] font-medium text-semantic-at-risk hover:bg-semantic-at-risk/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1"
+      >
+        Reconnect
+      </button>
+    </div>
   );
 }
 
@@ -927,6 +982,20 @@ function formatRelativeDate(value: string): string {
   } catch {
     return value;
   }
+}
+
+// Opt-in polling defaults off (ADR-0097 §5 — a source only auto-refreshes if
+// the owner turns polling on) and there is no UI toggle for it yet, so "Sync
+// now" is the primary path for most users. A day-scale threshold flags a
+// connection that has quietly gone unrefreshed without nagging on every
+// visit — matches the "Last synced 3 days ago" example in #1910's AC.
+const STALE_SYNC_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+function isStaleSync(lastSyncedAt: string | null): boolean {
+  if (!lastSyncedAt) return false;
+  const synced = new Date(lastSyncedAt).getTime();
+  if (Number.isNaN(synced)) return false;
+  return Date.now() - synced > STALE_SYNC_THRESHOLD_MS;
 }
 
 function formatExpiresLabel(value: string | null): string | null {
