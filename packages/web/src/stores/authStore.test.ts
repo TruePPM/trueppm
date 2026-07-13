@@ -54,4 +54,54 @@ describe('useAuthStore', () => {
     const state = useAuthStore.getState() as unknown as Record<string, unknown>;
     expect('refreshToken' in state).toBe(false);
   });
+
+  // #1922: the read-only escape hatch on SessionExpiredBanner.
+  describe('sessionExpiredReadOnly', () => {
+    it('enterReadOnlyMode flips the flag without touching sessionExpired', () => {
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      const { sessionExpired, sessionExpiredReadOnly } = useAuthStore.getState();
+      expect(sessionExpired).toBe(true);
+      expect(sessionExpiredReadOnly).toBe(true);
+    });
+
+    it('reassertSessionExpired flips read-only back off (blocked-write path)', () => {
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().reassertSessionExpired();
+      const { sessionExpired, sessionExpiredReadOnly } = useAuthStore.getState();
+      expect(sessionExpired).toBe(true);
+      expect(sessionExpiredReadOnly).toBe(false);
+    });
+
+    it('reassertSessionExpired is a no-op when the modal is already blocking', () => {
+      useAuthStore.getState().markSessionExpired();
+      // sessionExpiredReadOnly is already false here — reassert should not
+      // throw or otherwise change unrelated state.
+      useAuthStore.getState().reassertSessionExpired();
+      const { sessionExpired, sessionExpiredReadOnly } = useAuthStore.getState();
+      expect(sessionExpired).toBe(true);
+      expect(sessionExpiredReadOnly).toBe(false);
+    });
+
+    it('markSessionExpired always resets a stale read-only acknowledgment from a prior expiry', () => {
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().setAccessToken('fresh-token');
+      useAuthStore.getState().markSessionExpired();
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+    });
+
+    it('clearTokens and setAccessToken reset sessionExpiredReadOnly', () => {
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().clearTokens();
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+      useAuthStore.getState().setAccessToken('new-token');
+      expect(useAuthStore.getState().sessionExpiredReadOnly).toBe(false);
+    });
+  });
 });

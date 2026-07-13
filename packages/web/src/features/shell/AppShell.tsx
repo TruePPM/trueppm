@@ -7,7 +7,7 @@ import { TopBar } from './TopBar';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
-import { SessionExpiredBanner } from './SessionExpiredBanner';
+import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
 import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
@@ -39,9 +39,10 @@ export function AppShell() {
 
   // When the API or WS interceptors mark the session expired, cancel any
   // in-flight queries so they don't continue to populate the cache after
-  // the tokens were cleared. The actual UI surface (banner + Sign-in CTA)
-  // is rendered by `<SessionExpiredBanner>`; we deliberately do NOT
-  // auto-navigate to `/login` because that drops the user into a screen
+  // the tokens were cleared. The actual UI surface (blocking modal, or the
+  // persistent read-only banner once escaped — #1922) is rendered by
+  // `<SessionExpiredBanner>` / `<SessionExpiredReadOnlyBar>`; we deliberately
+  // do NOT auto-navigate to `/login` because that drops the user into a screen
   // with no explanation of why they were logged out (352).
   useEffect(() => {
     const handler = () => {
@@ -76,6 +77,12 @@ export function AppShell() {
             the rail re-open ≡, the scrollable view/program nav, and the right cluster.
             Supersedes the former TopBar + ContextBar two-row split. */}
         <TopBar onHamburgerClick={openDrawer} />
+
+        {/* Persistent, non-blocking read-only notice (#1922) — renders only after
+            the user escapes the blocking SessionExpiredBanner modal below. In-flow
+            (not fixed) so it never covers the TopBar and stays part of the
+            always-visible header region above the scrollable content. */}
+        <SessionExpiredReadOnlyBar />
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
         <OfflineBanner />
