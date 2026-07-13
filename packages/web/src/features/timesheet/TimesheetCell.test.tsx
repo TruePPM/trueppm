@@ -76,4 +76,13 @@ describe('TimesheetCell', () => {
     expect(cell).toHaveAccessibleName(/3 entries — edit on My Work/);
     expect(cell).toHaveTextContent('3:00');
   });
+
+  it('renders a future-day cell inert and non-editable (#1926)', () => {
+    // A future day is not loggable — no input to POST a doomed future entry_date.
+    renderCell({ isFuture: true, editable: true, entryCount: 0, minutes: 0 });
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    const cell = screen.getByRole('gridcell');
+    expect(cell).toHaveAttribute('aria-readonly', 'true');
+    expect(cell).toHaveAccessibleName(/future date, not loggable/);
+  });
 });

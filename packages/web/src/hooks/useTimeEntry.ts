@@ -20,15 +20,21 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import {
   computeTotals,
+  localTodayIso,
   mondayOf,
   type WeeklyEntry,
   type WeeklyResponse,
 } from '@/features/timesheet/weekModel';
 import { useWeekTimesheet, weekTimesheetKey } from './useWeekTimesheet';
 
-/** Client-local today as an ISO `YYYY-MM-DD` (matches the grid's optimistic-total boundary). */
+/**
+ * Browser-local today as an ISO `YYYY-MM-DD` (the grid's optimistic-total boundary and the
+ * quick-log default date). Delegates to the shared {@link localTodayIso} so every time-entry
+ * surface agrees on "today"; must be local, not UTC, or a west-of-UTC evening log defaults to
+ * a future date the server rejects with 400 (#1926).
+ */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localTodayIso();
 }
 
 /** Preset chip → minutes mapping (design: 15m / 30m / 1h / 2h / 4h). */

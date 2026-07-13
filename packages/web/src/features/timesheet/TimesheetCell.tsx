@@ -15,6 +15,9 @@ interface TimesheetCellProps {
   entryCount: number;
   isWeekend: boolean;
   isToday: boolean;
+  /** A day that hasn't happened yet — not loggable (the server rejects a future entry_date,
+   *  #1926). Rendered inert regardless of `editable`; future cells never hold entries. */
+  isFuture?: boolean;
   /** Announces day + task for screen readers (a11y — the grid builds it). */
   ariaLabel: string;
   /** Commit a new minute value for this cell (0 clears it). Only called for editable cells. */
@@ -30,6 +33,7 @@ export function TimesheetCell({
   entryCount,
   isWeekend,
   isToday,
+  isFuture = false,
   ariaLabel,
   onSave,
 }: TimesheetCellProps) {
@@ -58,6 +62,23 @@ export function TimesheetCell({
   }
 
   const surface = isWeekend ? 'bg-neutral-surface-sunken' : isToday ? 'bg-brand-primary/5' : '';
+
+  if (isFuture) {
+    // A day that hasn't happened yet is not loggable — the server rejects a future
+    // entry_date with 400 (#1926). Render an inert, non-focusable cell (future cells never
+    // hold entries) rather than an editable input that would POST a doomed request.
+    return (
+      <div
+        role="gridcell"
+        aria-readonly="true"
+        aria-label={`${ariaLabel} — future date, not loggable`}
+        title="You can't log time for a future date"
+        className={`${CELL_BASE} flex items-center justify-end px-2 text-neutral-text-disabled ${surface}`}
+      >
+        ·
+      </div>
+    );
+  }
 
   if (!editable) {
     // Read-only summed cell (≥2 entries) — ADR-0224.

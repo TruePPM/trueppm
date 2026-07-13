@@ -18,6 +18,7 @@ import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast';
 import {
   computeTotals,
+  localTodayIso,
   type WeeklyEntry,
   type WeeklyResponse,
 } from '@/features/timesheet/weekModel';
@@ -25,12 +26,6 @@ import { addDaysIso } from '@/features/timesheet/weekModel';
 
 /** Query key for a week's timesheet, keyed by its Monday ISO date. */
 export const weekTimesheetKey = (mondayIso: string) => ['timesheet', 'week', mondayIso] as const;
-
-/** Client-local today as an ISO `YYYY-MM-DD` (matches the server's day boundary closely enough
- *  for an optimistic total; the refetch reconciles any timezone edge). */
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function fetchWeek(mondayIso: string): Promise<WeeklyResponse> {
   const to = addDaysIso(mondayIso, 6);
@@ -153,7 +148,7 @@ export function applyCellEdit(prev: WeeklyResponse, vars: CellEditVars): WeeklyR
   } else {
     results = prev.results;
   }
-  return { ...prev, results, totals: computeTotals(results, todayIso()) };
+  return { ...prev, results, totals: computeTotals(results, localTodayIso()) };
 }
 
 /**
