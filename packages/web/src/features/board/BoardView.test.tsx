@@ -75,11 +75,11 @@ let mockTasks: Task[] | null = FIXTURE_TASKS;
 let mockIsLoading = false;
 let mockError: Error | null = null;
 let mockColumns: { status: TaskStatus; label: string; visible: boolean; wipLimit?: number }[] = [
-  { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-  { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 3 },
-  { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
-  { status: 'COMPLETE',    label: 'DONE',          visible: true },
+  { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+  { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+  { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 3 },
+  { status: 'REVIEW', label: 'REVIEW', visible: true, wipLimit: 2 },
+  { status: 'COMPLETE', label: 'DONE', visible: true },
 ];
 
 // Flow-metrics fixture for the WIP-creep trend arrow (issue 1213). Mutable so a
@@ -109,7 +109,12 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 }));
 
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useCreateTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isError: false }),
+  useCreateTask: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+    isError: false,
+  }),
   useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
   useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
@@ -123,7 +128,11 @@ vi.mock('@/hooks/useAssignmentMutations', () => ({
   useRemoveAssignment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
-let mockProjectResourcePool: { id: string; resourceId: string; resource: { id: string; name: string; isMe?: boolean } }[] = [];
+let mockProjectResourcePool: {
+  id: string;
+  resourceId: string;
+  resource: { id: string; name: string; isMe?: boolean };
+}[] = [];
 vi.mock('@/hooks/useProjectResourcePool', () => ({
   useProjectResourcePool: () => ({ data: mockProjectResourcePool, isLoading: false }),
 }));
@@ -218,10 +227,18 @@ vi.mock('@/hooks/useBoardOverallocation', () => ({
 // to verify it mounts with a task name (issue #304); the section internals are
 // covered by TaskDetailDrawer's own tests.
 vi.mock('@/features/schedule/TaskDetailDrawer', () => ({
-  TaskDetailDrawer: ({ task, onClose }: { task: { id: string; name: string } | null; onClose: () => void }) =>
+  TaskDetailDrawer: ({
+    task,
+    onClose,
+  }: {
+    task: { id: string; name: string } | null;
+    onClose: () => void;
+  }) =>
     task ? (
       <div role="dialog" aria-label={`Task drawer ${task.name}`}>
-        <button type="button" onClick={onClose}>Close drawer</button>
+        <button type="button" onClick={onClose}>
+          Close drawer
+        </button>
       </div>
     ) : null,
 }));
@@ -283,11 +300,11 @@ function resetMocks() {
   mockIsLoading = false;
   mockError = null;
   mockColumns = [
-    { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-    { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-    { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 3 },
-    { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
-    { status: 'COMPLETE',    label: 'DONE',          visible: true },
+    { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+    { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+    { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 3 },
+    { status: 'REVIEW', label: 'REVIEW', visible: true, wipLimit: 2 },
+    { status: 'COMPLETE', label: 'DONE', visible: true },
   ];
   mockFlowMetrics = undefined;
   updateMutate.mockReset();
@@ -347,8 +364,8 @@ describe('BoardView', () => {
     // The collapse/expand buttons and add-task button do reference the phase name, but
     // no card-role button should be present (cards have aria-label "Actions for {name}").
     const allButtons = screen.getAllByRole('button');
-    const cardActionButtons = allButtons.filter(
-      (btn) => btn.getAttribute('aria-label')?.startsWith('Actions for Alpha Platform Upgrade'),
+    const cardActionButtons = allButtons.filter((btn) =>
+      btn.getAttribute('aria-label')?.startsWith('Actions for Alpha Platform Upgrade'),
     );
     expect(cardActionButtons).toHaveLength(0);
   });
@@ -482,9 +499,7 @@ describe('BoardView', () => {
     renderBoard();
     // The lane is intake scaffolding; the "+ Add task" affordance is renamed
     // so the user can see where the new card is going before they click.
-    expect(
-      screen.getByRole('button', { name: 'Add to backlog' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add to backlog' })).toBeInTheDocument();
     // The default per-phase label must NOT be present on the synthetic lane.
     expect(
       screen.queryByRole('button', { name: /Add task to Project Tasks/i }),
@@ -539,11 +554,11 @@ describe('BoardView', () => {
     // Inject a tight wipLimit on IN_PROGRESS so the fixture (which has multiple
     // IN_PROGRESS tasks under "Alpha Platform Upgrade") trips the over-limit branch.
     mockColumns = [
-      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
-      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
-      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 1 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
     renderBoard();
     // Per #232 the over-limit chip reads "{count}/{limit} — over WIP limit".
@@ -583,11 +598,11 @@ describe('BoardView', () => {
     // Tight wipLimit trips the over-limit branch on IN_PROGRESS; TO DO has no
     // limit so its header stays the plain form.
     mockColumns = [
-      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
-      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
-      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 1 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
     renderBoard();
     // The header's accessible name (its aria-label) names the over-limit state,
@@ -596,9 +611,7 @@ describe('BoardView', () => {
       screen.getByRole('heading', { name: /^IN PROGRESS, \d+ tasks?, over limit$/i }),
     ).toBeInTheDocument();
     // A column with no limit keeps the plain "label, N tasks" name.
-    expect(
-      screen.getByRole('heading', { name: /^TO DO, \d+ tasks?$/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^TO DO, \d+ tasks?$/i })).toBeInTheDocument();
   });
 
   it('renders the at-limit WIP chip when count equals the limit (#232)', () => {
@@ -612,11 +625,11 @@ describe('BoardView', () => {
     expect(inProgressCount).toBeGreaterThan(0);
 
     mockColumns = [
-      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: inProgressCount },
-      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
-      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: inProgressCount },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
     renderBoard();
     expect(
@@ -664,11 +677,11 @@ describe('BoardView', () => {
     // IN_PROGRESS already has > 0 tasks; tighten its limit to make any new
     // move push it over the threshold, then decline the confirm prompt.
     mockColumns = [
-      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
-      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
-      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 1 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderBoard();
@@ -684,11 +697,11 @@ describe('BoardView', () => {
 
   it('proceeds with the move when user confirms over-WIP-limit prompt (#232)', () => {
     mockColumns = [
-      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
-      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
-      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
-      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+      { status: 'BACKLOG', label: 'BACKLOG', visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO', visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true, wipLimit: 1 },
+      { status: 'REVIEW', label: 'REVIEW', visible: true },
+      { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderBoard();
@@ -697,16 +710,16 @@ describe('BoardView', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
     fireEvent.click(screen.getAllByRole('menuitem', { name: 'IN PROGRESS' })[0]);
     expect(confirmSpy).toHaveBeenCalledOnce();
-    expect(updateMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'IN_PROGRESS' }),
-    );
+    expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ status: 'IN_PROGRESS' }));
     confirmSpy.mockRestore();
   });
 
   it('renders LaneMeta for each phase with add-task button (issue #208)', () => {
     renderBoard();
     // Each visible phase gets a per-lane + button (LaneMeta)
-    expect(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
   });
 
@@ -715,7 +728,9 @@ describe('BoardView', () => {
     renderBoard();
     await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
     // The redesigned TaskFormModal (#305) titles its header "Add to {phase}".
-    expect(screen.getByRole('dialog', { name: /Add to Alpha Platform Upgrade/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('dialog', { name: /Add to Alpha Platform Upgrade/ }),
+    ).toBeInTheDocument();
   });
 
   it('renders "Column tints" toggle in toolbar (issue #211)', async () => {
@@ -831,7 +846,9 @@ describe('BoardView', () => {
     renderBoard();
     // Alpha lane (t1) is pre-collapsed — task cards not visible on mount
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ }),
+    ).toBeInTheDocument();
   });
 
   // -------------------------------------------------------------------------
@@ -895,9 +912,7 @@ describe('BoardView', () => {
     const user = userEvent.setup();
     renderBoard();
     await openMore(user);
-    expect(
-      screen.getByRole('button', { name: 'Start workshop session' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start workshop session' })).toBeInTheDocument();
   });
 
   it('starting workshop mode calls startWorkshop.mutate (ADR-0046)', async () => {
@@ -991,11 +1006,9 @@ describe('BoardView', () => {
         opts?.onSuccess?.();
       },
     );
-    endWorkshopMutate.mockImplementation(
-      (_input: undefined, opts?: { onSettled?: () => void }) => {
-        opts?.onSettled?.();
-      },
-    );
+    endWorkshopMutate.mockImplementation((_input: undefined, opts?: { onSettled?: () => void }) => {
+      opts?.onSettled?.();
+    });
     const user = userEvent.setup();
     renderBoard();
     await openMore(user);
@@ -1112,7 +1125,9 @@ describe('BoardView', () => {
       expect(popover).toBeInTheDocument();
       // Esc closes the popover via the shell's keydown listener.
       fireEvent.keyDown(document, { key: 'Escape' });
-      expect(screen.queryByRole('dialog', { name: /^Backend Implementation$/ })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('dialog', { name: /^Backend Implementation$/ }),
+      ).not.toBeInTheDocument();
     });
 
     it('clicking "Open detail" closes the popover and mounts the task detail drawer', () => {
@@ -1121,8 +1136,12 @@ describe('BoardView', () => {
       fireEvent.click(card);
       fireEvent.click(screen.getByRole('button', { name: 'Open detail' }));
       // Stubbed drawer mounts with `Task drawer <name>` accessible label.
-      expect(screen.getByRole('dialog', { name: /Task drawer Backend Implementation/ })).toBeInTheDocument();
-      expect(screen.queryByRole('dialog', { name: /^Backend Implementation$/ })).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('dialog', { name: /Task drawer Backend Implementation/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole('dialog', { name: /^Backend Implementation$/ }),
+      ).not.toBeInTheDocument();
     });
 
     it('clicking "Edit" opens the unified TaskFormModal in edit mode (#305)', () => {
@@ -1237,16 +1256,25 @@ describe('BoardView', () => {
   // Phase-grid quieting (epic #361 child E, issue #385)
   // -------------------------------------------------------------------------
   describe('phase-grid quieting (issue #385)', () => {
-    it('renders empty status cells as a 16px tick at rest, not a full-height slot', () => {
+    it('renders empty status cells as a quiet grid cell (column rule + tick), not a full card slot', () => {
       renderBoard();
       // The "Alpha Platform Upgrade" phase has no REVIEW cards in the fixture,
-      // so its REVIEW cell should collapse to a tick at rest (no drag active).
+      // so its REVIEW cell stays quiet at rest (no drag active).
       const tickCells = document.querySelectorAll('[data-empty-cell="true"]');
       expect(tickCells.length).toBeGreaterThan(0);
-      // The tick wrapper is a 16px (h-4) row with no min-height, no card outline.
+      // Regridded in #1866: the empty cell carries the shared column rule
+      // (`border-l border-neutral-border`) and stretches to fill its grid track
+      // (grid `align-items: stretch`, floored at `min-h-[2rem]`) so the
+      // phase×column grid reads as cells — but it stays quiet: no card outline,
+      // no surface fill, no full occupied slot (`min-h-[120px]`), just the
+      // `aria-hidden` centered tick.
       const wrapper = tickCells[0] as HTMLElement;
-      expect(wrapper.className).toContain('h-4');
+      expect(wrapper.className).toContain('border-l');
+      expect(wrapper.className).toContain('border-neutral-border');
+      expect(wrapper.className).toContain('min-h-[2rem]');
       expect(wrapper.className).not.toMatch(/min-h-\[120px\]/);
+      // The quiet tick line is still present and decorative.
+      expect(wrapper.querySelector('[aria-hidden="true"]')?.className).toContain('h-px');
     });
 
     it('column header renders a status dot prefix per status', () => {
@@ -1289,18 +1317,54 @@ describe('BoardView', () => {
     // counting backlog ideas against delivery.
     it('excludes unscheduled tasks from the average', () => {
       const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
-        wbs: '', isSummary: false, isMilestone: false, parentId: null,
-        isCritical: false, isComplete: false, assignees: [], notes: '',
-        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+        wbs: '',
+        isSummary: false,
+        isMilestone: false,
+        parentId: null,
+        isCritical: false,
+        isComplete: false,
+        assignees: [],
+        notes: '',
+        start: '2026-10-05',
+        finish: '2026-10-05',
+        duration: 0,
       };
       mockTasks = [
         // Two committed (plannedStart set) tasks, both 100% — committed avg = 100%.
-        { ...base, id: 'c1', name: 'Done one', plannedStart: '2026-10-05', progress: 100, status: 'COMPLETE' },
-        { ...base, id: 'c2', name: 'Done two', plannedStart: '2026-10-05', progress: 100, status: 'COMPLETE' },
+        {
+          ...base,
+          id: 'c1',
+          name: 'Done one',
+          plannedStart: '2026-10-05',
+          progress: 100,
+          status: 'COMPLETE',
+        },
+        {
+          ...base,
+          id: 'c2',
+          name: 'Done two',
+          plannedStart: '2026-10-05',
+          progress: 100,
+          status: 'COMPLETE',
+        },
         // Two unscheduled (plannedStart=null, no sprint) To Dos at 0% — would
         // pull the naive average to 50% if they were counted.
-        { ...base, id: 'u1', name: 'Idea one', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
-        { ...base, id: 'u2', name: 'Idea two', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+        {
+          ...base,
+          id: 'u1',
+          name: 'Idea one',
+          plannedStart: null,
+          progress: 0,
+          status: 'NOT_STARTED',
+        },
+        {
+          ...base,
+          id: 'u2',
+          name: 'Idea two',
+          plannedStart: null,
+          progress: 0,
+          status: 'NOT_STARTED',
+        },
       ];
       renderBoard();
       // The synthetic Project Tasks lane renders one progressbar; assert that
@@ -1311,36 +1375,88 @@ describe('BoardView', () => {
 
     it('shows the em-dash empty state when every card is uncommitted', () => {
       const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
-        wbs: '', isSummary: false, isMilestone: false, parentId: null,
-        isCritical: false, isComplete: false, assignees: [], notes: '',
-        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+        wbs: '',
+        isSummary: false,
+        isMilestone: false,
+        parentId: null,
+        isCritical: false,
+        isComplete: false,
+        assignees: [],
+        notes: '',
+        start: '2026-10-05',
+        finish: '2026-10-05',
+        duration: 0,
       };
       mockTasks = [
-        { ...base, id: 'u1', name: 'Idea one', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
-        { ...base, id: 'u2', name: 'Idea two', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+        {
+          ...base,
+          id: 'u1',
+          name: 'Idea one',
+          plannedStart: null,
+          progress: 0,
+          status: 'NOT_STARTED',
+        },
+        {
+          ...base,
+          id: 'u2',
+          name: 'Idea two',
+          plannedStart: null,
+          progress: 0,
+          status: 'NOT_STARTED',
+        },
       ];
       renderBoard();
       // No committed delivery → progressbar reads "No committed tasks", not
       // a misleading "0%". The em-dash is in the visible label.
-      expect(
-        screen.getByRole('progressbar', { name: /No committed tasks/i }),
-      ).toBeInTheDocument();
+      expect(screen.getByRole('progressbar', { name: /No committed tasks/i })).toBeInTheDocument();
     });
 
     it('reads the phase summary task percent_complete, not the leaf mean (#991/ADR-0115)', () => {
       // A real phase (WBS L1 summary task) carries the server-owned, delivery-mode-
       // weighted rollup (ADR-0108). The lane renders that, not a divergent client mean.
       const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
-        wbs: '', isSummary: false, isMilestone: false, parentId: null,
-        isCritical: false, isComplete: false, assignees: [], notes: '',
-        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+        wbs: '',
+        isSummary: false,
+        isMilestone: false,
+        parentId: null,
+        isCritical: false,
+        isComplete: false,
+        assignees: [],
+        notes: '',
+        start: '2026-10-05',
+        finish: '2026-10-05',
+        duration: 0,
       };
       mockTasks = [
         // Phase header carries the server rollup (72%).
-        { ...base, id: 's1', name: 'Build Phase', isSummary: true, progress: 72, plannedStart: '2026-10-05', status: 'IN_PROGRESS' },
+        {
+          ...base,
+          id: 's1',
+          name: 'Build Phase',
+          isSummary: true,
+          progress: 72,
+          plannedStart: '2026-10-05',
+          status: 'IN_PROGRESS',
+        },
         // Two committed leaves whose naive mean (100 + 0)/2 = 50% must NOT win.
-        { ...base, id: 'l1', name: 'Leaf done', parentId: 's1', progress: 100, plannedStart: '2026-10-05', status: 'COMPLETE' },
-        { ...base, id: 'l2', name: 'Leaf todo', parentId: 's1', progress: 0, plannedStart: '2026-10-05', status: 'IN_PROGRESS' },
+        {
+          ...base,
+          id: 'l1',
+          name: 'Leaf done',
+          parentId: 's1',
+          progress: 100,
+          plannedStart: '2026-10-05',
+          status: 'COMPLETE',
+        },
+        {
+          ...base,
+          id: 'l2',
+          name: 'Leaf todo',
+          parentId: 's1',
+          progress: 0,
+          plannedStart: '2026-10-05',
+          status: 'IN_PROGRESS',
+        },
       ];
       renderBoard();
       const bar = screen.getByRole('progressbar', { name: /Phase progress 72 percent/i });
@@ -1555,7 +1671,7 @@ describe('collapsed column stub signals (#1695/#1696/#1697)', () => {
     expect(stub.querySelector('.border-dashed')).toBeNull();
   });
 
-  it('marks a stub holding the current user\'s cards and offers a banner expand (#1696)', async () => {
+  it("marks a stub holding the current user's cards and offers a banner expand (#1696)", async () => {
     const user = userEvent.setup();
     mockProjectResourcePool = [
       { id: 'pr-me', resourceId: 'r-me', resource: { id: 'r-me', name: 'Me', isMe: true } },
