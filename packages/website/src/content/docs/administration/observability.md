@@ -61,6 +61,9 @@ switches for behavior the standard variables do not express.
 | `TRUEPPM_OTEL_ENABLED` | `true` | Master kill switch. Set `false` to disable export while leaving the endpoint configured. |
 | `TRUEPPM_OTEL_TRACES_ENABLED` | `true` | Export traces (when telemetry is on). |
 | `TRUEPPM_OTEL_METRICS_ENABLED` | `true` | Export metrics (when telemetry is on). |
+| `OTEL_TRACES_SAMPLER` | `parentbased_always_on` | Trace sampler. Set `parentbased_traceidratio` with `OTEL_TRACES_SAMPLER_ARG` to sample a fraction on a busy instance. |
+| `OTEL_TRACES_SAMPLER_ARG` | *(empty)* | Sampler argument, e.g. `0.1` to keep 10% of root traces. |
+| `DJANGO_LOG_LEVEL` | *(app default)* | Root Django log level (`DEBUG` \| `INFO` \| `WARNING` \| `ERROR`). One knob for the api, worker, and beat tiers. |
 
 Export is enabled when `TRUEPPM_OTEL_ENABLED` is true **and**
 `OTEL_EXPORTER_OTLP_ENDPOINT` is non-empty. Leaving the endpoint empty — the
@@ -83,12 +86,24 @@ observability:
     enabled: true             # master switch
     tracesEnabled: true
     metricsEnabled: true
+    # Trace sampling on a busy instance. Empty keeps the SDK default
+    # (parentbased_always_on); these render into OTEL_TRACES_SAMPLER[_ARG].
+    tracesSampler: "parentbased_traceidratio"
+    tracesSamplerArg: "0.1"   # keep 10% of root traces
     # Optional OTLP headers. Prefer headersSecret for tokens so they never
     # render into a plaintext manifest; `headers` is the inline fallback.
     headers: ""
     headersSecret:
       name: ""                # e.g. "trueppm-otlp"
       key: "headers"
+```
+
+The root log level is a separate top-level value, threaded into the api, worker,
+and beat containers as `DJANGO_LOG_LEVEL`:
+
+```yaml
+logging:
+  level: "INFO"   # DEBUG | INFO | WARNING | ERROR; empty = app default
 ```
 
 When your collector requires an authorization token, put it in a Kubernetes
@@ -288,6 +303,45 @@ OpenTelemetry Collector's OTLP/HTTP receiver) in one of two ways:
 
 - **Build-time variable** — set `VITE_TELEMETRY_ENDPOINT` when building the web
   bundle. Runtime config, when present, takes precedence.
+
+## Starter dashboard and alerts (Helm)
+
+The Helm chart ships a starter Grafana dashboard and a set of Prometheus alerting
+rules for the async/outbox subsystem. Both are **off by default** — they depend on
+tooling (a Grafana sidecar; the Prometheus Operator CRDs) that not every cluster
+runs — and both land in **0.4**.
+
+```yaml
+# Grafana dashboard as a labeled ConfigMap, auto-imported by the Grafana sidecar.
+dashboards:
+  enabled: true
+  label: grafana_dashboard   # the label key your sidecar watches
+  labelValue: "1"
+
+# Prometheus Operator PrometheusRule (requires kube-prometheus-stack CRDs).
+alerts:
+  enabled: true
+  labels:
+    release: kube-prometheus-stack   # so the operator's ruleSelector picks it up
+  thresholds:
+    outboxDepth: 500
+    outboxOldestAgeSeconds: 900
+```
+
+The dashboard (**TruePPM — Async & Outbox Health**) charts outbox depth and oldest
+age, dead-letter parked tasks, PostgreSQL backends, and Celery Beat liveness. The
+rules alert on **beat staleness** (the `/api/v1/health/beat/` endpoint returning
+503), **rising outbox depth**, **rising oldest-age**, and **dead-lettered tasks**.
+
+:::note[Beat-liveness and dead-letter panels need a Blackbox probe]
+The outbox and database panels read the native `trueppm.*` OTLP metrics directly.
+The beat-staleness signal reads a [Blackbox
+Exporter](https://github.com/prometheus/blackbox_exporter) probe of
+`/api/v1/health/beat/` (200 = fresh heartbeat, 503 = stale). Point a Blackbox probe
+job whose name matches `.*beat.*` at that endpoint, or the beat-liveness panel and
+`TruePPMBeatStale` alert stay empty. Celery Beat itself upserts a heartbeat row
+every 30s that the endpoint reads.
+:::
 
 ## Enterprise
 

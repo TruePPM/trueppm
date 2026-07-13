@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-beat
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-beat
+spec:
+  # Beat is the SINGLE scheduler for the whole release: it is the one process that
+  # dispatches CELERY_BEAT_SCHEDULE entries (outbox drains, retention purge, the
+  # beat.heartbeat liveness marker). Running more than one replica would double-fire
+  # every periodic task, so this Deployment is pinned to exactly one replica and
+  # uses a Recreate strategy — never two beats overlapping during a rollout.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-beat
+  template:
+    metadata:
+      labels:
+        {{- include "trueppm.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: celery-beat
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        # readOnlyRootFilesystem is on, so beat's persistent schedule shelve and
+        # pidfile need a writable path. /tmp (emptyDir) holds both — the schedule
+        # is recreated from CELERY_BEAT_SCHEDULE on every start, so it is safe to
+        # lose on reschedule.
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: celery-beat
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          command:
+            - celery
+            - -A
+            - trueppm_api.celery
+            - beat
+            - --loglevel=info
+            # Persistent schedule + pidfile under the writable /tmp mount so beat
+            # can run with readOnlyRootFilesystem enabled.
+            - --schedule=/tmp/celerybeat-schedule
+            - --pidfile=/tmp/celerybeat.pid
+          {{- with .Values.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- include "trueppm.appEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- if .Values.probes.beat.enabled }}
+          # Beat runs no worker control plane of its own, so the ping targets the
+          # fleet: it asserts the beat pod can reach the broker and that at least
+          # one worker answers. A generous failureThreshold keeps a brief worker
+          # outage from restarting beat.
+          livenessProbe:
+            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.beat "app" "trueppm_api.celery" "destination" "") | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources.beat | nindent 12 }}

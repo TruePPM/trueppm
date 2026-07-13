@@ -1,0 +1,36 @@
+# OpenTelemetry Collector config for the local dev o11y stack
+# (docker-compose.o11y.yml). Receives TruePPM's OTLP traces + metrics and
+# re-exposes the metrics for Prometheus to scrape. Traces are logged to the
+# collector's own stdout (swap in an OTLP/Jaeger/Tempo exporter for real trace UI).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  # Prometheus scrapes the collector at :8889/metrics for TruePPM's OTLP metrics.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Keep the trueppm.* metric names readable after the dots→underscores mapping.
+    resource_to_telemetry_conversion:
+      enabled: true
+  # Traces to the collector log (dev only). Replace with otlp/jaeger for a trace UI.
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

@@ -1,0 +1,94 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "tags": ["trueppm", "observability"],
+  "title": "TruePPM — Async & Outbox Health",
+  "timezone": "utc",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Celery Beat liveness",
+      "description": "Status of GET /api/v1/health/beat/ via the Prometheus Blackbox Exporter. 200 = fresh heartbeat, 503 = stale/missing beat.",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "max(probe_http_status_code{job=~\".*beat.*\"})" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "200": { "text": "LIVE", "color": "green" } } },
+            { "type": "value", "options": { "503": { "text": "STALE", "color": "red" } } }
+          ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 200 } ] }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Dead-letter parked tasks",
+      "description": "Count of dead-lettered Celery tasks (FailedTask in DEAD state). Requires the trueppm_deadletter_parked gauge (or a Blackbox probe of /api/v1/health/dead-letter/). Any value > 0 warrants operator attention.",
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum(trueppm_deadletter_parked)" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 } ] }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Outbox depth (trueppm.outbox.depth)",
+      "description": "Live not-yet-done backlog of the schedule and workflow transactional outboxes, by lifecycle state. A sustained rise means the drain is falling behind (worker or beat unhealthy).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (trueppm_outbox_name, trueppm_outbox_state) (trueppm_outbox_depth)", "legendFormat": "{{trueppm_outbox_name}}/{{trueppm_outbox_state}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Outbox oldest age (trueppm.outbox.oldest_age_seconds)",
+      "description": "Age of the oldest not-yet-done row per outbox. Rising age is the earliest signal that the async drain has stalled.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds)", "legendFormat": "{{trueppm_outbox_name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "PostgreSQL backends (trueppm.db.connections)",
+      "description": "Server-side PostgreSQL backend count for the application database, by connection state.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (trueppm_db_state) (trueppm_db_connections)", "legendFormat": "{{trueppm_db_state}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ]
+}

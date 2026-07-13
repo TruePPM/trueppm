@@ -1,0 +1,63 @@
+{{- if .Values.alerts.enabled }}
+{{- /*
+Starter alerting rules for the async/outbox subsystem (#1905). Rendered as a
+monitoring.coreos.com/v1 PrometheusRule, so it REQUIRES the Prometheus Operator
+CRDs (kube-prometheus-stack). Off by default: on a cluster without those CRDs the
+object would be rejected at apply time. Thresholds are values-tunable under
+`alerts.thresholds`.
+
+Signals:
+  - beat staleness — Blackbox probe of /api/v1/health/beat/ returning 503;
+  - outbox depth rising — trueppm.outbox.depth backlog above threshold;
+  - outbox oldest age rising — trueppm.outbox.oldest_age_seconds above threshold;
+  - dead-letter present — any dead-lettered task parked.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "trueppm.fullname" . }}-async
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    {{- with .Values.alerts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: trueppm.async
+      rules:
+        - alert: TruePPMBeatStale
+          # beat.heartbeat has not refreshed within its window — the single beat
+          # scheduler is down or wedged, so no periodic task (outbox drains,
+          # retention purge) is firing. /api/v1/health/beat/ returns 503 when stale.
+          expr: max(probe_http_status_code{job=~".*beat.*"}) == 503
+          for: {{ .Values.alerts.thresholds.beatStaleFor | default "2m" | quote }}
+          labels:
+            severity: critical
+          annotations:
+            summary: "TruePPM Celery Beat is stale (503)"
+            description: "The beat heartbeat endpoint has reported 503 for over {{ .Values.alerts.thresholds.beatStaleFor | default "2m" }}. Periodic tasks are not being scheduled."
+        - alert: TruePPMOutboxDepthRising
+          expr: sum by (trueppm_outbox_name) (trueppm_outbox_depth) > {{ .Values.alerts.thresholds.outboxDepth | default 500 }}
+          for: {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM outbox backlog is high ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
+            description: "The {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox has held more than {{ .Values.alerts.thresholds.outboxDepth | default 500 }} not-done rows for over {{ .Values.alerts.thresholds.outboxDepthFor | default "10m" }} — the drain is falling behind."
+        - alert: TruePPMOutboxOldestAgeRising
+          expr: max by (trueppm_outbox_name) (trueppm_outbox_oldest_age_seconds) > {{ .Values.alerts.thresholds.outboxOldestAgeSeconds | default 900 }}
+          for: {{ .Values.alerts.thresholds.outboxOldestAgeFor | default "10m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM outbox oldest row is aging ({{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }})"
+            description: "The oldest not-done row in the {{ "{{" }} $labels.trueppm_outbox_name {{ "}}" }} outbox is older than {{ .Values.alerts.thresholds.outboxOldestAgeSeconds | default 900 }}s — the async drain has likely stalled."
+        - alert: TruePPMDeadLetterPresent
+          expr: sum(trueppm_deadletter_parked) > {{ .Values.alerts.thresholds.deadLetter | default 0 }}
+          for: {{ .Values.alerts.thresholds.deadLetterFor | default "5m" | quote }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "TruePPM has dead-lettered tasks"
+            description: "One or more Celery tasks have been parked in the dead-letter queue for over {{ .Values.alerts.thresholds.deadLetterFor | default "5m" }}. Inspect Workspace → Settings → System Health → Dead-letter."
+{{- end }}

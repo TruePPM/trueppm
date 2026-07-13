@@ -1,0 +1,64 @@
+{{- if .Values.autoscaling.enabled }}
+{{- /*
+Optional HorizontalPodAutoscaler for the API tier (#1904). OFF by default: an HPA
+overrides the Deployment's static replicaCount, needs metrics-server (or a custom
+metrics adapter) present, and is a deliberate capacity-planning choice — a
+default-on HPA would silently churn replicas on a cluster that may not have the
+metrics pipeline installed. When enabled it scales the API Deployment between
+minReplicas and maxReplicas on CPU (and optionally memory) utilization. The Celery
+worker can be scaled the same way by turning on autoscaling.worker.
+*/}}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "trueppm.fullname" . }}-api
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "trueppm.fullname" . }}-api
+  minReplicas: {{ .Values.autoscaling.api.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.api.maxReplicas | default 6 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.api.targetCPUUtilizationPercentage | default 75 }}
+    {{- with .Values.autoscaling.api.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+{{- if .Values.autoscaling.worker.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "trueppm.fullname" . }}-celery-worker
+  minReplicas: {{ .Values.autoscaling.worker.minReplicas | default 2 }}
+  maxReplicas: {{ .Values.autoscaling.worker.maxReplicas | default 6 }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.worker.targetCPUUtilizationPercentage | default 75 }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,26 @@
+{{- if .Values.dashboards.enabled }}
+{{- /*
+Starter Grafana dashboard shipped as a ConfigMap (#1905). The
+`grafana_dashboard: "1"` label is what the Grafana sidecar (kube-prometheus-stack
+/ grafana chart) watches for to auto-import the JSON — no manual upload. Off by
+default because it is only useful where that sidecar is running; the JSON itself is
+harmless, but a stray labeled ConfigMap on a cluster without the sidecar is noise.
+The dashboard reads the native trueppm.* OTLP metrics plus a Blackbox probe of the
+beat-health endpoint (see values.dashboards for the label key to match your
+Grafana sidecar config).
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trueppm.fullname" . }}-grafana-dashboard
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    {{ .Values.dashboards.label | default "grafana_dashboard" }}: {{ .Values.dashboards.labelValue | default "1" | quote }}
+  {{- with .Values.dashboards.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  trueppm-o11y.json: |-
+    {{- .Files.Get "dashboards/trueppm-o11y.json" | nindent 4 }}
+{{- end }}

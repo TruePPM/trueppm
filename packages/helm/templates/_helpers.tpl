@@ -103,6 +103,14 @@ the rendered manifest.
   value: {{ .tracesEnabled | default true | quote }}
 - name: TRUEPPM_OTEL_METRICS_ENABLED
   value: {{ .metricsEnabled | default true | quote }}
+{{- if .tracesSampler }}
+- name: OTEL_TRACES_SAMPLER
+  value: {{ .tracesSampler | quote }}
+{{- end }}
+{{- if .tracesSamplerArg }}
+- name: OTEL_TRACES_SAMPLER_ARG
+  value: {{ .tracesSamplerArg | quote }}
+{{- end }}
 {{- if .headersSecret.name }}
 - name: OTEL_EXPORTER_OTLP_HEADERS
   valueFrom:
@@ -115,6 +123,71 @@ the rendered manifest.
 {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/*
+Application logging env (#1899). Threads the operator-chosen root Django log level
+into the api, celery-worker, and celery-beat containers via DJANGO_LOG_LEVEL so a
+single values knob (logging.level) tunes verbosity across every tier. Emits nothing
+when the value is empty, letting the app fall back to its own default.
+*/}}
+{{- define "trueppm.loggingEnv" -}}
+{{- with .Values.logging }}
+{{- if .level }}
+- name: DJANGO_LOG_LEVEL
+  value: {{ .level | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Standard app env block shared by the api, celery-worker, and celery-beat
+containers: the operator env, the chart-owned connection Secret, the bundled-DB
+security posture, OpenTelemetry, and the log-level knob. Kept as one helper so the
+three long-lived Python processes stay wired identically (a drifted beat that
+missed a new env var was the #1892 failure mode this consolidates against).
+*/}}
+{{- define "trueppm.appEnv" -}}
+{{ include "trueppm.envVars" . }}
+{{ include "trueppm.connectionEnv" . }}
+{{ include "trueppm.datastoreSecurityEnv" . }}
+{{ include "trueppm.observabilityEnv" . }}
+{{ include "trueppm.loggingEnv" . }}
+{{- end -}}
+
+{{/*
+Celery liveness/readiness exec probe (#1904). `celery inspect ping` round-trips a
+control-plane message over the broker and exits non-zero if the target does not
+answer, so it detects a wedged event loop that a bare process-alive check would
+miss AND confirms the pod can reach the broker.
+
+`destination` selects the semantics:
+  - a node name (e.g. "celery@$HOSTNAME") pings THIS pod's own worker — the true
+    self-liveness check used on the worker Deployment;
+  - empty pings the whole fleet — used on the beat Deployment, which runs no worker
+    control plane of its own, so the probe there asserts broker reachability from
+    the beat pod (a generous failureThreshold keeps a brief worker blip from
+    killing beat).
+
+Value-tunable per component under .Values.probes.<component>. `app` names the
+Celery application (matches the worker/beat -A argument).
+Usage: include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME")
+*/}}
+{{- define "trueppm.celeryProbe" -}}
+{{- $timeout := .probe.timeoutSeconds | default 10 -}}
+{{- $dest := "" -}}
+{{- if .destination }}{{- $dest = printf "--destination %s " .destination -}}{{- end -}}
+exec:
+  # Wrapped in `sh -c` so a $HOSTNAME-derived node name expands at probe time (an
+  # exec command array is run without a shell, so the literal would never resolve).
+  command:
+    - sh
+    - -c
+    - {{ printf "celery -A %s inspect ping %s--timeout %v" .app $dest $timeout | quote }}
+initialDelaySeconds: {{ .probe.initialDelaySeconds | default 30 }}
+periodSeconds: {{ .probe.periodSeconds | default 60 }}
+timeoutSeconds: {{ add ($timeout | int) 5 }}
+failureThreshold: {{ .probe.failureThreshold | default 3 }}
 {{- end }}
 
 {{/*

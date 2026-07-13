@@ -99,10 +99,10 @@ A default install needs no extra security flags. The chart:
 - **Injects** `DATABASE_URL` / `REDIS_URL` via `secretKeyRef` — they are never
   rendered into a Deployment manifest in plaintext.
 - Enables **cache authentication** by default (`valkey.auth.enabled: true`).
-- Runs API and worker pods with a **restricted security context**
-  (`readOnlyRootFilesystem`, dropped capabilities, `RuntimeDefault` seccomp,
-  `runAsNonRoot`) and `automountServiceAccountToken: false`, with default
-  resource requests/limits.
+- Runs the API, Celery worker, Celery beat, and web pods with a **restricted
+  security context** (`readOnlyRootFilesystem`, dropped capabilities,
+  `RuntimeDefault` seccomp, `runAsNonRoot`) and `automountServiceAccountToken:
+  false`, with default resource requests/limits.
 - Enables a **default-on NetworkPolicy** (`networkPolicy.enabled: true`) that
   limits datastore ingress to the API and worker pods and applies default-deny
   egress to the bundled datastore pods. This **requires a NetworkPolicy-enforcing
@@ -123,9 +123,15 @@ operator reference.
 
 The chart ships a chart-managed `Ingress` template, **off by default** because the
 correct ingress class, hostnames, and certificate source are cluster-specific.
-Enable it and supply your host(s) and a TLS Secret to expose the API over HTTPS at
-the edge. The API `Service` stays `ClusterIP`; the `Ingress` is the sole
-externally-facing object and the TLS termination point.
+Enable it and supply your host(s) and a TLS Secret to expose TruePPM over HTTPS at
+the edge. Each host's paths route by their `service:` key: `/api` and `/ws` go to
+the Django API `Service`, and `/` goes to the nginx **web** `Service` (the compiled
+React SPA). Both `Service`s stay `ClusterIP`; the `Ingress` is the sole
+externally-facing object and the TLS termination point. When the web tier is
+disabled (`web.enabled=false`), a `service: web` path falls back to the API.
+
+The default `ingress.hosts` already encodes the `/api`, `/ws` → API and `/` → web
+split, so a typical install only overrides the host, class, and TLS Secret:
 
 ```bash
 helm install trueppm packages/helm \
@@ -133,10 +139,18 @@ helm install trueppm packages/helm \
   --set ingress.enabled=true \
   --set ingress.className=nginx \
   --set ingress.hosts[0].host=trueppm.example.com \
-  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].path=/api \
+  --set ingress.hosts[0].paths[0].service=api \
+  --set ingress.hosts[0].paths[1].path=/ws \
+  --set ingress.hosts[0].paths[1].service=api \
+  --set ingress.hosts[0].paths[2].path=/ \
+  --set ingress.hosts[0].paths[2].service=web \
   --set ingress.tls[0].secretName=trueppm-tls \
   --set ingress.tls[0].hosts[0]=trueppm.example.com
 ```
+
+For anything beyond a single host it is far cleaner to set `ingress.hosts` in a
+values file than to enumerate paths on the command line.
 
 With cert-manager, add the issuer under `ingress.annotations`
 (`cert-manager.io/cluster-issuer: <issuer>`) and cert-manager provisions the
@@ -189,11 +203,37 @@ Prefer injecting `DATABASE_URL` / `REDIS_URL` via an external Secret rather than
 `--set` so they don't land in shell history. `SECRET_KEY` and `ALLOWED_HOSTS`
 must always be supplied via a Kubernetes Secret referenced through `env`.
 
+### Workload tiers, probes, and disruption budgets
+
+The chart renders four workload tiers: the **API**, the **Celery worker**, a
+single-replica **Celery beat** scheduler, and the **web** SPA (nginx). Beat runs
+exactly one replica with a `Recreate` strategy — it is the one process that fires
+the periodic drains, so two overlapping beats would double-dispatch every job.
+
+Health probes ship on every tier and are value-tunable under `probes.*`:
+
+- The **API** readiness probe points at the deep `/api/v1/readyz` check (it also
+  verifies the database and cache are reachable), so a pod only joins the `Service`
+  once it can actually serve; liveness stays on the shallow `/api/v1/health/` so a
+  transient dependency blip cannot restart-loop the pod.
+- The **worker** and **beat** use a `celery inspect ping` exec probe — a
+  control-plane round-trip that catches a wedged event loop a bare process-alive
+  check would miss.
+
+For multi-replica production the chart also ships an optional
+`PodDisruptionBudget` (`podDisruptionBudget.enabled=true`, api + worker) and an
+optional `HorizontalPodAutoscaler` (`autoscaling.enabled=true`, api by default,
+worker optional). Both are **off by default**: the PDB is only meaningful at
+`replicaCount >= 2`, and the HPA needs `metrics-server` installed. These, along
+with the beat and web tiers, the probe hardening, the `DJANGO_LOG_LEVEL` and OTLP
+trace-sampler knobs, and the starter Grafana dashboard / Prometheus alerts, **ship
+in 0.4** (the first beta).
+
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
 for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release).
-Large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling
-policies) is on the pre-1.0 roadmap.
+Large-scale production hardening (HA Postgres, dedicated Valkey) remains on the
+pre-1.0 roadmap.
 :::
 
 ## Services
@@ -204,6 +244,7 @@ TruePPM runs as a set of cooperating services:
 |---------|-----------|---------|
 | **API** | Django 5.2 (ASGI via uvicorn) | REST API, WebSocket connections, authentication |
 | **Celery worker** | Celery 5.4 | Background CPM scheduling, async task processing |
+| **Celery beat** | Celery 5.4 (Beat) | Single-replica scheduler for periodic drains, retention purge, and the beat heartbeat |
 | **PostgreSQL** | PostgreSQL 16 | Primary data store, ltree WBS hierarchy |
 | **Valkey** | Valkey 8 (Redis-compatible) | Celery task broker, Django Channels layer, scheduling locks |
 | **Web** | React 19 (Vite build, served via nginx) | Browser-based user interface |

@@ -1,0 +1,75 @@
+# Local-dev observability overlay (#1905).
+#
+# Adds an OpenTelemetry Collector + Prometheus + Grafana so you can see TruePPM's
+# OTLP traces and metrics locally. Everything lives behind the `o11y` profile so
+# the default `make up` stack is untouched.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.o11y.yml \
+#     --profile o11y up -d
+#
+# Then open Grafana at http://localhost:3000 (admin / admin) — the "TruePPM —
+# Async & Outbox Health" dashboard and the Prometheus datasource are
+# auto-provisioned. The overlay also points the api / celery / celery-beat services
+# at the collector via OTEL_EXPORTER_OTLP_ENDPOINT, so telemetry flows as soon as
+# the profile is up. Tear down with `--profile o11y down`.
+
+services:
+  # Wire the app tiers to the collector. These keys merge onto the base services;
+  # export is a strict no-op until the collector (below) is running.
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: trueppm-api
+      TRUEPPM_OTEL_ENABLED: "true"
+
+  celery:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: trueppm-worker
+      TRUEPPM_OTEL_ENABLED: "true"
+
+  celery-beat:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME: trueppm-beat
+      TRUEPPM_OTEL_ENABLED: "true"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.104.0
+    profiles: ["o11y"]
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./o11y/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus exporter (scraped by prometheus)
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["o11y"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./o11y/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["o11y"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./o11y/grafana/provisioning:/etc/grafana/provisioning:ro
+      # Reuse the exact dashboard the Helm chart ships.
+      - ./packages/helm/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
