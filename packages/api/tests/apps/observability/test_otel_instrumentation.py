@@ -124,6 +124,16 @@ class TestInstallsWhenEnabled:
         for _verb, _name, kwargs in fake_instrumentors.calls:
             assert kwargs["tracer_provider"] is sentinel
 
+    def test_django_wired_with_http_redaction_hook(
+        self, fake_instrumentors: type[_FakeInstrumentor]
+    ) -> None:
+        """Django's request_hook must be the HTTP credential scrubber (#1895)."""
+        otel.instrument(_ctx(enabled=True, tracer_provider=object()))
+        django_call = next(
+            kwargs for _, name, kwargs in fake_instrumentors.calls if name == "_FakeDjango"
+        )
+        assert django_call["request_hook"] is instrumentation._redact_http_credential_span
+
     def test_psycopg_disables_sql_commenter(
         self, fake_instrumentors: type[_FakeInstrumentor]
     ) -> None:
@@ -312,3 +322,104 @@ class TestWsCredentialRedaction:
     def test_handles_none_span(self) -> None:
         # The middleware can invoke the hook with no active span; must not raise.
         instrumentation._redact_ws_credential_span(None, {"query_string": b"ticket=tk"})
+
+
+class TestHttpCredentialRedaction:
+    """`_redact_http_credential_span` must scrub sensitive query params (#1895).
+
+    Extends the #1723 WS redaction to HTTP spans: the OIDC/OAuth2 callback
+    ``GET /auth/oidc/callback/?code=...&state=...`` must not ship the live
+    authorization code to the trace store, while non-sensitive params survive.
+    """
+
+    _OAUTH = "code=abc&state=xyz"
+
+    def test_scrubs_sensitive_params_across_url_attributes(self) -> None:
+        span = _FakeSpan(
+            {
+                "url.query": self._OAUTH,
+                "http.target": f"/auth/oidc/callback/?{self._OAUTH}",
+                "http.url": f"https://api.test/auth/oidc/callback/?{self._OAUTH}",
+                "url.full": f"https://api.test/auth/oidc/callback/?{self._OAUTH}",
+                "url.path": "/auth/oidc/callback/",
+                "http.method": "GET",
+            }
+        )
+        instrumentation._redact_http_credential_span(span, object())
+
+        assert span.attributes["url.query"] == "code=REDACTED&state=REDACTED"
+        assert span.attributes["http.target"] == "/auth/oidc/callback/?code=REDACTED&state=REDACTED"
+        assert (
+            span.attributes["http.url"]
+            == "https://api.test/auth/oidc/callback/?code=REDACTED&state=REDACTED"
+        )
+        assert (
+            span.attributes["url.full"]
+            == "https://api.test/auth/oidc/callback/?code=REDACTED&state=REDACTED"
+        )
+        # Path/method attributes are untouched.
+        assert span.attributes["url.path"] == "/auth/oidc/callback/"
+        assert span.attributes["http.method"] == "GET"
+        # No attribute anywhere still carries the raw credential.
+        assert not any(
+            "abc" in v or "xyz" in v for v in span.attributes.values() if isinstance(v, str)
+        )
+
+    def test_scrubs_full_token_family(self) -> None:
+        creds = (
+            "access_token=at&id_token=it&refresh_token=rt"
+            "&token=t&client_secret=cs&password=pw&secret=s"
+        )
+        span = _FakeSpan({"url.query": creds})
+        instrumentation._redact_http_credential_span(span, object())
+        assert span.attributes["url.query"] == (
+            "access_token=REDACTED&id_token=REDACTED&refresh_token=REDACTED"
+            "&token=REDACTED&client_secret=REDACTED&password=REDACTED&secret=REDACTED"
+        )
+
+    def test_non_sensitive_query_is_untouched(self) -> None:
+        span = _FakeSpan(
+            {
+                "url.query": "page=2&sort=name",
+                "http.target": "/projects/?page=2&sort=name",
+            }
+        )
+        instrumentation._redact_http_credential_span(span, object())
+        assert span.attributes["url.query"] == "page=2&sort=name"
+        assert span.attributes["http.target"] == "/projects/?page=2&sort=name"
+
+    def test_mixed_query_keeps_non_sensitive(self) -> None:
+        span = _FakeSpan({"http.target": "/auth/oidc/callback/?code=abc&page=2"})
+        instrumentation._redact_http_credential_span(span, object())
+        assert span.attributes["http.target"] == "/auth/oidc/callback/?code=REDACTED&page=2"
+
+    def test_noop_when_no_query(self) -> None:
+        span = _FakeSpan({"http.target": "/projects/", "url.path": "/projects/"})
+        instrumentation._redact_http_credential_span(span, object())
+        assert span.attributes["http.target"] == "/projects/"
+        assert span.attributes["url.path"] == "/projects/"
+
+    def test_noop_when_span_not_recording(self) -> None:
+        span = _FakeSpan({"url.query": self._OAUTH}, recording=False)
+        instrumentation._redact_http_credential_span(span, object())
+        assert span.attributes["url.query"] == self._OAUTH
+
+    def test_handles_none_span(self) -> None:
+        # The instrumentor can invoke the hook with no active span; must not raise.
+        instrumentation._redact_http_credential_span(None, object())
+
+
+class TestScrubQueryString:
+    """The shared query scrubber underpins both HTTP redaction and future reuse."""
+
+    def test_case_insensitive_key_match(self) -> None:
+        assert instrumentation._scrub_query_string("Code=abc&STATE=xyz") == (
+            "Code=REDACTED&STATE=REDACTED"
+        )
+
+    def test_valueless_flag_preserved(self) -> None:
+        # A bare key with no '=' is not a key=value pair and is left intact.
+        assert instrumentation._scrub_query_string("code&debug") == "code&debug"
+
+    def test_empty_query(self) -> None:
+        assert instrumentation._scrub_query_string("") == ""
