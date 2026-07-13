@@ -290,6 +290,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                       type="checkbox"
                       checked={useProgramDefaults}
                       onChange={(e) => setUseProgramDefaults(e.target.checked)}
+                      aria-label={`Use ${programName ? `${programName}'s` : 'program'} defaults`}
                       className="mt-0.5 h-4 w-4 rounded border-neutral-border text-brand-primary
                         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                     />
