@@ -1,10 +1,12 @@
 """API tests for the admin SSO provider config endpoint (ADR-0187 §2, #1405).
 
-Endpoint: ``/api/v1/workspace/sso/`` (``IsWorkspaceAdmin`` — read for any member,
-write Admin+) and ``/api/v1/workspace/sso/test-connection/``. The decisive
-security properties exercised here: the client secret is **never** serialized
-back (only ``secret_set: bool``), enabling requires a complete config,
-``default_role`` cannot be OWNER, and writes are Admin-gated.
+Endpoint: ``/api/v1/workspace/sso/`` (``IsWorkspaceAdminStrict`` — ADMIN on every
+method, reads included) and ``/api/v1/workspace/sso/test-connection/``. The
+decisive security properties exercised here: the client secret is **never**
+serialized back (only ``secret_set: bool``), enabling requires a complete config,
+``default_role`` cannot be OWNER, and *both reads and writes* are Admin-gated —
+the read shape exposes the org's IdP config (issuer, client_id, allowed email
+domains), so a plain member must not be able to GET it.
 """
 
 from __future__ import annotations
@@ -136,13 +138,23 @@ def test_delete_removes_config(admin: Any) -> None:
 
 
 @pytest.mark.django_db
-def test_member_can_read_but_not_write(member: Any) -> None:
+def test_member_cannot_read_or_write(member: Any) -> None:
     client = api_client(member)
-    # IsWorkspaceAdmin permits reads for any member (config metadata, no secret).
-    assert client.get(URL).status_code == 200
-    # Writes require Admin+.
+    # IsWorkspaceAdminStrict gates *every* method at ADMIN. The read shape leaks the
+    # org's IdP config (issuer, client_id, allowed email domains), so a plain member
+    # must be denied on GET too — not just on writes.
+    assert client.get(URL).status_code == 403
     assert client.put(URL, _full_config(), format="json").status_code == 403
     assert client.delete(URL).status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_can_read(admin: Any) -> None:
+    # The admin GET path must keep working after the tightening.
+    resp = api_client(admin).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["enabled"] is False
+    assert "client_secret" not in resp.data
 
 
 @pytest.mark.django_db

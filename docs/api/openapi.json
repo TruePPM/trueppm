@@ -36333,7 +36333,7 @@
         "/api/v1/workspace/sso/": {
             "get": {
                 "operationId": "v1_workspace_sso_retrieve",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nMirrors ``WorkspaceSettingsView``: ``IsWorkspaceAdmin``, singleton row via\n``OIDCProvider.load()``. The client secret is write-only (providing it on PUT\nrotates it) and never returned. DELETE removes the config row entirely\n(a subsequent GET lazily re-materializes a blank, disabled provider).",
+                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
                 "summary": "Get the SSO provider configuration",
                 "tags": [
                     "workspace"
@@ -36377,7 +36377,7 @@
             },
             "put": {
                 "operationId": "v1_workspace_sso_update",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nMirrors ``WorkspaceSettingsView``: ``IsWorkspaceAdmin``, singleton row via\n``OIDCProvider.load()``. The client secret is write-only (providing it on PUT\nrotates it) and never returned. DELETE removes the config row entirely\n(a subsequent GET lazily re-materializes a blank, disabled provider).",
+                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
                 "summary": "Update the SSO provider configuration (secret write-only; sending it rotates)",
                 "tags": [
                     "workspace"
@@ -36440,7 +36440,7 @@
             },
             "delete": {
                 "operationId": "v1_workspace_sso_destroy",
-                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nMirrors ``WorkspaceSettingsView``: ``IsWorkspaceAdmin``, singleton row via\n``OIDCProvider.load()``. The client secret is write-only (providing it on PUT\nrotates it) and never returned. DELETE removes the config row entirely\n(a subsequent GET lazily re-materializes a blank, disabled provider).",
+                "description": "Singleton SSO provider config — ``/workspace/sso/`` (GET/PUT/DELETE).\n\nSingleton row via ``OIDCProvider.load()``. The client secret is write-only\n(providing it on PUT rotates it) and never returned. DELETE removes the config\nrow entirely (a subsequent GET lazily re-materializes a blank, disabled\nprovider).",
                 "summary": "Delete the SSO provider configuration (disables SSO)",
                 "tags": [
                     "workspace"
