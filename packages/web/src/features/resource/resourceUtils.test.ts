@@ -20,6 +20,7 @@ import {
   formatDayCell,
   isWeekend,
   todayISO,
+  partialAllocationStripeStyle,
 } from './resourceUtils';
 import type { UtilizationResponse } from './resourceUtils';
 
@@ -350,5 +351,29 @@ describe('todayISO', () => {
   it('returns today as YYYY-MM-DD', () => {
     vi.useFakeTimers({ now: new Date('2026-04-27T15:30:00Z') });
     expect(todayISO()).toBe('2026-04-27');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// partialAllocationStripeStyle (issue #1914 — mode-aware hatch fill)
+// ---------------------------------------------------------------------------
+
+describe('partialAllocationStripeStyle', () => {
+  it('span variant references the mode-aware --allocation-partial-stripe token', () => {
+    const style = partialAllocationStripeStyle('span');
+    expect(style.backgroundImage).toContain('var(--allocation-partial-stripe)');
+    expect(style.backgroundImage).not.toMatch(/rgba\(0,\s*0,\s*0/);
+  });
+
+  it('legend variant references the mode-aware --allocation-partial-stripe-legend token', () => {
+    const style = partialAllocationStripeStyle('legend');
+    expect(style.backgroundImage).toContain('var(--allocation-partial-stripe-legend)');
+    expect(style.backgroundImage).not.toMatch(/rgba\(0,\s*0,\s*0/);
+  });
+
+  it('span and legend use distinct tokens (different stripe pitch)', () => {
+    const span = partialAllocationStripeStyle('span');
+    const legend = partialAllocationStripeStyle('legend');
+    expect(span.backgroundImage).not.toBe(legend.backgroundImage);
   });
 });

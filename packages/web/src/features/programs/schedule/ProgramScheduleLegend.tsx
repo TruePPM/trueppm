@@ -9,12 +9,24 @@
  * a limited-view (redacted) task, diamond = milestone.
  */
 
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 interface LegendItemProps {
   swatch: ReactNode;
   label: string;
 }
+
+/**
+ * Diagonal-hatch fill for the "Limited-view task" swatch. Mode-aware via the
+ * `--hatch-limited-view` custom property (issue #1914) — a hardcoded
+ * `rgba(0,0,0,…)` stripe was illegible against the dark-mode neutral surface.
+ * Exported so it can be asserted directly in tests without rendering the
+ * full component tree.
+ */
+export const LIMITED_VIEW_HATCH_STYLE: CSSProperties = {
+  backgroundImage:
+    'repeating-linear-gradient(45deg, var(--hatch-limited-view) 0 1px, transparent 1px 4px)',
+};
 
 function LegendItem({ swatch, label }: LegendItemProps) {
   return (
@@ -89,10 +101,7 @@ export function ProgramScheduleLegend({ hasExternalTasks }: ProgramScheduleLegen
             swatch={
               <span
                 className="h-2.5 w-5 rounded-[2px] bg-neutral-text-disabled"
-                style={{
-                  backgroundImage:
-                    'repeating-linear-gradient(45deg, rgba(0,0,0,0.22) 0 1px, transparent 1px 4px)',
-                }}
+                style={LIMITED_VIEW_HATCH_STYLE}
               />
             }
             label="Limited-view task"

@@ -57,7 +57,11 @@ BASELINE_SHADOW=0
 # light-palette values with a COLOR_DARK counterpart, or textures on a *colored*
 # bar/swatch that darken in both modes. New code must use a mode-aware token, so
 # the count may not exceed the baseline.
-BASELINE_BLACK=8
+# Dropped 8 → 5 when ProgramScheduleLegend / AllocationSpan / ResourceView's
+# hatch fills moved to the mode-aware --hatch-limited-view /
+# --allocation-partial-stripe* tokens (issue #1914); the remaining 5 are all in
+# GanttRenderer.ts's light-only COLOR palette (each has a COLOR_DARK counterpart).
+BASELINE_BLACK=5
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 

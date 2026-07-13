@@ -304,6 +304,25 @@
     --cal-shutdown-bg:  rgba(124, 58, 237, 0.30);
     --cal-shutdown-line: rgba(167, 139, 250, 0.6);
   }
+
+  /* ── Hatch overlay tokens (issue #1914) ────────────────────────────────────
+     Diagonal-stripe overlays used to texture a swatch or bar as a second,
+     non-color signal (WCAG 1.4.1). Same alpha in both themes, RGB channel
+     flipped 0,0,0 → 255,255,255 — the same fix pattern as `--cal-weekend-line`
+     and `GanttRenderer`'s `chipPillOnSurface` (issue #1638): a fixed
+     `rgba(0,0,0,α)` stripe reads fine on a light surface but disappears on
+     the dark navy surface, so it flips to a light stripe in dark mode. */
+  :root {
+    --hatch-limited-view: rgba(0, 0, 0, 0.22);                /* ProgramScheduleLegend "Limited-view task" swatch */
+    --allocation-partial-stripe: rgba(0, 0, 0, 0.13);         /* AllocationSpan partial-allocation overlay */
+    --allocation-partial-stripe-legend: rgba(0, 0, 0, 0.20);  /* ResourceView timeline status-bar legend swatch */
+  }
+
+  .dark {
+    --hatch-limited-view: rgba(255, 255, 255, 0.22);
+    --allocation-partial-stripe: rgba(255, 255, 255, 0.13);
+    --allocation-partial-stripe-legend: rgba(255, 255, 255, 0.20);
+  }
 }
 
 @layer utilities {

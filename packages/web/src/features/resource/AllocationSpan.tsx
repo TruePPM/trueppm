@@ -13,6 +13,7 @@
 import { WarningIcon } from '@/components/Icons';
 import { useRef } from 'react';
 import type { AllocationTask } from './resourceUtils';
+import { partialAllocationStripeStyle } from './resourceUtils';
 
 export type SpanVariant = 'normal' | 'partial' | 'over' | 'complete';
 
@@ -100,12 +101,7 @@ export function AllocationSpan({
         left: `${leftFraction * 100}%`,
         width: `${widthFraction * 100}%`,
         // Partial allocation: diagonal stripe overlay
-        ...(variant === 'partial'
-          ? {
-              backgroundImage:
-                'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(0,0,0,0.13) 4px, rgba(0,0,0,0.13) 8px)',
-            }
-          : {}),
+        ...(variant === 'partial' ? partialAllocationStripeStyle('span') : {}),
       }}
     >
       {showLabel && (
