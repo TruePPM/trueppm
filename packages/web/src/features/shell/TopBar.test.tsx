@@ -169,4 +169,29 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       'false',
     );
   });
+
+  // --- "me" identity divider (#1736, design §02) ---
+
+  it('fences the "me" identity chip off from the presence/sync/bell utility cluster with a decorative divider', () => {
+    const { container } = renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const divider = container.querySelector('span[aria-hidden="true"].bg-chrome-border\\/40');
+    expect(divider).toBeInTheDocument();
+    // Decorative only — never announced to assistive tech.
+    expect(divider).toHaveAttribute('aria-hidden', 'true');
+
+    // Positioned between the notification bell and the account (UserMenu)
+    // button — the divider's entire job is to sit at that seam, not merely
+    // exist somewhere in the bar. DOM order (not just presence) is the point:
+    // walk the whole bar in document order and assert the divider lands
+    // strictly between the two.
+    const bell = screen.getByRole('button', { name: /notifications/i });
+    const account = screen.getAllByRole('button', { name: /account/i })[0];
+    const ordered = Array.from(container.querySelectorAll<HTMLElement>('button, span[aria-hidden="true"]'));
+    const bellIndex = ordered.indexOf(bell);
+    const dividerIndex = ordered.indexOf(divider as HTMLElement);
+    const accountIndex = ordered.indexOf(account);
+    expect(bellIndex).toBeGreaterThanOrEqual(0);
+    expect(dividerIndex).toBeGreaterThan(bellIndex);
+    expect(accountIndex).toBeGreaterThan(dividerIndex);
+  });
 });

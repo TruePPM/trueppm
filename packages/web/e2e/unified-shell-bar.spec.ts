@@ -110,4 +110,36 @@ test.describe('v2 unified shell bar (#1204)', () => {
     const userMenu = page.getByRole('button', { name: 'Account — E2E User' }).last();
     await expect(userMenu).toBeInViewport();
   });
+
+  test('a decorative divider fences the "me" identity chip off from the notification bell (#1736)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    const bar = page.getByRole('banner');
+    const bell = bar.getByRole('button', { name: /notifications/i });
+    await expect(bell).toBeVisible({ timeout: 10_000 });
+    const accountChip = bar.getByRole('button', { name: 'Account — E2E User' }).last();
+    await expect(accountChip).toBeVisible();
+
+    // The divider is decorative (aria-hidden), so it never has an accessible
+    // role — locate it by its stable structural class instead, scoped to the
+    // bar so this can't accidentally match an unrelated divider elsewhere.
+    const divider = bar.locator('span[aria-hidden="true"].bg-chrome-border\\/40');
+    await expect(divider).toBeVisible();
+
+    // On-screen geometry, not just DOM presence: the divider's x-position
+    // sits strictly between the bell and the account chip — the whole point
+    // of the fix is a visible seam at that exact spot (design §02), not
+    // merely a divider existing somewhere in the bar.
+    const bellBox = await bell.boundingBox();
+    const dividerBox = await divider.boundingBox();
+    const accountBox = await accountChip.boundingBox();
+    expect(bellBox).not.toBeNull();
+    expect(dividerBox).not.toBeNull();
+    expect(accountBox).not.toBeNull();
+    expect(dividerBox!.x).toBeGreaterThan(bellBox!.x);
+    expect(accountBox!.x).toBeGreaterThan(dividerBox!.x);
+  });
 });
