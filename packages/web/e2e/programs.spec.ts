@@ -240,6 +240,80 @@ test.describe('Programs — creation error paths (#1365)', () => {
   });
 });
 
+test.describe('Programs — "Use program defaults" on project create (#1909)', () => {
+  // Golden path: create a project under a program with the "Use program defaults"
+  // opt-in on, and assert the create POST carries inherit_program_defaults (and
+  // omits an explicit methodology so the program's value is copied server-side).
+  test('creating a project with the toggle on sends inherit_program_defaults', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+
+    let captured: Record<string, unknown> | null = null;
+    // Registered after setup() → wins. Captures the POST body; GET still lists
+    // the (empty) readable projects the copy-settings picker reads.
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        captured = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: 'e2e-new-project-1909', name: 'Seeded Project' }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], count: 0, next: null, previous: null }),
+      });
+    });
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    // Gate on the page-loaded signal (the "New project" admin control) before driving
+    // the modal, per the data-driven-route rule (avoids the #1190 detach flake).
+    const newProjectBtn = page.getByRole('button', { name: 'New project', exact: true });
+    await expect(newProjectBtn).toBeVisible();
+    await newProjectBtn.click();
+
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await dialog.getByLabel(/^name/i).fill('Seeded Project');
+    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 1 → 2
+    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 2 → 3
+
+    // The toggle is labeled with the program name and appears only under a program.
+    const toggle = dialog.getByRole('checkbox', { name: /use .*defaults/i });
+    await expect(toggle).toBeVisible();
+    await toggle.check();
+
+    await dialog.getByRole('button', { name: /create project/i }).click();
+
+    await expect.poll(() => captured?.inherit_program_defaults).toBe(true);
+    expect(captured).not.toHaveProperty('methodology');
+    expect(captured).not.toHaveProperty('copy_settings_from');
+    expect(captured?.program).toBe(PROGRAM_ID);
+  });
+
+  // Empty / no-program state: the standalone create modal (opened from the global
+  // sidebar with no program context) must NOT offer the program-defaults affordance.
+  test('the toggle is absent when creating a standalone project (no program)', async ({ page }) => {
+    await setup(page);
+    // /me/work renders the global shell + Sidebar. The standalone (programId-less)
+    // "+ New project" affordance lives in the "Browse projects and programs" popover,
+    // which we open first — the reliable no-program entry point.
+    await page.goto('/me/work');
+    await expect(page.getByRole('heading', { name: /good morning|good afternoon|good evening/i })).toBeVisible();
+    await page.getByRole('button', { name: /Browse projects and programs/i }).click();
+
+    await page.getByRole('button', { name: /\+ New project/i }).click();
+    const dialog = page.getByRole('dialog', { name: /new project/i });
+    await dialog.getByLabel(/^name/i).fill('Standalone Project');
+    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 1 → 2
+    await dialog.getByRole('button', { name: /^next$/i }).click(); // step 2 → 3
+
+    // Planning model picker is present, but no "Use program defaults" toggle.
+    await expect(dialog.getByRole('radiogroup', { name: /project methodology/i })).toBeVisible();
+    await expect(dialog.getByRole('checkbox', { name: /use .*defaults/i })).toHaveCount(0);
+  });
+});
+
 test.describe('Programs — shell tabs', () => {
   // #790 / ADR-0095: program navigation lives in the global TopBar (mirroring
   // project ViewTabs) and now includes a discoverable Settings tab.

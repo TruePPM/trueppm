@@ -304,6 +304,24 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "settings are copied from it at create time (copy-at-create, not bound)."
         ),
     )
+    # Opt-in to seed the new project's settings from its parent program (#1909,
+    # completing the "Use program defaults" line of #157). Write-only, create-only.
+    # When true, ``program`` must be present (the caller is already ADMIN-gated on it
+    # by ``validate_program``, which doubles as the IDOR/RBAC gate — a program the
+    # caller cannot administer is rejected before any copy). Copies the program's
+    # ``methodology`` and ``visibility`` (see ``PROGRAM_DEFAULT_FIELDS``) — a one-time
+    # manual copy, NOT locked/governed inheritance. Mutually exclusive with
+    # ``copy_settings_from``. No ``default`` (mirrors ``copy_settings_from``) so it is
+    # absent from ``validated_data`` unless explicitly sent.
+    inherit_program_defaults = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Optional. When true, seed the new project's methodology and visibility "
+            "from its parent program at create time (copy-at-create, not bound). "
+            "Requires 'program' to be set; cannot be combined with copy_settings_from."
+        ),
+    )
     member_count = serializers.SerializerMethodField()
     percent_complete = serializers.SerializerMethodField()
     # Count of non-deleted, not-yet-COMPLETE tasks — annotated on the list
@@ -411,6 +429,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # Write-only settings-template source (#157, ADR-0242) — see the field
             # declaration above; never appears in read output.
             "copy_settings_from",
+            # Write-only opt-in to seed settings from the parent program (#1909) —
+            # see the field declaration above; never appears in read output.
+            "inherit_program_defaults",
             "server_version",
             "name",
             "description",
@@ -600,18 +621,31 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         ).select_related("calendar")
 
     def create(self, validated_data: dict[str, Any]) -> Project:
-        """Create a project, optionally seeding settings from ``copy_settings_from``.
+        """Create a project, optionally seeding settings from a template source.
 
-        When a readable source project is supplied, its stored settings are copied
-        into any allowlisted field the caller did not pass explicitly (ADR-0242 §3:
-        explicit value > copied > model default). The reference itself is not a model
-        field, so it is popped before the model is created.
+        Two mutually-exclusive copy-at-create sources (validated in ``validate``):
+        - ``copy_settings_from``: a readable source *project* — its stored settings
+          are copied into any allowlisted field the caller did not pass explicitly
+          (ADR-0242 §3: explicit value > copied > model default).
+        - ``inherit_program_defaults``: seed ``methodology``/``visibility`` from the
+          parent ``program`` (#1909). The program is ADMIN-gated in
+          ``validate_program`` and already loaded, so the copy adds no query.
+
+        Both source markers are non-model fields, so they are popped before create.
         """
+        inherit_program = validated_data.pop("inherit_program_defaults", False)
         source = validated_data.pop("copy_settings_from", None)
         if source is not None:
             from .services import apply_settings_template
 
             apply_settings_template(validated_data, source)
+        elif inherit_program:
+            # ``validate`` guarantees a program is present when this is set.
+            program = validated_data.get("program")
+            if program is not None:
+                from .services import apply_program_defaults
+
+                apply_program_defaults(validated_data, program)
         return super().create(validated_data)
 
     def get_member_count(self, obj: Project) -> int | None:
@@ -1115,7 +1149,35 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             raise serializers.ValidationError(
                 {"copy_settings_from": "This field is only accepted when creating a project."}
             )
+        # inherit_program_defaults is likewise a create-only source (#1909). Pop it on
+        # update so it never reaches ModelSerializer.update() as a bogus non-field
+        # attribute or trips the below-Admin field gate; reject only if truthy.
+        if instance is not None and attrs.pop("inherit_program_defaults", False):
+            raise serializers.ValidationError(
+                {"inherit_program_defaults": "This field is only accepted when creating a project."}
+            )
         if instance is None:
+            # #1909 create-time cross-field checks: seeding from the parent program
+            # requires a program to seed from, and cannot combine with the
+            # project-source template (one settings source at a time).
+            if attrs.get("inherit_program_defaults"):
+                if "copy_settings_from" in attrs:
+                    raise serializers.ValidationError(
+                        {
+                            "inherit_program_defaults": (
+                                "Cannot combine with copy_settings_from — choose one "
+                                "settings source."
+                            )
+                        }
+                    )
+                if not attrs.get("program"):
+                    raise serializers.ValidationError(
+                        {
+                            "inherit_program_defaults": (
+                                "Assign the project to a program to use its defaults."
+                            )
+                        }
+                    )
             return attrs
         request = self.context.get("request")
         if request is None or not request.user.is_authenticated:

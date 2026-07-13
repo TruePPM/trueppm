@@ -102,6 +102,32 @@ Hybrid), and every row shows the project's methodology — so at organizational
 scale, or when two projects share a similar name, you can confirm you're adding
 the right one before you commit.
 
+## Creating a project under a program
+
+From a program's **Projects** tab, **New project** opens the create wizard with
+the project pre-assigned to the program. On the last step, a **Use program
+defaults** option appears (only when you are creating under a program). Enable it
+to seed the new project from the parent program's:
+
+- **Planning model** (methodology — Waterfall / Agile / Hybrid), and
+- **Visibility** (Workspace or Private listing scope).
+
+This is a **one-time copy at creation**, not locked inheritance: the copied values
+become the new project's own settings and stay fully editable afterward in project
+settings. Enabling it dims the manual planning-model picker and the "Copy settings
+from" project source — the two settings sources are mutually exclusive, so you pick
+one. Anything you set explicitly in the wizard still wins over the copied value.
+
+Settings that a project already **inherits live** from its program — the iteration
+label, sharing and guest access, Monte Carlo history, attachment policy, and the
+task-duration-change policy — are deliberately **not** copied. A new project leaves
+them on "inherit", so they continue to track the program's value automatically; the
+copy would only pin them and break that live inheritance.
+
+You need at least **Project Manager** role on the program to create a project under
+it (and therefore to use its defaults) — the same gate that governs assigning a
+project to a program.
+
 ## The program shell
 
 `/programs/:id` is a six-tab shell — **Overview**, **Backlog**, **Projects**, **Resources**, **Members**, and **Settings**:

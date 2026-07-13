@@ -49,6 +49,14 @@ export interface CreateProjectPayload {
    */
   copy_settings_from?: string;
   /**
+   * Opt-in to seed the new project's `methodology` and `visibility` from its parent
+   * program at create time (copy-at-create, #1909 / #157). Requires `program` to be
+   * set (the caller must be ADMIN on it — server-enforced) and is mutually exclusive
+   * with `copy_settings_from`. A one-time manual copy, not locked inheritance:
+   * the seeded values are owned by the new project and editable afterward.
+   */
+  inherit_program_defaults?: boolean;
+  /**
    * Default RBAC role for members later added without an explicit role (ADR-0363,
    * #157). A `ROLE_*` ordinal below Owner; server defaults to `ROLE_MEMBER`.
    */
