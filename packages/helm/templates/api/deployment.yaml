@@ -115,9 +115,13 @@ spec:
               mountPath: /tmp
             - name: staticfiles
               mountPath: /app/staticfiles
+          # Readiness gates the pod out of the Service when its DB or cache is
+          # unreachable — /readyz probes both (#1894). Liveness stays on the
+          # shallow /health/ so a transient dependency blip does not restart an
+          # otherwise-healthy process.
           readinessProbe:
             httpGet:
-              path: /api/v1/health/
+              path: /api/v1/readyz
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10

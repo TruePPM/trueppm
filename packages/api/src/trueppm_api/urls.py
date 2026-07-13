@@ -13,6 +13,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from trueppm_api.apps.observability.views import readyz
 from trueppm_api.core.auth_views import (
     CookieTokenLogoutView,
     CookieTokenObtainPairView,
@@ -66,6 +67,10 @@ def edition(request: Request) -> Response:
 
 urlpatterns = [
     path("api/v1/health/", health, name="health"),
+    # Dependency-aware readiness probe (#1894). Unauthenticated like /health/ so
+    # kubelet can call it, but returns 503 when the DB or cache is unreachable —
+    # unlike /health/, which is a shallow process-liveness check.
+    path("api/v1/readyz", readyz, name="readyz"),
     path("api/v1/edition/", edition, name="edition"),
     path("admin/", admin.site.urls),
     # OpenAPI schema and interactive docs. The *split* Swagger view (not the

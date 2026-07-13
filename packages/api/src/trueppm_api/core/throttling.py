@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 # throttling for the request). Stored trailing-slash-normalized so the check is
 # robust whether or not the request path carries the trailing slash.
 _PROBE_EXEMPT_PATHS = frozenset(
-    path.rstrip("/") for path in ("/api/v1/health/", "/api/v1/edition/")
+    path.rstrip("/") for path in ("/api/v1/health/", "/api/v1/readyz", "/api/v1/edition/")
 )
 
 

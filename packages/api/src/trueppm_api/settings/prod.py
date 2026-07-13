@@ -64,7 +64,7 @@ SECURE_REFERRER_POLICY = "same-origin"
 # Operators that expose the app directly over TLS opt in via env; the probe
 # paths stay exempt so they keep working over plain HTTP either way.
 SECURE_SSL_REDIRECT = env.bool("TRUEPPM_SECURE_SSL_REDIRECT", default=False)
-SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/edition/$"]
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/readyz$", r"^api/v1/edition/$"]
 
 # Refuse to boot when task attachments would land on ephemeral local disk in a
 # containerized deploy (#775) — same import-time enforcement as the SECRET_KEY

@@ -41,6 +41,21 @@ STATUS_WARN = "warn"
 STATUS_CRIT = "crit"
 STATUS_UNKNOWN = "unknown"
 
+# Per-dependency readiness literals for the unauthenticated /readyz probe (#1894).
+# Deliberately coarse — "ok"/"fail" only — so the response never leaks connection
+# strings, host names, or driver error text to an unauthenticated caller.
+READY_OK = "ok"
+READY_FAIL = "fail"
+
+# Upper bound on the readiness DB probe so a wedged/slow database fails the probe
+# fast (503) instead of hanging kubelet's readiness call. Two seconds is well
+# under a typical kubelet ``timeoutSeconds`` while tolerating a brief blip.
+_READY_DB_STATEMENT_TIMEOUT_MS = 2000
+
+# Cache key the readiness probe writes-then-reads to prove a live round-trip to
+# Valkey/Redis. Namespaced and short-lived; value is irrelevant.
+_READY_CACHE_KEY = "trueppm:readyz:probe"
+
 _SINGLETON_KEY = 1
 
 # A dispatched outbox row younger than this may simply be in flight (the row is
@@ -359,6 +374,66 @@ def _format_age(seconds: int | None) -> str:
     if seconds < 86400:
         return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
     return f"{seconds // 86400}d"
+
+
+def _probe_database() -> bool:
+    """Prove the primary database is reachable with a bounded ``SELECT 1``.
+
+    Wrapped in a transaction so ``SET LOCAL statement_timeout`` scopes to this
+    probe only (it resets at commit/rollback) — a hung or slow database trips the
+    timeout and returns ``False`` fast rather than blocking the readiness call.
+    Any driver/OperationalError is swallowed into ``False``: the caller only needs
+    a boolean, and the exception text must never reach an unauthenticated client.
+    """
+    from django.db import connection, transaction
+
+    try:
+        with transaction.atomic(), connection.cursor() as cursor:
+            # statement_timeout is PostgreSQL-only; guard so a non-PG test
+            # backend (e.g. sqlite) still runs the SELECT 1 round-trip.
+            if connection.vendor == "postgresql":
+                cursor.execute(
+                    "SET LOCAL statement_timeout = %s",
+                    [_READY_DB_STATEMENT_TIMEOUT_MS],
+                )
+            cursor.execute("SELECT 1")
+            return bool(cursor.fetchone() == (1,))
+    except Exception:  # any failure means "not ready", by design
+        return False
+
+
+def _probe_cache() -> bool:
+    """Prove the Valkey/Redis cache is reachable with a write-then-read round-trip.
+
+    A bare ``get`` can be served from a local layer or return ``None`` for a dead
+    backend without erroring, so we ``set`` then ``get`` to force an actual round
+    trip. The channel layer shares the same Valkey instance (different logical db),
+    so cache reachability is a sufficient proxy for real-time readiness too. Any
+    backend error is swallowed into ``False`` — see ``_probe_database``.
+    """
+    from django.core.cache import cache
+
+    try:
+        cache.set(_READY_CACHE_KEY, "1", timeout=5)
+        return bool(cache.get(_READY_CACHE_KEY) == "1")
+    except Exception:  # any failure means "not ready", by design
+        return False
+
+
+def get_readiness() -> tuple[bool, dict[str, str]]:
+    """Probe every hard dependency and return ``(ready, per-dependency statuses)``.
+
+    Backs the unauthenticated ``/api/v1/readyz`` Kubernetes readiness probe
+    (#1894): a pod is Ready only when both the database and the Valkey/Redis cache
+    answer a live round-trip. Statuses are coarse ``ok``/``fail`` strings so the
+    body carries no sensitive infrastructure detail.
+    """
+    checks = {
+        "database": READY_OK if _probe_database() else READY_FAIL,
+        "cache": READY_OK if _probe_cache() else READY_FAIL,
+    }
+    ready = all(state == READY_OK for state in checks.values())
+    return ready, checks
 
 
 def get_system_health() -> dict[str, Any]:
