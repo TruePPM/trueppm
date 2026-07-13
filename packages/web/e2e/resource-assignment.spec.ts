@@ -42,7 +42,8 @@ const FIXTURE_API_TASKS = [
     early_finish: '2026-10-16',
     duration: 10,
     percent_complete: 100,
-    is_critical: true,
+    // Completed task → never critical (#1863).
+    is_critical: false,
     is_milestone: false,
   },
 ];

@@ -26,7 +26,9 @@ const FIXTURE_API_TASKS = [
   {
     id: 't2', wbs_path: '1.1', name: 'Discovery & Design',
     early_start: '2026-10-05', early_finish: '2026-10-16',
-    duration: 10, percent_complete: 100, is_critical: true, is_milestone: false,
+    // A completed task is never on the critical path (#1863): it is done and
+    // cannot drive the finish, so the engine reports is_critical=false for it.
+    duration: 10, percent_complete: 100, is_critical: false, is_milestone: false,
     status: 'COMPLETE', is_summary: false, parent_id: null,
   },
   {

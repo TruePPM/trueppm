@@ -1586,7 +1586,10 @@ class TestCompletedFullDuration:
         assert t.early_finish == date(2026, 3, 6)  # Fri — full 5 working days
         assert t.early_start != t.early_finish
         assert t.total_float == timedelta(0)  # done => no slack
-        assert t.is_critical
+        # A completed task carries zero total float but is never on the critical
+        # path: it is finished, has no remaining work, and cannot drive the project
+        # finish (#1863). Completion overrides the zero-float => critical rule.
+        assert not t.is_critical
 
     def test_monte_carlo_agrees_with_schedule_on_completed_without_actuals(self) -> None:
         """monte_carlo() must pin a percent_complete=100/no-actual task to the same
@@ -1709,3 +1712,63 @@ class TestCompletedFullDuration:
         assert t.early_start == date(2026, 3, 10)
         assert t.early_finish == date(2026, 3, 12)
         assert t.total_float == timedelta(0)
+
+
+class TestCompletedNotCritical:
+    """A completed task is never on the critical path, even when it sits on the
+    zero-float driving chain. The backward pass pins a done task to late == early
+    (ADR-0132/0136), which mechanically gives it zero total float; without a
+    completion guard that zero-float task is flagged critical, painting the
+    already-finished prefix of a schedule red and over-counting "N critical" — the
+    reported Atlas "Migration Tooling" bug where 8 finished tasks + the milestone
+    read as "9 critical" while the live remaining work was not on the path (#1863).
+    """
+
+    def test_completed_task_on_driving_chain_is_not_critical(self) -> None:
+        """A --> B --> C, all on the single zero-float chain, with A and B done.
+        Both completed tasks carry zero total float but must NOT be critical; only
+        the live task C (which actually drives the finish) is on the path."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 5, percent_complete=100.0),
+                task("B", "B", 5, percent_complete=100.0),
+                task("C", "C", 5),  # live, drives the finish
+            ],
+            dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+
+        # Both completed tasks: zero slack (done) but off the critical path.
+        for tid in ("A", "B"):
+            assert by_id[tid].total_float == timedelta(0)
+            assert by_id[tid].is_critical is False
+        # The live driver is the only critical task, and the path holds just it.
+        assert by_id["C"].is_critical is True
+        assert r.critical_path == ["C"]
+
+    def test_completed_via_actual_finish_is_not_critical(self) -> None:
+        """Completion detected by actual_finish (not just percent_complete) is
+        likewise excluded from the critical path — the `_is_complete` guard covers
+        both signals, keeping schedule() and the flag consistent."""
+        p = make_project(
+            tasks=[
+                task(
+                    "A",
+                    "A",
+                    5,
+                    actual_start=date(2026, 3, 2),
+                    actual_finish=date(2026, 3, 6),
+                    percent_complete=100.0,
+                ),
+                task("B", "B", 5),
+            ],
+            dependencies=[Dependency("A", "B")],
+            start=date(2026, 3, 2),
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        assert by_id["A"].is_critical is False
+        assert by_id["B"].is_critical is True
+        assert "A" not in r.critical_path

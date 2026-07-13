@@ -38,8 +38,9 @@ const FIXTURE_TASKS = [
   {
     id: 'task1', wbs_path: '1.1', name: 'Design Sprint',
     early_start: '2026-04-07', early_finish: '2026-04-14',
+    // Completed task → never critical (#1863).
     planned_start: null, duration: 7, percent_complete: 100,
-    is_critical: true, is_milestone: false, is_summary: false,
+    is_critical: false, is_milestone: false, is_summary: false,
     parent_id: 'summary1', status: 'COMPLETE',
     actual_start: null, actual_finish: null, schedule_variance_days: null,
     baseline_start: null, baseline_finish: null,

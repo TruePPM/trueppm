@@ -1067,7 +1067,14 @@ def _compute_floats(
         assert task.early_finish is not None
         tf_days = _wdb(task.early_start, task.late_start, node_cal)
         task.total_float = timedelta(days=tf_days)
-        task.is_critical = tf_days == 0
+        # A completed task is never on the critical path. The backward pass pins a
+        # done task to late == early (ADR-0132/0136), which mechanically yields
+        # zero total float — but a finished task has no remaining work and no slack
+        # to manage, so it cannot drive the project finish and must not be reported
+        # as critical (nor pull the completed prefix of the schedule into the
+        # critical_path list). Completion overrides the zero-float rule; total_float
+        # stays 0 because the task genuinely has no slack (#1863).
+        task.is_critical = tf_days == 0 and not _is_complete(task)
 
         # Free float: the largest number of working days this task can slip before
         # it would push the early date of *any* live successor. Like total float,
