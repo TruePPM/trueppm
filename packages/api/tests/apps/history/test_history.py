@@ -1080,3 +1080,205 @@ class TestTaskActivityInclude:
         legacy = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
         assert legacy.status_code == 200
         assert all("event_type" not in rec for rec in legacy.data["results"])
+
+
+@pytest.mark.django_db
+class TestTaskActivityKeyset:
+    """Keyset pagination (`until` / `page_size`) on the include= merged feed (#1882).
+
+    The bare no-include feed must stay byte-identical (offset envelope, no new
+    keys); the keyset params are only valid together with `include`.
+    """
+
+    def _url(self, project: Project, task: Task) -> str:
+        return f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/"
+
+    def _seed_mixed_feed(self, owner: object, task: Task) -> int:
+        """Seed a mixed feed (history + comments + attachment) with distinct,
+        interleaved timestamps. Returns the expected event count (6)."""
+        from trueppm_api.apps.projects.models import TaskAttachment, TaskComment
+
+        task.name = "Rename one"
+        task.save()
+        task.name = "Rename two"
+        task.save()
+        c1 = TaskComment.objects.create(task=task, author=owner, body="first")
+        c2 = TaskComment.objects.create(task=task, author=owner, body="second")
+        att = TaskAttachment.objects.create(
+            task=task,
+            external_url="https://example.com/doc",
+            external_title="Spec",
+            uploaded_by=owner,
+        )
+
+        # Deterministically space + interleave the timestamps across the sources so
+        # the keyset walk exercises real cross-source page boundaries (auto_now_add
+        # stamps are bypassed via .update() / direct save on the historical rows).
+        base = timezone.now() - timedelta(hours=1)
+        history_rows = list(task.history.order_by("history_date"))  # type: ignore[attr-defined]
+        assert len(history_rows) == 3  # create + two renames
+        for i, row in enumerate(history_rows):
+            row.history_date = base + timedelta(minutes=2 * i)  # minutes 0, 2, 4
+            row.save(update_fields=["history_date"])
+        TaskComment.objects.filter(pk=c1.pk).update(created_at=base + timedelta(minutes=1))
+        TaskComment.objects.filter(pk=c2.pk).update(created_at=base + timedelta(minutes=5))
+        TaskAttachment.objects.filter(pk=att.pk).update(created_at=base + timedelta(minutes=3))
+        return 6
+
+    def test_keyset_walk_returns_every_event_exactly_once(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Walking next_until over a mixed feed yields each event exactly once
+        (distinct timestamps), newest-first, and null next_until on exhaustion."""
+        expected = self._seed_mixed_feed(owner, task)
+
+        until: str | None = (timezone.now() + timedelta(days=1)).isoformat()
+        seen: list[tuple[str, str]] = []
+        pages = 0
+        while until is not None:
+            r = owner_client.get(
+                self._url(project, task),
+                {"include": "all", "page_size": 2, "until": until},
+            )
+            assert r.status_code == 200
+            # Keyset envelope: no offset concepts (count/next/previous).
+            assert set(r.data.keys()) == {"results", "next_until", "count_truncated"}
+            assert len(r.data["results"]) <= 2
+            seen.extend((e["event_type"], e["timestamp"]) for e in r.data["results"])
+            until = r.data["next_until"]
+            pages += 1
+            assert pages <= expected  # safety against a cursor loop
+
+        assert len(seen) == expected
+        assert len(set(seen)) == expected  # exactly once, no repeats
+        timestamps = [ts for _, ts in seen]
+        assert timestamps == sorted(timestamps, reverse=True)
+        from collections import Counter
+
+        assert Counter(t for t, _ in seen) == Counter(
+            {
+                "fields_changed": 2,
+                "comment_added": 2,
+                "task_created": 1,
+                "attachment_uploaded": 1,
+            }
+        )
+
+    def test_next_until_null_when_window_exhausted(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Fewer than page_size+1 events older than until => next_until is null."""
+        until = (timezone.now() + timedelta(days=1)).isoformat()
+        r = owner_client.get(self._url(project, task), {"include": "all", "until": until})
+        assert r.status_code == 200
+        # Only the task_created history row exists — well under the default 20.
+        assert r.data["next_until"] is None
+        assert r.data["count_truncated"] is False
+
+    def test_until_without_include_returns_400(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = owner_client.get(self._url(project, task), {"until": timezone.now().isoformat()})
+        assert r.status_code == 400
+        assert "include" in r.data["detail"]
+
+    def test_page_size_without_include_returns_400(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = owner_client.get(self._url(project, task), {"page_size": "10"})
+        assert r.status_code == 400
+        assert "include" in r.data["detail"]
+
+    def test_invalid_until_datetime_returns_400(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = owner_client.get(
+            self._url(project, task), {"include": "all", "until": "not-a-datetime"}
+        )
+        assert r.status_code == 400
+        assert "until" in r.data["detail"]
+
+    def test_until_mode_ignores_page_param(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """`page` is an offset concept — in keyset mode it must be ignored (the
+        offset paginator would 404 on an out-of-range page)."""
+        until = (timezone.now() + timedelta(days=1)).isoformat()
+        r = owner_client.get(
+            self._url(project, task), {"include": "all", "until": until, "page": "99"}
+        )
+        assert r.status_code == 200
+        assert r.data["results"]  # task_created is returned despite page=99
+        assert "count" not in r.data
+
+    def test_no_include_envelope_unchanged(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The bare feed keeps the exact offset envelope — no next_until leak."""
+        r = owner_client.get(self._url(project, task))
+        assert r.status_code == 200
+        assert set(r.data.keys()) == {"count", "next", "previous", "results", "count_truncated"}
+
+    def test_include_offset_mode_carries_next_until(
+        self,
+        owner_client: APIClient,
+        owner: object,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """Offset mode with include stays offset-shaped but additively exposes
+        next_until, so a client can hop to keyset paging mid-stream."""
+        self._seed_mixed_feed(owner, task)
+
+        r = owner_client.get(self._url(project, task), {"include": "all", "page_size": 2})
+        assert r.status_code == 200
+        # Offset envelope retained, plus the additive keyset resume point.
+        assert {"count", "next", "previous", "results", "count_truncated"} <= set(r.data.keys())
+        assert r.data["next"] is not None
+        assert r.data["next_until"] == r.data["results"][-1]["timestamp"]
+
+        # Resuming via keyset from the offset page returns strictly older events.
+        r2 = owner_client.get(
+            self._url(project, task),
+            {"include": "all", "page_size": 2, "until": r.data["next_until"]},
+        )
+        assert r2.status_code == 200
+        assert all(e["timestamp"] < r.data["next_until"] for e in r2.data["results"])
+
+        # The last offset page reports next_until null (nothing older).
+        last = owner_client.get(
+            self._url(project, task), {"include": "all", "page_size": 2, "page": "3"}
+        )
+        assert last.status_code == 200
+        assert last.data["next"] is None
+        assert last.data["next_until"] is None

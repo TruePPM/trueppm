@@ -24005,6 +24005,14 @@
                         "description": "Comma-separated opt-in activity sources to merge into the feed (issue 413). Valid tokens: `attachments`, `comments`, `risks`, `schedule`, `time`, or `all`. When omitted the response is the legacy field-diff feed, byte-identical to prior releases (backward compatible). When present, `results` becomes a timestamp-desc merged feed where every entry carries the unified `{event_type, actor, timestamp, detail}` shape (field-diff entries also retain their legacy `{id, history_date, history_type, history_user, history_user_display, diff}` keys). `time` is scoped to the requesting user's own entries."
                     },
                     {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size for the merged feed (default 20, clamped to 1..100); only valid together with `include` (400 otherwise). Applies in both offset mode and `until` keyset mode."
+                    },
+                    {
                         "in": "path",
                         "name": "project_pk",
                         "schema": {
@@ -24019,6 +24027,15 @@
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        },
+                        "description": "Keyset cursor for the merged feed (#1882); only valid together with `include` (400 otherwise). Returns events **strictly older than** this ISO-8601 datetime and switches the response to the keyset envelope `{results, next_until, count_truncated}` — no `count`/`next`/`previous`, and `page` is ignored. `next_until` is the oldest returned timestamp (pass it back as `until` to fetch the next page), or null when no events older than the cursor remain. Cursoring is on the timestamp alone: events sharing the exact boundary timestamp can repeat or be skipped across pages (the documented ADR-0160 keyset tradeoff). When `until` is omitted but `include` is present, the offset envelope additionally carries `next_until` computed from the returned page, so a client can resume via keyset without offset paging."
                     }
                 ],
                 "tags": [

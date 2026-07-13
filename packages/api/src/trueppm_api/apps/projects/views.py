@@ -8007,7 +8007,11 @@ def _activity_actor(user: Any | None) -> dict[str, Any] | None:
 
 
 def _build_activity_events(
-    task: Any, include: frozenset[str], request: Request, cap: int
+    task: Any,
+    include: frozenset[str],
+    request: Request,
+    cap: int,
+    until: datetime.datetime | None = None,
 ) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
     """Build the opt-in activity streams merged into the task history feed.
 
@@ -8016,8 +8020,17 @@ def _build_activity_events(
     ``truncated`` is true when any source hit ``cap`` (so the caller can OR it into
     ``count_truncated``). Each source is independently bounded and uses
     ``select_related`` on its actor FK to avoid an N+1 over the stream.
+
+    ``until`` (keyset paging, #1882) bounds every source to events strictly older
+    than the cursor: the bound is pushed into each source's ``created_at`` DB filter
+    so deep pages never rescan the newest rows, then re-applied in memory to the
+    derived ``edited_at``/``deleted_at`` events (whose parent row's ``created_at``
+    passed the DB filter but whose own timestamp may not).
     """
     from trueppm_api.apps.timetracking.models import TimeEntry
+
+    # Keyset bound: strictly-older-than on the source row's created_at.
+    created_before = {"created_at__lt": until} if until is not None else {}
 
     events: list[tuple[Any, dict[str, Any]]] = []
     truncated = False
@@ -8026,7 +8039,9 @@ def _build_activity_events(
         # Fetch cap+1 to detect truncation. Newest-first so a truncated batch keeps
         # the most recent comments. deleted_by joined for the comment_deleted actor.
         comments = list(
-            task.comments.select_related("author", "deleted_by").order_by("-created_at")[: cap + 1]
+            task.comments.filter(**created_before)
+            .select_related("author", "deleted_by")
+            .order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(comments) > cap
         for c in comments[:cap]:
@@ -8083,6 +8098,7 @@ def _build_activity_events(
                 task=task,
                 user=request.user,  # type: ignore[misc]
                 is_deleted=False,
+                **created_before,
             ).order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(entries) > cap
@@ -8111,9 +8127,9 @@ def _build_activity_events(
         # event (the label is non-sensitive metadata, mirroring the comments
         # stream above) and gain an attachment_deleted event from deleted_at.
         attachments = list(
-            task.attachments.select_related("uploaded_by", "deleted_by").order_by("-created_at")[
-                : cap + 1
-            ]
+            task.attachments.filter(**created_before)
+            .select_related("uploaded_by", "deleted_by")
+            .order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(attachments) > cap
         for a in attachments[:cap]:
@@ -8157,7 +8173,9 @@ def _build_activity_events(
     if "schedule" in include:
         rows = list(
             task.activity_events.select_related("actor")
-            .filter(event_type__in=["cpm_recalculated", "baseline_drift_detected"])
+            .filter(
+                event_type__in=["cpm_recalculated", "baseline_drift_detected"], **created_before
+            )
             .order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(rows) > cap
@@ -8177,7 +8195,7 @@ def _build_activity_events(
     if "risks" in include:
         rows = list(
             task.activity_events.select_related("actor")
-            .filter(event_type__in=["risk_linked", "risk_unlinked"])
+            .filter(event_type__in=["risk_linked", "risk_unlinked"], **created_before)
             .order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(rows) > cap
@@ -8193,6 +8211,12 @@ def _build_activity_events(
                     },
                 )
             )
+
+    if until is not None:
+        # The DB filter above bounds created_at only; a comment/attachment created
+        # before the cursor can still carry a derived edited_at/deleted_at event at
+        # or after it. Re-apply the strict bound on the derived event timestamps.
+        events = [pair for pair in events if pair[0] < until]
 
     return events, truncated
 
@@ -8222,7 +8246,40 @@ def _build_activity_events(
                     "history_user_display, diff}` keys). "
                     "`time` is scoped to the requesting user's own entries."
                 ),
-            )
+            ),
+            OpenApiParameter(
+                name="until",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Keyset cursor for the merged feed (#1882); only valid together "
+                    "with `include` (400 otherwise). Returns events **strictly older "
+                    "than** this ISO-8601 datetime and switches the response to the "
+                    "keyset envelope `{results, next_until, count_truncated}` — no "
+                    "`count`/`next`/`previous`, and `page` is ignored. `next_until` "
+                    "is the oldest returned timestamp (pass it back as `until` to "
+                    "fetch the next page), or null when no events older than the "
+                    "cursor remain. Cursoring is on the timestamp alone: events "
+                    "sharing the exact boundary timestamp can repeat or be skipped "
+                    "across pages (the documented ADR-0160 keyset tradeoff). When "
+                    "`until` is omitted but `include` is present, the offset "
+                    "envelope additionally carries `next_until` computed from the "
+                    "returned page, so a client can resume via keyset without "
+                    "offset paging."
+                ),
+            ),
+            OpenApiParameter(
+                name="page_size",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Page size for the merged feed (default 20, clamped to 1..100); "
+                    "only valid together with `include` (400 otherwise). Applies in "
+                    "both offset mode and `until` keyset mode."
+                ),
+            ),
         ],
         responses={
             200: OpenApiResponse(
@@ -8305,14 +8362,56 @@ class TaskHistoryView(APIView):
         else:
             include = frozenset()
 
+        # Keyset paging for the merged feed (#1882, board_activity/ADR-0160
+        # precedent): `until` returns events strictly older than the cursor, so deep
+        # pages neither drift when new events arrive nor rescan the newest rows.
+        # Both params are meaningless on the bare field-diff feed — which must stay
+        # byte-identical for existing consumers — so reject them without `include`.
+        until_raw = request.query_params.get("until")
+        page_size_raw = request.query_params.get("page_size")
+        if (until_raw is not None or page_size_raw is not None) and not include:
+            return Response(
+                {"detail": "until and page_size are only valid together with include=."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        until: datetime.datetime | None = None
+        if until_raw is not None:
+            from django.utils.dateparse import parse_datetime
+
+            try:
+                # parse_datetime returns None on a malformed string, but RAISES
+                # ValueError on a well-formed-but-out-of-range one (e.g. month 13) —
+                # both are the caller's error, so both get the same 400.
+                until = parse_datetime(until_raw)
+            except ValueError:
+                until = None
+            if until is None:
+                return Response(
+                    {"detail": f"Invalid until datetime '{until_raw}' (expected ISO 8601)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if timezone.is_naive(until):
+                until = timezone.make_aware(until, timezone.get_current_timezone())
+        page_size = 20
+        if page_size_raw is not None:
+            try:
+                page_size = int(page_size_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "page_size must be an integer."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            page_size = max(1, min(page_size, 100))
+
         # The paginator slices from this list; count_truncated in the response signals
         # to the client that older records are not included. Fetch one past the cap so
         # an exactly-cap history is not falsely reported as truncated.
-        records = list(
-            task.history.order_by("-history_date").select_related("history_user")[
-                : _MAX_HISTORY_ROWS + 1
-            ]
-        )
+        history_qs = task.history.order_by("-history_date").select_related("history_user")
+        if until is not None:
+            # Push the keyset bound into the DB (strictly older than the cursor) so
+            # a deep page never re-reads the newest rows.
+            history_qs = history_qs.filter(history_date__lt=until)
+        records = list(history_qs[: _MAX_HISTORY_ROWS + 1])
         count_truncated: bool = len(records) > _MAX_HISTORY_ROWS
         # When truncated, keep the one-past-the-cap row PURELY as a diff seed for the
         # oldest kept record (#1889). Without it that record has no older row to
@@ -8409,7 +8508,7 @@ class TaskHistoryView(APIView):
 
         if include:
             extra_events, extra_truncated = _build_activity_events(
-                task, include, request, _MAX_HISTORY_ROWS
+                task, include, request, _MAX_HISTORY_ROWS, until=until
             )
             merged.extend(extra_events)
             count_truncated = count_truncated or extra_truncated
@@ -8419,13 +8518,41 @@ class TaskHistoryView(APIView):
         else:
             feed = result
 
+        if until is not None:
+            # Keyset mode (#1882): slice one page off the merged until-window and
+            # hand the client the oldest returned timestamp to resume from. `page`
+            # is ignored — offset and keyset cannot be mixed coherently. Cursoring
+            # is strictly-older-than on the timestamp alone, so events sharing the
+            # exact boundary timestamp can repeat or be skipped across pages — the
+            # documented ADR-0160 tradeoff the board activity feed already accepts.
+            page_items = feed[:page_size]
+            # More-than-page_size events in the window means older events exist;
+            # otherwise the window is exhausted (mirrors board_activity).
+            next_until = (
+                page_items[-1]["timestamp"] if len(feed) > page_size and page_items else None
+            )
+            return Response(
+                {
+                    "results": page_items,
+                    "next_until": next_until,
+                    "count_truncated": count_truncated,
+                }
+            )
+
         paginator = PageNumberPagination()
-        paginator.page_size = 20
+        paginator.page_size = page_size
         page: list[Any] | None = paginator.paginate_queryset(feed, request)  # type: ignore[arg-type]
         response = paginator.get_paginated_response(page)
         # Expose count_truncated so the client can surface "showing recent 2,000
         # changes" when the task has a very long edit history (P18).
         response.data["count_truncated"] = count_truncated
+        if include:
+            # Additive keyset resume point (#1882): a client that started on offset
+            # paging can hop to keyset by passing this back as `until`. Null when
+            # this offset page is the last one (nothing older to fetch).
+            response.data["next_until"] = (
+                page[-1]["timestamp"] if page and response.data.get("next") else None
+            )
         return response
 
 
