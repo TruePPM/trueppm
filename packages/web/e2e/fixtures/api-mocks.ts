@@ -375,9 +375,15 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
       // ?self=true returns just the caller's membership row — still a list (the
       // backend filters the queryset but serializes many=True). useCurrentUserRole()
       // reads res.data[0]; a bare object left role null and hid every role-gated
-      // write control (#1046).
+      // write control (#1046). role_label mirrors the server's Role(300).label
+      // ("Project Manager") — the rail identity block's role line reads it off
+      // this same row (#1919).
       if (url.searchParams.get('self') === 'true') {
-        return route.fulfill(jsonResponse([{ id: 'mem-admin', role: 300, user_id: user.id }]));
+        return route.fulfill(
+          jsonResponse([
+            { id: 'mem-admin', role: 300, role_label: 'Project Manager', user_id: user.id },
+          ]),
+        );
       }
       return route.fulfill(jsonResponse(opts.members ?? [{ id: 'mem-admin', role: 300 }]));
     }

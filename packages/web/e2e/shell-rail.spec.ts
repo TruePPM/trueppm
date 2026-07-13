@@ -133,6 +133,47 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     await expect(rail.getByRole('group', { name: 'Track views' })).toHaveCount(0);
   });
 
+  test('the "You" card shows the role label under the name (#1919)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+
+    // The identity block role line reads role_label off the same self-membership
+    // row `useCurrentUserRole` fetches (mocked as "Project Manager" in the
+    // fixture's ?self=true response) — not a client-reformatted string.
+    const rail = railOf(page);
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByText('Project Manager')).toBeVisible();
+  });
+
+  test('the Notifications row shows an unread-count badge that clears when read (#1919)', async ({
+    page,
+  }) => {
+    let unreadCount = 4;
+    await setup(page);
+    await page.route('**/api/v1/me/notifications/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: unreadCount, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.goto('/me/work');
+
+    const rail = railOf(page);
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+    await expect(
+      rail.getByRole('link', { name: 'Notifications, 4 unread' }),
+    ).toBeVisible();
+
+    // Simulate the count clearing (all read) and re-navigate to force a refetch;
+    // the badge disappears and the row falls back to the bare "Notifications" name.
+    unreadCount = 0;
+    await page.goto('/me/timesheet');
+    await page.goto('/me/work');
+    await expect(rail.getByRole('link', { name: 'Notifications' })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Notifications, 4 unread' })).toHaveCount(0);
+  });
+
   test('the footer gear opens personal settings from the rail (#1793)', async ({ page }) => {
     // The gear under the "Signed in" identity must lead to the user's own
     // settings — a destination every role can reach — not the admin-gated
