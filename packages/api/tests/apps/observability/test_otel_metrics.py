@@ -205,3 +205,106 @@ class TestCallbacksSwallowDatabaseError:
 
         monkeypatch.setattr(metrics, "_db_connection_rows", _boom)
         assert list(metrics._observe_db_connections(None)) == []  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Broker queue-depth gauge (#1900) — LLEN of the Celery broker (Valkey/Redis).
+# ---------------------------------------------------------------------------
+
+
+class _FakeRedis:
+    """Records LLEN calls and returns seeded depths instead of touching Valkey."""
+
+    def __init__(self, depths: dict[str, int]) -> None:
+        self.depths = depths
+        self.llen_calls: list[str] = []
+        self.closed = False
+        self.from_url_kwargs: dict[str, Any] = {}
+
+    def llen(self, name: str) -> int:
+        self.llen_calls.append(name)
+        return self.depths.get(name, 0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class TestBrokerQueueDepthGauge:
+    def test_rows_read_llen_per_queue_and_close_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_broker_queue_depth_rows LLENs each queue and always closes the client."""
+        fake = _FakeRedis({"celery": 7})
+
+        def _from_url(url: str, **kwargs: Any) -> _FakeRedis:
+            fake.from_url_kwargs = kwargs
+            return fake
+
+        monkeypatch.setattr("redis.from_url", _from_url)
+        rows = metrics._broker_queue_depth_rows()
+        assert rows == [("celery", 7)]
+        assert fake.llen_calls == ["celery"]
+        assert fake.closed is True
+        # The probe is bounded by a socket timeout so an unreachable broker can't stall.
+        assert fake.from_url_kwargs["socket_timeout"] == metrics._BROKER_PROBE_TIMEOUT_S
+        assert fake.from_url_kwargs["socket_connect_timeout"] == metrics._BROKER_PROBE_TIMEOUT_S
+
+    def test_callback_returns_measurement(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(metrics, "_broker_queue_depth_rows", lambda: [("celery", 4)])
+        obs = list(metrics._observe_broker_queue_depth(None))  # type: ignore[arg-type]
+        assert len(obs) == 1
+        assert obs[0].value == 4
+        assert obs[0].attributes == {"messaging.destination.name": "celery"}
+
+    def test_callback_swallows_broker_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A broker connection error yields no observation, never propagates."""
+        import redis
+
+        def _boom() -> list[Any]:
+            raise redis.ConnectionError("broker unreachable")
+
+        monkeypatch.setattr(metrics, "_broker_queue_depth_rows", _boom)
+        assert list(metrics._observe_broker_queue_depth(None)) == []  # type: ignore[arg-type]
+
+    def test_collected_through_reader(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _FakeRedis({"celery": 12})
+        monkeypatch.setattr("redis.from_url", lambda url, **kw: fake)
+        reader, provider = _reader_and_provider()
+        otel.install_metrics(_ctx(enabled=True, meter_provider=provider), meter_provider=provider)
+        points = _collect(reader)[metrics.BROKER_QUEUE_DEPTH]
+        assert points == [({"messaging.destination.name": "celery"}, 12)]
+
+
+# ---------------------------------------------------------------------------
+# Synchronous WS instruments (#1900) — connection gauge + broadcast counter.
+# ---------------------------------------------------------------------------
+
+
+class TestWsInstruments:
+    def test_connection_gauge_increments_and_decrements(self) -> None:
+        reader, provider = _reader_and_provider()
+        otel.install_metrics(_ctx(enabled=True, meter_provider=provider), meter_provider=provider)
+        metrics.record_ws_connection_opened()
+        metrics.record_ws_connection_opened()
+        metrics.record_ws_connection_closed()
+        points = _collect(reader)[metrics.WS_CONNECTIONS_ACTIVE]
+        assert [value for _attrs, value in points] == [1]  # +1 +1 -1
+
+    def test_broadcast_counter_increments_once_per_call(self) -> None:
+        reader, provider = _reader_and_provider()
+        otel.install_metrics(_ctx(enabled=True, meter_provider=provider), meter_provider=provider)
+        metrics.record_ws_broadcast()
+        metrics.record_ws_broadcast()
+        metrics.record_ws_broadcast()
+        points = _collect(reader)[metrics.WS_BROADCAST_COUNT]
+        assert [value for _attrs, value in points] == [3]
+
+    def test_record_functions_are_noop_when_not_installed(self) -> None:
+        """Before install_metrics (or when telemetry is off) the handles are None,
+        so recording is a safe no-op rather than an AttributeError."""
+        assert metrics._ws_connections is None
+        assert metrics._ws_broadcasts is None
+        # Must not raise.
+        metrics.record_ws_connection_opened()
+        metrics.record_ws_connection_closed()
+        metrics.record_ws_broadcast()

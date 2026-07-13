@@ -18,19 +18,42 @@ library auto-instrumentors once a meter provider is threaded through
   does (``observability.selectors``).
 * ``trueppm.db.connections`` — server-side PostgreSQL backend count for the current
   database, by state, from ``pg_stat_activity``.
+* ``trueppm.broker.queue.depth`` — the number of Celery messages *waiting* in the
+  broker (Valkey/Redis), by queue, from ``LLEN`` (#1900). The ``outbox.*`` gauges
+  measure the transactional-outbox **tables** (rows the dispatchers have not yet
+  handed to Celery); this gauge measures the **broker backlog** downstream of them
+  (messages Celery has accepted but no worker has picked up) — a distinct, and
+  previously unmeasured, stage of the pipeline.
 
-**Observable, not synchronous.** These are ``ObservableGauge`` instruments: the SDK
-invokes each callback once per export interval (default 60 s) on the reader's
-background thread. That means no per-request cost and no need to hook every outbox
-transition — which a synchronous ``UpDownCounter`` would require (it would have to
-be incremented/decremented at every enqueue and drain site).
+Two **synchronous** WS instruments also live here (#1900) — WebSocket/Channels
+observability was spans-only, with no connection or fan-out signal:
+
+* ``trueppm.ws.connections.active`` — an ``UpDownCounter`` incremented when a
+  Channels consumer accepts a socket and decremented when it disconnects, via
+  :func:`record_ws_connection_opened` / :func:`record_ws_connection_closed`.
+* ``trueppm.ws.broadcast.count`` — a ``Counter`` incremented once per board-event
+  fan-out at the broadcast point (``apps/sync/broadcast``), via
+  :func:`record_ws_broadcast`.
+
+**Observable vs synchronous.** The four gauges are ``ObservableGauge`` instruments:
+the SDK invokes each callback once per export interval (default 60 s) on the
+reader's background thread. That means no per-request cost and no need to hook every
+outbox transition — which a synchronous ``UpDownCounter`` would require. The two WS
+instruments *are* synchronous, because a connection open/close and a broadcast are
+discrete events with no shared state to poll — there is nothing for a callback to
+read, so they are recorded at the event site instead. They are held as module
+globals set by :func:`install_metrics` and stay ``None`` (a cheap no-op at the
+record site) whenever telemetry is disabled or metrics are off.
 
 **Cluster-wide — aggregate with ``max`` / ``last``, never ``sum``.** Every process
 that runs ``ready()`` (web, Celery worker, Celery beat) registers these gauges and
-reads the *same* shared PostgreSQL state, so each process emits the whole-cluster
-figure as its own series (kept distinct by ``service.instance.id``). Summing across
+reads the *same* shared state — PostgreSQL for the outbox/DB gauges, the Valkey
+broker for ``broker.queue.depth`` — so each process emits the whole-cluster figure
+as its own series (kept distinct by ``service.instance.id``). Summing across
 instances multiplies the true value; dashboards and alerts must aggregate these
-gauges with ``max`` or ``last``. This is called out in
+gauges with ``max`` or ``last``. The two synchronous WS instruments are the
+exception: they count *per-process* events (this process's own sockets and
+broadcasts), so they aggregate normally with ``sum``. This is called out in
 ``docs/administration/observability.md``.
 
 **Best-effort and non-fatal.** Each callback is wrapped so a database hiccup yields
@@ -55,7 +78,7 @@ from . import attributes
 from .provider import get_meter
 
 if TYPE_CHECKING:
-    from opentelemetry.metrics import CallbackOptions, Meter
+    from opentelemetry.metrics import CallbackOptions, Counter, Meter, UpDownCounter
 
     from .provider import OTelBootstrapContext
 
@@ -67,13 +90,28 @@ logger = logging.getLogger(__name__)
 OUTBOX_DEPTH = "trueppm.outbox.depth"
 OUTBOX_OLDEST_AGE = "trueppm.outbox.oldest_age_seconds"
 DB_CONNECTIONS = "trueppm.db.connections"
+BROKER_QUEUE_DEPTH = "trueppm.broker.queue.depth"
+WS_CONNECTIONS_ACTIVE = "trueppm.ws.connections.active"
+WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
 
 # Server-side statement timeout for the pg_stat_activity probe, so a slow or
 # contended database can never stall the exporter's collection thread. It is set
 # on the metrics thread's dedicated connection only.
 _DB_PROBE_TIMEOUT_MS = 2_000
 
+# Socket-level timeout (seconds) for the broker LLEN probe, so a slow or
+# unreachable Valkey/Redis broker can never stall the exporter's collection
+# thread — the broker analogue of _DB_PROBE_TIMEOUT_MS.
+_BROKER_PROBE_TIMEOUT_S = 2.0
+
 _installed = False
+
+# Synchronous WS instruments, set once by install_metrics and left None when
+# telemetry is disabled (the record_* helpers then no-op). Module globals rather
+# than callback-registered because a socket open/close and a broadcast are discrete
+# events recorded at the event site, not polled state.
+_ws_connections: UpDownCounter | None = None
+_ws_broadcasts: Counter | None = None
 
 
 def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None) -> None:
@@ -92,7 +130,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
             global (which ``bootstrap()`` already set to ``context.meter_provider``);
             a test overrides it to read from an in-memory metric reader.
     """
-    global _installed
+    global _installed, _ws_connections, _ws_broadcasts
     if _installed:
         return
     if not context.enabled or context.meter_provider is None:
@@ -117,8 +155,28 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         unit="{connection}",
         description="Server-side PostgreSQL backend count for the current database, by state.",
     )
+    meter.create_observable_gauge(
+        BROKER_QUEUE_DEPTH,
+        callbacks=[_observe_broker_queue_depth],
+        unit="{message}",
+        description="Celery messages waiting in the broker (Valkey/Redis) LLEN, by queue.",
+    )
+    # UpDownCounter (not a gauge): active WS connections is a running total mutated
+    # by discrete +1/-1 events at the consumer, with no shared state to poll.
+    _ws_connections = meter.create_up_down_counter(
+        WS_CONNECTIONS_ACTIVE,
+        unit="{connection}",
+        description="Active WebSocket connections accepted by this process's Channels consumers.",
+    )
+    # Counter (monotonic): board-event fan-outs at the broadcast point, so an
+    # operator can see real-time push volume and rate.
+    _ws_broadcasts = meter.create_counter(
+        WS_BROADCAST_COUNT,
+        unit="{broadcast}",
+        description="WebSocket board-event broadcasts fanned out to a project group.",
+    )
     _installed = True
-    logger.info("OpenTelemetry native metrics registered (3 instruments)")
+    logger.info("OpenTelemetry native metrics registered (6 instruments)")
 
 
 def _resolve_meter(meter_provider: Any) -> Meter:
@@ -165,6 +223,22 @@ def _observe_db_connections(options: CallbackOptions) -> Iterable[Observation]:
         logger.debug("db connections probe skipped (database error)", exc_info=True)
         return []
     return [Observation(count, {attributes.DB_STATE: state}) for state, count in rows]
+
+
+def _observe_broker_queue_depth(options: CallbackOptions) -> Iterable[Observation]:
+    """Waiting Celery message count per broker queue (LLEN), or no observation on error.
+
+    Catches ``Exception`` (broad), not ``DatabaseError``: the probe talks to the
+    Valkey/Redis broker via redis-py, whose failure modes (``ConnectionError``,
+    ``TimeoutError``, ``RedisError``) are unrelated to Django's DB exceptions. Any
+    of them must yield a gap for the cycle, never propagate onto the exporter thread.
+    """
+    try:
+        rows = _broker_queue_depth_rows()
+    except Exception:
+        logger.debug("broker queue depth probe skipped (broker error)", exc_info=True)
+        return []
+    return [Observation(depth, {attributes.BROKER_QUEUE: name}) for name, depth in rows]
 
 
 # --- Sampling queries (imported lazily so a disabled deployment stays light) ---
@@ -277,12 +351,105 @@ def _bucket_pg_state(state: str | None) -> str:
     return "other"
 
 
+def _broker_queue_depth_rows() -> list[tuple[str, int]]:
+    """Return (queue-name, waiting-message-count) for each Celery broker queue.
+
+    With the Valkey/Redis broker each Celery queue is a Redis LIST keyed by the
+    queue name, so ``LLEN`` is the count of messages **waiting** for a worker.
+    Tasks a worker has already reserved have left the list and are not counted —
+    this is the *broker backlog*, the stage downstream of the transactional
+    outboxes (``trueppm.outbox.*`` measure rows the dispatchers have not yet handed
+    to Celery; this measures what Celery holds but no worker has picked up).
+
+    A short redis-py socket timeout bounds the probe so an unreachable broker can
+    never stall the exporter thread; the client is always closed afterward.
+    """
+    import redis
+    from django.conf import settings
+
+    queue_names = _broker_queue_names()
+    client = redis.from_url(
+        settings.CELERY_BROKER_URL,
+        socket_timeout=_BROKER_PROBE_TIMEOUT_S,
+        socket_connect_timeout=_BROKER_PROBE_TIMEOUT_S,
+    )
+    try:
+        # redis-py types llen() as a sync/async union; the sync client returns int.
+        return [(name, int(cast("int", client.llen(name)))) for name in queue_names]
+    finally:
+        client.close()
+
+
+def _broker_queue_names() -> list[str]:
+    """Celery queue names whose broker backlog to probe.
+
+    Read from the live Celery app config rather than hard-coded: TruePPM defines no
+    custom routing, so this is the single ``task_default_queue`` (``celery``), but
+    if an operator configures ``task_queues`` the probe follows those names instead.
+    """
+    from trueppm_api.celery import app
+
+    configured = getattr(app.conf, "task_queues", None)
+    if configured:
+        names = [
+            str(name)
+            for q in configured
+            if (name := getattr(q, "name", None) or (isinstance(q, dict) and q.get("name")))
+        ]
+        if names:
+            return names
+    default = getattr(app.conf, "task_default_queue", None) or "celery"
+    return [str(default)]
+
+
+# --- Synchronous WS instrument record sites -------------------------------
+# Called from the Channels consumer (connect/disconnect) and the broadcast helper.
+# Each is a strict no-op until install_metrics has run (instrument is None), and each
+# swallows any instrument error so a metric can never destabilise the WS or broadcast
+# path it observes — telemetry is best-effort, exactly like the gauges above.
+
+
+def record_ws_connection_opened() -> None:
+    """Increment the active-WS-connection gauge when a consumer accepts a socket."""
+    _add_ws_connection(1)
+
+
+def record_ws_connection_closed() -> None:
+    """Decrement the active-WS-connection gauge when a consumer disconnects."""
+    _add_ws_connection(-1)
+
+
+def _add_ws_connection(delta: int) -> None:
+    counter = _ws_connections
+    if counter is None:
+        return
+    try:
+        counter.add(delta)
+    except Exception:
+        logger.debug("ws connection metric skipped", exc_info=True)
+
+
+def record_ws_broadcast() -> None:
+    """Count one board-event fan-out at the broadcast point (``apps/sync/broadcast``)."""
+    counter = _ws_broadcasts
+    if counter is None:
+        return
+    try:
+        counter.add(1)
+    except Exception:
+        logger.debug("ws broadcast metric skipped", exc_info=True)
+
+
 def reset_for_testing() -> None:
     """Clear the idempotency guard so a test can re-register against a fresh reader.
 
     Test-suite only. Observable gauges cannot be unregistered from a ``MeterProvider``,
     so tests pass a *new* in-memory ``meter_provider`` per case and reset this guard
-    between them; production registers exactly once.
+    between them; production registers exactly once. Also drops the synchronous WS
+    instrument handles so a subsequent ``install_metrics`` rebinds them to the new
+    provider (and the ``record_*`` helpers no-op in between).
     """
-    global _installed
+    global _installed, _ws_connections, _ws_broadcasts
     _installed = False
+    _ws_connections = None
+    _ws_broadcasts = None

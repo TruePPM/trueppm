@@ -153,8 +153,8 @@ ingest for the query volume, or sample at the collector.
 
 With a collector configured, TruePPM exports these metrics over OTLP on a periodic
 interval. The HTTP and Celery families follow OpenTelemetry's semantic conventions;
-the outbox and database families are TruePPM-specific instruments under the
-`trueppm.*` namespace.
+the outbox, database, broker, and WebSocket families are TruePPM-specific instruments
+under the `trueppm.*` namespace.
 
 | Metric | Type | What it measures | Dimensions |
 |---|---|---|---|
@@ -164,20 +164,30 @@ the outbox and database families are TruePPM-specific instruments under the
 | `trueppm.outbox.depth` | gauge | Live backlog of a transactional outbox (rows not yet done) | `trueppm.outbox.name` (`schedule` \| `workflow`), `trueppm.outbox.state` (`pending` \| `dispatched`) |
 | `trueppm.outbox.oldest_age_seconds` | gauge | Age of the oldest not-yet-done outbox row — the dispatch **lag** (0 when empty) | `trueppm.outbox.name` |
 | `trueppm.db.connections` | gauge | Server-side PostgreSQL backend count for the current database | `trueppm.db.state` (`active` \| `idle` \| `idle_in_transaction` \| `other`) |
+| `trueppm.broker.queue.depth` | gauge | Celery messages **waiting** in the broker (Valkey/Redis `LLEN`), downstream of the outboxes | `messaging.destination.name` (queue, e.g. `celery`) |
+| `trueppm.ws.connections.active` | up/down counter | Active WebSocket connections accepted by this process's Channels consumers | — |
+| `trueppm.ws.broadcast.count` | counter | WebSocket board-event broadcasts fanned out to a project group | — |
 
 The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable
 execution: a rising `depth` or `oldest_age_seconds` means the CPM-recompute or
 workflow-step dispatchers are falling behind. They complement the System Health
-overview, which reports the same backlog in the admin UI.
+overview, which reports the same backlog in the admin UI. `trueppm.broker.queue.depth`
+measures the next stage — messages the dispatchers have handed to Celery but no
+worker has yet picked up — so a healthy outbox paired with a rising broker depth
+points at under-scaled workers rather than a stuck dispatcher. The two `trueppm.ws.*`
+instruments give WebSocket real-time collaboration its first quantitative signal:
+how many live sockets a node holds and how much it is fanning out.
 
 :::caution[Aggregate the `trueppm.*` gauges with `max`/`last`, never `sum`]
 The `trueppm.outbox.*` and `trueppm.db.connections` gauges read **shared database
-state**. Every TruePPM process that exports telemetry — the web API, the Celery
-worker, and Celery beat — reports the same cluster-wide figure as its own series
-(kept distinct by `service.instance.id`). Summing across instances multiplies the
-true value; a dashboard or alert must aggregate these gauges with `max` or `last`
-(for example `max by (trueppm_outbox_name) (trueppm_outbox_depth)`). The HTTP and
-Celery metrics are per-process rates and aggregate normally.
+state**, and `trueppm.broker.queue.depth` reads the **shared broker**. Every TruePPM
+process that exports telemetry — the web API, the Celery worker, and Celery beat —
+reports the same cluster-wide figure as its own series (kept distinct by
+`service.instance.id`). Summing across instances multiplies the true value; a
+dashboard or alert must aggregate these gauges with `max` or `last` (for example
+`max by (trueppm_outbox_name) (trueppm_outbox_depth)`). The HTTP, Celery, and
+`trueppm.ws.*` metrics are **per-process** counts and rates — they aggregate
+normally with `sum` across instances.
 :::
 
 :::note[TruePPM uses persistent connections, not a client-side pool]
