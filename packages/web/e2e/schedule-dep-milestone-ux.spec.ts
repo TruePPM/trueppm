@@ -207,9 +207,12 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
     const rowAlert = drawer.getByRole('alert');
     await expect(rowAlert).toBeVisible({ timeout: 3_000 });
 
-    // Change again — error clears immediately
+    // Change again — the row error clears. The clear is asynchronous (the PATCH
+    // resolves, then the alert unmounts), so gate on the cleared state with a
+    // generous timeout rather than the default 5s, which flakes under CI runner
+    // load when the async clear runs long (#1923).
     await depTypeSelect.selectOption('FF');
-    await expect(rowAlert).not.toBeVisible();
+    await expect(rowAlert).toBeHidden({ timeout: 15_000 });
   });
 });
 
