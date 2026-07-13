@@ -127,7 +127,11 @@ stays your source of truth.
 The connection API behind the flow is documented under
 [Inbound Task Sync](/features/inbound-task-sync/) and ADR-0097. Once a source is
 connected, its items appear in My Work with a per-source freshness line and a
-reconnect prompt if the credential expires.
+reconnect prompt if the credential expires. Opening My Work also triggers a
+refresh automatically when a connected source's cache has gone stale — a
+non-blocking background pull, same as **Sync now**, just without you having to
+find the button. See `TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS` in
+[Configuration](/administration/configuration/) for the staleness window.
 
 ## Git-aware task links
 

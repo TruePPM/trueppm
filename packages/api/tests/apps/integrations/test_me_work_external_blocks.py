@@ -14,18 +14,27 @@ alongside native tasks. These cover the contract the web binds:
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
+from trueppm_api.apps.integrations import http
 from trueppm_api.apps.integrations.me_work import (
     external_items_queryset,
     external_source_summaries,
     me_work_external_blocks,
 )
-from trueppm_api.apps.integrations.models import ExternalWorkItem, IntegrationCredential
+from trueppm_api.apps.integrations.models import (
+    ExternalSyncRequest,
+    ExternalSyncRequestReason,
+    ExternalSyncRequestStatus,
+    ExternalWorkItem,
+    IntegrationCredential,
+)
 
 User = get_user_model()
 
@@ -50,13 +59,16 @@ def _item(user: object, external_id: str, **kwargs: object) -> ExternalWorkItem:
     return ExternalWorkItem.objects.create(user=user, external_id=external_id, **defaults)
 
 
-def _jira_cred(user: object, *, status: str = "connected") -> IntegrationCredential:
+def _jira_cred(
+    user: object, *, status: str = "connected", last_used_at: object = None
+) -> IntegrationCredential:
     return IntegrationCredential.objects.create(
         user=user,
         provider="jira",
         secret_ciphertext=b"x",
         base_url="https://acme.atlassian.net",
         config={"account_email": "priya@acme.io", "status": status},
+        last_used_at=last_used_at,
     )
 
 
@@ -198,3 +210,130 @@ def test_blocks_helper_shape() -> None:
     assert set(blocks) == {"external_items", "external_sources"}
     assert len(blocks["external_items"]) == 1
     assert len(blocks["external_sources"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# On-open refresh-if-stale (#1921, ADR-0097 §4)
+# ---------------------------------------------------------------------------
+#
+# ExternalSyncRequestReason.ON_OPEN was defined but never invoked (#1433 left
+# it wired-but-dormant). These cover that opening My Work enqueues a pull only
+# when the connection's cache has actually gone stale, that the enqueue never
+# blocks the response on an external fetch, and that the existing outbox
+# throttle (the per-(user, source) PENDING coalescing `enqueue_external_sync`
+# already provides) keeps rapid repeat opens from stacking pulls.
+
+_STALE_SECONDS = 60
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail loudly if My Work's on-open refresh ever touches the network.
+
+    The enqueue must be a same-request DB write only — the actual Jira fetch
+    is handed to Celery. Stubbing the single egress chokepoint to raise proves
+    the ``GET /me/work/`` response is never gated on an external HTTP call.
+    """
+    monkeypatch.setattr(
+        http, "get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("network touched"))
+    )
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_enqueues_when_stale() -> None:
+    """A connection whose cache is past the staleness floor gets an ON_OPEN pull."""
+    user = User.objects.create_user(username="priya", password="pw")
+    stale_at = timezone.now() - timedelta(seconds=_STALE_SECONDS * 5)
+    _jira_cred(user, last_used_at=stale_at)
+
+    resp = _client(user).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    (req,) = ExternalSyncRequest.objects.filter(user=user, source="jira")
+    assert req.reason == ExternalSyncRequestReason.ON_OPEN
+    assert req.status == ExternalSyncRequestStatus.PENDING
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_enqueues_nothing_when_fresh() -> None:
+    """A recently-synced connection is not re-triggered on every My Work load."""
+    user = User.objects.create_user(username="priya", password="pw")
+    _jira_cred(user, last_used_at=timezone.now())
+
+    resp = _client(user).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    assert ExternalSyncRequest.objects.filter(user=user).count() == 0
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_enqueues_when_never_synced() -> None:
+    """A connected source that has never completed a pull (``last_used_at`` is
+    null) counts as stale — otherwise a brand-new connection would never
+    on-open-refresh until someone hits manual refresh."""
+    user = User.objects.create_user(username="priya", password="pw")
+    _jira_cred(user, last_used_at=None)
+
+    resp = _client(user).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    on_open_requests = ExternalSyncRequest.objects.filter(
+        user=user, reason=ExternalSyncRequestReason.ON_OPEN
+    )
+    assert on_open_requests.count() == 1
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_skips_auth_failed_connection() -> None:
+    """A dead token gets a Reconnect prompt, not a doomed retry pull."""
+    user = User.objects.create_user(username="priya", password="pw")
+    _jira_cred(user, status="auth_failed", last_used_at=None)
+
+    resp = _client(user).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    assert ExternalSyncRequest.objects.filter(user=user).count() == 0
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_never_enqueues_another_users_connection() -> None:
+    """The enqueue is strictly scoped to the requesting user's own sources."""
+    alice = User.objects.create_user(username="alice", password="pw")
+    bob = User.objects.create_user(username="bob", password="pw")
+    _jira_cred(bob, last_used_at=None)
+
+    resp = _client(alice).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    assert ExternalSyncRequest.objects.count() == 0
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_repeat_opens_do_not_stack_pulls() -> None:
+    """Throttle: an in-flight pull is adopted, not duplicated, by a second stale open.
+
+    Mirrors the manual-refresh coalescing `enqueue_external_sync` already does
+    via the outbox's partial-unique-PENDING constraint — opening My Work twice
+    in a row while a source is stale (and its first pull hasn't landed yet)
+    must not hammer Jira with a second fetch.
+    """
+    user = User.objects.create_user(username="priya", password="pw")
+    _jira_cred(user, last_used_at=None)
+
+    first = _client(user).get("/api/v1/me/work/")
+    second = _client(user).get("/api/v1/me/work/")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert ExternalSyncRequest.objects.filter(user=user).count() == 1
+
+
+@override_settings(TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS=_STALE_SECONDS)
+def test_on_open_no_op_without_a_connection() -> None:
+    """No connected source at all: nothing to enqueue, no crash."""
+    user = User.objects.create_user(username="priya", password="pw")
+
+    resp = _client(user).get("/api/v1/me/work/")
+
+    assert resp.status_code == 200
+    assert ExternalSyncRequest.objects.count() == 0

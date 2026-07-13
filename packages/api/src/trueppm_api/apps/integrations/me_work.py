@@ -14,15 +14,21 @@ which predates #1422 and keeps its own field names; the web reads *this* block.
 
 from __future__ import annotations
 
+import logging
 import urllib.parse
+from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Case, F, IntegerField, QuerySet, Value, When
+from django.utils import timezone
 from rest_framework import serializers
 
-from .connections import STATUS_CONNECTED
+from .connections import STATUS_AUTH_FAILED, STATUS_CONNECTED
 from .external_sources import BUCKET_IN_PROGRESS, BUCKET_TODO, EXTERNAL_TASK_SOURCES
-from .models import ExternalWorkItem, IntegrationCredential
+from .models import ExternalSyncRequestReason, ExternalWorkItem, IntegrationCredential
+
+logger = logging.getLogger(__name__)
 
 # Bucket display-rank: in_progress first, then todo, then done — the order a
 # contributor scans (what am I on now → what's next → what's finished). Applied
@@ -118,6 +124,70 @@ def external_source_summaries(user: Any) -> list[dict[str, Any]]:
     return summaries
 
 
+def _maybe_enqueue_on_open_refresh(user: Any) -> None:
+    """Refresh-if-stale: enqueue a non-blocking ON_OPEN pull for stale connections.
+
+    ADR-0097 §4 names "an on-open refresh-if-stale when My Work loads" as the
+    feature's second trigger (alongside the user-hit-Refresh ``MANUAL`` one) but
+    it was never wired (#1921) — ``ExternalSyncRequestReason.ON_OPEN`` sat
+    defined-but-unused. This is that wiring.
+
+    Deliberately fire-and-forget and never allowed to affect the response:
+    ``enqueue_external_sync`` only writes a small outbox row and hands the
+    actual Jira fetch to Celery via a ``transaction.on_commit`` dispatch (see
+    ``services.py``) — no external HTTP call happens on this request's thread,
+    so a slow or unreachable Jira instance cannot slow down or fail My Work.
+    Any enqueue failure (unregistered source, broker hiccup inside
+    ``enqueue_external_sync``) is swallowed for the same reason: a background
+    refresh is a nice-to-have, not a condition of the page loading.
+
+    The staleness check below *is* the throttle, not a separate mechanism: a
+    connection whose ``last_used_at`` is inside
+    ``TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS`` is fresh and skipped
+    outright, so a user bouncing in and out of My Work does not enqueue a pull
+    (let alone hit Jira) on every load — matching the "already low-frequency by
+    construction" exemption ``enqueue_external_sync`` already documents for
+    this reason. Once a pull *is* enqueued, the outbox's per-``(user, source)``
+    partial-unique-PENDING constraint coalesces any further opens onto that
+    same in-flight row instead of stacking a second fetch.
+    """
+    from .services import enqueue_external_sync
+
+    source_keys = EXTERNAL_TASK_SOURCES.keys()
+    if not source_keys:
+        return
+
+    stale_floor = timedelta(
+        seconds=getattr(settings, "TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS", 300)
+    )
+    now = timezone.now()
+
+    creds = IntegrationCredential.objects.filter(user=user, provider__in=source_keys)
+    for cred in creds:
+        config = cred.config or {}
+        if config.get("status") == STATUS_AUTH_FAILED:
+            # A dead token needs "Reconnect", not a retry that will just fail
+            # again and needlessly burn the outbox/broker (mirrors the same
+            # skip in ``tasks._do_poll``).
+            continue
+        is_stale = cred.last_used_at is None or (now - cred.last_used_at) >= stale_floor
+        if not is_stale:
+            continue
+        try:
+            enqueue_external_sync(user.id, cred.provider, reason=ExternalSyncRequestReason.ON_OPEN)
+        except ValueError:
+            # Source de-registered since the credential was created — nothing
+            # to enqueue against.
+            continue
+        except Exception:
+            # Never let a refresh-if-stale hiccup break the My Work response.
+            logger.exception(
+                "me_work: on-open refresh enqueue failed for user=%s source=%s",
+                user.id,
+                cred.provider,
+            )
+
+
 def me_work_external_blocks(user: Any) -> dict[str, Any]:
     """Build the ``external_items`` + ``external_sources`` My Work side-blocks.
 
@@ -126,8 +196,16 @@ def me_work_external_blocks(user: Any) -> dict[str, Any]:
     stable shape and can distinguish "no source connected" (empty
     ``external_sources``) from "connected, nothing assigned" (a source present
     with an empty ``external_items``).
+
+    Also fires the ADR-0097 §4 on-open refresh-if-stale (#1921): a best-effort,
+    non-blocking enqueue of an ``ON_OPEN`` pull for any connected source whose
+    cache has gone stale, so the *next* load picks up fresher data without the
+    user having to find the manual refresh control. See
+    :func:`_maybe_enqueue_on_open_refresh` for the non-blocking/throttle
+    contract.
     """
     items = list(external_items_queryset(user))
+    _maybe_enqueue_on_open_refresh(user)
     return {
         "external_items": MeWorkExternalItemSerializer(items, many=True).data,
         "external_sources": external_source_summaries(user),
