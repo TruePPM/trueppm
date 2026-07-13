@@ -151,8 +151,17 @@ interface Harness {
    *  arrows and task bars paint onto. Exposed so the engine→renderer seam can be
    *  observed by inspecting the draw calls it received (issue 1515). */
   barsCtx: CanvasRenderingContext2D;
+  /** The recording 2D context backing the interaction canvas — the layer drag
+   *  shadows/link previews paint onto. Exposed so the idle rAF loop's "final
+   *  clear, then stop touching this canvas" contract (#1569) can be observed by
+   *  inspecting `clearRect` call counts across ticks. */
+  ixCtx: CanvasRenderingContext2D;
   /** Run the next scheduled rAF callback (drives exactly one engine tick). */
   flushFrame: () => void;
+  /** True while a frame is armed (a prior tick called `requestAnimationFrame`
+   *  and it has not been consumed by `flushFrame` yet) — the idle-loop
+   *  contract (#1569) is that this goes false once nothing remains dirty. */
+  hasScheduledFrame: () => boolean;
 }
 
 /**
@@ -183,7 +192,8 @@ function setup(opts?: { initialZoom?: 'day' | 'week' | 'month'; bgCtxNull?: bool
   const bgCanvas = makeCanvas(opts?.bgCtxNull ? null : makeCtx());
   const barsCtx = makeCtx();
   const barsCanvas = makeCanvas(barsCtx);
-  const ixCanvas = makeCanvas(makeCtx());
+  const ixCtx = makeCtx();
+  const ixCanvas = makeCanvas(ixCtx);
   const { el: container, scrollToSpy } = makeContainer();
 
   const engine = new GanttEngineImpl({
@@ -200,7 +210,19 @@ function setup(opts?: { initialZoom?: 'day' | 'week' | 'month'; bgCtxNull?: bool
     cb?.(0);
   };
 
-  return { engine, container, scrollToSpy, cancelRaf, roDisconnect, barsCtx, flushFrame };
+  const hasScheduledFrame = (): boolean => nextFrame !== null;
+
+  return {
+    engine,
+    container,
+    scrollToSpy,
+    cancelRaf,
+    roDisconnect,
+    barsCtx,
+    ixCtx,
+    flushFrame,
+    hasScheduledFrame,
+  };
 }
 
 afterEach(() => {
@@ -764,5 +786,87 @@ describe('GanttEngineImpl — header repaint is skipped on vertical-only scroll 
     flushFrame();
 
     expect(headerSpy.mock.calls.length).toBeGreaterThan(headerBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// issue 1569 — idle rAF loop parks itself instead of repainting forever
+// ---------------------------------------------------------------------------
+
+describe('GanttEngineImpl — idle rAF loop parks itself (#1569)', () => {
+  it('stops rescheduling requestAnimationFrame once the initial full repaint settles', () => {
+    const { engine, flushFrame, hasScheduledFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+
+    // setTasks armed a frame for the initial full repaint.
+    expect(hasScheduledFrame()).toBe(true);
+
+    flushFrame();
+
+    // Nothing is dirty and no gesture is active — the tick must NOT re-arm
+    // itself. Before the #1569 fix, `_tick` unconditionally called
+    // `requestAnimationFrame` at the end of every frame, so this would still
+    // be scheduled here and the loop would spin at 60fps forever.
+    expect(hasScheduledFrame()).toBe(false);
+  });
+
+  it('re-arms for a genuine repaint request, then parks again once it settles', () => {
+    const { engine, container, flushFrame, hasScheduledFrame } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+    expect(hasScheduledFrame()).toBe(false);
+
+    // A horizontal scroll is a genuine reason to repaint (rows + header).
+    container.scrollLeft = 320;
+    container.dispatchEvent(new Event('scroll'));
+    expect(hasScheduledFrame()).toBe(true);
+
+    flushFrame();
+
+    // Idle again — the scroll's own repaint doesn't leave anything pending.
+    expect(hasScheduledFrame()).toBe(false);
+  });
+
+  it('clears the interaction canvas exactly once when a gesture ends, then stops touching it while idle', () => {
+    const { engine, flushFrame, hasScheduledFrame, ixCtx } = setup();
+    engine.setTasks([makeTask('a', '2026-04-01', '2026-04-10')]);
+    flushFrame();
+    expect(hasScheduledFrame()).toBe(false);
+
+    // ixCtx.clearRect is a recording vi.fn from makeCtx(), not a real bound
+    // method, so the unbound-method lint doesn't apply here.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const clearRect = vi.mocked(ixCtx.clearRect);
+    const clearsBefore = clearRect.mock.calls.length;
+
+    // Simulate the state right after a drag/pan/link gesture ends: the FSMs
+    // are back to idle, but the interaction canvas still has last frame's
+    // drag shadow / link preview on it (`_ixDirty`), and something (the
+    // pointerup handler, in production) re-arms the loop for the cleanup
+    // pass. `_ixDirty` and `_requestRepaint` are private; accessed the same
+    // way other tests in this file reach FSM/dirty-flag internals.
+    const internals = engine as unknown as {
+      _ixDirty: boolean;
+      _requestRepaint: () => void;
+    };
+    internals._ixDirty = true;
+    internals._requestRepaint();
+    expect(hasScheduledFrame()).toBe(true);
+
+    flushFrame();
+
+    // Exactly one more clearRect — the "final clear" the #1569 fix documents
+    // (a "was drawn last frame" bit so the canvas is left blank, not one more
+    // frame of paint-then-clear-then-paint).
+    expect(clearRect.mock.calls.length).toBe(clearsBefore + 1);
+    // No gesture is active and the canvas is now clean — the loop must park,
+    // not keep clearing an already-empty canvas every frame.
+    expect(hasScheduledFrame()).toBe(false);
+
+    // A further no-op flush (nothing is scheduled) must not touch the canvas
+    // again — this is the "idle Gantt must not clearRect the full viewport
+    // every frame" regression #1569 fixed.
+    flushFrame();
+    expect(clearRect.mock.calls.length).toBe(clearsBefore + 1);
   });
 });

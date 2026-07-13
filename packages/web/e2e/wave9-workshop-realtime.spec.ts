@@ -79,10 +79,16 @@ const PARTICIPANT_BOB: WorkshopParticipant = {
 interface Harness {
   /** The captured `/workshop/` WebSocketRoute (undefined until it connects). */
   workshopSocket(): WebSocketRoute | undefined;
+  /** The captured general project-board WebSocketRoute (issue 1311/1908: the
+   *  channel `useProjectWebSocket` opens on every board mount, distinct from
+   *  the workshop-only channel above — board card sync events arrive here). */
+  generalSocket(): WebSocketRoute | undefined;
   /** How many times the workshop channel has (re)connected. */
   connectCount(): number;
   /** Overwrite the participant list the next `workshop/current/` refetch returns. */
   setParticipants(next: WorkshopParticipant[]): void;
+  /** Overwrite the task list the next `GET tasks/` refetch returns. */
+  setTasks(next: typeof FIXTURE_TASKS): void;
 }
 
 /**
@@ -99,6 +105,21 @@ async function setup(page: import('@playwright/test').Page): Promise<Harness> {
     tasks: FIXTURE_TASKS,
     statusSummary: { task_count: 2 },
     overview: { total_tasks: 2 },
+  });
+
+  // Stateful tasks list (issue 1311/1908 live board sync): setupApiMocks
+  // registers a static `opts.tasks` route; overriding it here with a mutable
+  // closure — registered AFTER setupApiMocks, so it wins per Playwright's
+  // last-registered-route-wins precedence — lets a WS-driven refetch surface
+  // a peer's change.
+  let tasks: typeof FIXTURE_TASKS = FIXTURE_TASKS;
+  await page.route('**/api/v1/tasks/**', (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: tasks.length, next: null, previous: null, results: tasks }),
+    });
   });
 
   let sessionActive = false;
@@ -147,25 +168,36 @@ async function setup(page: import('@playwright/test').Page): Promise<Harness> {
   });
 
   // The board opens the general project channel on mount and the workshop
-  // channel once a session is active — both match this glob. Accept the general
-  // one silently (mock mode) and capture the workshop one so the test can push
-  // frames and simulate a drop. Reassigned on every (re)connect.
+  // channel once a session is active — both match this glob. Capture both: the
+  // general channel so a test can push a card-sync frame (task_updated) and
+  // assert the board mutates (issue 1311/1908 live-board-sync gap), and the
+  // workshop one so a test can push presence frames or simulate a drop.
+  // Reassigned on every (re)connect.
   let workshopSocket: WebSocketRoute | undefined;
+  let generalSocket: WebSocketRoute | undefined;
   let connectCount = 0;
   await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
     if (ws.url().includes('/workshop/')) {
       workshopSocket = ws;
       connectCount += 1;
+    } else {
+      generalSocket = ws;
     }
-    // General channel: no connectToServer() → Playwright keeps it in mock mode
-    // (client sees `open`), which is all the StatusBar pill needs. No frames.
+    // Neither channel calls connectToServer() → Playwright keeps both in mock
+    // mode (client sees `open`), which is all the StatusBar pill needs by
+    // default. Frames are pushed explicitly per-test via `harness.generalSocket()!.send(...)`
+    // / `harness.workshopSocket()!.send(...)`.
   });
 
   return {
     workshopSocket: () => workshopSocket,
+    generalSocket: () => generalSocket,
     connectCount: () => connectCount,
     setParticipants: (next) => {
       participants = next;
+    },
+    setTasks: (next) => {
+      tasks = next;
     },
   };
 }
@@ -269,5 +301,47 @@ test.describe('Workshop mode — realtime collaboration', () => {
     // Board is still intact after the reconnect.
     await expect(banner).toBeVisible();
     await expect(page.getByText('Discovery Phase')).toBeVisible();
+  });
+
+  // Issue 1311/1908 — the realtime gap the original #1311 coverage deferred:
+  // "another participant's task/phase changes appear on a peer's board within
+  // the session". This is card-sync, not workshop-presence: it travels over
+  // the general project channel `useProjectWebSocket` opens on every board
+  // mount (workshop or not), which invalidates the tasks query on a
+  // `task_updated` frame (unless self-echo/duplicate — see the doc comment on
+  // `useProjectWebSocket.ts`). A workshop session makes this matter in
+  // practice (everyone's watching the same board live), so it is exercised
+  // here alongside the rest of the realtime-collaboration coverage.
+  test("a peer's task_updated frame mutates this participant's board", async ({ page }) => {
+    const harness = await setup(page);
+
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('Discovery Phase')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Frame the problem')).toBeVisible();
+
+    await startWorkshop(page);
+    const banner = page.getByRole('status', { name: /workshop/i });
+    await expect(banner).toBeVisible();
+
+    // The general channel opens on mount regardless of workshop state; confirm
+    // it is actually connected before pushing a frame on it.
+    await expect.poll(() => Boolean(harness.generalSocket()), { timeout: 10_000 }).toBe(true);
+
+    // Simulate participant B renaming the leaf task server-side, then push the
+    // task_updated frame that tells this peer to refetch. Production order:
+    // the frame carries no payload the client trusts for the value itself
+    // (ADR-0152) — it only triggers the refetch that surfaces the change.
+    harness.setTasks(
+      FIXTURE_TASKS.map((t) => (t.id === 'wrt2' ? { ...t, name: 'Frame the problem (revised by Bob)' } : t)),
+    );
+    await harness.generalSocket()!.send(
+      JSON.stringify({ event_type: 'task_updated', payload: { id: 'wrt2' } }),
+    );
+
+    // The board mutates on this peer without any local interaction.
+    await expect(page.getByText('Frame the problem (revised by Bob)')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText('Frame the problem', { exact: true })).toHaveCount(0);
   });
 });

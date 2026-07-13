@@ -230,4 +230,26 @@ test.describe('Sprint scope-injection approve-gate (#881 / ADR-0102)', () => {
     // unit test. Here we simply assert no Review affordance is shown.
     await expect(page.getByRole('button', { name: /Review \(/ })).toHaveCount(0);
   });
+
+  // --- touch-target geometry (#1801 backfill) ---
+
+  test('the scope-injection banner dismiss control stays >=44x44px at a 375px viewport', async ({
+    page,
+  }) => {
+    // Rule 228 / WCAG 2.5.5 (#1801): the dismiss × keeps a 44px touch target
+    // on phones, compacting to 24px only at `md:` (>=768px). Prior coverage
+    // (BoardScopeInjectionBanner.test.tsx) only asserted the className string
+    // ('min-h-[44px]' etc.) — this is the real rendered bounding-box geometry
+    // at a real phone viewport the issue's own AC named.
+    await page.setViewportSize({ width: 375, height: 812 });
+    await setupRoutes(page);
+    await page.goto(BASE_URL);
+
+    const dismiss = page.getByRole('button', { name: 'Dismiss scope-injection notice' });
+    await expect(dismiss).toBeVisible({ timeout: 10_000 });
+    const box = await dismiss.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  });
 });

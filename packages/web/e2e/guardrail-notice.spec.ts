@@ -243,3 +243,65 @@ test('empty state: a project with no planned or active sprints shows the nudge',
   await expect(drawer.getByText(/No active or planned sprints/i)).toBeVisible();
   await expect(drawer.getByLabel('Sprint assignment')).toHaveCount(0);
 });
+
+// --- touch-target geometry (#1801 backfill) ---
+//
+// Rule 228 / WCAG 2.5.5: these controls keep a 44px touch target on phones,
+// compacting to a shorter `md:h-8` only at >=768px. The guardrail notice/block
+// renders inside the mobile task-detail bottom sheet (rule 140), so 375px is a
+// real phone target, not a hypothetical one. Prior coverage
+// (GuardrailNotice.test.tsx / GuardrailBlock.test.tsx) only asserted the
+// className string ('min-h-[44px]' / 'md:min-h-0' etc.) — these assert the
+// real rendered bounding-box height at a real 375px viewport.
+//
+// The Schedule task-list grid this spec's other tests drive (`openSprintSection`)
+// is desktop-only — it never mounts below `md:` (the schedule route switches to
+// the dedicated `MobileSchedule` list-timeline surface, ADR-0348). Reaching
+// the drawer at a real 375px viewport therefore goes through that surface's
+// own row-open button instead of the desktop grid; `TaskDetailDrawer` itself
+// (and its Sprint accordion / notice / alert) is unchanged — only the trigger
+// differs. `TaskDetailDrawer` renders TWO sibling `role="dialog"` copies of
+// the content unconditionally (a desktop right-side panel `hidden md:flex`
+// and a mobile bottom sheet `md:hidden`), each mounting its own
+// `DrawerContent` instance with independent local state — so this MUST
+// drive the interaction through the mobile-visible copy directly rather than
+// setting up state via the desktop copy and resizing after the fact (tried
+// first; the desktop copy's local "warning" state never propagates to the
+// sibling mobile instance, which never fired its own mutation).
+
+for (const scenario of ['warn', 'block'] as const) {
+  test(`touch targets: ${scenario} notice buttons stay >=44px tall at a 375px viewport (mobile schedule surface)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await setup(page, { patch: scenario });
+
+    // MobileSchedule renders each task as a full-bleed open button labelled
+    // "{name}, {status}, {dates}…" — tap it to open the SAME TaskDetailDrawer
+    // the desktop grid opens, but through the phone-reachable trigger.
+    const row = page.getByRole('button', { name: /^Migrate billing service, / });
+    await expect(row).toBeVisible({ timeout: 10_000 });
+    await row.click();
+
+    const drawer = page.getByRole('dialog', { name: /Migrate billing service/ });
+    await expect(drawer).toBeVisible({ timeout: 5_000 });
+    await drawer.getByRole('button', { name: 'Sprint' }).click();
+    await drawer.getByLabel('Sprint assignment').selectOption(SPRINT_ID);
+
+    if (scenario === 'warn') {
+      const notice = drawer.getByRole('status');
+      await expect(notice).toBeVisible();
+      for (const name of ['Keep it here', 'Undo']) {
+        const box = await notice.getByRole('button', { name }).boundingBox();
+        expect(box, `${name} bounding box`).not.toBeNull();
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+      }
+    } else {
+      const alert = drawer.getByRole('alert');
+      await expect(alert).toBeVisible();
+      const box = await alert.getByRole('button', { name: 'Got it' }).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
+}
