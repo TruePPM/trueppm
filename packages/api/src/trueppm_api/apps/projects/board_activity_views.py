@@ -24,7 +24,6 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.permissions import (
     IsProjectMember,
-    IsProjectNotArchived,
     _membership_role,
 )
 from trueppm_api.apps.projects.board_activity import (
@@ -87,7 +86,11 @@ def _parse_dt(raw: str | None, field: str) -> Any:
 class BoardActivityView(APIView):
     """GET the board's filterable, time-ordered activity feed (Viewer+)."""
 
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]  # noqa: RUF012
+    # IsProjectNotArchived is deliberately omitted: history/activity is a read-only
+    # audit surface that must stay accessible after a project is archived. (It was
+    # also a no-op here — the permission passes all SAFE_METHODS and this view is
+    # GET-only — so listing it only misdocumented the RBAC contract; #1890.)
+    permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
 
     @extend_schema(
         summary="Board-level activity feed (filterable, board-scoped)",

@@ -166,6 +166,14 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
 # edits (a busy automated integration, or a re-import loop) would load the full
 # history table into Python on every page request. Shared with
 # ProjectHistorySummaryView's constant so both surfaces use the same bound.
+#
+# NOTE(#1889): this cap intentionally differs from the projects app's
+# ``apps.projects.views._MAX_HISTORY_ROWS`` (2000), which backs the wired
+# ``/projects/<pk>/tasks/<pk>/history/`` route serving the task drawer.
+# ``TaskHistoryListView`` below is deliberately unwired (see this app's
+# ``urls.py``); the 5000 bound here covers the project-wide list and summary
+# surfaces. Do not "sync" the two numbers; cross-reference comments live at
+# both constants.
 _MAX_HISTORY_ROWS = 5000
 
 
@@ -205,7 +213,11 @@ class TaskHistoryListView(APIView):
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
-        diffs = _compute_diffs(page, all_records=records)
+        # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
+        # serves purely as the diff seed for the oldest kept record — otherwise that
+        # record has no predecessor in the batch, gets an empty diff, and is dropped
+        # from `visible` below. The seed row itself is never paginated or rendered.
+        diffs = _compute_diffs(page, all_records=raw)
         hide_user = not _caller_can_see_user(request, project)
         visible = [r for r in page if diffs.get(r.history_id)]
         serializer = HistoryRecordSerializer(
@@ -248,7 +260,11 @@ class ProjectHistoryListView(APIView):
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
-        diffs = _compute_diffs(page, all_records=records)
+        # Pass the untrimmed cap+1 batch (#1889): when the cap was hit, the extra row
+        # serves purely as the diff seed for the oldest kept record — otherwise that
+        # record has no predecessor in the batch, gets an empty diff, and is dropped
+        # from `visible` below. The seed row itself is never paginated or rendered.
+        diffs = _compute_diffs(page, all_records=raw)
         hide_user = not _caller_can_see_user(request, project)
         visible = [r for r in page if diffs.get(r.history_id)]
         serializer = HistoryRecordSerializer(

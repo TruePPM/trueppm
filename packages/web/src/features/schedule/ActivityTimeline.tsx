@@ -77,6 +77,7 @@ const FIELD_TO_GROUP: Record<string, Group> = {
   most_likely_duration: 'estimates',
   pessimistic_duration: 'estimates',
   estimate_status: 'estimates',
+  priority_rank: 'estimates',
   story_points: 'estimates',
   remaining_points: 'estimates',
   business_value: 'estimates',
@@ -178,16 +179,32 @@ function fmtValue(field: string, val: string | null): string {
 // Unified event model (history record OR comment)
 // ---------------------------------------------------------------------------
 
+/**
+ * Every event carries TWO actor fields (#1878):
+ * - `actorKey` — stable person identity, the username in BOTH feeds. The person
+ *   filter matches and dedupes on this, so a history row ("atlas-yuki") and a
+ *   comment by the same human are one person, not two.
+ * - `actor` — the label rendered in the row: full/display name when the feed
+ *   provides one, username fallback. Null on a change event means "System".
+ */
 type UnifiedEvent =
   | {
       kind: 'change';
       key: string;
       ts: number;
+      actorKey: string | null;
       actor: string | null;
       record: TaskHistoryRecord;
       groups: Set<Group>;
     }
-  | { kind: 'comment'; key: string; ts: number; actor: string; comment: TaskComment };
+  | {
+      kind: 'comment';
+      key: string;
+      ts: number;
+      actorKey: string;
+      actor: string;
+      comment: TaskComment;
+    };
 
 function groupsForRecord(record: TaskHistoryRecord): Set<Group> {
   const groups = new Set<Group>();
@@ -486,7 +503,8 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
       kind: 'change',
       key: `h-${record.id}`,
       ts: new Date(record.history_date).getTime(),
-      actor: record.history_user,
+      actorKey: record.history_user,
+      actor: record.history_user_display ?? record.history_user,
       record,
       groups: groupsForRecord(record),
     }));
@@ -496,6 +514,9 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
         kind: 'comment',
         key: `c-${c.id}`,
         ts: new Date(c.created_at).getTime(),
+        // Authorless comments keep the pre-#1878 semantics: they group under a
+        // "Someone" pseudo-person rather than the change feed's null => System.
+        actorKey: c.author?.username ?? 'Someone',
         actor: c.author?.display_name ?? c.author?.username ?? 'Someone',
         comment: c,
       }));
@@ -521,20 +542,32 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
   }, [events]);
 
   // Distinct actors for the per-person filter (this task only — rule: no cross-task).
+  // Deduped by actorKey (username) so the same human arriving via the history feed
+  // and the comments feed is ONE entry (#1878); labeled by the best display name seen
+  // (a plain-username label is upgraded when a later event carries the full name).
   const persons = useMemo(() => {
-    const set = new Set<string>();
-    for (const e of events) if (e.actor) set.add(e.actor);
-    return [...set].sort((a, b) => a.localeCompare(b));
+    const byKey = new Map<string, string>();
+    for (const e of events) {
+      if (!e.actorKey) continue;
+      const existing = byKey.get(e.actorKey);
+      if (existing === undefined || existing === e.actorKey) {
+        byKey.set(e.actorKey, e.actor ?? e.actorKey);
+      }
+    }
+    return [...byKey.entries()]
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [events]);
 
   // A chip/person that no longer exists after a refetch falls back gracefully.
   const effectiveGroup = chips.some((c) => c.key === group) ? group : 'all';
-  const effectivePerson = person !== null && persons.includes(person) ? person : null;
+  const effectivePerson =
+    person !== null && persons.some((p) => p.key === person) ? person : null;
 
   const filtered = useMemo(
     () =>
       events.filter((e) => {
-        if (effectivePerson !== null && e.actor !== effectivePerson) return false;
+        if (effectivePerson !== null && e.actorKey !== effectivePerson) return false;
         if (effectiveGroup === 'all') return true;
         if (e.kind === 'comment') return effectiveGroup === 'comments';
         return e.groups.has(effectiveGroup);
@@ -580,8 +613,8 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
             >
               <option value="">Anyone</option>
               {persons.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+                <option key={p.key} value={p.key}>
+                  {p.label}
                 </option>
               ))}
             </select>
