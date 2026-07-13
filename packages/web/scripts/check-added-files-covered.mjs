@@ -36,6 +36,7 @@ const EXEMPT_PATTERNS = [
   /^src\/api\/types\.ts$/, // openapi-typescript generated
   /^src\/features\/schedule\/engine\/GanttEngineStub\.ts$/, // test double
   /^src\/components\/dialog\/index\.ts$/, // pure re-export barrel (no coverable statements)
+  /^src\/router\/routeHandle\.ts$/, // type-only module (interface RouteHandle, no coverable statements)
 ];
 
 const ELIGIBLE_EXT = /\.[cm]?[jt]sx?$/;
