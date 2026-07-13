@@ -7,12 +7,12 @@
 // enriched with a rich project-level signal ONLY where a real server-side
 // computation backs it (#1236, ADR-0221): the /me/work/ `signals` block supplies
 // cross-program schedule health (SPI-proxy), a Monte-Carlo P80 ship-date
-// forecast, and a real per-day sprint burndown series. Team utilization is
-// deliberately absent — no cross-program per-user capacity computation exists, so
-// the "your load" card stays an honest open-task count rather than a fabricated
-// ratio (rule 120: never fabricate a number). Every card also degrades
-// gracefully when its signal is missing. All functions are pure so they
-// unit-test in isolation from the React tree.
+// forecast, and a real per-day sprint burndown series. A fourth "load vs target"
+// card (#1912) is added only when the server supplies a real `utilization`
+// signal — the caller's OWN allocation vs OWN capacity on the lead sprint,
+// single-user and never cross-program leveling. Every card also degrades
+// gracefully when its signal is missing (rule 120: never fabricate a number).
+// All functions are pure so they unit-test in isolation from the React tree.
 // ---------------------------------------------------------------------------
 
 import type { OverviewMetricVariant } from '@/features/project/overviewMetrics';
@@ -21,7 +21,7 @@ import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useM
 /** A single focus card on the My Work home. */
 export interface MyWorkFocusCard {
   /** Stable key for React + tiebreak ordering. */
-  key: 'needs_attention' | 'sprint' | 'critical_path' | 'load';
+  key: 'needs_attention' | 'sprint' | 'critical_path' | 'load' | 'utilization';
   /** Mono kicker label (uppercase in the view). */
   label: string;
   /** Big display value. */
@@ -162,8 +162,59 @@ export function burnPaceDetail(
   return { text: 'On track', tone: 'neutral' };
 }
 
+/** Utilization band → focus-card tone. Over-capacity is a warning, so it uses
+ * the critical semantic token (never a raw color); at-risk maps to the amber
+ * at-risk tone; on-track to the calm on-track tone. */
+const UTILIZATION_TONE: Record<
+  NonNullable<MyWorkSignals['utilization']>['label'],
+  OverviewMetricVariant
+> = {
+  over_capacity: 'critical',
+  at_risk: 'at-risk',
+  on_track: 'on-track',
+};
+
 /**
- * Build the three (or two) focus cards from the My Work payload.
+ * The "Load vs target" focus card (#1912) from the server's `utilization` signal
+ * — the caller's own allocated load vs their own capacity for the lead sprint,
+ * as a percentage. Returns undefined when the server omits the signal (no linked
+ * resource / not allocated / no capacity), so the card is added only when a real
+ * computation backs it. The percentage + the "over/under capacity" delta text
+ * both carry the meaning, so the tone color is never the only signal (a11y).
+ */
+export function utilizationCard(
+  utilization: NonNullable<MyWorkSignals['utilization']> | undefined,
+): MyWorkFocusCard | undefined {
+  if (!utilization) return undefined;
+  const pct = Math.round(utilization.ratio * 100);
+  // Each band gets its OWN delta text so the state is never distinguished by the
+  // tone color alone (WCAG 1.4.1) — "of capacity" (on-track) and "near capacity"
+  // (at-risk) must not read identically to a colorblind user (web-rule: a
+  // semantic-toned state must also differ in text). Over-capacity says so plainly.
+  const DELTA: Record<typeof utilization.label, string> = {
+    over_capacity: 'over capacity',
+    at_risk: 'near capacity',
+    on_track: 'of capacity',
+  };
+  return {
+    key: 'utilization',
+    label: 'Load vs target',
+    value: `${pct}%`,
+    delta: DELTA[utilization.label],
+    variant: UTILIZATION_TONE[utilization.label],
+    // Raw hours + the window make the ratio auditable at a glance; neutral tone
+    // so it never competes with the primary value color above it.
+    detail: {
+      text: `${Math.round(utilization.committed_hours)}h of ${Math.round(
+        utilization.available_hours,
+      )}h · ${utilization.sprint_name}`,
+      tone: 'neutral',
+    },
+  };
+}
+
+/**
+ * Build the three or four (or two) focus cards from the My Work payload.
  *
  * - **Card 1 "Needs attention"** — your blocked + critical-path task count.
  *   critical variant if anything is blocked, at-risk if anything is on the
@@ -181,14 +232,17 @@ export function burnPaceDetail(
  * cards are enriched *only* where a real computation backs the number (rule 120):
  * the "needs attention" card gains a schedule-health (SPI-proxy) detail line, and
  * the sprint card's spark becomes the real burndown series with a real pace line.
- * Utilization stays honestly absent — there is no cross-program per-user capacity
- * computation, so the "your load" card remains an open-task count, not a ratio.
+ * When the server supplies a real `utilization` signal (#1912) a fourth "load vs
+ * target" card is appended showing the caller's own allocation vs their own
+ * capacity for the lead sprint (single-user; never cross-program leveling); it is
+ * omitted when no such computation backs it, so the "your load" open-task count
+ * card is the honest fallback.
  *
  * @param tasks        All loaded My Work tasks (across pages).
  * @param activeSprints The active-sprint cards from the first page.
  * @param dueTodayCount Server due-today count.
  * @param signals      Optional cross-program aggregates (first page only, #1236).
- * @returns 2 or 3 cards, already in render order (worst signal leads).
+ * @returns 2 to 4 cards, already in render order (worst signal leads).
  */
 export function buildMyWorkFocusCards(
   tasks: MyWorkTask[],
@@ -293,6 +347,13 @@ export function buildMyWorkFocusCards(
       variant: 'neutral',
     });
   }
+
+  // ── Card 4: Load vs target (#1912) ──────────────────────────────────────
+  // Your own allocation vs your own capacity for the lead sprint — appended only
+  // when the server backs it with a real utilization computation (rule 120).
+  const utilization = utilizationCard(signals?.utilization);
+  if (utilization) cards.push(utilization);
+
   return cards;
 }
 

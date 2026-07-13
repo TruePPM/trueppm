@@ -126,8 +126,9 @@ export interface MyWorkBurndownPoint {
  * Cross-program focus-card signals (#1236, ADR-0221). Each field is present only
  * when a real server-side computation backs it (rule 120: never fabricated). An
  * absent field means "no data source" — the corresponding card enrichment is
- * honestly omitted rather than approximated. Utilization is deliberately never
- * present: there is no cross-program per-user capacity computation to back it.
+ * honestly omitted rather than approximated. `utilization` (#1912) is the
+ * caller's own load-vs-capacity for the lead sprint, scoped to their own
+ * resource allocations (single-user, not cross-program leveling).
  */
 export interface MyWorkSignals {
   /** Worst-first SPI-proxy schedule-health band across the user's member projects. */
@@ -154,6 +155,26 @@ export interface MyWorkSignals {
     /** Signed points vs the ideal line; positive = ahead. Null when no baseline. */
     trend_points: number | null;
     projected_finish_date: string | null;
+  };
+  /**
+   * The caller's OWN load vs their OWN capacity for the soonest-ending active
+   * sprint (#1912). Load/target come from the sprint capacity source of truth
+   * (resource allocations), scoped to the resource `Resource.user` links to this
+   * user — a single-user, single-program signal, never cross-program leveling.
+   * Absent when the user has no linked resource, is unallocated on the lead
+   * sprint, or the window has no capacity.
+   */
+  utilization?: {
+    sprint_id: string;
+    sprint_name: string;
+    /** Committed (allocated) work hours in the window — the "load". */
+    committed_hours: number;
+    /** Available capacity hours in the window — the "target". */
+    available_hours: number;
+    /** committed / available. 1.0 = exactly at capacity; > 1.0 = over. */
+    ratio: number;
+    is_over: boolean;
+    label: 'on_track' | 'at_risk' | 'over_capacity';
   };
 }
 

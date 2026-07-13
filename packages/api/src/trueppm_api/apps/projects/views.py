@@ -11211,9 +11211,11 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
 
     ``signals`` (#1236, ADR-0221) rolls up per-user cross-program aggregates for
     the focus cards — schedule health / SPI, a Monte-Carlo P80 ship-date forecast,
-    and a real sprint burndown series — over the user's own member projects. Each
-    sub-key appears only when a real server-side computation backs it (rule 120: no
-    fabrication), and only on the first page. See ``services.me_work_signals``.
+    a real sprint burndown series, and the caller's own load-vs-capacity for the
+    lead sprint (``utilization``, #1912) — over the user's own member projects.
+    Each sub-key appears only when a real server-side computation backs it (rule
+    120: no fabrication), and only on the first page. See
+    ``services.me_work_signals``.
     """
 
     permission_classes = [IsAuthenticated]
@@ -11296,9 +11298,11 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                     "server_version_high_water, retro_action_items, signals, "
                     "external_items, external_sources}. "
                     "`signals` (#1236) carries cross-program focus-card aggregates — "
-                    "`schedule_health`, `forecast` (Monte-Carlo P80), and "
-                    "`sprint_burndown` — each present only when a real server-side "
-                    "computation backs it (rule 120), and only on the first page. "
+                    "`schedule_health`, `forecast` (Monte-Carlo P80), "
+                    "`sprint_burndown`, and `utilization` (the caller's own "
+                    "load-vs-capacity for the lead sprint, #1912) — each present "
+                    "only when a real server-side computation backs it (rule 120), "
+                    "and only on the first page. "
                     "`external_items`/`external_sources` (#1422) are the user's "
                     "read-only external work items (Jira etc.) and connected-source "
                     "freshness, also first-page-only."
@@ -11343,7 +11347,10 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                     distinct=True,
                 )
             )
-            .select_related("project")
+            # ``project__calendar`` is joined so the utilization signal's
+            # ``capacity_summary(lead_sprint)`` (#1912) reads the sprint calendar
+            # from this fetch instead of firing a separate lazy query.
+            .select_related("project", "project__calendar")
             .distinct()
             .order_by("finish_date")
         )

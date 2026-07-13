@@ -8,6 +8,7 @@ import {
   myWorkFocusHeading,
   burndownSpark,
   burnPaceDetail,
+  utilizationCard,
 } from './myWorkFocus';
 import type { MyWorkTask, MyWorkActiveSprint, MyWorkSignals } from '@/hooks/useMyWork';
 
@@ -231,6 +232,84 @@ describe('cross-program signals enrichment (#1236)', () => {
     // 5-step honest ramp, no real-series detail.
     expect(cards[1].spark).toHaveLength(5);
     expect(cards[1].detail).toBeUndefined();
+  });
+});
+
+describe('utilizationCard (#1912)', () => {
+  const util = (
+    overrides: Partial<NonNullable<MyWorkSignals['utilization']>> = {},
+  ): NonNullable<MyWorkSignals['utilization']> => ({
+    sprint_id: 's1',
+    sprint_name: 'Sprint 9',
+    committed_hours: 32,
+    available_hours: 40,
+    ratio: 0.8,
+    is_over: false,
+    label: 'on_track',
+    ...overrides,
+  });
+
+  it('renders the load as a rounded percentage of capacity', () => {
+    const card = utilizationCard(util({ ratio: 0.8 }));
+    expect(card).toMatchObject({
+      key: 'utilization',
+      label: 'Load vs target',
+      value: '80%',
+      delta: 'of capacity',
+      variant: 'on-track',
+    });
+    // The raw hours + window make the ratio auditable; neutral so it never
+    // competes with the value color (a11y — text carries the meaning).
+    expect(card?.detail).toEqual({ text: '32h of 40h · Sprint 9', tone: 'neutral' });
+  });
+
+  it('flags the over-capacity state with the critical semantic tone', () => {
+    const card = utilizationCard(
+      util({ committed_hours: 60, available_hours: 40, ratio: 1.5, is_over: true, label: 'over_capacity' }),
+    );
+    expect(card).toMatchObject({ value: '150%', delta: 'over capacity', variant: 'critical' });
+  });
+
+  it('maps the at-risk band to the amber at-risk tone with its own delta text', () => {
+    const card = utilizationCard(util({ ratio: 0.95, label: 'at_risk' }));
+    expect(card?.variant).toBe('at-risk');
+    expect(card?.value).toBe('95%');
+    // Distinct from the on-track "of capacity" so the state is not color-only
+    // (WCAG 1.4.1) — each band's delta text stands alone.
+    expect(card?.delta).toBe('near capacity');
+  });
+
+  it('returns undefined (empty state) when the server omits the signal', () => {
+    expect(utilizationCard(undefined)).toBeUndefined();
+  });
+});
+
+describe('utilization focus card wiring (#1912)', () => {
+  const utilSignal: MyWorkSignals = {
+    utilization: {
+      sprint_id: 's1',
+      sprint_name: 'Sprint 9',
+      committed_hours: 46,
+      available_hours: 40,
+      ratio: 1.15,
+      is_over: true,
+      label: 'over_capacity',
+    },
+  };
+
+  it('appends a fourth "load vs target" card when the signal is present', () => {
+    // 3 open tasks → needs_attention + method + load, then the utilization card.
+    const tasks = [task(), task(), task()];
+    const cards = buildMyWorkFocusCards(tasks, [], 1, utilSignal);
+    expect(cards).toHaveLength(4);
+    expect(cards[3]).toMatchObject({ key: 'utilization', value: '115%', variant: 'critical' });
+  });
+
+  it('omits the utilization card when the server supplies no utilization signal', () => {
+    const cards = buildMyWorkFocusCards([task(), task(), task()], [], 1, {
+      schedule_health: { band: 'on_track', project_count: 1 },
+    });
+    expect(cards.map((c) => c.key)).not.toContain('utilization');
   });
 });
 

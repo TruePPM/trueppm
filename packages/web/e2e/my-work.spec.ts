@@ -599,6 +599,17 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
               trend_points: -6,
               projected_finish_date: '2026-06-05',
             },
+            // #1912: the caller's own load vs their own capacity on the lead
+            // sprint — over-allocated here (46h booked against 40h capacity).
+            utilization: {
+              sprint_id: SPRINT_ID,
+              sprint_name: 'Sprint 12',
+              committed_hours: 46,
+              available_hours: 40,
+              ratio: 1.15,
+              is_over: true,
+              label: 'over_capacity',
+            },
           },
         }),
       }),
@@ -611,6 +622,14 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
 
     // Real burn pace on the sprint focus card.
     await expect(page.getByText('6 pts behind')).toBeVisible();
+
+    // The fourth "load vs target" focus card (#1912) — the caller's own
+    // utilization as a percentage, flagged over-capacity (critical tone, but the
+    // "over capacity" text carries the meaning so it is never color-only).
+    await expect(page.getByText('Load vs target')).toBeVisible();
+    await expect(page.getByText('115%')).toBeVisible();
+    await expect(page.getByText('over capacity')).toBeVisible();
+    await expect(page.getByText('46h of 40h · Sprint 12')).toBeVisible();
 
     // The right-column ship-date forecast panel (real Monte-Carlo P80).
     await expect(page.getByRole('heading', { name: 'Ship-date forecast' })).toBeVisible();
