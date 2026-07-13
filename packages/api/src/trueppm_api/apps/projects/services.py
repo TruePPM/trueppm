@@ -405,12 +405,6 @@ def _capacity_summary_from_rows(sprint: Any, assignment_rows: Any) -> dict[str, 
 
     members.sort(key=lambda m: m["member_name"])
     total_ratio = total_committed / total_available if total_available > 0 else 0.0
-    if total_ratio > 1.0:
-        label = "over_capacity"
-    elif total_ratio >= 0.9:
-        label = "at_risk"
-    else:
-        label = "on_track"
 
     return {
         "members": members,
@@ -419,12 +413,26 @@ def _capacity_summary_from_rows(sprint: Any, assignment_rows: Any) -> dict[str, 
             "available_hours": round(total_available, 2),
             "ratio": round(total_ratio, 4),
             "buffer_hours": round(total_available - total_committed, 2),
-            "label": label,
+            "label": _capacity_label(total_ratio),
             "pto_days": 0,
         },
         "working_days": working_days,
         "hours_per_day": hours_per_day,
     }
+
+
+def _capacity_label(ratio: float) -> str:
+    """Shared load-vs-capacity band: >1.0 over, >=0.9 at risk, else on track.
+
+    One threshold table so the sprint capacity preflight panel (#228) and the
+    per-user My Work utilization signal (#1912) can never drift apart — a change
+    to the "at risk" boundary applies to both surfaces at once.
+    """
+    if ratio > 1.0:
+        return "over_capacity"
+    if ratio >= 0.9:
+        return "at_risk"
+    return "on_track"
 
 
 def capacity_check(sprint: Any) -> list[dict[str, Any]]:
@@ -1305,12 +1313,16 @@ def me_work_signals(
         user's soonest-ending active sprint (the clock that matters most), plus the
         server-computed burn pace. Omitted when the user has no active sprint with a
         snapshot.
-
-    Deliberately **no utilization / capacity key**: there is no cross-program
-    per-user "load vs target" computation keyed off the user's assigned work
-    (the only capacity math is sprint-scoped and driven by ``TaskResource``
-    allocations, a different assignment axis than ``Task.assignee``). Surfacing one
-    would be fabrication-adjacent, so the "your load" card stays an honest count.
+      - ``utilization`` — the requesting user's OWN load vs their OWN capacity for
+        the soonest-ending active sprint (#1912). Load and target both come from the
+        one existing capacity source of truth, :func:`capacity_summary` (load = Sigma
+        ``units x task_working_days x hours/day``; target = ``max_units x
+        sprint_working_days x hours/day``), scoped to the resource(s) that
+        ``Resource.user`` links to this user. Omitted when the user has no linked
+        resource, is not allocated on the lead sprint, or the window has zero
+        capacity (no divide-by-zero). This is a **single-user, single-program**
+        signal — the user's own allocation on their own work — NOT cross-program
+        resource leveling or a cross-portfolio heat map (those are Enterprise).
 
     ``active_sprints`` is the already-materialized active-sprint queryset from the
     view, passed in to avoid re-querying; the lead sprint is chosen from it. Pure
@@ -1395,6 +1407,41 @@ def me_work_signals(
                 "trend_points": burn["trend_points"],
                 "projected_finish_date": burn["projected_finish_date"],
             }
+
+        # ── Personal utilization: your load vs your capacity (#1912) ────────
+        # The one capacity source of truth (capacity_summary) is sprint-scoped and
+        # keyed by TaskResource.resource, a different assignment axis than the
+        # Task.assignee that drives the My Work list. We bridge to the caller via
+        # Resource.user and reuse the SAME lead sprint the burndown uses, so the
+        # card answers "for the sprint whose clock matters most, how allocated am
+        # I vs my capacity". Reusing capacity_summary keeps this byte-identical to
+        # the Sprints capacity panel — no parallel/fabricated capacity model. Only
+        # the requesting user's own resource rows are read (single-user), so this
+        # never leaks another member's or another program's load.
+        from trueppm_api.apps.resources.models import Resource
+
+        my_resource_ids = {
+            str(rid) for rid in Resource.objects.filter(user=user).values_list("id", flat=True)
+        }
+        if my_resource_ids:
+            summary = capacity_summary(lead_sprint)
+            mine = [m for m in summary["members"] if m["member_id"] in my_resource_ids]
+            committed = sum(float(m["committed_hours"]) for m in mine)
+            available = sum(float(m["available_hours"]) for m in mine)
+            # Omit (rule 120) when the user is not allocated on the lead sprint or
+            # the window carries no capacity — both leave the ratio undefined, and
+            # guarding available > 0 also prevents a divide-by-zero.
+            if mine and available > 0:
+                ratio = committed / available
+                signals["utilization"] = {
+                    "sprint_id": str(lead_sprint.pk),
+                    "sprint_name": lead_sprint.name,
+                    "committed_hours": round(committed, 2),
+                    "available_hours": round(available, 2),
+                    "ratio": round(ratio, 4),
+                    "is_over": committed > available,
+                    "label": _capacity_label(ratio),
+                }
 
     return signals
 

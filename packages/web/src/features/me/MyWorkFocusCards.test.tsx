@@ -54,6 +54,24 @@ describe('MyWorkFocusCards', () => {
     expect(container.firstElementChild?.className).toContain('md:grid-cols-2');
   });
 
+  it('renders the utilization "load vs target" card with its percentage and hours (#1912)', () => {
+    const utilization: MyWorkFocusCard = {
+      key: 'utilization',
+      label: 'Load vs target',
+      value: '115%',
+      delta: 'over capacity',
+      variant: 'critical',
+      detail: { text: '46h of 40h · Sprint 9', tone: 'neutral' },
+    };
+    render(<MyWorkFocusCards cards={[NEEDS_ATTENTION, SPRINT, LOAD, utilization]} />);
+    expect(screen.getByText('Load vs target')).toBeInTheDocument();
+    // The percentage carries the meaning; the over-capacity delta text is
+    // redundant with the critical tone (a11y — never color-only).
+    expect(screen.getByText('115%')).toBeInTheDocument();
+    expect(screen.getByText('over capacity')).toBeInTheDocument();
+    expect(screen.getByText('46h of 40h · Sprint 9')).toBeInTheDocument();
+  });
+
   it('renders the real signal detail line as accessible text, not color-only (#1236)', () => {
     const enriched: MyWorkFocusCard = {
       ...NEEDS_ATTENTION,

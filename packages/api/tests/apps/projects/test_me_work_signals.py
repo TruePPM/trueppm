@@ -11,13 +11,16 @@ honestly omitted otherwise. These tests assert:
     projects, and is absent when no run exists;
   - sprint_burndown is the real snapshot series for the soonest-ending active
     sprint, and is absent when there are no snapshots;
-  - utilization is NEVER present (no cross-program per-user capacity source);
+  - utilization (#1912) is the caller's OWN load vs OWN capacity for the lead
+    sprint — computed from the resource-allocation source of truth, scoped to the
+    caller's own resource, and honestly omitted when no such data backs it;
   - signals are computed on the first page only, and stay bounded (no N+1).
 """
 
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -36,6 +39,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 User = get_user_model()
@@ -247,18 +251,173 @@ def test_sprint_burndown_omitted_without_snapshots(calendar: Calendar, alice: ob
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Utilization (personal load vs capacity, #1912)
+# ---------------------------------------------------------------------------
+
+
+# A Mon–Fri sprint window: 5 working days under the default (mask 31) calendar,
+# so available_hours = max_units × 5 × 8 and the arithmetic is checkable by hand.
+_SPRINT_START = date(2026, 6, 1)  # Monday
+_SPRINT_FINISH = date(2026, 6, 5)  # Friday
+
+
+def _util_sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="Cadence",
+        start_date=_SPRINT_START,
+        finish_date=_SPRINT_FINISH,
+        state=SprintState.ACTIVE,
+        committed_points=40,
+    )
+
+
+def _allocated_task(
+    project: Project,
+    sprint: Sprint,
+    user: object,
+    resource: Resource,
+    *,
+    start: date,
+    finish: date,
+    units: str,
+) -> None:
+    """Assign ``user`` a sprint task (so the sprint is active for them) AND book
+    ``resource`` on it at ``units`` (so it contributes to the capacity load)."""
+    t = _task(
+        project,
+        "alloc",
+        sprint=sprint,
+        assignee=user,
+        status=TaskStatus.NOT_STARTED,
+        early_start=start,
+        early_finish=finish,
+    )
+    TaskResource.objects.create(task=t, resource=resource, units=Decimal(units))
+
+
 @pytest.mark.django_db
-def test_utilization_never_present(calendar: Calendar, alice: object) -> None:
-    """Rule 120: there is no cross-program per-user capacity source, so a
-    utilization/capacity key must never appear."""
-    today = timezone.localdate()
+def test_utilization_load_vs_target(calendar: Calendar, alice: object) -> None:
+    """Load = Σ units × task_working_days × hours/day; target = max_units ×
+    sprint_working_days × hours/day. One 2-working-day full-unit assignment in a
+    5-working-day sprint at 1.0 capacity => 16h of 40h => ratio 0.4, under."""
     p1 = _project(calendar, "P1")
     _member(p1, alice)
-    _task(p1, "done", early_finish=today - timedelta(days=1), status=TaskStatus.COMPLETE)
+    sprint = _util_sprint(p1)
+    r = Resource.objects.create(name="Alice R", user=alice, max_units=Decimal("1.0"))
+    # Mon–Tue task = 2 working days.
+    _allocated_task(
+        p1, sprint, alice, r, start=date(2026, 6, 1), finish=date(2026, 6, 2), units="1.0"
+    )
+
+    util = _client(alice).get("/api/v1/me/work/").data["signals"]["utilization"]
+    assert util["sprint_id"] == str(sprint.id)
+    assert util["sprint_name"] == "Cadence"
+    assert util["committed_hours"] == pytest.approx(16.0)
+    assert util["available_hours"] == pytest.approx(40.0)
+    assert util["ratio"] == pytest.approx(0.4)
+    assert util["is_over"] is False
+    assert util["label"] == "on_track"
+
+
+@pytest.mark.django_db
+def test_utilization_over_capacity(calendar: Calendar, alice: object) -> None:
+    """Two full-week full-unit assignments (80h) against 40h capacity => 2.0,
+    flagged over_capacity."""
+    p1 = _project(calendar, "P1")
+    _member(p1, alice)
+    sprint = _util_sprint(p1)
+    r = Resource.objects.create(name="Alice R", user=alice, max_units=Decimal("1.0"))
+    for _ in range(2):
+        _allocated_task(
+            p1, sprint, alice, r, start=_SPRINT_START, finish=_SPRINT_FINISH, units="1.0"
+        )
+
+    util = _client(alice).get("/api/v1/me/work/").data["signals"]["utilization"]
+    assert util["committed_hours"] == pytest.approx(80.0)
+    assert util["available_hours"] == pytest.approx(40.0)
+    assert util["ratio"] == pytest.approx(2.0)
+    assert util["is_over"] is True
+    assert util["label"] == "over_capacity"
+
+
+@pytest.mark.django_db
+def test_utilization_only_requesting_users_own_load(
+    calendar: Calendar, alice: object, bob: object
+) -> None:
+    """Alice's utilization reflects ONLY the resource linked to Alice — Bob's
+    allocation on the same sprint must not inflate her load or capacity."""
+    p1 = _project(calendar, "P1")
+    _member(p1, alice)
+    _member(p1, bob)
+    sprint = _util_sprint(p1)
+    ar = Resource.objects.create(name="Alice R", user=alice, max_units=Decimal("1.0"))
+    br = Resource.objects.create(name="Bob R", user=bob, max_units=Decimal("1.0"))
+    # Alice: Mon–Tue (2 days) at 1.0 => 16h. Bob: full week => 40h, must not leak.
+    _allocated_task(
+        p1, sprint, alice, ar, start=date(2026, 6, 1), finish=date(2026, 6, 2), units="1.0"
+    )
+    _allocated_task(p1, sprint, bob, br, start=_SPRINT_START, finish=_SPRINT_FINISH, units="1.0")
+
+    util = _client(alice).get("/api/v1/me/work/").data["signals"]["utilization"]
+    assert util["committed_hours"] == pytest.approx(16.0)
+    assert util["available_hours"] == pytest.approx(40.0)
+
+
+@pytest.mark.django_db
+def test_utilization_omitted_without_linked_resource(calendar: Calendar, alice: object) -> None:
+    """No ``Resource.user`` bridge => no personal capacity concept => omitted
+    (rule 120), even with an active sprint and assigned work."""
+    p1 = _project(calendar, "P1")
+    _member(p1, alice)
+    sprint = _util_sprint(p1)
+    _task(p1, "t", sprint=sprint, assignee=alice, status=TaskStatus.NOT_STARTED)
 
     signals = _client(alice).get("/api/v1/me/work/").data["signals"]
     assert "utilization" not in signals
-    assert "capacity" not in signals
+
+
+@pytest.mark.django_db
+def test_utilization_omitted_when_not_allocated_on_sprint(
+    calendar: Calendar, alice: object
+) -> None:
+    """A linked resource with no ``TaskResource`` booking on the lead sprint has
+    no measurable load, so the signal is omitted rather than shown as 0%."""
+    p1 = _project(calendar, "P1")
+    _member(p1, alice)
+    sprint = _util_sprint(p1)
+    Resource.objects.create(name="Alice R", user=alice, max_units=Decimal("1.0"))
+    _task(p1, "t", sprint=sprint, assignee=alice, status=TaskStatus.NOT_STARTED)
+
+    signals = _client(alice).get("/api/v1/me/work/").data["signals"]
+    assert "utilization" not in signals
+
+
+@pytest.mark.django_db
+def test_utilization_zero_capacity_no_divide_by_zero(calendar: Calendar, alice: object) -> None:
+    """A window with zero working days (a weekend-only sprint under the Mon–Fri
+    calendar) yields zero available capacity — the signal is omitted rather than
+    dividing by zero."""
+    p1 = _project(calendar, "P1")
+    _member(p1, alice)
+    # Sat–Sun under mask 31 (Mon–Fri) = 0 working days => 0 available hours.
+    sprint = Sprint.objects.create(
+        project=p1,
+        name="Weekend",
+        start_date=date(2026, 6, 6),  # Saturday
+        finish_date=date(2026, 6, 7),  # Sunday
+        state=SprintState.ACTIVE,
+        committed_points=40,
+    )
+    r = Resource.objects.create(name="Alice R", user=alice, max_units=Decimal("1.0"))
+    _allocated_task(
+        p1, sprint, alice, r, start=date(2026, 6, 6), finish=date(2026, 6, 7), units="1.0"
+    )
+
+    resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+    assert "utilization" not in resp.data["signals"]
 
 
 @pytest.mark.django_db
