@@ -16,10 +16,16 @@ import {
   useEffect,
   useRef,
   useState,
+  type ComponentType,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
 } from 'react';
+import {
+  DensityCompactIcon,
+  DensityComfortableIcon,
+  DensityDetailedIcon,
+} from '@/components/Icons';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
 import type {
@@ -322,7 +328,6 @@ const DENSITY_LABELS: Record<BoardDensity, string> = {
   detailed: 'Detailed',
 };
 
-
 const EVM_LABELS: Record<EvmMode, string> = {
   off: 'Off',
   spi: 'SPI',
@@ -361,7 +366,12 @@ function ChipRadioGroup<K extends string>({
   className = 'flex flex-col gap-0.5',
 }: {
   ariaLabel: string;
-  options: ReadonlyArray<{ value: K; label: string; ariaLabel?: string }>;
+  options: ReadonlyArray<{
+    value: K;
+    label: string;
+    ariaLabel?: string;
+    icon?: ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }>;
+  }>;
   selected: K;
   onChange: (value: K) => void;
   className?: string;
@@ -414,13 +424,14 @@ function ChipRadioGroup<K extends string>({
             onClick={() => onChange(opt.value)}
             onKeyDown={(e) => onKeyDown(e, i)}
             className={[
-              'rounded-control px-2 py-1 text-left text-xs',
+              'inline-flex items-center gap-2 rounded-control px-2 py-1 text-left text-xs',
               'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
               isSelected
                 ? 'bg-brand-primary/10 text-brand-primary'
                 : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
             ].join(' ')}
           >
+            {opt.icon && <opt.icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
             {opt.label}
           </button>
         );
@@ -443,16 +454,48 @@ const SORT_OPTIONS = [
   { value: 'percent_complete' as BoardSortKey, label: '% complete' },
 ] as const;
 
+// Each density option carries a small layout-preview icon (issue #1925) so the
+// menu shows that Compact is the single-line "bar" view, not just its name.
 const DENSITY_OPTIONS = [
-  { value: 'compact' as BoardDensity, label: 'Compact', ariaLabel: 'Board card density: Compact' },
-  { value: 'comfortable' as BoardDensity, label: 'Comfortable', ariaLabel: 'Board card density: Comfortable' },
-  { value: 'detailed' as BoardDensity, label: 'Detailed', ariaLabel: 'Board card density: Detailed' },
+  {
+    value: 'compact' as BoardDensity,
+    label: 'Compact',
+    ariaLabel: 'Board card density: Compact',
+    icon: DensityCompactIcon,
+  },
+  {
+    value: 'comfortable' as BoardDensity,
+    label: 'Comfortable',
+    ariaLabel: 'Board card density: Comfortable',
+    icon: DensityComfortableIcon,
+  },
+  {
+    value: 'detailed' as BoardDensity,
+    label: 'Detailed',
+    ariaLabel: 'Board card density: Detailed',
+    icon: DensityDetailedIcon,
+  },
 ] as const;
 
 const BACKLOG_DENSITY_OPTIONS = [
-  { value: 'compact' as BacklogDensity, label: 'Compact', ariaLabel: 'Backlog card density: Compact' },
-  { value: 'comfortable' as BacklogDensity, label: 'Comfortable', ariaLabel: 'Backlog card density: Comfortable' },
-  { value: 'full' as BacklogDensity, label: 'Full', ariaLabel: 'Backlog card density: Full' },
+  {
+    value: 'compact' as BacklogDensity,
+    label: 'Compact',
+    ariaLabel: 'Backlog card density: Compact',
+    icon: DensityCompactIcon,
+  },
+  {
+    value: 'comfortable' as BacklogDensity,
+    label: 'Comfortable',
+    ariaLabel: 'Backlog card density: Comfortable',
+    icon: DensityComfortableIcon,
+  },
+  {
+    value: 'full' as BacklogDensity,
+    label: 'Full',
+    ariaLabel: 'Backlog card density: Full',
+    icon: DensityDetailedIcon,
+  },
 ] as const;
 
 export function CalmToolbar(props: CalmToolbarProps) {

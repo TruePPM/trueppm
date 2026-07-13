@@ -36,7 +36,14 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     searchMatchCount: 0,
     isSearching: false,
     searchInputRef: searchRef,
-    currentViewConfig: { sort: 'priority', showWip: true, showColTints: true, evmMode: 'off', showCost: false, riskLinkedOnly: false },
+    currentViewConfig: {
+      sort: 'priority',
+      showWip: true,
+      showColTints: true,
+      evmMode: 'off',
+      showCost: false,
+      riskLinkedOnly: false,
+    },
     activeViewId: null,
     onApplyView: vi.fn(),
     sprints: [],
@@ -167,7 +174,10 @@ describe('CalmToolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Sort tasks by' }));
     await user.click(screen.getByRole('radio', { name: 'Start date' }));
     expect(onSortChange).toHaveBeenCalledWith('start_date');
-    expect(screen.getByRole('button', { name: 'Sort tasks by' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'Sort tasks by' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 
   it('Density chip exposes board AND backlog density radios', async () => {
@@ -176,6 +186,20 @@ describe('CalmToolbar', () => {
     await user.click(screen.getByRole('button', { name: 'Card density' }));
     expect(screen.getByRole('radio', { name: 'Board card density: Compact' })).toBeInTheDocument();
     expect(screen.getByRole('radio', { name: 'Backlog card density: Full' })).toBeInTheDocument();
+  });
+
+  it('each density option renders a layout-preview icon so the bar view is discoverable (#1925)', async () => {
+    const user = userEvent.setup();
+    renderToolbar();
+    await user.click(screen.getByRole('button', { name: 'Card density' }));
+    const compact = screen.getByRole('radio', { name: 'Board card density: Compact' });
+    const comfortable = screen.getByRole('radio', { name: 'Board card density: Comfortable' });
+    const detailed = screen.getByRole('radio', { name: 'Board card density: Detailed' });
+    // Each option carries a decorative (aria-hidden) SVG layout preview.
+    expect(compact.querySelector('svg')).toBeInTheDocument();
+    expect(comfortable.querySelector('svg')).toBeInTheDocument();
+    expect(detailed.querySelector('svg')).toBeInTheDocument();
+    expect(compact.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('selecting a backlog density invokes onBacklogDensityChange', async () => {
@@ -191,14 +215,20 @@ describe('CalmToolbar', () => {
 
   it('My tasks toggle reports aria-pressed=false by default and true when enabled', () => {
     const { rerender } = renderToolbar({ myTasksEnabled: false });
-    expect(screen.getByRole('button', { name: /My tasks/ })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /My tasks/ })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     rerender(
       <QueryClientProvider client={qc}>
         <Harness myTasksEnabled />
       </QueryClientProvider>,
     );
-    expect(screen.getByRole('button', { name: /My tasks/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /My tasks/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('clicking the Cost pill toggles via onShowCostToggle', async () => {
@@ -376,10 +406,22 @@ describe('CalmToolbar', () => {
     renderToolbar({ density: 'compact', backlogDensity: 'full' });
     await user.click(screen.getByRole('button', { name: 'Card density' }));
     // Board card group: "Compact" is selected → tabIndex=0
-    expect(screen.getByRole('radio', { name: 'Board card density: Compact' })).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('radio', { name: 'Board card density: Comfortable' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('radio', { name: 'Board card density: Compact' })).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+    expect(screen.getByRole('radio', { name: 'Board card density: Comfortable' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    );
     // Backlog group: "Full" is selected → tabIndex=0
-    expect(screen.getByRole('radio', { name: 'Backlog card density: Full' })).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('radio', { name: 'Backlog card density: Compact' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('radio', { name: 'Backlog card density: Full' })).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+    expect(screen.getByRole('radio', { name: 'Backlog card density: Compact' })).toHaveAttribute(
+      'tabindex',
+      '-1',
+    );
   });
 });
