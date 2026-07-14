@@ -166,7 +166,10 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
     @extend_schema(responses={204: OpenApiResponse(description="Entry soft-deleted; empty body.")})
     def delete(self, request: Request, pk: str) -> Response:
         entry = self._own_entry_or_404(request, pk)
-        entry.soft_delete()
+        # Record the actor so the task activity stream can attribute the synthesized
+        # ``time_deleted`` event (issue #1888). Always the owner here — entries are
+        # self-scoped — but stamping it keeps a consistent actor shape across events.
+        entry.soft_delete(actor=request.user)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

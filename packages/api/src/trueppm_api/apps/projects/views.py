@@ -8248,13 +8248,20 @@ def _build_activity_events(
         # ``user=request.user`` and never exposes another member's hours/notes. The
         # shared activity feed MUST NOT widen that boundary, so scope to the
         # caller's own entries (security-review: no cross-user time disclosure).
+        #
+        # Soft-deleted entries are deliberately INCLUDED (no ``is_deleted`` filter,
+        # issue #1888): a deleted entry keeps its ``time_logged`` event and gains a
+        # synthesized ``time_deleted`` from ``deleted_at`` so revised/removed hours
+        # leave a trace — an EVM/billing integrity requirement — mirroring the
+        # attachments stream (#1879) below.
         entries = list(
-            TimeEntry.objects.filter(
+            TimeEntry.objects.select_related("deleted_by")
+            .filter(
                 task=task,
                 user=request.user,  # type: ignore[misc]
-                is_deleted=False,
                 **created_before,
-            ).order_by("-created_at")[: cap + 1]
+            )
+            .order_by("-created_at")[: cap + 1]
         )
         truncated = truncated or len(entries) > cap
         actor = _activity_actor(request.user)
@@ -8276,6 +8283,26 @@ def _build_activity_events(
                     },
                 )
             )
+            # Rows deleted before deleted_at was stamped (legacy null) contribute
+            # only their retained log event — no timestamp to anchor a delete. The
+            # note is omitted from the delete event: the entry is gone, so don't
+            # resurface its body (same reasoning as the deleted-comment preview).
+            if e.is_deleted and e.deleted_at is not None:
+                events.append(
+                    (
+                        e.deleted_at,
+                        {
+                            "event_type": "time_deleted",
+                            "actor": _activity_actor(e.deleted_by),
+                            "timestamp": e.deleted_at.isoformat(),
+                            "detail": {
+                                "time_entry_id": str(e.id),
+                                "minutes": e.minutes,
+                                "entry_date": e.entry_date.isoformat(),
+                            },
+                        },
+                    )
+                )
 
     if "attachments" in include:
         # Append-only feed (#1879): soft-deleted attachments keep their upload
@@ -8488,7 +8515,8 @@ def _build_activity_events(
                     "detail}`; field-diff entries emit `task_created`, "
                     "`fields_changed`, or `task_deleted`, and non-diff events "
                     "(`comment_added`, `comment_edited`, `comment_deleted`, "
-                    "`time_logged`, `attachment_uploaded`, `attachment_deleted`, "
+                    "`time_logged`, `time_deleted`, `attachment_uploaded`, "
+                    "`attachment_deleted`, "
                     "`cpm_recalculated`, `baseline_drift_detected`, `risk_linked`, "
                     "`risk_unlinked`, `dependency_added`, `dependency_removed`, "
                     "`assignee_added`, `assignee_removed`, `assignee_units_changed`) "

@@ -107,6 +107,10 @@ def test_author_can_soft_delete_own_entry(calendar: Calendar, alice: object) -> 
     entry.refresh_from_db()
     assert entry.is_deleted is True  # soft-delete → tombstone, not a hard delete
     assert entry.deleted_version is not None
+    # #1888: the delete is attributed so the activity stream can synthesize a
+    # time_deleted event — deleted_at anchors it, deleted_by is the acting owner.
+    assert entry.deleted_at is not None
+    assert entry.deleted_by_id == alice.pk  # type: ignore[attr-defined]
 
 
 @pytest.mark.django_db
