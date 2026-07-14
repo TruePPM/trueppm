@@ -19,6 +19,9 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
     ``validate_hidden_views`` rejects unknown keys and de-duplicates.
     ``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):
     a display-only boolean that additionally surfaces Schedule under Deliver.
+    ``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):
+    ``date_format`` choice validation is enforced by the model field's ``choices``;
+    ``timezone`` is validated below against stdlib ``zoneinfo`` (``"auto"`` accepted).
     """
 
     # max_length on both the list and the child bound the payload so a worker can
@@ -32,7 +35,31 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
 
     class Meta:
         model = UserProfile
-        fields = ["default_landing", "role_context", "hidden_views", "schedule_in_deliver"]
+        fields = [
+            "default_landing",
+            "role_context",
+            "hidden_views",
+            "schedule_in_deliver",
+            "timezone",
+            "date_format",
+        ]
+
+    def validate_timezone(self, value: str) -> str:
+        # Accept the "auto" sentinel (resolved client-side to the browser zone);
+        # otherwise require a real IANA zone. Reuse the codebase precedent
+        # (TaskRecurrenceRule.validate_timezone / Calendar / Project / Workspace):
+        # ZoneInfo(value) in a try/except, NOT available_timezones() membership —
+        # it accepts exactly the OS-tzdata strings the client's Intl…timeZone emits
+        # and rejects an unknown zone with a DRF-standard 400 field error.
+        if value == "auto":
+            return value
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return value
 
     def validate_hidden_views(self, value: list[str]) -> list[str]:
         unknown = [v for v in value if v not in HIDEABLE_VIEW_KEYS]
@@ -67,6 +94,12 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
         if "schedule_in_deliver" in validated_data:
             instance.schedule_in_deliver = validated_data["schedule_in_deliver"]
             update_fields.append("schedule_in_deliver")
+        if "timezone" in validated_data:
+            instance.timezone = validated_data["timezone"]
+            update_fields.append("timezone")
+        if "date_format" in validated_data:
+            instance.date_format = validated_data["date_format"]
+            update_fields.append("date_format")
         if update_fields:
             instance.save(update_fields=update_fields)
         return instance

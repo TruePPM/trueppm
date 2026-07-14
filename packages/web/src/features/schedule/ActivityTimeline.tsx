@@ -5,6 +5,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { ListIcon } from '@/components/Icons';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 
 /**
  * Unified task Activity timeline (issue 869, ADR-0096 Part 2; extended #1883).
@@ -560,6 +561,9 @@ function changeVerb(entry: TaskActivityEntry): string {
 
 function ActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  // Activity timestamps are INSTANTS (#1953, ADR-0410) — re-clock the relative
+  // fallback + the full-date tooltip to the viewer's timezone + format.
+  const { prefs, formatInstant } = useUserDateFormat();
   const { entry } = event;
   const date = new Date(event.ts);
   const isSystem = event.actor === null;
@@ -598,10 +602,10 @@ function ActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean 
           </p>
           <time
             dateTime={date.toISOString()}
-            title={date.toLocaleString()}
+            title={formatInstant(date.toISOString())}
             className="shrink-0 text-xs text-neutral-text-secondary tppm-mono"
           >
-            {formatRelative(date)}
+            {formatRelative(date, undefined, prefs)}
           </time>
           {multiField && (
             <button

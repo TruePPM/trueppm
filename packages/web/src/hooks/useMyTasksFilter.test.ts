@@ -39,6 +39,8 @@ describe('useMyTasksFilter', () => {
         role_context: 'unified',
         schedule_in_deliver: false,
         dnd_enabled: false,
+        timezone: 'auto',
+        date_format: 'auto',
       },
       isLoading: false,
     });
@@ -65,6 +67,8 @@ describe('useMyTasksFilter', () => {
         role_context: 'unified',
         schedule_in_deliver: false,
         dnd_enabled: false,
+        timezone: 'auto',
+        date_format: 'auto',
       },
       isLoading: false,
     });
@@ -92,6 +96,8 @@ describe('useMyTasksFilter', () => {
         role_context: 'unified',
         schedule_in_deliver: false,
         dnd_enabled: false,
+        timezone: 'auto',
+        date_format: 'auto',
       },
       isLoading: false,
     });
@@ -119,6 +125,8 @@ describe('useMyTasksFilter', () => {
         role_context: 'unified',
         schedule_in_deliver: false,
         dnd_enabled: false,
+        timezone: 'auto',
+        date_format: 'auto',
       },
       isLoading: false,
     });

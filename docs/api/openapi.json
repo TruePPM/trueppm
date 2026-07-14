@@ -39541,6 +39541,16 @@
                     "upstream_task"
                 ]
             },
+            "DateFormatEnum": {
+                "enum": [
+                    "auto",
+                    "iso",
+                    "us",
+                    "eu"
+                ],
+                "type": "string",
+                "description": "* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
+            },
             "DecisionNote": {
                 "type": "object",
                 "description": "Read-only Decisions-view row (ADR-0167, #748).\n\nA decision-flagged task note plus the task + sprint context the web client needs to\ngroup by sprint and link back to the task drawer. Read-only: the ``decision`` flag is\ntoggled via ``TaskNoteViewSet.decision`` (mirroring ``pin``), never written here.",
@@ -41046,10 +41056,23 @@
                     "dnd_enabled": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "date_format": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DateFormatEnum"
+                            }
+                        ],
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "can_access_admin_settings",
+                    "date_format",
                     "default_landing",
                     "display_name",
                     "dnd_enabled",
@@ -41061,6 +41084,7 @@
                     "max_project_role",
                     "role_context",
                     "schedule_in_deliver",
+                    "timezone",
                     "username",
                     "workspace_role"
                 ]
@@ -45006,7 +45030,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -45036,6 +45060,20 @@
                     "schedule_in_deliver": {
                         "type": "boolean",
                         "description": "Also surface Schedule under Deliver (opt-in, display-only)."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "IANA timezone for displaying instant timestamps, or 'auto' to use the browser's detected zone. Display-only; API datetimes stay UTC.",
+                        "maxLength": 64
+                    },
+                    "date_format": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DateFormatEnum"
+                            }
+                        ],
+                        "description": "Date-format style for all displayed dates. 'auto' follows browser locale.\n\n* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
                     }
                 }
             },
@@ -52607,7 +52645,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``schedule_in_deliver`` is a plain per-user placement opt-in (ADR-0203, #1645):\na display-only boolean that additionally surfaces Schedule under Deliver.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -52636,6 +52674,19 @@
                     "schedule_in_deliver": {
                         "type": "boolean",
                         "description": "Also surface Schedule under Deliver (opt-in, display-only)."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "description": "IANA timezone for displaying instant timestamps, or 'auto' to use the browser's detected zone. Display-only; API datetimes stay UTC.",
+                        "maxLength": 64
+                    },
+                    "date_format": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DateFormatEnum"
+                            }
+                        ],
+                        "description": "Date-format style for all displayed dates. 'auto' follows browser locale.\n\n* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
                     }
                 }
             },

@@ -33,6 +33,7 @@ from django.db.models import Max
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.profiles.models import (
+    DateFormat,
     DefaultLanding,
     ProjectVisit,
     RoleContext,
@@ -217,31 +218,42 @@ def get_hidden_views(user: Any) -> list[str]:
     return list(profile.hidden_views) if profile is not None else []
 
 
-def get_profile_prefs(user: Any) -> tuple[str, list[str], str, bool]:
+def get_profile_prefs(user: Any) -> tuple[str, list[str], str, bool, str, str]:
     """All app preferences in one row read — ``(default_landing, hidden_views,
-    role_context, schedule_in_deliver)``.
+    role_context, schedule_in_deliver, timezone, date_format)``.
 
-    ``/auth/me/`` surfaces all four fields, so reading them together (one
+    ``/auth/me/`` surfaces all six fields, so reading them together (one
     ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
-    the defaults (``AUTO``, ``[]``, ``UNIFIED``, ``False``) when the user has no
-    profile row yet — ``role_context`` defaults to the neutral dual-hat lens (#412,
-    ADR-0162) and ``schedule_in_deliver`` to off (ADR-0203, #1645), matching the
-    model defaults so an unconfigured user reads as "Unified Today" with the calm
-    Schedule-in-Plan-only default.
+    the defaults (``AUTO``, ``[]``, ``UNIFIED``, ``False``, ``"auto"``, ``AUTO``)
+    when the user has no profile row yet — ``role_context`` defaults to the neutral
+    dual-hat lens (#412, ADR-0162), ``schedule_in_deliver`` to off (ADR-0203,
+    #1645), and ``timezone`` / ``date_format`` to the ``"auto"`` sentinel (#1953,
+    ADR-0410) that resolves client-side to the browser's zone/locale — matching the
+    model defaults so an unconfigured user reads as "Unified Today", the calm
+    Schedule-in-Plan-only default, and zero-config browser-local display.
     """
 
     profile = (
         UserProfile.objects.filter(user=user)
-        .only("default_landing", "hidden_views", "role_context", "schedule_in_deliver")
+        .only(
+            "default_landing",
+            "hidden_views",
+            "role_context",
+            "schedule_in_deliver",
+            "timezone",
+            "date_format",
+        )
         .first()
     )
     if profile is None:
-        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, False
+        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, False, "auto", DateFormat.AUTO
     return (
         profile.default_landing,
         list(profile.hidden_views),
         profile.role_context,
         profile.schedule_in_deliver,
+        profile.timezone,
+        profile.date_format,
     )
 
 
