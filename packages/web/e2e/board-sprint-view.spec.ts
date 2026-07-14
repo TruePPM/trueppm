@@ -259,4 +259,69 @@ test.describe('Board sprint view (#429 / chrome #1138 #1141)', () => {
     // The card stays put on the closed board.
     await expect(page.getByText('Done sprint task', { exact: true })).toBeVisible();
   });
+
+  test('activity rail defaults to sprint scope with a whole-board toggle (#1946)', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Capture every board-activity request URL so we can assert the scope param.
+    const activityUrls: string[] = [];
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/board/activity**`, (route) => {
+      activityUrls.push(route.request().url());
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [
+            {
+              id: 's1',
+              event_type: 'entered_sprint',
+              actor: 'Priya',
+              actor_id: 'u-priya',
+              timestamp: '2026-06-10T00:00:00Z',
+              task_id: 't-in',
+              task_name: 'In the sprint',
+              sprint_id: SPRINT_ID,
+              scope_change_status: null,
+              changes: [{ field: 'sprint', old: null, new: 'Atlas 4' }],
+            },
+          ],
+          next_until: null,
+        }),
+      });
+    });
+
+    await page.goto(`${BASE_URL}/board`);
+    // Smart-default lands on the single active sprint (Atlas 4).
+    await expect(page).toHaveURL(/[?&]sprint=sprint-atlas-4/);
+
+    // Open the activity rail from the board toolbar.
+    await page.getByRole('button', { name: 'Board activity feed' }).click();
+    const panel = page.getByRole('complementary', { name: 'Board activity' });
+    await expect(panel.getByRole('heading', { name: 'Activity' })).toBeVisible();
+
+    // Defaults to "This sprint" scope → the request carried ?sprint=, and the
+    // relabeled "Scope changes" chip is present.
+    await expect(panel.getByRole('button', { name: 'This sprint' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Whole board' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Scope changes' })).toBeVisible();
+    await expect
+      .poll(() => activityUrls.some((u) => /sprint=sprint-atlas-4/.test(decodeURIComponent(u))))
+      .toBe(true);
+    // The scope-change row is visible in the sprint-scoped rail.
+    await expect(
+      panel.getByRole('button', { name: /Priya added to sprint In the sprint/ }),
+    ).toBeVisible();
+
+    // Toggling to "Whole board" re-queries WITHOUT the sprint scope.
+    activityUrls.length = 0;
+    await panel.getByRole('button', { name: 'Whole board' }).click();
+    await expect
+      .poll(
+        () =>
+          activityUrls.length > 0 &&
+          activityUrls.every((u) => !/[?&]sprint=/.test(decodeURIComponent(u))),
+      )
+      .toBe(true);
+  });
 });

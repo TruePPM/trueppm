@@ -313,3 +313,122 @@ def test_member_can_read_feed_on_archived_project(project: Project, dev: Any) ->
     resp = _client(dev).get(_url(project))
     assert resp.status_code == 200
     assert any(e["event_type"] == "task_updated" for e in resp.data["results"])
+
+
+# --------------------------------------------------------------------------- #
+# Sprint scope (?sprint=, ADR-0412 #1946)
+# --------------------------------------------------------------------------- #
+
+
+def _sprint(project: Project, name: str = "S1") -> Sprint:
+    return Sprint.objects.create(
+        project=project, name=name, start_date=date(2026, 2, 1), finish_date=date(2026, 2, 14)
+    )
+
+
+def test_sprint_scope_narrows_to_that_sprints_tasks(project: Project, dev: Any) -> None:
+    """?sprint= keeps events for tasks currently in the sprint, drops the rest."""
+    sprint = _sprint(project)
+    in_sprint = Task.objects.create(project=project, name="In sprint", duration=5, sprint=sprint)
+    in_sprint.status = TaskStatus.IN_PROGRESS
+    _save(in_sprint, dev)
+
+    out_sprint = Task.objects.create(project=project, name="Not in sprint", duration=5)
+    out_sprint.status = TaskStatus.IN_PROGRESS
+    _save(out_sprint, dev)
+
+    body = _client(dev).get(_url(project), {"sprint": str(sprint.pk)}).data
+    task_ids = {e["task_id"] for e in body["results"]}
+    assert task_ids == {str(in_sprint.pk)}
+
+
+def test_sprint_scope_keeps_removal_visible_in_the_sprint_it_left(
+    project: Project, dev: Any
+) -> None:
+    """An exited_sprint stays visible in the sprint it left even after the task moves on."""
+    sprint = _sprint(project)
+    task = Task.objects.create(project=project, name="Card", duration=5)
+    task.sprint = sprint
+    _save(task, dev)  # entered_sprint
+    task.sprint = None
+    _save(task, dev)  # exited_sprint — task's CURRENT sprint is now None
+
+    body = _client(dev).get(_url(project), {"sprint": str(sprint.pk)}).data
+    types = _types(body["results"])
+    # Both the entry and the exit reference this sprint (old/new id) — both survive
+    # the scope filter even though the task's live sprint_id is now null.
+    assert "entered_sprint" in types
+    assert "exited_sprint" in types
+
+
+def test_sprint_scope_composes_with_type_filter(project: Project, dev: Any) -> None:
+    sprint = _sprint(project)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=sprint)
+    task.status = TaskStatus.IN_PROGRESS
+    _save(task, dev)
+    TaskComment.objects.create(task=task, author=dev, body="note")
+
+    body = _client(dev).get(_url(project), {"sprint": str(sprint.pk), "type": "comment_added"}).data
+    assert set(_types(body["results"])) == {"comment_added"}
+
+
+def test_sprint_scope_composes_with_actor_filter(project: Project, pm: Any, dev: Any) -> None:
+    sprint = _sprint(project)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=sprint)
+    task.status = TaskStatus.IN_PROGRESS
+    _save(task, dev)  # dev
+    task.status = TaskStatus.REVIEW
+    _save(task, pm)  # pm
+
+    body = _client(pm).get(_url(project), {"sprint": str(sprint.pk), "actor": str(dev.pk)}).data
+    assert {e["actor"] for e in body["results"]} == {"dev"}
+
+
+def test_sprint_scope_paginates_without_overlap(project: Project, dev: Any) -> None:
+    sprint = _sprint(project)
+    task = Task.objects.create(project=project, name="Card", duration=5, sprint=sprint)
+    for s in (TaskStatus.IN_PROGRESS, TaskStatus.REVIEW, TaskStatus.COMPLETE):
+        task.status = s
+        _save(task, dev)
+
+    first = _client(dev).get(_url(project), {"sprint": str(sprint.pk), "limit": 2}).data
+    assert len(first["results"]) == 2
+    assert first["next_until"] is not None
+    second = (
+        _client(dev)
+        .get(_url(project), {"sprint": str(sprint.pk), "limit": 2, "until": first["next_until"]})
+        .data
+    )
+    assert {e["id"] for e in first["results"]}.isdisjoint({e["id"] for e in second["results"]})
+
+
+def test_sprint_scope_never_leaks_internal_keys(project: Project, dev: Any) -> None:
+    """The internal _old/_new sprint ids used by the scope filter must not surface."""
+    sprint = _sprint(project)
+    task = Task.objects.create(project=project, name="Card", duration=5)
+    task.sprint = sprint
+    _save(task, dev)
+    body = _client(dev).get(_url(project), {"sprint": str(sprint.pk)}).data
+    for e in body["results"]:
+        assert not any(k.startswith("_") for k in e), e
+
+
+def test_sprint_scope_cross_project_id_is_404(project: Project, dev: Any) -> None:
+    other = Project.objects.create(
+        name="Other", start_date=date(2026, 1, 1), calendar=project.calendar
+    )
+    foreign_sprint = _sprint(other, name="Foreign")
+    resp = _client(dev).get(_url(project), {"sprint": str(foreign_sprint.pk)})
+    assert resp.status_code == 404
+
+
+def test_sprint_scope_unknown_id_is_404(project: Project, dev: Any) -> None:
+    import uuid
+
+    resp = _client(dev).get(_url(project), {"sprint": str(uuid.uuid4())})
+    assert resp.status_code == 404
+
+
+def test_sprint_scope_malformed_id_is_400(project: Project, dev: Any) -> None:
+    resp = _client(dev).get(_url(project), {"sprint": "not-a-uuid"})
+    assert resp.status_code == 400

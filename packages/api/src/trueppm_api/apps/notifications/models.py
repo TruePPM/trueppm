@@ -111,6 +111,18 @@ class NotificationEventType(models.TextChoices):
     # task.assigned), so the inbox row reaches the assignee off-session without
     # interrupting. In-app ON, email opt-in OFF (Priya's un-opted-email hard-NO).
     TASK_MOVED_SPRINT = "task.moved_sprint", "A task I own was carried to another sprint"
+    # Sprint-membership scope change (ADR-0412, #1946). Fires to the project lead
+    # cohort (role >= ADMIN) when a task actually ENTERS or LEAVES an ACTIVE sprint
+    # — the "PM/admin silently added a task to the active sprint" audit gap Jordan
+    # (PO) and Alex (SM) raised as hard-NOs in the 2026-07-14 activity-streams VoC
+    # audit. Distinct from TASK_MOVED_SPRINT above (that reaches the *assignee* on
+    # close-time carryover); this reaches the *accountable leads* on a live-scope
+    # change. In-app ON, email opt-in OFF (Priya's un-opted-email hard-NO), and
+    # deliberately NOT in DND_BYPASS_EVENTS — a scope change is not a hard interrupt.
+    SPRINT_MEMBERSHIP_CHANGED = (
+        "sprint.membership_changed",
+        "A task entered or left an active sprint",
+    )
     # Project-finish shift (#1911, third #82 schedule-notification rule — companion
     # to #1668's dependency-slip / became-critical pair). Fires when a
     # ProjectForecastSnapshot's cpm_finish moves by more than the project's
@@ -449,6 +461,11 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # opt-in OFF (Priya's un-opted-email hard-NO).
     (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.IN_APP, True),
     (NotificationEventType.TASK_MOVED_SPRINT, NotificationChannel.EMAIL, False),
+    # ADR-0412 (#1946) — sprint-membership scope change. In-app ON so the project
+    # leads see a mid-sprint injection/removal in their inbox; email opt-in OFF
+    # (Priya's un-opted-email hard-NO), matching every other contributor signal.
+    (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.EMAIL, False),
     # #1911 — project end-date shift. In-app ON so the PM/Owner cohort sees the
     # slip in their inbox; email opt-in OFF (Priya's un-opted-email hard-NO),
     # matching every other schedule-drift signal in this table.

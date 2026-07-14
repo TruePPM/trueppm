@@ -26,6 +26,10 @@ interface BoardActivityPanelProps {
   onOpenTask: (taskId: string) => void;
   /** Whether a task is still on the board (loaded) — a deleted/absent card isn't openable. */
   isTaskOpenable: (taskId: string) => boolean;
+  /** Active sprint id, when the board is in a sprint context (ADR-0412, #1946). When
+   *  present the panel opens scoped to "This sprint" with a scope toggle; otherwise
+   *  the toggle is hidden and the feed is whole-board. */
+  sprintId?: string | null;
 }
 
 export function BoardActivityPanel({
@@ -33,8 +37,13 @@ export function BoardActivityPanel({
   onClose,
   onOpenTask,
   isTaskOpenable,
+  sprintId,
 }: BoardActivityPanelProps) {
-  const [filters, setFilters] = useState<BoardActivityFilterState>(DEFAULT_FILTERS);
+  // Default to "This sprint" scope when opened in a sprint context, else whole board.
+  const [filters, setFilters] = useState<BoardActivityFilterState>(() => ({
+    ...DEFAULT_FILTERS,
+    scope: sprintId ? 'sprint' : 'board',
+  }));
   const {
     data,
     isLoading,
@@ -44,7 +53,7 @@ export function BoardActivityPanel({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useBoardActivity(projectId, filters);
+  } = useBoardActivity(projectId, filters, sprintId);
 
   const events: BoardActivityEvent[] = useMemo(
     () => (data?.pages ?? []).flatMap((p) => p.results),
@@ -105,7 +114,12 @@ export function BoardActivityPanel({
         </div>
       </header>
 
-      <BoardActivityFilters filters={filters} actors={actors} onChange={setFilters} />
+      <BoardActivityFilters
+        filters={filters}
+        actors={actors}
+        onChange={setFilters}
+        hasSprintScope={!!sprintId}
+      />
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {isLoading && (
@@ -131,9 +145,11 @@ export function BoardActivityPanel({
 
         {!isLoading && !isError && events.length === 0 && (
           <p className="p-4 text-xs text-neutral-text-secondary">
-            {filters.typeGroup !== 'all' || filters.actorId || filters.range !== 'any'
-              ? 'No activity matches these filters.'
-              : 'No board activity yet.'}
+            {filters.scope === 'sprint'
+              ? 'No activity in this sprint yet.'
+              : filters.typeGroup !== 'all' || filters.actorId || filters.range !== 'any'
+                ? 'No activity matches these filters.'
+                : 'No board activity yet.'}
           </p>
         )}
 

@@ -25,13 +25,14 @@ function ret(over: Record<string, unknown> = {}) {
   };
 }
 
-function renderPanel() {
+function renderPanel(over: { sprintId?: string | null } = {}) {
   renderWithProviders(
     <BoardActivityPanel
       projectId="proj-1"
       onClose={vi.fn()}
       onOpenTask={vi.fn()}
       isTaskOpenable={() => true}
+      sprintId={over.sprintId}
     />,
   );
 }
@@ -62,5 +63,37 @@ describe('BoardActivityPanel', () => {
     renderPanel();
     expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't load activity/);
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('defaults to This-sprint scope and shows the toggle when a sprint is active', () => {
+    useBoardActivityMock.mockReturnValue(ret({ isLoading: true }));
+    renderPanel({ sprintId: 's-1' });
+    // The hook is called with the sprint id and sprint scope selected by default.
+    expect(useBoardActivityMock).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({ scope: 'sprint' }),
+      's-1',
+    );
+    expect(screen.getByRole('button', { name: 'This sprint' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Whole board' })).toBeInTheDocument();
+  });
+
+  it('has no scope toggle and defaults to board scope with no active sprint', () => {
+    useBoardActivityMock.mockReturnValue(ret({ isLoading: true }));
+    renderPanel();
+    expect(useBoardActivityMock).toHaveBeenCalledWith(
+      'proj-1',
+      expect.objectContaining({ scope: 'board' }),
+      undefined,
+    );
+    expect(screen.queryByRole('button', { name: 'This sprint' })).not.toBeInTheDocument();
+  });
+
+  it('shows a sprint-scoped empty state when scoped to a sprint', () => {
+    useBoardActivityMock.mockReturnValue(
+      ret({ data: { pages: [{ results: [], next_until: null }], pageParams: [undefined] } }),
+    );
+    renderPanel({ sprintId: 's-1' });
+    expect(screen.getByText('No activity in this sprint yet.')).toBeInTheDocument();
   });
 });

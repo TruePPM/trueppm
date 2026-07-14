@@ -3833,9 +3833,21 @@ class TaskViewSet(
         # and the mobile sync upload stay in lockstep (a divergence here was how
         # sync originally bypassed the gate). Disposition of an already-pending task
         # is blocked at TaskSerializer.validate — it must go through accept/reject.
-        from trueppm_api.apps.projects.services import maybe_record_scope_injection
+        from trueppm_api.apps.projects.services import (
+            maybe_record_scope_injection,
+            notify_sprint_membership_change,
+        )
 
         maybe_record_scope_injection(instance, old_sprint_id, self.request.user)
+
+        # ADR-0412 (#1946): a committed change to this task's sprint FK that enters
+        # or leaves an ACTIVE sprint fans out a targeted in-app notification to the
+        # project leads — closing the "silent mid-sprint injection" audit gap. The
+        # emitter self-guards (no-op PATCH / non-active sprint) and defers a
+        # best-effort dispatch, so it can never fail or revert the task update.
+        notify_sprint_membership_change(
+            instance, old_sprint_id, instance.sprint_id, self.request.user
+        )
 
         # Only recalculate when a schedule-affecting field changed (#965). A
         # PATCH that touches only non-scheduling fields (notes, name) would

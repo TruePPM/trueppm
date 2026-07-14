@@ -9,13 +9,17 @@ const actors = [
   { id: 'u-alex', name: 'Alex' },
 ];
 
-function renderFilters(over: Partial<BoardActivityFilterState> = {}) {
+function renderFilters(
+  over: Partial<BoardActivityFilterState> = {},
+  { hasSprintScope = false }: { hasSprintScope?: boolean } = {},
+) {
   const onChange = vi.fn();
   render(
     <BoardActivityFilters
       filters={{ ...DEFAULT_FILTERS, ...over }}
       actors={actors}
       onChange={onChange}
+      hasSprintScope={hasSprintScope}
     />,
   );
   return onChange;
@@ -27,6 +31,37 @@ describe('BoardActivityFilters', () => {
     const onChange = renderFilters();
     await user.click(screen.getByRole('button', { name: 'Cards', pressed: false }));
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ typeGroup: 'cards' }));
+  });
+
+  it('exposes the sprint-transition group as "Scope changes" mapped to typeGroup sprint', async () => {
+    const user = userEvent.setup();
+    const onChange = renderFilters();
+    await user.click(screen.getByRole('button', { name: 'Scope changes' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ typeGroup: 'sprint' }));
+    // The old "Sprint" label is gone.
+    expect(screen.queryByRole('button', { name: 'Sprint' })).not.toBeInTheDocument();
+  });
+
+  it('hides the scope toggle when no sprint is available', () => {
+    renderFilters();
+    expect(screen.queryByRole('group', { name: 'Activity scope' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'This sprint' })).not.toBeInTheDocument();
+  });
+
+  it('shows the scope toggle and switches This-sprint ↔ Whole-board', async () => {
+    const user = userEvent.setup();
+    const onChange = renderFilters({ scope: 'sprint' }, { hasSprintScope: true });
+    expect(screen.getByRole('group', { name: 'Activity scope' })).toBeInTheDocument();
+    // Currently "This sprint" — switch to whole board.
+    await user.click(screen.getByRole('button', { name: 'Whole board' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ scope: 'board' }));
+  });
+
+  it('preserves scope when clearing type/actor/time filters', async () => {
+    const user = userEvent.setup();
+    const onChange = renderFilters({ scope: 'sprint', typeGroup: 'sprint' }, { hasSprintScope: true });
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ scope: 'sprint', typeGroup: 'all' }));
   });
 
   it('selects a time range', async () => {

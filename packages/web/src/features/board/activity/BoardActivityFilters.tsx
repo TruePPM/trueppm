@@ -9,6 +9,7 @@
 
 import {
   DEFAULT_FILTERS,
+  type ActivityScope,
   type BoardActivityFilterState,
   type TimeRange,
   type TypeGroup,
@@ -17,8 +18,16 @@ import {
 const TYPE_OPTIONS: { value: TypeGroup; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'cards', label: 'Cards' },
-  { value: 'sprint', label: 'Sprint' },
+  // The sprint-transition group is what Jordan/Alex watch (added/removed from
+  // sprint). Labeled "Scope changes" so it's findable without hunting "All"
+  // (ADR-0412, #1946); the underlying TypeGroup value stays 'sprint'.
+  { value: 'sprint', label: 'Scope changes' },
   { value: 'comments', label: 'Comments' },
+];
+
+const SCOPE_OPTIONS: { value: ActivityScope; label: string }[] = [
+  { value: 'sprint', label: 'This sprint' },
+  { value: 'board', label: 'Whole board' },
 ];
 
 const TIME_OPTIONS: { value: TimeRange; label: string }[] = [
@@ -64,14 +73,36 @@ interface BoardActivityFiltersProps {
   filters: BoardActivityFilterState;
   actors: ActorOption[];
   onChange: (next: BoardActivityFilterState) => void;
+  /** Whether an active sprint id is available — gates the scope toggle (ADR-0412). */
+  hasSprintScope?: boolean;
 }
 
-export function BoardActivityFilters({ filters, actors, onChange }: BoardActivityFiltersProps) {
+export function BoardActivityFilters({
+  filters,
+  actors,
+  onChange,
+  hasSprintScope = false,
+}: BoardActivityFiltersProps) {
+  // Scope is not part of "filtered" state (it has its own toggle), so Clear resets
+  // type/actor/time but preserves the sprint-vs-board scope the user is viewing in.
   const isFiltered =
     filters.typeGroup !== 'all' || filters.actorId !== null || filters.range !== 'any';
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-neutral-border px-3 py-2">
+      {hasSprintScope && (
+        <div role="group" aria-label="Activity scope" className="flex flex-wrap gap-1">
+          {SCOPE_OPTIONS.map((o) => (
+            <Chip
+              key={o.value}
+              label={o.label}
+              active={filters.scope === o.value}
+              onClick={() => onChange({ ...filters, scope: o.value })}
+            />
+          ))}
+        </div>
+      )}
+
       <div role="group" aria-label="Filter by event type" className="flex flex-wrap gap-1">
         {TYPE_OPTIONS.map((o) => (
           <Chip
@@ -111,7 +142,7 @@ export function BoardActivityFilters({ filters, actors, onChange }: BoardActivit
       {isFiltered && (
         <button
           type="button"
-          onClick={() => onChange({ ...DEFAULT_FILTERS })}
+          onClick={() => onChange({ ...DEFAULT_FILTERS, scope: filters.scope })}
           className="ml-auto rounded text-xs text-neutral-text-secondary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Clear
