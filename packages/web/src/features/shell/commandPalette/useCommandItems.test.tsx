@@ -23,6 +23,15 @@ vi.mock('@/hooks/usePrograms', () => ({
   usePrograms: () => ({ data: [{ id: 'prog1', name: 'Platform', code: 'PLT' }] }),
 }));
 
+// People tier (ADR-0401): server resource search. Default to no results; a test
+// sets `peopleResults` + a query to assert the person items. `resourceSearch` is a
+// spy so the enabled/gating argument can be asserted.
+let peopleResults: { id: string; name: string }[] = [];
+const resourceSearch = vi.fn((_query: string, _enabled?: boolean) => ({ data: peopleResults }));
+vi.mock('@/hooks/useResourceSearch', () => ({
+  useResourceSearch: (query: string, enabled?: boolean) => resourceSearch(query, enabled),
+}));
+
 // Tier-2 hooks. NOTE: the real `useScheduleTasks` falls back to the *route* project
 // when handed `undefined`, so it returns tasks even with the palette closed — the
 // gating happens in useCommandItems, not here. The default mock mirrors the polite
@@ -93,6 +102,7 @@ const byId = (items: CommandItem[]) => new Map(items.map((i) => [i.id, i]));
 afterEach(() => {
   currentId = 'p1';
   hiddenViews = [];
+  peopleResults = [];
   vi.clearAllMocks();
   canManage.mockImplementation((pid?: string) => !!pid);
   sprintTargets.mockImplementation((pid?: string) =>
@@ -122,6 +132,31 @@ describe('useCommandItems — tier assembly', () => {
     expect(items.get('jump:program:prog1')?.label).toBe('Platform');
     expect(items.get('jump:project:p1')?.label).toBe('Atlas');
     expect(items.get('jump:project:p2')?.label).toBe('Hoover Dam');
+  });
+
+  it('builds a global people tier from the resource search, deep-linking to the catalog (#1940)', () => {
+    peopleResults = [
+      { id: 'r1', name: 'Ann Rivera' },
+      { id: 'r2', name: 'Ben Cho' },
+    ];
+    const { result } = renderHook(() => useCommandItems(true, 'an'));
+    const items = byId(result.current);
+    const ann = items.get('person:r1');
+    expect(ann?.label).toBe('Ann Rivera');
+    expect(ann?.group).toBe('person');
+    expect(ann?.tag).toBe('Person');
+    // deep-links to the org catalog pre-filtered to the name
+    ann?.run();
+    expect(navigate).toHaveBeenCalledWith('/resources?q=Ann%20Rivera');
+    // the search hook was gated ON (open + non-empty query)
+    expect(resourceSearch).toHaveBeenCalledWith('an', true);
+  });
+
+  it('gates the people search OFF when the query is empty (no cold catalog fetch)', () => {
+    peopleResults = [{ id: 'r1', name: 'Ann Rivera' }];
+    const { result } = renderHook(() => useCommandItems(true, '   '));
+    expect(result.current.some((i) => i.group === 'person')).toBe(false);
+    expect(resourceSearch).toHaveBeenCalledWith('', false);
   });
 
   it('gates the Tier-1 Backlog target to non-Waterfall projects; Board is universal', () => {

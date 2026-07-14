@@ -75,6 +75,26 @@ ships last among those you're on, but only once a forecast has actually been run
 it. A project with no forecast, no baseline, or no burndown history yet contributes no
 signal, so a card or panel never shows a made-up number.
 
+## My projects health *(ships in 0.4)*
+
+If you're on **two or more projects**, a compact **My projects** strip sits above
+your work and answers one question at a glance: *which of mine is on fire?* It tallies
+how many of your own projects are **on track**, **at risk**, or **critical**, and
+offers a one-click jump to the single project that needs attention most — so a PM
+overseeing several projects can triage without opening each one.
+
+- The band tallies count **projects**, not tasks. A project's band comes from its own
+  health: the manual status a PM has set on it if any, otherwise derived from its
+  open at-risk and critical task counts.
+- The **needs-attention** chip is the worst project — highest band first, then the one
+  with the most critical (or at-risk) tasks — and links straight to its Overview.
+- When every one of your projects is on track, the strip simply reads **All on track**
+  instead of pushing you toward a project that doesn't need you.
+
+The summary is scoped to **your own projects** — it is a personal triage aid, not a
+portfolio dashboard. A cross-program portfolio roll-up with health scoring is a
+separate, enterprise-tier surface.
+
 ## Status updates
 
 Tap the status chip on any row. A small picker opens with four choices. Pick one and the task updates immediately — the change is sent to the server in the background and other people who have the project open see the new status within a couple of seconds.
@@ -173,5 +193,7 @@ Two changes landed in 0.3 to make the contributor experience quieter and less PM
 ## API
 
 `GET /api/v1/me/work/` returns the same data the page consumes. Limit/offset paginated (default page size 100, max 200). The response is a deliberately flat shape with no CPM fields. See the [API reference](/api/reference/) for the schema.
+
+`GET /api/v1/projects/health-summary/` backs the **My projects** strip: one row per project you're a member of (archived excluded), each with a derived `health_band` and the same at-risk/critical task counts the single-project status summary uses. It is scoped server-side to your own projects.
 
 Status updates use the standard task PATCH endpoint with a `X-Source: my_work` header so downstream webhook subscribers can distinguish a status flip from My Work from a status flip from the schedule canvas.

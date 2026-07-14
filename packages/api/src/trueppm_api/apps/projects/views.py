@@ -100,6 +100,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     ExportJobStatus,
+    Health,
     Label,
     Project,
     ProjectApiToken,
@@ -424,6 +425,22 @@ class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarE
         self._touch(calendar)
 
 
+class DirectoryPagination(pagination.PageNumberPagination):
+    """Raised default page size for the project / program directory endpoints.
+
+    The DRF default of 50 silently truncated the sidebar Browse tree and the
+    command-palette Tier-1 jump targets at the 50th entity (ADR-0401, #1940). 200
+    covers the target account scale (40+ projects) in a single request, so the nav
+    surfaces stop truncating without the client having to loop. ``page_size`` stays
+    client-tunable (bounded by ``max_page_size``) and the response ``count`` drives
+    the "showing N of M" overflow cue for accounts past the ceiling.
+    """
+
+    page_size = 200
+    page_size_query_param = "page_size"
+    max_page_size = 500
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -496,6 +513,12 @@ class ProjectViewSet(
         # is Owner-gated above; a non-Owner member sees the row but cannot restore.
         if self.action == "trash":
             return [IsAuthenticated(), IsProjectMember()]
+        # Cross-project health summary (ADR-0401, #1941): a list-style read over the
+        # caller's own member projects. Object-level IsProjectMember / IsProjectNotArchived
+        # do not apply to a detail=False action — the get_queryset membership filter is the
+        # guard — so this is authenticated-only, matching the plain `list` gate.
+        if self.action == "health_summary":
+            return [IsAuthenticated()]
         # Editing a project requires Scheduler+ at the gate — this closes the
         # #769 blocker (update/partial_update used to fall through to
         # IsProjectMember, which passes for Viewer (role 0) and Member). The
@@ -572,6 +595,7 @@ class ProjectViewSet(
         "start_date", "name"
     )
     serializer_class = ProjectSerializer
+    pagination_class = DirectoryPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["start_date", "name"]
@@ -2468,6 +2492,91 @@ class ProjectViewSet(
                 "last_saved": None,
                 "recalculated_at": None,
             },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        summary="Health summary across the caller's own projects (ADR-0401, #1941)",
+        responses={200: OpenApiResponse(response=OpenApiTypes.OBJECT)},
+    )
+    @action(detail=False, methods=["get"], url_path="health-summary")
+    def health_summary(self, request: Request) -> Response:
+        """Compact "my projects" health triage for the My Work page (ADR-0401).
+
+        Returns one row per project the caller is a member of (excluding archived),
+        each carrying a derived ``health_band`` plus the same at-risk / critical task
+        counts the single-project status-summary uses, so a PM overseeing many
+        projects can see "which of mine is on fire?" without opening each.
+
+        Scope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a
+        cross-program or portfolio rollup (that governance surface stays Enterprise,
+        ADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.
+
+        At-risk / critical use the status_summary semantics: incomplete tasks with
+        total_float <= 5 working days → at_risk_count; incomplete is_critical=True →
+        critical_count. ``distinct=True`` on both conditional counts matches the
+        annotate-over-reverse-FK convention of ProgramViewSet.projects — defensive
+        against fan-out if a second to-many join is ever added to this queryset (the
+        membership scope is a ``pk__in`` subquery, not a join, so today there is only
+        the one ``tasks`` join).
+
+        health_band is derived: the manual Project.health override wins when set (not
+        AUTO); otherwise counts-first — critical_count > 0 → critical, else
+        at_risk_count > 0 → at_risk, else on_track.
+        """
+        from django.db.models import Count, Q
+
+        incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
+        rows = (
+            self.get_queryset()
+            .filter(is_archived=False)
+            .annotate(
+                at_risk_count=Count(
+                    "tasks",
+                    filter=incomplete
+                    & Q(tasks__total_float__isnull=False)
+                    & Q(tasks__total_float__lte=5),
+                    distinct=True,
+                ),
+                critical_count=Count(
+                    "tasks",
+                    filter=incomplete & Q(tasks__is_critical=True),
+                    distinct=True,
+                ),
+            )
+            .values("id", "name", "health", "at_risk_count", "critical_count")
+            .order_by("name")
+        )
+
+        override = {
+            Health.ON_TRACK.value: "on_track",
+            Health.AT_RISK.value: "at_risk",
+            Health.CRITICAL.value: "critical",
+        }
+
+        def compute_band(health: str, at_risk: int, critical: int) -> str:
+            manual = override.get(health)  # None when AUTO
+            if manual is not None:
+                return manual
+            if critical > 0:
+                return "critical"
+            if at_risk > 0:
+                return "at_risk"
+            return "on_track"
+
+        return Response(
+            [
+                {
+                    "id": str(row["id"]),
+                    "name": row["name"],
+                    "health_band": compute_band(
+                        row["health"], row["at_risk_count"], row["critical_count"]
+                    ),
+                    "at_risk_count": row["at_risk_count"],
+                    "critical_count": row["critical_count"],
+                }
+                for row in rows
+            ],
             status=status.HTTP_200_OK,
         )
 
