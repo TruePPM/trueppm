@@ -47,7 +47,7 @@ from drf_spectacular.utils import (
 )
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException, NotAuthenticated, PermissionDenied
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -13950,7 +13950,24 @@ class CommentReactionViewSet(
             TaskComment, pk=comment_pk, task__project_id=project_pk, is_deleted=False
         )
         self.check_object_permissions(self.request, comment)
-        reaction = serializer.save(comment=comment, user=self.request.user)
+        # IsAuthenticated already gates this viewset; the guard narrows the type
+        # for get_or_create's user kwarg (same idiom as the acknowledge action).
+        user = self.request.user
+        if not user.is_authenticated:
+            raise NotAuthenticated
+        # Idempotent create: a reaction is a toggle-on, and offline sync replays
+        # the same POST until it sees a success. A bare serializer.save() hits the
+        # (comment, user, emoji) unique constraint on any duplicate — a double-tap
+        # or a sync retry — and raises IntegrityError → 500, which wedges the whole
+        # sync queue in a retry loop (#1956). get_or_create makes the repeat a no-op
+        # that returns the existing row, and only a genuinely new row broadcasts.
+        emoji = serializer.validated_data["emoji"]
+        reaction, created = CommentReaction.objects.get_or_create(
+            comment=comment, user=user, emoji=emoji
+        )
+        serializer.instance = reaction
+        if not created:
+            return
         # Body-less peer-state ping (#837): the reaction renders inline on the
         # comment, so clients refetch ['task-comments', task_id]. Not a
         # notification (ADR-0075 §A.4) — broadcast != notify.

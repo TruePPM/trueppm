@@ -176,7 +176,8 @@ function CommentRow({
 
   function handleReact() {
     // Phase 1: 👍 only. Phase 2 will look up the user's existing reaction id
-    // for toggle-off; for now POST always (server unique constraint guards dup).
+    // for toggle-off; for now POST always — the server dedups idempotently, so a
+    // repeat tap returns the existing reaction rather than erroring.
     react.mutate({
       projectId,
       taskId,
