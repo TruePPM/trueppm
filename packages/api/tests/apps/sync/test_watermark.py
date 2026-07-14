@@ -19,6 +19,7 @@ from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Label,
     Project,
     RetroActionItem,
     Risk,
@@ -106,6 +107,10 @@ def test_column_tracks_union_across_every_synced_model(
 
     # Time entry — reached through its task's project (ADR-0185 §6).
     TimeEntry.objects.create(task=task, user=user, minutes=30)
+    _assert_in_sync(project)
+
+    # Label catalog (ADR-0400) — direct project FK; the receiver + union must agree.
+    Label.objects.create(project=project, name="tech-debt", color="amber")
     _assert_in_sync(project)
 
     # A calendar change bumps every project using it.

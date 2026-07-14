@@ -101,6 +101,9 @@ The set is open-ended and grows as features land; current event types include:
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
 - **Risks**: `risk_created`, `risk_updated`, `risk_deleted`, `risks_imported`
+- **Labels**: `label_created`, `label_updated`, `label_deleted` (catalog changes;
+  payload carries the label `id`). Assigning or removing a label from a task emits
+  `task_updated` with `changed_fields: ["labels"]`, not a distinct event.
 - **Sprints**: `sprint_created`, `sprint_updated`, `sprint_deleted`,
   `sprint_activated`, `sprint_cancelled`, `sprint_closed`, `sprint_reranked`,
   `sprint_retro_updated`, `milestone_rollup_updated`, `poker_session_updated`

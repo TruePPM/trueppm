@@ -140,6 +140,7 @@ def register_watermark_receivers() -> None:
     from trueppm_api.apps.integrations.models import TaskLink
     from trueppm_api.apps.projects.models import (
         Calendar,
+        Label,
         Project,
         RetroActionItem,
         Risk,
@@ -159,6 +160,10 @@ def register_watermark_receivers() -> None:
         ProjectMembership: lambda i: [i.project_id],
         Risk: lambda i: [i.project_id],
         Sprint: lambda i: [i.project_id],
+        # Label catalog (ADR-0400) — direct project FK. The TaskLabel through-row
+        # is deliberately absent: it has no server_version, and attach/detach bumps
+        # Task.server_version explicitly, which fires Task's receiver instead.
+        Label: lambda i: [i.project_id],
         # A calendar may be shared by several projects — bump all of them.
         Calendar: lambda i: Project.objects.filter(calendar_id=i.pk).values_list("pk", flat=True),
         SprintRetro: lambda i: Sprint.objects.filter(pk=i.sprint_id).values_list(

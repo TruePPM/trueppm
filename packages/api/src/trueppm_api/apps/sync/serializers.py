@@ -18,6 +18,7 @@ from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Label,
     Program,
     Project,
     RetroActionItem,
@@ -100,6 +101,16 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
     # (e.g. a bare instance in a test), matching TaskSerializer.is_phase.
     is_phase = serializers.BooleanField(read_only=True, default=False)
 
+    # Task labels ride the task's own ``server_version`` as a flat id array rather
+    # than a synced join table (ADR-0400, mirroring SyncRiskSerializer.task_ids).
+    # Attaching/detaching a label bumps ``Task.server_version`` so this delta pulls.
+    # The pull view prefetches ``labels`` to avoid N+1.
+    label_ids = serializers.SerializerMethodField()
+
+    def get_label_ids(self, obj: Task) -> list[str]:
+        # Iterate the prefetched cache; values_list() bypasses it and fires an extra SELECT.
+        return [str(label.pk) for label in obj.labels.all()]
+
     class Meta:
         model = Task
         fields = [
@@ -131,6 +142,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "sprint",
             "assignee",
             "is_phase",
+            "label_ids",
         ]
 
 
@@ -354,6 +366,27 @@ class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
             "impact",
             "owner",
             "task_ids",
+        ]
+
+
+class SyncLabelSerializer(serializers.ModelSerializer[Label]):
+    """Sync payload for the project-scoped label catalog (ADR-0400).
+
+    The ``Label`` catalog syncs as its own ``VersionedModel`` collection (colors +
+    curated vocabulary need a table). Assignment to a task is NOT synced here — it
+    rides ``Task.server_version`` via ``SyncTaskSerializer.label_ids``. Soft-deleted
+    rows ride the standard tombstone path (``is_deleted``/``deleted_version``).
+    """
+
+    class Meta:
+        model = Label
+        fields = [
+            "id",
+            "server_version",
+            "project",
+            "name",
+            "color",
+            "position",
         ]
 
 

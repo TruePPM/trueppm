@@ -2946,6 +2946,125 @@ class RiskComment(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Task labels
+# ---------------------------------------------------------------------------
+
+
+class LabelColor(models.TextChoices):
+    """Fixed categorical palette for task labels (ADR-0400).
+
+    Color is stored as a stable enum *key*, never a raw ``#RRGGBB`` hex: the
+    frontend maps each key to a precomputed, theme-aware ``{light,dark} ×
+    {bg,text,border}`` token set verified at WCAG-AA (≥ 4.5:1) in both themes via
+    ``labelTokenStyle`` (the ``identityColors`` categorical precedent, rule 208).
+    A raw hex cannot carry a theme-aware AA-safe foreground/background pair and
+    the design system is semantic-first, so persisting a hue is prohibited.
+    """
+
+    SLATE = "slate", "Slate"
+    TEAL = "teal", "Teal"
+    PURPLE = "purple", "Purple"
+    BLUE = "blue", "Blue"
+    ROSE = "rose", "Rose"
+    AMBER = "amber", "Amber"
+    GREEN = "green", "Green"
+    CYAN = "cyan", "Cyan"
+
+
+class Label(VersionedModel):
+    """A project-scoped, colored task label (ADR-0400, closes #1089).
+
+    Distinct from ``BacklogItem.tags`` (free-text on program-backlog intake
+    items): a label is a first-class, curated, colored catalog entry shared
+    across a project's board and schedule. Synced to mobile as its own
+    ``VersionedModel`` collection; assignment to a task rides
+    ``Task.server_version`` via the ``TaskLabel`` through-table (see the
+    reverse ``Task.labels`` accessor), mirroring the ``Risk.tasks`` M2M-as-id-list
+    sync pattern rather than syncing the join table independently.
+    """
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="labels",
+    )
+    name = models.CharField(max_length=50)
+    color = models.CharField(
+        max_length=16,
+        choices=LabelColor.choices,
+        default=LabelColor.SLATE,
+    )
+    # Stable display order for the pill row / legend / settings manager. Added
+    # now to avoid the retrofit-and-backfill Visiban left as a noted gap.
+    position = models.SmallIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_labels",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # M2M declared on Label so ``task.labels`` returns Labels in (position, name)
+    # order for the pill row; the through row carries no synced version of its own.
+    tasks: models.ManyToManyField[Task, TaskLabel] = models.ManyToManyField(
+        Task,
+        through="TaskLabel",
+        blank=True,
+        related_name="labels",
+    )
+
+    class Meta:
+        db_table = "projects_label"
+        ordering = ["position", "name"]
+        indexes = [
+            # Sync delta pull: WHERE project_id = X AND server_version > since.
+            models.Index(fields=["project", "server_version"], name="label_proj_serverver_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "name"],
+                name="uniq_label_name_per_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Label({self.project_id}, {self.name!r})"
+
+
+class TaskLabel(models.Model):
+    """Through table for the Task ↔ Label many-to-many (ADR-0400).
+
+    Plain ``models.Model`` (not ``VersionedModel``): the assignment is not synced
+    as its own collection. Attaching/detaching a label bumps ``Task.server_version``
+    and the assignment reaches mobile as a flat ``label_ids`` array on the task's
+    sync payload — the ``Risk.tasks`` → ``task_ids`` pattern, endorsed for the
+    low-cardinality (1–5 labels/task) relation. ``unique(task, label)`` makes the
+    attach endpoint idempotent by construction.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+    label = models.ForeignKey(Label, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_task_label"
+        constraints = [
+            models.UniqueConstraint(fields=["task", "label"], name="uniq_task_label_task_label"),
+        ]
+
+    def __str__(self) -> str:
+        return f"TaskLabel task={self.task_id} label={self.label_id}"
+
+    @property
+    def project_id(self) -> Any:
+        # Lets sync watermark + IDOR resolvers reach the owning project via the task.
+        return self.task.project_id
+
+
+# ---------------------------------------------------------------------------
 # Board column configuration
 # ---------------------------------------------------------------------------
 

@@ -54,6 +54,7 @@ from trueppm_api.apps.projects.views import (
     CrossProjectSlipConflictViewSet,
     DependencyViewSet,
     FlowMetricsView,
+    LabelViewSet,
     MeActiveSprintsView,
     MeWorkView,
     MyApiTokenViewSet,
@@ -86,6 +87,7 @@ from trueppm_api.apps.projects.views import (
     TaskCommentViewSet,
     TaskHistoryView,
     TaskIndentView,
+    TaskLabelView,
     TaskNoteViewSet,
     TaskOutdentView,
     TaskRecurrenceRuleViewSet,
@@ -254,6 +256,35 @@ urlpatterns = [
         "projects/<project_pk>/risks/<risk_pk>/comments/",
         RiskCommentViewSet.as_view({"get": "list", "post": "create"}),
         name="project-risk-comments-list",
+    ),
+    # Task labels (ADR-0400, #1089) — project-scoped catalog CRUD ...
+    path(
+        "projects/<project_pk>/labels/",
+        LabelViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-labels-list",
+    ),
+    path(
+        "projects/<project_pk>/labels/<pk>/",
+        LabelViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-labels-detail",
+    ),
+    # ... and idempotent attach/detach of a label to a task (never a replace-set PATCH).
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/labels/",
+        TaskLabelView.as_view(),
+        name="project-task-labels-attach",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/",
+        TaskLabelView.as_view(),
+        name="project-task-labels-detach",
     ),
     # Phase reorder — workshop mode drag-to-reorder (ADR-0046)
     path(
