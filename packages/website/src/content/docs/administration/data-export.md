@@ -164,6 +164,23 @@ Inside the archive, each member project's contents are nested under
 `time_entries.json`, and `history/*.json`), with one program-wide `seed.json`,
 `manifest.json`, and `counts.json` at the top level.
 
+## Who can export, and where bundles are stored
+
+Exporting a full project or program — the JSON seed **and** the async bundle — is
+restricted to **project/program Admins and Owners**. A bundle is a complete copy of
+the project's or program's data (including time entries, attachments, and history),
+so a Viewer or Member cannot bulk-export it even though they can read individual
+items through the app.
+
+Async bundles are written to your configured object storage under the
+`project-exports/` and `program-exports/` prefixes, downloaded only through the
+authenticated API (never a raw or presigned storage URL), and purged automatically
+once they expire (see [retention](/administration/retention/)). **Operator note:**
+because a bundle is sensitive by nature, keep the storage location private — the
+bucket/prefix hosting these archives must not be publicly readable. TruePPM never
+emits a public URL for them, but the storage backend's own ACL is your
+responsibility.
+
 ## Round-trip guarantee
 
 Export is deterministic: exporting a program, re-importing the result into a
