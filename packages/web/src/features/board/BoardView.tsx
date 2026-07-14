@@ -16,7 +16,8 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { WarningIcon, BoardIcon } from '@/components/Icons';
+import { WarningIcon, BoardIcon, ChevronDownIcon, ChevronUpIcon } from '@/components/Icons';
+import { selectVisibleCards, DEFAULT_CELL_CAP } from './cellCap';
 import { EmptyState } from '@/components/EmptyState';
 import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -587,6 +588,14 @@ interface BoardCellProps {
   scopeActions: BoardCardScopeActions;
   /** Closed-sprint read-only (#1141): disables drag on every card in the cell. */
   readOnly?: boolean;
+  /**
+   * Per-cell card cap (issue 1967, ADR-0420). `null` = off (unbounded stack).
+   * A positive integer collapses the calm overflow of an at/under-WIP cell
+   * behind a "+N more" disclosure; a WIP-breached cell is never capped.
+   */
+  cellCap: number | null;
+  /** Current user's resource id (rule-238 predicate) — exempts my-own cards from the cap. */
+  myResourceId: string | null;
 }
 
 // Subtle status tints per column (issue #211).
@@ -682,6 +691,8 @@ function BoardCellImpl({
   scopeActions,
   readOnly = false,
   facetMatchIds,
+  cellCap,
+  myResourceId,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -689,11 +700,48 @@ function BoardCellImpl({
   // Route through the shared wipState() helper so the *at-limit* band (count
   // exactly equals the limit) is surfaced, not just the over-limit case — a
   // column sitting on its ceiling is the signal a team needs before it tips
-  // over (issue 1358 F6).
-  const wipBand = showWip ? wipState(tasks.length, wipLimit) : 'none';
+  // over (issue 1358 F6). `wipBandRaw` is toggle-independent (rule 176); the
+  // displayed chip below is gated on `showWip`, but the cap exemption is not —
+  // an overloaded cell must never be tidied, whether or not chips are shown.
+  const wipBandRaw = wipState(tasks.length, wipLimit);
+  const wipBand = showWip ? wipBandRaw : 'none';
   const restingBg = showColTints
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
+
+  // Per-cell card cap (issue 1967, ADR-0420). A WIP-breached cell is NEVER
+  // capped — the overload pile stays visible (the Scrum-Master signal, and the
+  // rule-176 always-on-breach invariant). `wipBand` reads `tasks.length`, so the
+  // breach chip above is unaffected by the visible slice.
+  const capActive = cellCap != null && wipBandRaw !== 'at' && wipBandRaw !== 'over';
+  const { visible, overflow } = useMemo(
+    () =>
+      capActive
+        ? selectVisibleCards(tasks, { cap: cellCap, myResourceId })
+        : { visible: tasks, overflow: EMPTY_TASKS },
+    [capActive, tasks, cellCap, myResourceId],
+  );
+  // Ephemeral expanded state (not persisted, ADR-0420). The overflow reveals
+  // when the user opens it, when keyboard focus lands on a hidden card (rule 105
+  // — never strand a card out of reach), or when a drag just dropped into it.
+  const [manualExpanded, setManualExpanded] = useState(false);
+  const focusInTail = focusedCardId != null && overflow.some((t) => t.id === focusedCardId);
+  const expanded = manualExpanded || focusInTail;
+  // A card dropped into a capped cell may sort into overflow; auto-expand the
+  // drop-target cell so the just-moved card is visible where it landed. `over`
+  // going false while the drag has *ended* (isDragActive false) — not merely
+  // moved to another cell — identifies the drop target.
+  const prevOver = useRef(over);
+  useEffect(() => {
+    if (prevOver.current && !over && !isDragActive) setManualExpanded(true);
+    prevOver.current = over;
+  }, [over, isDragActive]);
+  // During an active drag-over the whole cell is a drop target — show every card.
+  const showAll = expanded || over;
+  const renderedTasks = showAll ? tasks : visible;
+  const overflowId = `cell-overflow-${phaseId}-${status}`;
+  const showOverflowToggle = capActive && overflow.length > 0 && !over;
+  const overflowIds = useMemo(() => new Set(overflow.map((t) => t.id)), [overflow]);
 
   // Empty cell (epic #361 child E, issue #385; regridded in #1866). At rest with
   // no committed cards the cell stays quiet — no card outline, no surface fill,
@@ -740,32 +788,72 @@ function BoardCellImpl({
           WIP limit: {wipLimit} — at limit
         </div>
       )}
-      {tasks.map((task) => (
-        <div
-          key={task.id}
-          onPointerDown={() => onCardFocus(task.id, status, phaseId)}
-          onFocusCapture={() => onCardFocus(task.id, status, phaseId)}
+      <div id={overflowId} className="contents">
+        {renderedTasks.map((task) => (
+          <div
+            key={task.id}
+            className={
+              expanded && !over && overflowIds.has(task.id)
+                ? 'motion-safe:animate-empty-state-in'
+                : undefined
+            }
+            onPointerDown={() => onCardFocus(task.id, status, phaseId)}
+            onFocusCapture={() => onCardFocus(task.id, status, phaseId)}
+          >
+            <BoardCard
+              task={task}
+              density={density}
+              onMenuMove={onMenuMove}
+              columns={columns}
+              isKeyboardFocused={focusedCardId === task.id}
+              isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
+              isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
+              overallocByResource={overallocByResourcePerTask.get(task.id)}
+              onShowDeps={onShowDeps}
+              onShowRisks={onShowRisks}
+              onChainHover={onChainHover}
+              onCardClick={onCardClick}
+              showEvm={showEvm}
+              showCost={showCost}
+              scopeActions={scopeActions}
+              readOnly={readOnly}
+            />
+          </div>
+        ))}
+      </div>
+      {/* Overflow disclosure (ADR-0420, rule 210): a real aria-expanded toggle,
+          neutral tone (a capped cell is always under-WIP), reusing the ColumnStub
+          tppm-mono count vocabulary. The hidden count is in the accessible name
+          so color/glyph is never the only signal (rule 6). */}
+      {showOverflowToggle && (
+        <button
+          type="button"
+          data-testid="cell-overflow-toggle"
+          aria-expanded={expanded}
+          aria-controls={overflowId}
+          aria-label={expanded ? 'Show fewer cards' : `Show ${overflow.length} more cards`}
+          onClick={() => setManualExpanded((v) => !v)}
+          className="w-full min-h-[36px] flex items-center justify-center gap-1.5 rounded-card
+            border border-neutral-border bg-neutral-surface text-neutral-text-secondary
+            hover:bg-neutral-surface-raised hover:text-neutral-text-primary transition-colors
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
         >
-          <BoardCard
-            task={task}
-            density={density}
-            onMenuMove={onMenuMove}
-            columns={columns}
-            isKeyboardFocused={focusedCardId === task.id}
-            isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
-            isFilteredOut={facetMatchIds !== null && !facetMatchIds.has(task.id)}
-            overallocByResource={overallocByResourcePerTask.get(task.id)}
-            onShowDeps={onShowDeps}
-            onShowRisks={onShowRisks}
-            onChainHover={onChainHover}
-            onCardClick={onCardClick}
-            showEvm={showEvm}
-            showCost={showCost}
-            scopeActions={scopeActions}
-            readOnly={readOnly}
-          />
-        </div>
-      ))}
+          {expanded ? (
+            <ChevronUpIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          ) : (
+            <ChevronDownIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          )}
+          <span className="text-xs">
+            {expanded ? (
+              'Show less'
+            ) : (
+              <>
+                <span className="tppm-mono tabular-nums font-semibold">{overflow.length}</span> more
+              </>
+            )}
+          </span>
+        </button>
+      )}
     </div>
   );
 }
@@ -848,6 +936,10 @@ interface PhaseLaneProps {
   phaseHeight?: number;
   /** Persist a new clamped lane height (issue 285). */
   onResizeHeight: (phaseId: string, px: number) => void;
+  /** Per-cell card cap (issue 1967, ADR-0420); `null` = off. */
+  cellCap: number | null;
+  /** Current user's resource id — exempts my-own cards from the cap. */
+  myResourceId: string | null;
 }
 
 function PhaseLaneImpl({
@@ -888,6 +980,8 @@ function PhaseLaneImpl({
   columnWidths,
   phaseHeight,
   onResizeHeight,
+  cellCap,
+  myResourceId,
 }: PhaseLaneProps) {
   const avg = phaseProgress(phase);
   const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
@@ -1102,6 +1196,8 @@ function PhaseLaneImpl({
               showCost={showCost}
               scopeActions={scopeActions}
               readOnly={readOnly}
+              cellCap={cellCap}
+              myResourceId={myResourceId}
             />
           );
         })}
@@ -3035,6 +3131,10 @@ export function BoardView() {
             onShowWipToggle={() => setShowWip((v) => !v)}
             showColTints={showColTints}
             onShowColTintsToggle={() => setShowColTints((v) => !v)}
+            capCellsOn={toolbarPrefs.cellCap != null}
+            onCapCellsToggle={() =>
+              toolbarPrefs.setCellCap(toolbarPrefs.cellCap == null ? DEFAULT_CELL_CAP : null)
+            }
             evmMode={evmMode}
             onEvmChange={setEvmMode}
             onOpenColumns={() => setShowSettings(true)}
@@ -3712,6 +3812,9 @@ export function BoardView() {
                     columnWidths,
                     phaseHeight: phaseHeights[phase.id],
                     onResizeHeight: setPhaseHeight,
+                    // Per-cell card cap (issue 1967, ADR-0420) — desktop matrix only.
+                    cellCap: toolbarPrefs.cellCap,
+                    myResourceId,
                   });
 
                   if (workshopMode) {

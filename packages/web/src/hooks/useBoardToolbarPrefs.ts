@@ -37,6 +37,13 @@ export interface BoardToolbarPrefs {
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
+  /**
+   * Per-cell card cap (issue 1967, ADR-0420). `null` = off (unbounded stacks,
+   * the default). A positive integer caps the calm cards shown per phase×status
+   * matrix cell and collapses the overflow behind a "+N more" disclosure — a
+   * personal density lens, not shared board state, like zoom/groupBy.
+   */
+  cellCap: number | null;
 }
 
 /** Desktop fallback layout when the user has never explicitly chosen one. */
@@ -55,6 +62,7 @@ interface StoredPrefs {
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
+  cellCap: number | null;
 }
 
 const STORAGE_KEY = 'trueppm.board.toolbarPrefs.v1';
@@ -63,6 +71,7 @@ const DEFAULTS: StoredPrefs = {
   backlogDensity: 'comfortable',
   zoom: 'normal',
   groupBy: 'phase',
+  cellCap: null,
 };
 
 /**
@@ -108,6 +117,13 @@ function read(): StoredPrefs {
       // unrecognized value also falls back to 'phase'.
       groupBy:
         parsed.groupBy === 'assignee' || parsed.groupBy === 'epic' ? parsed.groupBy : 'phase',
+      // Additive (issue 1967): a stored blob without `cellCap` defaults to null
+      // (off) — same backwards-compatible pattern as zoom/groupBy, no version
+      // bump. Only a positive integer is honored; anything else coerces to off.
+      cellCap:
+        typeof parsed.cellCap === 'number' && Number.isFinite(parsed.cellCap) && parsed.cellCap > 0
+          ? Math.floor(parsed.cellCap)
+          : null,
     };
   } catch {
     return DEFAULTS;
@@ -135,10 +151,12 @@ export function useBoardToolbarPrefs(): {
   backlogDensity: BacklogDensity;
   zoom: BoardZoom;
   groupBy: BoardGroupMode;
+  cellCap: number | null;
   setLayout: (v: BoardLayoutVariant) => void;
   setBacklogDensity: (d: BacklogDensity) => void;
   setZoom: (z: BoardZoom) => void;
   setGroupBy: (g: BoardGroupMode) => void;
+  setCellCap: (c: number | null) => void;
 } {
   const [prefs, setPrefs] = useState<StoredPrefs>(() => read());
 
@@ -183,6 +201,14 @@ export function useBoardToolbarPrefs(): {
     });
   }, []);
 
+  const setCellCap = useCallback((cellCap: number | null) => {
+    setPrefs((p) => {
+      const next = { ...p, cellCap };
+      write(next);
+      return next;
+    });
+  }, []);
+
   return {
     // Effective layout for callers that don't care about mobile auto-defaulting
     // — the desktop fallback. Callers that need the mobile-aware layout combine
@@ -192,9 +218,11 @@ export function useBoardToolbarPrefs(): {
     backlogDensity: prefs.backlogDensity,
     zoom: prefs.zoom,
     groupBy: prefs.groupBy,
+    cellCap: prefs.cellCap,
     setLayout,
     setBacklogDensity,
     setZoom,
     setGroupBy,
+    setCellCap,
   };
 }

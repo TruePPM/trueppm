@@ -301,6 +301,9 @@ export interface CalmToolbarProps {
   onShowWipToggle: () => void;
   showColTints: boolean;
   onShowColTintsToggle: () => void;
+  /** Per-cell card cap on/off (issue 1967, ADR-0420). */
+  capCellsOn: boolean;
+  onCapCellsToggle: () => void;
   evmMode: EvmMode;
   onEvmChange: (m: EvmMode) => void;
   onOpenColumns: () => void;
@@ -789,6 +792,12 @@ export function CalmToolbar(props: CalmToolbarProps) {
               onChange={props.onShowColTintsToggle}
               label="Column tints"
               ariaLabel="Show column tints"
+            />
+            <MoreCheckbox
+              checked={props.capCellsOn}
+              onChange={props.onCapCellsToggle}
+              label="Cap tall cells"
+              ariaLabel="Cap tall cells — collapse calm overflow past six cards per cell"
             />
             <label className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-neutral-text-primary">
               <span>EVM</span>
