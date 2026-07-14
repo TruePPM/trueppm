@@ -268,6 +268,27 @@ test.describe('Board viewability — your cards inside a stub (#1696)', () => {
   });
 });
 
+test.describe('Board viewability — bottom scroll breathing room (#1963)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alpha Phase')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('the lane scroll container reserves bottom padding so the last card is not sheared at the fold', async ({
+    page,
+  }) => {
+    // A card sheared flush at the viewport edge reads as truncated, not
+    // scrollable (#1963). The scroll container carries pb-6 (24px) so the
+    // final lane always ends with a gap above the StatusBar.
+    const paddingBottom = await page.getByTestId('board-scroll').evaluate(
+      (el) => parseFloat(getComputedStyle(el).paddingBottom),
+    );
+    expect(paddingBottom).toBeGreaterThanOrEqual(24);
+  });
+});
+
 test.describe('Board viewability — phase-lane focus (#1460)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
