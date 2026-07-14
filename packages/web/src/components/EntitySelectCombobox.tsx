@@ -213,7 +213,10 @@ export function EntitySelectCombobox({
           <div
             ref={popoverRef}
             style={popoverStyle}
-            className="z-50 rounded-card border border-neutral-border bg-neutral-surface"
+            // z-[70] (above the z-[60] modal tier): this combobox is embedded in
+            // the z-[60] transfer dialogs, so the portaled panel must sit above the
+            // modal scrim to stay clickable.
+            className="z-[70] rounded-card border border-neutral-border bg-neutral-surface"
           >
             {/* Icon-prefixed search box — ring on the wrapper (rule 157). */}
             <div className="flex h-7 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
