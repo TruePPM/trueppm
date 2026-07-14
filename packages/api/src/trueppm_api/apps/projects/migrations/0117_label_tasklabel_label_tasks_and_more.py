@@ -9,7 +9,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0115_historicalproject_end_date_shift_threshold_days_and_more"),
+        ("projects", "0116_alter_taskactivityevent_event_type"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
