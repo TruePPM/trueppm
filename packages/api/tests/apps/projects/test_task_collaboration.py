@@ -1100,6 +1100,45 @@ class TestCommentReaction:
         assert r.status_code == 201, r.data
         assert CommentReaction.objects.filter(comment_id=c.data["id"]).count() == 1
 
+    def test_duplicate_reaction_is_idempotent(
+        self,
+        member_client: APIClient,
+        member2_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """A repeat reaction (double-tap / offline sync replay) must succeed as a
+        no-op, not 500 on the unique constraint and wedge the sync queue (#1956)."""
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        url = self._reactions_url(project, task, c.data["id"])
+        first = member2_client.post(url, {"emoji": "👍"}, format="json")
+        assert first.status_code == 201, first.data
+        second = member2_client.post(url, {"emoji": "👍"}, format="json")
+        assert second.status_code == 201, second.data
+        # Same row returned, no duplicate persisted.
+        assert second.data["id"] == first.data["id"]
+        assert CommentReaction.objects.filter(comment_id=c.data["id"]).count() == 1
+
+    def test_duplicate_reaction_does_not_rebroadcast(
+        self,
+        member_client: APIClient,
+        member2_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """The idempotent replay is a no-op — no state change, so no board event."""
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        url = self._reactions_url(project, task, c.data["id"])
+        member2_client.post(url, {"emoji": "👍"}, format="json")
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast:
+            with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+                r = member2_client.post(url, {"emoji": "👍"}, format="json")
+            assert r.status_code == 201, r.data
+        assert mock_bcast.call_count == 0
+
     def test_other_emoji_rejected(
         self,
         member_client: APIClient,
