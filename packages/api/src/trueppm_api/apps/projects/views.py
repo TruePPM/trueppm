@@ -6833,7 +6833,9 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
     human-only until the 0.6 agent write surface (ADR-0186).
     """
 
-    queryset = Label.objects.select_related("project", "created_by").filter(is_deleted=False)
+    # No select_related: the serializer emits neither project nor created_by, and
+    # scoping filters on the project_id column (no join) — the FK joins were dead weight.
+    queryset = Label.objects.filter(is_deleted=False)
     serializer_class = LabelSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
