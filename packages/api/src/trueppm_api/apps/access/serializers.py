@@ -18,7 +18,7 @@ from trueppm_api.apps.access.models import (
     Role,
     UserDefinedMentionGroup,
 )
-from trueppm_api.apps.profiles.models import RoleContext
+from trueppm_api.apps.profiles.models import DateFormat, RoleContext
 from trueppm_api.apps.workspace.serializers import display_name_for
 
 User = get_user_model()
@@ -523,6 +523,14 @@ class MeSerializer(serializers.Serializer[Any]):
     # /api/v1/me/notification-settings/. Non-creating on this hot GET path — the
     # absence of a settings row reads as DND off.
     dnd_enabled = serializers.SerializerMethodField()
+    # Personal display frame (#1953, ADR-0410). Read-only projections the web client
+    # reads to render timestamps/dates in the viewer's frame. API-first: these are
+    # server facts (identical for web, mobile, MCP) but purely presentational — the
+    # API itself always emits aware-UTC ISO-8601; an agent ignores them.
+    #   - timezone: IANA zone for instant timestamps, or "auto" (browser zone).
+    #   - date_format: style for all displayed dates ("auto"/"iso"/"us"/"eu").
+    timezone = serializers.SerializerMethodField()
+    date_format = serializers.SerializerMethodField()
 
     def get_max_project_role(self, obj: Any) -> int | None:
         # Memoized: get_can_access_admin_settings also needs this, so without the
@@ -555,16 +563,15 @@ class MeSerializer(serializers.Serializer[Any]):
             ws is not None and ws >= WorkspaceRole.ADMIN
         )
 
-    def _prefs(self, obj: Any) -> tuple[str, list[str], str, bool]:
+    def _prefs(self, obj: Any) -> tuple[str, list[str], str, bool, str, str]:
         # Memoized single read of (default_landing, hidden_views, role_context,
-        # schedule_in_deliver): get_landing, get_default_landing, get_hidden_views,
-        # get_role_context, and get_schedule_in_deliver all need a UserProfile column,
-        # so reading them in one .only() query keeps /auth/me at one profile read
-        # regardless of how many fields consume it.
+        # schedule_in_deliver, timezone, date_format): every pref getter needs a
+        # UserProfile column, so reading them in one .only() query keeps /auth/me at
+        # one profile read regardless of how many fields consume it.
         if not hasattr(self, "_prefs_cache"):
             from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._prefs_cache: tuple[str, list[str], str, bool] = get_profile_prefs(obj)
+            self._prefs_cache: tuple[str, list[str], str, bool, str, str] = get_profile_prefs(obj)
         return self._prefs_cache
 
     def get_default_landing(self, obj: Any) -> str:
@@ -612,6 +619,17 @@ class MeSerializer(serializers.Serializer[Any]):
 
     def get_schedule_in_deliver(self, obj: Any) -> bool:
         return self._prefs(obj)[3]
+
+    @extend_schema_field(serializers.CharField())
+    def get_timezone(self, obj: Any) -> str:
+        return self._prefs(obj)[4]
+
+    # Reuse the model's own choices (not a hardcoded copy) so drf-spectacular
+    # collapses this and UserProfileSerializer.date_format into one shared
+    # ``DateFormatEnum`` component instead of divergent Me/UserProfile duplicates.
+    @extend_schema_field(serializers.ChoiceField(choices=DateFormat.choices))
+    def get_date_format(self, obj: Any) -> str:
+        return self._prefs(obj)[5]
 
     @extend_schema_field(serializers.BooleanField())
     def get_dnd_enabled(self, obj: Any) -> bool:

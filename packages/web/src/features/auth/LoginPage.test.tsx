@@ -37,6 +37,8 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
     role_context: 'unified',
     schedule_in_deliver: false,
     dnd_enabled: false,
+    timezone: 'auto',
+    date_format: 'auto',
     ...overrides,
   };
 }
