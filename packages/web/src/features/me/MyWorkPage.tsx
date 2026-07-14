@@ -38,6 +38,7 @@ import {
 } from '@/hooks/useMyWork';
 import { useTimeRollup } from '@/hooks/useTimeEntry';
 import { formatMinutesAsHm } from '@/lib/parseHours';
+import { localTodayIso } from '@/lib/localDate';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
 import { useProjects } from '@/hooks/useProjects';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -72,15 +73,6 @@ const GROUP_LABEL: Record<MyWorkGroup, string> = {
   this_sprint: 'This Sprint',
   upcoming: 'Upcoming',
 };
-
-/** Local calendar date as YYYY-MM-DD, for lexicographic compare with `due_date`. */
-function localTodayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 /**
  * Bucket read-only external items into the same Today / Upcoming groups as

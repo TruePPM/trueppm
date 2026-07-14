@@ -35,6 +35,7 @@ import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import { LinkIcon, WarningIcon } from '@/components/Icons';
 import { LINK_STATUS_TEXT_CLASS } from '@/lib/linkStatus';
+import { localTodayIso } from '@/lib/localDate';
 import type { PhasePlannedBadge } from './plannedByPhase';
 import {
   useBuildMode,
@@ -163,15 +164,6 @@ export function truncateWbsPath(path: string, maxChars: number): string {
 function wbsParentPath(wbs: string): string {
   const parts = wbs.split('.');
   return parts.slice(0, -1).join('.');
-}
-
-/** Today in local timezone as YYYY-MM-DD (mirrors localDateISO in sprintMath.ts). */
-function todayLocalISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 /** Add n calendar days to an ISO date string. */
@@ -317,7 +309,7 @@ function TaskListRowInner({
       stopBuilding();
       return;
     }
-    const today = todayLocalISO();
+    const today = localTodayIso();
     const defaultFinish = addDaysISO(today, 4); // 5-day inclusive bar
     startBuilding(task.id, today, defaultFinish);
     return () => {

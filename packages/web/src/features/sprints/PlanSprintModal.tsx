@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSprintMutations } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
+import { localTodayIso } from '@/lib/localDate';
 
 export interface ExistingSprintForEdit {
   id: string;
@@ -33,10 +34,6 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
   );
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function addDaysIso(iso: string, days: number): string {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
@@ -64,7 +61,7 @@ export function PlanSprintModal({
 }: Props) {
   const itl = useIterationLabel(projectId);
   const isEdit = existingSprint !== undefined;
-  const initialStart = existingSprint?.start_date ?? defaultStart ?? todayIso();
+  const initialStart = existingSprint?.start_date ?? defaultStart ?? localTodayIso();
   const initialFinish = existingSprint?.finish_date ?? addDaysIso(initialStart, 13);
   const initialName = existingSprint?.name ?? '';
   const initialGoal = existingSprint?.goal ?? '';

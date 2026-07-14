@@ -36,6 +36,7 @@ import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { formatLoggedMinutes } from '@/lib/formatElapsed';
+import { localTodayIso } from '@/lib/localDate';
 import { ClockIcon } from '@/components/Icons';
 import { parseDurationToMinutes } from './durationInput';
 
@@ -60,16 +61,6 @@ const PRESETS: { label: string; minutes: number }[] = [
 ];
 
 const DEFAULT_MINUTES = 60;
-
-/** Local-timezone today as `YYYY-MM-DD` — the date input's default and max. Uses
- *  local components (not `toISOString`) so logging near midnight doesn't record
- *  a UTC-yesterday entry. */
-function localTodayIso(): string {
-  const d = new Date();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
-}
 
 function taskLabelOf(task: MyWorkTask): string {
   return `${task.short_id} · ${task.name}`;
