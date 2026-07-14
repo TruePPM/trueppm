@@ -262,15 +262,31 @@ def test_jobs_list_is_project_scoped(project: Project, admin_user: Any, calendar
 
 
 # ---------------------------------------------------------------------------
-# Sync GET back-compat (#967)
+# Sync GET seed export — Admin+ gate (#1957)
 # ---------------------------------------------------------------------------
 
 
-def test_sync_json_export_still_works_for_member(member_user: Any, project: Project) -> None:
-    resp = _client(member_user).get(_export_url(project))
+def test_sync_json_export_works_for_admin(admin_user: Any, project: Project) -> None:
+    resp = _client(admin_user).get(_export_url(project))
     assert resp.status_code == 200
     assert resp["Content-Type"] == "application/json"
     assert resp["Content-Disposition"].endswith('.json"')
+
+
+def test_sync_json_export_works_for_owner(owner: Any, project: Project) -> None:
+    assert _client(owner).get(_export_url(project)).status_code == 200
+
+
+def test_sync_json_export_forbidden_for_member(member_user: Any, project: Project) -> None:
+    # #1957: the sync seed dumps team-private velocity/points raw with no ADR-0104
+    # field-gating, so it is Admin+ like the async bundle — a Member now gets 403.
+    assert _client(member_user).get(_export_url(project)).status_code == 403
+
+
+def test_sync_json_export_forbidden_for_viewer(project: Project, calendar: Calendar) -> None:
+    viewer = User.objects.create_user(username="viewer", password="pw")
+    ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+    assert _client(viewer).get(_export_url(project)).status_code == 403
 
 
 # ---------------------------------------------------------------------------

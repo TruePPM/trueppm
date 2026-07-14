@@ -33,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
     Dependency,
+    Label,
     Program,
     Project,
     RetroActionItem,
@@ -43,6 +44,7 @@ from trueppm_api.apps.projects.models import (
     SprintScopeChange,
     Task,
     TaskComment,
+    TaskLabel,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
@@ -196,6 +198,10 @@ class _Exporter:
         self.task_ref: dict[Any, tuple[str, str]] = {}
         # sprint pk -> slug, scoped per project.
         self.sprint_slugs: dict[Any, str] = {}
+        # task pk -> [label slug, …], populated per project in ``_project_block``
+        # (ADR-0400 labels folded into the seed, #1958). Label slugs are
+        # project-scoped, matching the slug-based (no-UUID) seed contract.
+        self.task_label_slugs: dict[Any, list[str]] = {}
         # memoized — _all_resources is consulted by three blocks.
         self._resources_cache: list[Resource] | None = None
 
@@ -403,11 +409,20 @@ class _Exporter:
         if project.agile_features:
             block["agile_features"] = True
 
+        # Project-scoped labels (ADR-0400, #1089) folded into the seed (#1958) so a
+        # re-seed round-trips board-card labels. Slugs are allocated per project
+        # (deterministic, kebab-cased) and referenced by ``labels`` on each task
+        # block; label identity in the seed is slug-based (no UUID), matching the
+        # existing seed contract (UUID-preserving round-trip is 0.5, #1959).
+        label_blocks = self._label_blocks(project)
+
         sprint_blocks = [self._sprint_block(s) for s in sprints]
         task_blocks = [self._task_block(t) for t in tasks]
         dep_blocks = self._dependency_blocks(project, pslug)
         baseline_blocks = self._baseline_blocks(project, pslug)
         risk_blocks = self._risk_blocks(project, pslug)
+        if label_blocks:
+            block["labels"] = label_blocks
         if task_blocks:
             block["tasks"] = task_blocks
         if dep_blocks:
@@ -419,6 +434,40 @@ class _Exporter:
         if risk_blocks:
             block["risks"] = risk_blocks
         return block
+
+    def _label_blocks(self, project: Project) -> list[dict[str, Any]]:
+        """Emit the project's labels and index each task's label slugs (#1958).
+
+        Labels are ordered by ``(position, name)`` — their stable display order —
+        so the slug allocation is deterministic and the round-trip is byte-stable.
+        The per-task slug list is stashed in ``self.task_label_slugs`` for
+        ``_task_block`` to read; a label with no attached tasks still round-trips
+        (it is a curated catalog entry, so the block is emitted regardless).
+        """
+        labels = list(Label.objects.filter(project=project).order_by("position", "name", "pk"))
+        if not labels:
+            return []
+        allocator = _SlugAllocator()
+        slug_by_label: dict[Any, str] = {}
+        blocks: list[dict[str, Any]] = []
+        for label in labels:
+            slug = allocator.take(label.name)
+            slug_by_label[label.pk] = slug
+            block: dict[str, Any] = {"slug": slug, "name": label.name, "color": label.color}
+            if label.position:
+                block["position"] = label.position
+            blocks.append(block)
+        # Index each task's labels in (position, name) order — the pill-row order —
+        # so a task's ``labels`` slug list is deterministic too.
+        for tl in (
+            TaskLabel.objects.filter(label__project=project)
+            .select_related("label")
+            .order_by("label__position", "label__name", "label__pk")
+        ):
+            label_slug = slug_by_label.get(tl.label_id)
+            if label_slug is not None:
+                self.task_label_slugs.setdefault(tl.task_id, []).append(label_slug)
+        return blocks
 
     def _task_block(self, task: Task) -> dict[str, Any]:
         block: dict[str, Any] = {"wbs_path": str(task.wbs_path), "name": task.name}
@@ -463,6 +512,9 @@ class _Exporter:
         ]
         if assignments:
             block["assignments"] = assignments
+        label_slugs = self.task_label_slugs.get(task.pk)
+        if label_slugs:
+            block["labels"] = label_slugs
         return block
 
     def _sprint_block(self, sprint: Sprint) -> dict[str, Any]:

@@ -283,6 +283,9 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
         own_tasks = task_index.get(slug, set())
 
         sprint_slugs = _collect_slugs(project.get("sprints", []), f"{base}.sprints", errors)
+        # Project labels (ADR-0400, #1958): collect the label catalog so each
+        # task's label slug refs can be checked against it (dangling label ref).
+        label_slugs = _collect_slugs(project.get("labels", []), f"{base}.labels", errors)
         for j, sprint in enumerate(project.get("sprints", [])):
             milestone = sprint.get("target_milestone")
             if milestone is not None and milestone not in own_tasks:
@@ -302,6 +305,8 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
             parent = task.get("parent_epic")
             if parent is not None and parent not in own_tasks:
                 errors.append(f"{tpath}.parent_epic: no task {parent!r} in this project")
+            for k, label_ref in enumerate(task.get("labels", [])):
+                _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
             for k, assignment in enumerate(task.get("assignments", [])):
                 _check_ref(
                     assignment.get("resource"),

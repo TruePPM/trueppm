@@ -6619,7 +6619,7 @@
         "/api/v1/programs/{id}/export/": {
             "get": {
                 "operationId": "v1_programs_export_retrieve",
-                "description": "Export this program as a downloadable canonical JSON seed file (#616).",
+                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
                 "summary": "Export the program as a downloadable JSON seed file",
                 "parameters": [
                     {
@@ -6658,6 +6658,325 @@
                             }
                         },
                         "description": "Canonical JSON seed document as a file attachment."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_export_create",
+                "description": "GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).\n\nBoth paths are Admin+ (#1957, see get_permissions). The GET path returns the\ncanonical JSON seed as a synchronous attachment; the POST path (ADR-0219)\nenqueues the richer async ``.tar.gz`` bundle across every member project and\nreturns ``202`` with the job row.",
+                "summary": "Queue a richer asynchronous program export bundle",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramExportJob"
+                                }
+                            }
+                        },
+                        "description": "An async program export job (ADR-0219, #1958). The job builds a .tar.gz containing the canonical JSON seed plus, per member project, MS Project XML, task attachments, time entries, and the audit/change history. Poll GET .../export/jobs/{job_id}/ until status is 'success', then fetch download_url. Admin+ only; an in-flight job is returned rather than queuing a duplicate build."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/export/jobs/": {
+            "get": {
+                "operationId": "v1_programs_export_jobs_list",
+                "description": "List recent async export jobs for this program (#1958, ADR-0219). Admin+.\n\nPage-number envelope so an integrator can tell a truncated list from a\ncomplete one. Scoped to the resolved (membership-checked) program, so no\ncross-program rows leak.",
+                "summary": "List this program's async export jobs",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProgramExportJobList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/export/jobs/{job_id}/": {
+            "get": {
+                "operationId": "v1_programs_export_jobs_retrieve",
+                "description": "Poll an async program export job (#1958, ADR-0219). Admin+.\n\nThe job is looked up scoped to the resolved program, so a ``job_id``\nbelonging to another program 404s rather than leaking (object-level IDOR\nguard).",
+                "summary": "Poll one async program export job's status",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f-]{36}$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramExportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/export/jobs/{job_id}/download/": {
+            "get": {
+                "operationId": "v1_programs_export_jobs_download_retrieve",
+                "description": "Stream a completed program export bundle (#1958, ADR-0219). Admin+.\n\nAuthenticated — the archive contains the whole program including its audit\nhistory, so it is never served from a raw, unauthenticated storage URL.\n``409`` if not ready, ``410 Gone`` once the link has expired. The job is\nprogram-scoped so a ``job_id`` from another program 404s (IDOR guard).",
+                "summary": "Download a completed async program export bundle",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f-]{36}$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "import-export"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": "The program export .tar.gz as a file attachment."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Export is not ready yet."
+                    },
+                    "410": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Download link has expired."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -11324,7 +11643,7 @@
         "/api/v1/programs/import/": {
             "post": {
                 "operationId": "v1_programs_import_create",
-                "description": "Import a JSON seed document, creating (or replacing) a program.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.",
+                "description": "Import a JSON seed document, creating (or replacing) a program.\n\nAccepts either a ``file`` multipart upload or a raw JSON body. The caller\nbecomes the program OWNER (same authorization as ``create`` — any\nauthenticated user may create a program). ``create_users`` is forced off:\nimporting a seed on a live instance must never mint arbitrary logins.\n\nPermission parity (#1957): import stays ``IsAuthenticated`` (via the\nget_permissions default) deliberately, because program ``create`` is\nlikewise ``IsAuthenticated`` — both mint a brand-new program owned by the\ncaller, touching no existing data. Import is not tightened beyond create;\nif create ever becomes workspace-gated, this action must move with it.",
                 "summary": "Import a JSON seed bundle as a new program",
                 "tags": [
                     "import-export"
@@ -42664,6 +42983,37 @@
                     }
                 }
             },
+            "PaginatedProgramExportJobList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramExportJob"
+                        }
+                    }
+                }
+            },
             "PaginatedProgramList": {
                 "type": "object",
                 "required": [
@@ -45959,6 +46309,79 @@
                     "risk_slip_propagation",
                     "server_version",
                     "updated_at"
+                ]
+            },
+            "ProgramExportJob": {
+                "type": "object",
+                "description": "Read serializer for an async program export job's status + download (#1958).\n\nThe program-grain sibling of :class:`ProjectExportJobSerializer`: exposes the\njob lifecycle and a ``download_url`` present only once the archive is ready. The\nURL is a relative API path (never a raw storage URL) so the archive is always\nfetched through the Admin-gated download endpoint.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "file_size": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "completed_at",
+                    "created_at",
+                    "download_url",
+                    "error_detail",
+                    "expires_at",
+                    "file_size",
+                    "id",
+                    "program",
+                    "started_at",
+                    "status"
                 ]
             },
             "ProgramMembershipRead": {

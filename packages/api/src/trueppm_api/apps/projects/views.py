@@ -568,20 +568,21 @@ class ProjectViewSet(
         if self.action == "decisions":
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # Project export (#967, ADR-0109 addendum): read-only data portability,
-        # open to any member (Viewer+) and available on archived projects too —
-        # it skips IsProjectNotArchived (like `visit`), mirroring program export's
-        # "portability stays available for archival/forensics" stance. Export is
-        # non-destructive and packages only data a member can already read, so it
-        # is not Owner-gated.
+        # available on archived projects too — it skips IsProjectNotArchived (like
+        # `visit`), mirroring program export's "portability stays available for
+        # archival/forensics" stance.
         if self.action == "export":
-            # GET is the sync JSON seed (#967): any member (Viewer+). POST queues the
-            # richer async .tar.gz bundle (#1266, ADR-0219) — a deliberate step up to
-            # Admin+, because the bundle aggregates the full audit/change history,
-            # every member's time entries, and all attachment binaries, so bulk-
-            # exfiltrating it in one archive is an Admin-tier action.
-            if self.request.method == "POST":
-                return [IsAuthenticated(), IsProjectAdmin()]
-            return [IsAuthenticated(), IsProjectMember()]
+            # Admin+ for BOTH the GET sync JSON seed and the POST async .tar.gz
+            # bundle (#1957). The seed dumps team-private data raw — story points,
+            # committed/completed/capacity velocity, per-member effort — with no
+            # ADR-0104 field-gating (that redaction is deferred to 0.5, #1959), so a
+            # Viewer/Member reaching it is an ADR-0104 bypass: they could pull raw
+            # what the normal API surface gates per audience. Gating the sync seed
+            # to Admin+ matches the async bundle (which already required Admin+
+            # because it aggregates the full audit history, every member's time
+            # entries, and all attachment binaries). Bulk export is an Admin-tier
+            # action on either path.
+            return [IsAuthenticated(), IsProjectAdmin()]
         # Export-job list / poll / download (#1266, ADR-0219): Admin+, matching the
         # POST enqueue. Like the sync export these stay available on archived projects
         # (portability for archival/forensics), so they skip IsProjectNotArchived.

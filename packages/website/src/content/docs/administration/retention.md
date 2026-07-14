@@ -70,8 +70,15 @@ object, not just a database row.
 to object storage. It reuses `TRUEPPM_EXPORT_RETENTION_DAYS` (same default `7`; `None`
 disables) for its download-link validity, reaped by the standalone nightly
 `purge_expired_project_exports` Beat task (04:25 UTC) — which deletes both the
-`ProjectExportJob` row **and** its stored archive. The two export purges run five minutes
-apart and both honor the single `TRUEPPM_EXPORT_RETENTION_DAYS` setting.
+`ProjectExportJob` row **and** its stored archive.
+
+**Program export bundles too.** A completed program export bundle (Program →
+Settings → General → *Export program bundle*, ADR-0219) writes a per-program
+`.tar.gz` to object storage and likewise reuses `TRUEPPM_EXPORT_RETENTION_DAYS`,
+reaped by the standalone nightly `purge_expired_program_exports` Beat task
+(04:30 UTC), which deletes both the `ProgramExportJob` row **and** its stored
+archive. All three export purges run a few minutes apart and honor the single
+`TRUEPPM_EXPORT_RETENTION_DAYS` setting.
 
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup

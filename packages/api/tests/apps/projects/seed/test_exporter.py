@@ -44,6 +44,42 @@ def test_export_strips_derived_fields(owner: Any) -> None:
         assert derived not in task
 
 
+def test_labels_round_trip_through_export_import(owner: Any) -> None:
+    """ADR-0400 labels (#1089) fold into the seed and survive export→import (#1958).
+
+    Slug-based identity (no UUID) consistent with the seed contract; the label's
+    name + color and its task attachment must re-materialize on re-import.
+    """
+    from trueppm_api.apps.projects.models import Label, Task, TaskLabel
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    project = program.projects.order_by("name").first()
+    assert project is not None
+    task = Task.objects.filter(project=project).order_by("wbs_path").first()
+    assert task is not None
+    label = Label.objects.create(project=project, name="Needs Review", color="amber", position=1)
+    TaskLabel.objects.create(task=task, label=label)
+
+    exported = export_program(program)
+    validate_seed(exported)  # the labels block must be schema-valid
+    project_block = next(p for p in exported["projects"] if p["name"] == project.name)
+    label_blocks = project_block.get("labels", [])
+    assert any(b["name"] == "Needs Review" and b["color"] == "amber" for b in label_blocks)
+    # The task carries the label slug in its labels list.
+    label_slug = next(b["slug"] for b in label_blocks if b["name"] == "Needs Review")
+    tblock = next(t for t in project_block["tasks"] if label_slug in t.get("labels", []))
+    assert tblock is not None
+
+    # Re-import into a fresh program: the label and its attachment survive.
+    program2 = import_seed(exported, owner=owner, create_users=True)
+    project2 = program2.projects.get(name=project.name)
+    label2 = Label.objects.filter(project=project2, name="Needs Review").first()
+    assert label2 is not None
+    assert label2.color == "amber"
+    assert label2.position == 1
+    assert TaskLabel.objects.filter(label=label2).count() == 1
+
+
 def test_round_trip_is_stable(owner: Any) -> None:
     # #616 guarantee: export -> re-import -> re-export is byte-identical.
     program1 = import_seed(_seed(), owner=owner, create_users=True)

@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 ARCHIVE_VERSION = 1
 EXPORT_DIR = "project-exports"
+PROGRAM_EXPORT_DIR = "program-exports"
 # Spooled buffers keep small tables in RAM and spill larger ones to disk.
 _SPOOL_MAX_BYTES = 8 * 1024 * 1024
 
@@ -90,35 +91,58 @@ def _add_table(tar: tarfile.TarFile, name: str, qs: QuerySet[Any]) -> int:
 
 
 def _add_history(
-    tar: tarfile.TarFile, project_id: str, task_ids: list[Any], counts: dict[str, int]
+    tar: tarfile.TarFile,
+    project_id: str,
+    task_ids: list[Any],
+    counts: dict[str, int],
+    *,
+    prefix: str = "",
+    count_prefix: str = "",
 ) -> None:
     """Stream django-simple-history rows scoped to one project.
 
     Task/Project/Risk/Sprint historical rows carry the project id directly.
     Dependency has no project FK (it links two tasks), so its history is scoped by
     the predecessor task belonging to this project.
+
+    ``prefix`` namespaces the tar member paths (e.g. ``projects/<id>/``) so the
+    program bundle can stack every member project's history without collision;
+    ``count_prefix`` keeps the per-project counts distinct in ``counts.json``.
     """
     from trueppm_api.apps.projects.models import Dependency, Project, Risk, Sprint, Task
 
-    counts["history.tasks"] = _add_table(
-        tar, "history/tasks.json", Task.history.filter(project_id=project_id)
+    counts[f"{count_prefix}history.tasks"] = _add_table(
+        tar, f"{prefix}history/tasks.json", Task.history.filter(project_id=project_id)
     )
-    counts["history.project"] = _add_table(
-        tar, "history/project.json", Project.history.filter(id=project_id)
+    counts[f"{count_prefix}history.project"] = _add_table(
+        tar, f"{prefix}history/project.json", Project.history.filter(id=project_id)
     )
-    counts["history.dependencies"] = _add_table(
-        tar, "history/dependencies.json", Dependency.history.filter(predecessor_id__in=task_ids)
+    counts[f"{count_prefix}history.dependencies"] = _add_table(
+        tar,
+        f"{prefix}history/dependencies.json",
+        Dependency.history.filter(predecessor_id__in=task_ids),
     )
-    counts["history.risks"] = _add_table(
-        tar, "history/risks.json", Risk.history.filter(project_id=project_id)
+    counts[f"{count_prefix}history.risks"] = _add_table(
+        tar, f"{prefix}history/risks.json", Risk.history.filter(project_id=project_id)
     )
-    counts["history.sprints"] = _add_table(
-        tar, "history/sprints.json", Sprint.history.filter(project_id=project_id)
+    counts[f"{count_prefix}history.sprints"] = _add_table(
+        tar, f"{prefix}history/sprints.json", Sprint.history.filter(project_id=project_id)
     )
 
 
-def _add_attachments(tar: tarfile.TarFile, project_id: str, counts: dict[str, int]) -> None:
-    """Copy the project's task attachment binaries into the archive."""
+def _add_attachments(
+    tar: tarfile.TarFile,
+    project_id: str,
+    counts: dict[str, int],
+    *,
+    prefix: str = "",
+    count_key: str = "attachments",
+) -> None:
+    """Copy the project's task attachment binaries into the archive.
+
+    ``prefix`` namespaces the archive paths so the program bundle can nest each
+    member project's attachments under ``projects/<id>/`` without collision.
+    """
     from trueppm_api.apps.projects.models import TaskAttachment
 
     metadata: list[dict[str, Any]] = []
@@ -138,7 +162,7 @@ def _add_attachments(tar: tarfile.TarFile, project_id: str, counts: dict[str, in
             continue
         stored_name = att.file.name or ""
         base_name = stored_name.rsplit("/", 1)[-1] or f"{att.id}.bin"
-        archive_path = f"attachments/{att.id}/{base_name}"
+        archive_path = f"{prefix}attachments/{att.id}/{base_name}"
         entry: dict[str, Any] = {
             "id": str(att.id),
             "task_id": str(att.task_id),
@@ -159,8 +183,8 @@ def _add_attachments(tar: tarfile.TarFile, project_id: str, counts: dict[str, in
             # the metadata row still records that the attachment existed.
             logger.warning("project export: attachment %s file unavailable, metadata only", att.id)
             entry["missing"] = True
-    _add_json(tar, "attachments/index.json", metadata)
-    counts["attachments"] = copied
+    _add_json(tar, f"{prefix}attachments/index.json", metadata)
+    counts[count_key] = copied
 
 
 def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
@@ -224,4 +248,88 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int]:
         tmp.seek(0)
         storage_path = default_storage.save(f"{EXPORT_DIR}/{job_id}.tar.gz", File(tmp))
     logger.info("project export %s stored at %s (%d bytes)", job_id, storage_path, size)
+    return storage_path, size
+
+
+def build_and_store_program_archive(job_id: str) -> tuple[str, int]:
+    """Build the program ``.tar.gz`` and store it; return (storage path, bytes).
+
+    The program-grain counterpart to :func:`build_and_store_project_archive`
+    (#1958). The archive holds one canonical program seed (``seed.json``,
+    round-trips through the importer) plus, **per member project**, that project's
+    MS Project XML, attachments, time entries, and audit/change history nested
+    under ``projects/<project_id>/``. Reuses the same streaming helpers so peak
+    memory stays one row plus the gzip window even for a program with many large
+    projects.
+    """
+    from trueppm_api.apps.msproject.exporter import export_project_xml
+    from trueppm_api.apps.projects.models import ProgramExportJob, Project, Task
+    from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
+    from trueppm_api.apps.timetracking.models import TimeEntry
+
+    job = ProgramExportJob.objects.select_related("program").get(pk=job_id)
+    program = job.program
+    program_id = str(program.id)
+    projects = list(
+        Project.objects.filter(program=program, is_deleted=False).order_by("code", "name", "pk")
+    )
+
+    counts: dict[str, int] = {}
+    with tempfile.NamedTemporaryFile(suffix=".tar.gz") as tmp:
+        with tarfile.open(fileobj=tmp, mode="w:gz") as tar:
+            _add_json(
+                tar,
+                "manifest.json",
+                {
+                    "archive_version": ARCHIVE_VERSION,
+                    "generated_at": timezone.now(),
+                    "scope": "program",
+                    "program_id": program_id,
+                    "program_code": program.code or "",
+                    "program_name": program.name,
+                    "project_ids": [str(p.id) for p in projects],
+                    # Documented degradation: the MS Project artifact is XML (MSPDI),
+                    # not binary .mpp (ADR-0219; the MPXJ integration is read-only).
+                    "msproject_format": "msdpi-xml",
+                },
+            )
+            # One canonical program seed for the whole bundle (round-trips through
+            # the importer, ADR-0109). Attachments/time/history are async sidecars.
+            _add_bytes(tar, "seed.json", dump_seed(export_program(program)).encode("utf-8"))
+
+            counts["projects"] = len(projects)
+            for project in projects:
+                project_id = str(project.id)
+                pfx = f"projects/{project_id}/"
+                cpfx = f"projects.{project_id}."
+                task_ids = list(
+                    Task.objects.filter(project_id=project_id).values_list("id", flat=True)
+                )
+                # MS Project XML per project; degrade gracefully so one bad project
+                # does not sink the whole bundle.
+                try:
+                    _add_bytes(tar, f"{pfx}msproject.xml", export_project_xml(project_id))
+                    counts[f"{cpfx}msproject_xml"] = 1
+                except Exception:
+                    logger.warning(
+                        "program export: MS Project XML generation failed for %s",
+                        project_id,
+                        exc_info=True,
+                    )
+                    counts[f"{cpfx}msproject_xml"] = 0
+                counts[f"{cpfx}time_entries"] = _add_table(
+                    tar,
+                    f"{pfx}time_entries.json",
+                    TimeEntry.objects.filter(task__project_id=project_id),
+                )
+                _add_history(tar, project_id, task_ids, counts, prefix=pfx, count_prefix=cpfx)
+                _add_attachments(
+                    tar, project_id, counts, prefix=pfx, count_key=f"{cpfx}attachments"
+                )
+            _add_json(tar, "counts.json", counts)
+        tmp.flush()
+        size = tmp.tell()
+        tmp.seek(0)
+        storage_path = default_storage.save(f"{PROGRAM_EXPORT_DIR}/{job_id}.tar.gz", File(tmp))
+    logger.info("program export %s stored at %s (%d bytes)", job_id, storage_path, size)
     return storage_path, size

@@ -789,3 +789,145 @@ def _do_purge_expired_project_exports() -> None:
         count += 1
     if count:
         logger.info("purge_expired_project_exports: deleted %d expired export(s)", count)
+
+
+# ---------------------------------------------------------------------------
+# Async program export bundle (ADR-0219, #1958) — the program-grain sibling of
+# the project export tasks above; identical durable-execution shape.
+# ---------------------------------------------------------------------------
+
+
+@shared_task(  # type: ignore[untyped-decorator]
+    bind=True,
+    max_retries=EXPORT_MAX_RETRIES,
+    soft_time_limit=600,
+    time_limit=660,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.run_program_export",
+)
+def run_program_export(self: object, job_id: str) -> None:
+    """Build the program export bundle for ``job_id`` (ADR-0219, #1958).
+
+    Idempotent: claims the job under ``select_for_update`` and no-ops unless it is
+    ``pending``/``running``, so a duplicate delivery (broker retry, drain re-dispatch)
+    cannot produce two archives. Transient failures retry up to ``EXPORT_MAX_RETRIES``;
+    on exhaustion the job is marked ``failed`` and the Admin can request a fresh export.
+    """
+    from trueppm_api.apps.projects.export_bundle import build_and_store_program_archive
+    from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
+
+    with transaction.atomic():
+        job = ProgramExportJob.objects.select_for_update().filter(pk=job_id).first()
+        if job is None:
+            logger.warning("run_program_export: job %s not found", job_id)
+            return
+        if job.status not in (ExportJobStatus.PENDING, ExportJobStatus.RUNNING):
+            logger.info("run_program_export: job %s already %s, skipping", job_id, job.status)
+            return
+        job.status = ExportJobStatus.RUNNING
+        job.started_at = timezone.now()
+        job.celery_task_id = getattr(getattr(self, "request", None), "id", "") or ""
+        job.save(update_fields=["status", "started_at", "celery_task_id"])
+
+    try:
+        storage_path, size = build_and_store_program_archive(job_id)
+    except Exception as exc:
+        retries = getattr(getattr(self, "request", None), "retries", 0)
+        if retries < EXPORT_MAX_RETRIES:
+            logger.warning("run_program_export: job %s failed, retrying", job_id, exc_info=True)
+            raise self.retry(exc=exc, countdown=10 * (2**retries)) from exc  # type: ignore[attr-defined]
+        logger.exception("run_program_export: job %s failed permanently", job_id)
+        ProgramExportJob.objects.filter(pk=job_id).update(
+            status=ExportJobStatus.FAILED,
+            error_detail=str(exc)[:2000],
+            completed_at=timezone.now(),
+        )
+        return
+
+    retention = _export_retention_days()
+    expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    ProgramExportJob.objects.filter(pk=job_id).update(
+        status=ExportJobStatus.SUCCESS,
+        file_path=storage_path,
+        file_size=size,
+        expires_at=expires_at,
+        completed_at=timezone.now(),
+        error_detail="",
+    )
+
+
+@idempotent_task(
+    lock_key_template="drain_program_exports",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.drain_program_exports",
+)
+def drain_program_exports(self: object) -> None:
+    """Re-dispatch program export jobs stuck in ``pending`` (broker down at on_commit)."""
+    _do_drain_program_exports()
+
+
+@idempotent_task(
+    lock_key_template="purge_expired_program_exports",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.purge_expired_program_exports",
+)
+def purge_expired_program_exports(self: object) -> None:
+    """Delete program export jobs past their link expiry, and their stored archives."""
+    _do_purge_expired_program_exports()
+
+
+def _do_drain_program_exports() -> None:
+    from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
+
+    orphan_cutoff = timezone.now() - timedelta(minutes=EXPORT_ORPHAN_WINDOW_MINUTES)
+    stuck = list(
+        ProgramExportJob.objects.filter(
+            status=ExportJobStatus.PENDING,
+            celery_task_id="",
+            created_at__lt=orphan_cutoff,
+        ).order_by("created_at")[:EXPORT_DRAIN_BATCH_SIZE]
+    )
+    if not stuck:
+        return
+    for job in stuck:
+        try:
+            run_program_export.delay(str(job.id))
+        except Exception:  # pragma: no cover - broker still down, next tick retries
+            logger.warning("drain_program_exports: broker still unavailable for %s", job.id)
+            break
+    logger.info("drain_program_exports: re-dispatched %d job(s)", len(stuck))
+
+
+def _do_purge_expired_program_exports() -> None:
+    from django.core.files.storage import default_storage
+
+    from trueppm_api.apps.projects.models import ProgramExportJob
+
+    retention = _export_retention_days()
+    if retention is None:  # retention disabled — keep archives indefinitely
+        return
+    expired = ProgramExportJob.objects.filter(expires_at__lt=timezone.now())
+    count = 0
+    for job in expired.iterator():
+        if job.file_path:
+            try:
+                default_storage.delete(job.file_path)
+            except OSError:  # pragma: no cover - storage drift, still drop the row
+                logger.warning(
+                    "purge_expired_program_exports: could not delete file for %s", job.id
+                )
+        job.delete()
+        count += 1
+    if count:
+        logger.info("purge_expired_program_exports: deleted %d expired export(s)", count)

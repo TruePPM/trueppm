@@ -6177,3 +6177,71 @@ class ProjectExportJob(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectExportJob({self.id}, {self.project_id}, {self.status})"
+
+
+class ProgramExportJob(models.Model):
+    """Tracks one asynchronous *program* export bundle (ADR-0219, #1958).
+
+    The program-grain sibling of :class:`ProjectExportJob` — same status /
+    timestamp / file shape and the same ADR-0092 durable-execution machinery
+    (``transaction.on_commit`` dispatch, a drain re-dispatcher, a nightly purge) —
+    but scoped to one ``program`` rather than a single project. Its ``.tar.gz``
+    aggregates the program's seed plus attachments, time entries, and change/audit
+    history **across every member project** of the program.
+
+    A deliberate sibling model rather than a generalized job carrying a nullable
+    scope: the codebase already keeps per-scope job siblings
+    (``workspace.WorkspaceExportJob`` → ``ProjectExportJob``), each with its own FK,
+    indexes, and drain/purge task. A discriminator column would leak nullability
+    through the serializer, services, and tasks for no gain.
+
+    Plain (non-synced) model: an export job is server-side bookkeeping, never a
+    mobile-offline entity, so it has no ``server_version``. The row itself is the
+    audit record of who triggered the export (``requested_by`` + ``created_at``).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="export_jobs",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="program_exports",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=ExportJobStatus.choices,
+        default=ExportJobStatus.PENDING,
+        db_index=True,
+    )
+    celery_task_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Storage key (relative to the configured default storage), populated on success.
+    file_path = models.CharField(max_length=512, blank=True, default="")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    error_detail = models.TextField(blank=True, default="")
+    # Download-link validity; past this the purge deletes the row + file (410 Gone).
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "programs_export_job"
+        ordering = ["-created_at"]
+        indexes = [
+            # Drives the per-program drain scan: pending rows awaiting (re-)dispatch.
+            models.Index(
+                fields=["program", "status", "created_at"],
+                name="progexport_prog_status_idx",
+            ),
+            # Drives the nightly purge scan of expired download links.
+            models.Index(fields=["expires_at"], name="progexport_expires_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProgramExportJob({self.id}, {self.program_id}, {self.status})"
