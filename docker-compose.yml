@@ -35,6 +35,11 @@ services:
     build:
       context: .
       dockerfile: packages/api/Dockerfile
+      args:
+        # Local dev uses the precompiled psycopg wheel (no from-source C
+        # compile) so `make up` rebuilds stay fast. The published/CI image omits
+        # this arg and keeps the hardened `[c]` default. See #1955.
+        PSYCOPG_EXTRA: binary
     image: trueppm-api:local
     command: >
       sh -c "
