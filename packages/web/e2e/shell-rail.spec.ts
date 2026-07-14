@@ -234,4 +234,29 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     const pinnedBand = rail.getByRole('navigation', { name: 'Workspace navigation' });
     await expect(pinnedBand.getByRole('button', { name: 'Unpin Atlas Program' })).toBeVisible();
   });
+
+  test('selecting a project from the Browse switcher navigates AND closes the popover (#1964)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto('/me/work');
+
+    const rail = railOf(page);
+    await expect(rail).toBeVisible({ timeout: 10_000 });
+
+    // Open the Tier-3 switcher. The Organization group's "Resources" link is the
+    // open-state signal — it only renders while the popover is open.
+    await rail.getByRole('button', { name: 'Browse projects and programs' }).click();
+    await expect(rail.getByRole('link', { name: /Resources catalog/i })).toBeVisible();
+
+    // Select the standalone project from the switcher's Projects list. The
+    // row-open button's name carries the health word ("…, on track"); matching it
+    // avoids the sibling "Pin Rail Restructure Project" toggle (strict mode).
+    await rail.getByRole('button', { name: /Rail Restructure Project, on track/ }).click();
+
+    // Selecting a destination is terminal: the route changes AND the popover
+    // dismisses itself (#1964) — no manual close needed.
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview`));
+    await expect(rail.getByRole('link', { name: /Resources catalog/i })).toHaveCount(0);
+  });
 });
