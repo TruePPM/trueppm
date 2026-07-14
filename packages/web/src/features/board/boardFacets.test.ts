@@ -9,6 +9,7 @@ import {
   activeFacetCount,
   isFacetsActive,
   collectAssigneeOptions,
+  collectLabelOptions,
   parseFacetsFromParams,
   writeFacetsToParams,
   paramsHaveFacets,
@@ -143,9 +144,13 @@ describe('matchesFacets', () => {
       plannedStart: '2026-03-30',
     });
     // matches assignee + priority + due
-    expect(matchesFacets(t, { assignees: ['r1'], priority: ['high'], due: ['overdue'] }, NOW)).toBe(true);
+    expect(
+      matchesFacets(t, { assignees: ['r1'], priority: ['high'], due: ['overdue'], labels: [] }, NOW),
+    ).toBe(true);
     // right assignee + priority but wrong due window → excluded
-    expect(matchesFacets(t, { assignees: ['r1'], priority: ['high'], due: ['this_week'] }, NOW)).toBe(false);
+    expect(
+      matchesFacets(t, { assignees: ['r1'], priority: ['high'], due: ['this_week'], labels: [] }, NOW),
+    ).toBe(false);
   });
 });
 
@@ -153,9 +158,56 @@ describe('activeFacetCount / isFacetsActive', () => {
   it('counts every selected value across groups', () => {
     expect(activeFacetCount(EMPTY_FACETS)).toBe(0);
     expect(isFacetsActive(EMPTY_FACETS)).toBe(false);
-    const f: FacetFilters = { assignees: ['r1', UNASSIGNED], priority: ['high'], due: [] };
+    const f: FacetFilters = { assignees: ['r1', UNASSIGNED], priority: ['high'], due: [], labels: [] };
     expect(activeFacetCount(f)).toBe(3);
     expect(isFacetsActive(f)).toBe(true);
+  });
+});
+
+describe('label facet (ADR-0400)', () => {
+  const withLabels = makeTask({
+    labels: [{ id: 'lab-1', name: 'tech-debt', color: 'amber', position: 0 }],
+  });
+
+  it('matches a task carrying any selected label (OR within the group)', () => {
+    expect(matchesFacets(withLabels, { ...EMPTY_FACETS, labels: ['lab-1'] }, NOW)).toBe(true);
+    expect(matchesFacets(withLabels, { ...EMPTY_FACETS, labels: ['lab-1', 'lab-2'] }, NOW)).toBe(true);
+  });
+
+  it('excludes a task with none of the selected labels', () => {
+    expect(matchesFacets(withLabels, { ...EMPTY_FACETS, labels: ['lab-9'] }, NOW)).toBe(false);
+    expect(matchesFacets(makeTask({ labels: [] }), { ...EMPTY_FACETS, labels: ['lab-1'] }, NOW)).toBe(
+      false,
+    );
+  });
+
+  it('ANDs with other groups', () => {
+    const t = makeTask({
+      assignees: [{ resourceId: 'r1', name: 'A', units: 1 }],
+      labels: [{ id: 'lab-1', name: 'x', color: 'blue' }],
+    });
+    expect(matchesFacets(t, { ...EMPTY_FACETS, assignees: ['r1'], labels: ['lab-1'] }, NOW)).toBe(true);
+    // right label but wrong assignee → excluded
+    expect(matchesFacets(t, { ...EMPTY_FACETS, assignees: ['r2'], labels: ['lab-1'] }, NOW)).toBe(false);
+  });
+
+  it('counts label values in activeFacetCount', () => {
+    expect(activeFacetCount({ ...EMPTY_FACETS, labels: ['lab-1', 'lab-2'] })).toBe(2);
+  });
+});
+
+describe('collectLabelOptions', () => {
+  it('returns unique labels ordered by position then name, with color', () => {
+    const tasks = [
+      makeTask({ labels: [{ id: 'b', name: 'beta', color: 'teal', position: 2 }] }),
+      makeTask({ labels: [{ id: 'a', name: 'alpha', color: 'rose', position: 1 }] }),
+      makeTask({ labels: [{ id: 'a', name: 'alpha', color: 'rose', position: 1 }] }), // dup
+      makeTask({ labels: [] }),
+    ];
+    expect(collectLabelOptions(tasks)).toEqual([
+      { id: 'a', name: 'alpha', color: 'rose', position: 1 },
+      { id: 'b', name: 'beta', color: 'teal', position: 2 },
+    ]);
   });
 });
 
@@ -176,18 +228,29 @@ describe('collectAssigneeOptions', () => {
 
 describe('URL param round-trip', () => {
   it('parses and writes facet params', () => {
-    const filters: FacetFilters = { assignees: ['r1', UNASSIGNED], priority: ['high', 'low'], due: ['overdue'] };
+    const filters: FacetFilters = {
+      assignees: ['r1', UNASSIGNED],
+      priority: ['high', 'low'],
+      due: ['overdue'],
+      labels: ['lab-1'],
+    };
     const params = new URLSearchParams();
     writeFacetsToParams(params, filters);
     expect(params.get('fa')).toBe(`r1,${UNASSIGNED}`);
     expect(params.get('fp')).toBe('high,low');
     expect(params.get('fd')).toBe('overdue');
+    expect(params.get('fl')).toBe('lab-1');
     expect(parseFacetsFromParams(params)).toEqual(filters);
   });
 
   it('drops invalid priority/due tokens on parse', () => {
     const params = new URLSearchParams('fp=high,bogus&fd=whenever,overdue');
-    expect(parseFacetsFromParams(params)).toEqual({ assignees: [], priority: ['high'], due: ['overdue'] });
+    expect(parseFacetsFromParams(params)).toEqual({
+      assignees: [],
+      priority: ['high'],
+      due: ['overdue'],
+      labels: [],
+    });
   });
 
   it('writing empty groups deletes the keys', () => {
@@ -204,7 +267,12 @@ describe('URL param round-trip', () => {
 
 describe('localStorage serialization', () => {
   it('round-trips and drops invalid tokens', () => {
-    const filters: FacetFilters = { assignees: ['r1'], priority: ['medium'], due: ['this_week'] };
+    const filters: FacetFilters = {
+      assignees: ['r1'],
+      priority: ['medium'],
+      due: ['this_week'],
+      labels: ['lab-9'],
+    };
     expect(deserializeFacets(serializeFacets(filters))).toEqual(filters);
     expect(deserializeFacets(null)).toEqual(EMPTY_FACETS);
     expect(deserializeFacets('{ not json')).toEqual(EMPTY_FACETS);
@@ -212,6 +280,7 @@ describe('localStorage serialization', () => {
       assignees: [],
       priority: ['low'],
       due: [],
+      labels: [],
     });
   });
 });

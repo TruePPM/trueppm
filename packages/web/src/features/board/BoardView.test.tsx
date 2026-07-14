@@ -1285,7 +1285,12 @@ describe('BoardView', () => {
       expect(mockCreateMutate).toHaveBeenCalledTimes(1);
       const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
       expect(firstCallArgs.name).toBe('My filtered view');
-      expect(firstCallArgs.config.filters).toEqual({ assignees: ['r1'], priority: [], due: [] });
+      expect(firstCallArgs.config.filters).toEqual({
+        assignees: ['r1'],
+        priority: [],
+        due: [],
+        labels: [],
+      });
     });
 
     it('saving with no active facets includes an explicit empty filter set', async () => {
@@ -1299,7 +1304,12 @@ describe('BoardView', () => {
 
       expect(mockCreateMutate).toHaveBeenCalledTimes(1);
       const [firstCallArgs] = mockCreateMutate.mock.calls[0] as [{ name: string; config: BoardViewConfig }];
-      expect(firstCallArgs.config.filters).toEqual({ assignees: [], priority: [], due: [] });
+      expect(firstCallArgs.config.filters).toEqual({
+        assignees: [],
+        priority: [],
+        due: [],
+        labels: [],
+      });
     });
 
     it('applying a saved view restores its stored facets and dims non-matching cards', async () => {
@@ -1315,7 +1325,7 @@ describe('BoardView', () => {
             evmMode: 'off',
             showCost: false,
             riskLinkedOnly: false,
-            filters: { assignees: ['r1'], priority: [], due: [] },
+            filters: { assignees: ['r1'], priority: [], due: [], labels: [] },
           },
           schemaVersion: 2,
           createdBy: null,

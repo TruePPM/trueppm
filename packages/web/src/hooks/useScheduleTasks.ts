@@ -5,6 +5,7 @@ import { apiClient } from '@/api/client';
 import type {
   Task,
   TaskAssignee,
+  TaskLabel,
   TaskLink,
   TaskStatus,
   LinkType,
@@ -136,6 +137,13 @@ export interface ApiTask {
     resource_id: string;
     resource_name: string;
     units: number;
+  }>;
+  // Colored task labels (ADR-0400, #1089) — read-only nested pills.
+  labels?: Array<{
+    id: string;
+    name: string;
+    color: string;
+    position?: number;
   }>;
   // Product backlog & scoring (ADR-0105) — snake_case on the wire.
   type?: TaskType;
@@ -288,6 +296,14 @@ export function mapTask(t: ApiTask): Task {
         resourceId: a.resource_id,
         name: a.resource_name,
         units: a.units,
+      }),
+    ),
+    labels: (t.labels ?? []).map(
+      (l): TaskLabel => ({
+        id: l.id,
+        name: l.name,
+        color: l.color,
+        position: l.position,
       }),
     ),
     optimisticDuration: t.optimistic_duration,

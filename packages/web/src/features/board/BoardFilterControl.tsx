@@ -24,6 +24,14 @@ import {
   toggleFacetValue,
   type FacetFilters,
 } from './boardFacets';
+import { labelDotStyle } from '@/lib/labelColors';
+
+/** A label option for the facet (id + display name + palette color key). */
+export interface LabelFacetOption {
+  id: string;
+  name: string;
+  color: string;
+}
 
 // ---------------------------------------------------------------------------
 // Active-filter chip bar — keeps the lens inescapable when the popover is closed
@@ -32,6 +40,8 @@ import {
 interface BoardFilterChipsProps {
   filters: FacetFilters;
   assigneeNameById: Map<string, string>;
+  /** Label id → display name, for the active-filter chip text (ADR-0400). */
+  labelNameById: Map<string, string>;
   matchCount: number;
   onChange: (next: FacetFilters) => void;
   onClearAll: () => void;
@@ -62,6 +72,7 @@ function Chip({ label, onRemove, removeAria }: { label: string; onRemove: () => 
 export function BoardFilterChips({
   filters,
   assigneeNameById,
+  labelNameById,
   matchCount,
   onChange,
   onClearAll,
@@ -106,6 +117,17 @@ export function BoardFilterChips({
             onRemove={() => onChange(toggleFacetValue(filters, 'due', w))}
           />
         ))}
+        {filters.labels.map((id) => {
+          const name = labelNameById.get(id) ?? 'Unknown';
+          return (
+            <Chip
+              key={`l-${id}`}
+              label={`Label: ${name}`}
+              removeAria={`Remove filter: label ${name}`}
+              onRemove={() => onChange(toggleFacetValue(filters, 'labels', id))}
+            />
+          );
+        })}
       </div>
       <span className="text-neutral-text-secondary flex-shrink-0" aria-hidden="true">
         · {matchCount} match{matchCount === 1 ? '' : 'es'}
@@ -126,6 +148,8 @@ export function BoardFilterChips({
 interface BoardFilterControlProps {
   filters: FacetFilters;
   assigneeOptions: { resourceId: string; name: string }[];
+  /** Label facet options (ADR-0400) — labels present on the board's cards. */
+  labelOptions: LabelFacetOption[];
   onChange: (next: FacetFilters) => void;
   onClearAll: () => void;
   open: boolean;
@@ -139,11 +163,14 @@ function CheckboxRow({
   onToggle,
   label,
   testId,
+  swatchColor,
 }: {
   checked: boolean;
   onToggle: () => void;
   label: string;
   testId?: string;
+  /** When set, render a leading palette color dot (label facet rows). */
+  swatchColor?: string;
 }) {
   return (
     <label
@@ -159,6 +186,13 @@ function CheckboxRow({
         className="h-4 w-4 rounded border-neutral-border text-brand-primary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
       />
+      {swatchColor !== undefined && (
+        <span
+          className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+          style={labelDotStyle(swatchColor)}
+          aria-hidden="true"
+        />
+      )}
       <span className="truncate">{label}</span>
     </label>
   );
@@ -167,6 +201,7 @@ function CheckboxRow({
 export function BoardFilterControl({
   filters,
   assigneeOptions,
+  labelOptions,
   onChange,
   onClearAll,
   open,
@@ -339,6 +374,26 @@ export function BoardFilterControl({
               ))}
             </div>
           </fieldset>
+
+          {/* Label (ADR-0400) — hidden when the board has no labeled cards, so the
+              facet never shows an empty group. */}
+          {labelOptions.length > 0 && (
+            <fieldset className="flex flex-col gap-0.5 border-0 p-0 m-0">
+              <legend className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary mb-1">
+                Label
+              </legend>
+              {labelOptions.map((opt) => (
+                <CheckboxRow
+                  key={opt.id}
+                  checked={filters.labels.includes(opt.id)}
+                  onToggle={() => onChange(toggleFacetValue(filters, 'labels', opt.id))}
+                  label={opt.name}
+                  swatchColor={opt.color}
+                  testId={`facet-label-${opt.id}`}
+                />
+              ))}
+            </fieldset>
+          )}
         </div>
       )}
     </div>

@@ -73,6 +73,7 @@ describe('useBoardSavedViews — filter facet round trip (#1918)', () => {
       assignees: ['r1', '__unassigned__'],
       priority: ['high'],
       due: ['overdue'],
+      labels: [],
     });
   });
 
@@ -95,7 +96,12 @@ describe('useBoardSavedViews — filter facet round trip (#1918)', () => {
     const { result } = renderHook(() => useBoardSavedViews('proj-1'), { wrapper: makeWrapper(qc) });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.views[0].config.filters).toEqual({ assignees: [], priority: [], due: [] });
+    expect(result.current.views[0].config.filters).toEqual({
+      assignees: [],
+      priority: [],
+      due: [],
+      labels: [],
+    });
   });
 
   it('POSTs the active facets as filter_* keys when creating a view', async () => {
@@ -126,7 +132,7 @@ describe('useBoardSavedViews — filter facet round trip (#1918)', () => {
       evmMode: 'off',
       showCost: false,
       riskLinkedOnly: false,
-      filters: { assignees: ['r2'], priority: [], due: ['this_week'] },
+      filters: { assignees: ['r2'], priority: [], due: ['this_week'], labels: [] },
     };
     result.current.create.mutate({ name: 'New', config });
 

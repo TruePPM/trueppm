@@ -12,8 +12,8 @@
  *
  * Facets shipped: Assignee (multi + explicit Unassigned), Priority band (derived
  * from the integer `priorityRank`), Due window (Overdue / This week, derived from
- * `finish` and gated on `isTaskScheduled`). The Label facet is descoped — no
- * task-labels field exists yet (depends on issue 1089).
+ * `finish` and gated on `isTaskScheduled`), and Label (multi-select over the
+ * colored task labels, ADR-0400 / #1089 — the facet slot ADR-0199 left open).
  */
 import type { Task } from '@/types';
 import { isTaskScheduled } from '@/lib/task';
@@ -37,9 +37,11 @@ export interface FacetFilters {
   assignees: string[];
   priority: PriorityBand[];
   due: DueWindow[];
+  /** Label ids (ADR-0400). A card matches if it carries any selected label. */
+  labels: string[];
 }
 
-export const EMPTY_FACETS: FacetFilters = { assignees: [], priority: [], due: [] };
+export const EMPTY_FACETS: FacetFilters = { assignees: [], priority: [], due: [], labels: [] };
 
 const PRIORITY_BANDS: readonly PriorityBand[] = ['high', 'medium', 'low', 'unranked'];
 const DUE_WINDOWS: readonly DueWindow[] = ['overdue', 'this_week'];
@@ -116,7 +118,9 @@ export function dueWindowsOf(
 
 /** Total number of selected facet values across every group. Drives the badge. */
 export function activeFacetCount(filters: FacetFilters): number {
-  return filters.assignees.length + filters.priority.length + filters.due.length;
+  return (
+    filters.assignees.length + filters.priority.length + filters.due.length + filters.labels.length
+  );
 }
 
 export function isFacetsActive(filters: FacetFilters): boolean {
@@ -145,6 +149,11 @@ export function matchesFacets(task: Task, filters: FacetFilters, now: Date): boo
     if (!filters.due.some((w) => windows.has(w))) return false;
   }
 
+  if (filters.labels.length > 0) {
+    const taskLabelIds = (task.labels ?? []).map((l) => l.id);
+    if (!filters.labels.some((id) => taskLabelIds.includes(id))) return false;
+  }
+
   return true;
 }
 
@@ -161,17 +170,40 @@ export function collectAssigneeOptions(tasks: Task[]): { resourceId: string; nam
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Unique label options across a task list, ordered by palette `position` then
+ * name. Options come from the labels actually present on the board's cards (you
+ * cannot filter to a label no visible card carries) — the same task-derived
+ * pattern as {@link collectAssigneeOptions}.
+ */
+export function collectLabelOptions(
+  tasks: Task[],
+): { id: string; name: string; color: string; position: number }[] {
+  const byId = new Map<string, { name: string; color: string; position: number }>();
+  for (const t of tasks) {
+    for (const l of t.labels ?? []) {
+      if (!byId.has(l.id)) {
+        byId.set(l.id, { name: l.name, color: l.color, position: l.position ?? 0 });
+      }
+    }
+  }
+  return [...byId.entries()]
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+}
+
 // ---------------------------------------------------------------------------
 // URL param <-> FacetFilters (shareable links)
 // ---------------------------------------------------------------------------
 //
-// Param keys: fa = assignees, fp = priority bands, fd = due windows. Each is a
-// comma-joined list. Unknown/invalid tokens are dropped on parse so a stale or
-// hand-edited link degrades gracefully rather than throwing.
+// Param keys: fa = assignees, fp = priority bands, fd = due windows, fl = labels.
+// Each is a comma-joined list. Unknown/invalid tokens are dropped on parse so a
+// stale or hand-edited link degrades gracefully rather than throwing.
 
 const PARAM_ASSIGNEES = 'fa';
 const PARAM_PRIORITY = 'fp';
 const PARAM_DUE = 'fd';
+const PARAM_LABELS = 'fl';
 
 function splitParam(raw: string | null): string[] {
   if (!raw) return [];
@@ -191,7 +223,10 @@ export function parseFacetsFromParams(params: URLSearchParams): FacetFilters {
   // Assignee tokens are opaque resource ids (or the UNASSIGNED sentinel); keep
   // them all — validation against the live roster happens at render time.
   const assignees = splitParam(params.get(PARAM_ASSIGNEES));
-  return { assignees, priority, due };
+  // Label tokens are opaque label ids — validated against the live catalog at
+  // render time (an id no card carries simply matches nothing).
+  const labels = splitParam(params.get(PARAM_LABELS));
+  return { assignees, priority, due, labels };
 }
 
 /** Mutate `params` in place to reflect `filters` (set when present, delete when empty). */
@@ -203,11 +238,17 @@ export function writeFacetsToParams(params: URLSearchParams, filters: FacetFilte
   apply(PARAM_ASSIGNEES, filters.assignees);
   apply(PARAM_PRIORITY, filters.priority);
   apply(PARAM_DUE, filters.due);
+  apply(PARAM_LABELS, filters.labels);
 }
 
 /** True when a URLSearchParams carries any facet key — used to decide seeding. */
 export function paramsHaveFacets(params: URLSearchParams): boolean {
-  return params.has(PARAM_ASSIGNEES) || params.has(PARAM_PRIORITY) || params.has(PARAM_DUE);
+  return (
+    params.has(PARAM_ASSIGNEES) ||
+    params.has(PARAM_PRIORITY) ||
+    params.has(PARAM_DUE) ||
+    params.has(PARAM_LABELS)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +274,9 @@ export function deserializeFacets(raw: string | null): FacetFilters {
         : [],
       due: Array.isArray(parsed.due)
         ? parsed.due.filter((v): v is DueWindow => (DUE_WINDOWS as readonly string[]).includes(v))
+        : [],
+      labels: Array.isArray(parsed.labels)
+        ? parsed.labels.filter((x) => typeof x === 'string')
         : [],
     };
   } catch {

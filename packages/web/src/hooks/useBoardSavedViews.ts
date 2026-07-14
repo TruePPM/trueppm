@@ -100,6 +100,9 @@ function fromApi(v: ApiSavedView): BoardSavedView {
         assignees: c.filter_assignees ?? [],
         priority: (c.filter_priority ?? []) as PriorityBand[],
         due: (c.filter_due ?? []) as DueWindow[],
+        // Label facet persistence in saved views is a follow-up (#278); a loaded
+        // view carries no label filter yet, so default to none.
+        labels: [],
       },
     },
     schemaVersion: version,
