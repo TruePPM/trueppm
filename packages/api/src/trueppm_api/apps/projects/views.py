@@ -912,6 +912,11 @@ class ProjectViewSet(
                         queryset=SprintScopeChange.objects.select_related("added_by"),
                         to_attr="_prefetched_sprint_scope_changes",
                     ),
+                    # Nested label pills (ADR-0400): this LIST path bypasses
+                    # annotate_tasks_queryset, so prefetch labels here too or the
+                    # serializer N+1s one query per story/epic. Filter tombstoned
+                    # labels so a soft-deleted label never renders as a pill.
+                    db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
                 )
                 # Freshness signal (ADR-0143, #740) — this LIST path bypasses
                 # annotate_tasks_queryset, so annotate latest_note_at here too or
@@ -2896,7 +2901,12 @@ def annotate_tasks_queryset(
     # by the TaskSerializer blocker getters — select_related so a list response
     # serializes them without one query per row.
     qs = qs.select_related("project", "sprint", "blocked_by", "blocking_task").prefetch_related(
-        "assignments__resource"
+        "assignments__resource",
+        # Nested label pills (ADR-0400) are serialized by TaskSerializer; prefetch
+        # here — not just on the list viewset — so the bulk re-fetch path (#998) and
+        # any bare-manager caller serialize labels O(1) instead of one query per row.
+        # Filter tombstoned labels so a soft-deleted label never renders as a pill.
+        db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
     )
 
     # Summary task annotations: is_summary = has at least one direct child,
@@ -3395,16 +3405,14 @@ class TaskViewSet(
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
     queryset = (
         Task.objects.select_related("project", "sprint")
-        .prefetch_related(
-            "assignments__resource",
-            # Board/schedule label pills (ADR-0400). Filter tombstoned labels here
-            # so a soft-deleted label never renders as a pill; ordered by the
-            # catalog's (position, name) for a stable pill row. Keeps the nested
-            # ``labels`` read O(1) per page instead of N+1.
-            db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
-        )
+        .prefetch_related("assignments__resource")
         .filter(is_deleted=False)
     )
+    # NB: the board/schedule label-pill prefetch (ADR-0400) lives in
+    # annotate_tasks_queryset, not here — every read path (list/retrieve/bulk)
+    # routes through it. Prefetching ``labels`` in *both* places double-registers
+    # the lookup with a distinct queryset; get_object() then raises ValueError,
+    # which get_object_or_404 silently converts to a 404 on every retrieve.
 
     def get_queryset(self) -> QuerySet[Task]:
         qs = super().get_queryset()
@@ -6934,7 +6942,7 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
         )
 
 
-class TaskLabelView(APIView):
+class TaskLabelView(IdempotencyMixin, APIView):
     """Idempotent attach/detach of a label to a task (ADR-0400 §D4).
 
     Deliberately NOT a replace-set PATCH: attaching label X and detaching label Y

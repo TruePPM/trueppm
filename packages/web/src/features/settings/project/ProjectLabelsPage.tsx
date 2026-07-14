@@ -300,6 +300,10 @@ function CreateLabelRow({
             type="button"
             onClick={submit}
             disabled={!name.trim() || pending}
+            // Explicit accessible name: the settings page stacks every section on
+            // one route, so a bare "Add" collides with the Members invite form's
+            // Add button (strict-mode) and reads ambiguously to a screen reader.
+            aria-label="Add label"
             data-testid="label-create-add"
             className="h-8 rounded-control bg-brand-primary px-3 text-sm font-medium text-white
               hover:bg-brand-primary-dark disabled:opacity-60"
