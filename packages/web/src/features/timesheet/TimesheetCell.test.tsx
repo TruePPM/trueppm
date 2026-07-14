@@ -68,6 +68,21 @@ describe('TimesheetCell', () => {
     expect(onSave).toHaveBeenCalledExactlyOnceWith(240);
   });
 
+  it('renders an inline validation reason and marks the input invalid (#1945)', () => {
+    renderCell({ errorText: 'Entry date cannot be in the future.' });
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Entry date cannot be in the future.');
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', alert.id);
+  });
+
+  it('shows no alert when there is no error', () => {
+    renderCell();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).not.toHaveAttribute('aria-invalid');
+  });
+
   it('renders a multi-entry cell read-only (ADR-0224) with an edit-on-My-Work hint', () => {
     renderCell({ editable: false, entryCount: 3, minutes: 180 });
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();

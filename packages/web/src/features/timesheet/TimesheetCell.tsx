@@ -6,7 +6,7 @@
  * read-only sum (ADR-0224) — the grid never lets a single number silently overwrite
  * several entries; a subtle dot + tooltip points the contributor to My Work to edit them.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatMinutesAsHm, parseHoursToMinutes } from '@/lib/parseHours';
 
 interface TimesheetCellProps {
@@ -20,6 +20,12 @@ interface TimesheetCellProps {
   isFuture?: boolean;
   /** Announces day + task for screen readers (a11y — the grid builds it). */
   ariaLabel: string;
+  /**
+   * Server validation reason for the last save on this cell, shown inline (#1945).
+   * A 4xx never reaches the global sync badge; the contributor sees why *here* and
+   * re-validates by editing the value again.
+   */
+  errorText?: string;
   /** Commit a new minute value for this cell (0 clears it). Only called for editable cells. */
   onSave: (minutes: number) => void;
 }
@@ -35,12 +41,15 @@ export function TimesheetCell({
   isToday,
   isFuture = false,
   ariaLabel,
+  errorText,
   onSave,
 }: TimesheetCellProps) {
   const committed = minutes > 0 ? formatMinutesAsHm(minutes) : '';
   const [draft, setDraft] = useState(committed);
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const errorId = useId();
+  const hasError = Boolean(errorText);
   // Enter / Esc blur the input to finish editing; this flag stops the blur handler from
   // committing a second time (Enter already committed; Esc must not save at all).
   const skipBlurCommit = useRef(false);
@@ -110,6 +119,8 @@ export function TimesheetCell({
         type="text"
         inputMode="decimal"
         aria-label={ariaLabel}
+        aria-invalid={hasError || undefined}
+        aria-describedby={hasError ? errorId : undefined}
         value={draft}
         placeholder="·"
         onChange={(e) => setDraft(e.target.value)}
@@ -138,8 +149,22 @@ export function TimesheetCell({
             inputRef.current?.blur();
           }
         }}
-        className="h-full w-full rounded-none border-0 bg-transparent px-2 text-right tabular-nums text-neutral-text-primary placeholder:text-neutral-text-disabled focus:bg-neutral-surface-raised focus:ring-2 focus:ring-inset focus:ring-brand-primary"
+        className={`h-full w-full rounded-none border-0 bg-transparent px-2 text-right tabular-nums text-neutral-text-primary placeholder:text-neutral-text-disabled focus:bg-neutral-surface-raised focus:ring-2 focus:ring-inset focus:ring-brand-primary ${
+          hasError ? 'bg-semantic-critical-bg ring-2 ring-inset ring-semantic-critical' : ''
+        }`}
       />
+      {hasError && (
+        // Popover, not in-flow, so the reason reads at a legible width without
+        // stretching the narrow day column or the row height. A 4xx validation
+        // error is shown here — never through the global sync badge (#1945).
+        <span
+          id={errorId}
+          role="alert"
+          className="absolute right-0 top-full z-20 mt-0.5 w-max max-w-[14rem] rounded-control border border-semantic-critical/40 bg-semantic-critical-bg px-2 py-1 text-left text-xs font-normal leading-tight text-semantic-critical shadow-pop"
+        >
+          {errorText}
+        </span>
+      )}
     </div>
   );
 }

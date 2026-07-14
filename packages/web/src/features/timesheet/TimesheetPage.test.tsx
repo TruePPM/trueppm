@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { TimesheetPage } from './TimesheetPage';
 import { mondayOf, type WeeklyEntry, type WeeklyResponse } from './weekModel';
 
@@ -127,9 +128,40 @@ describe('TimesheetPage', () => {
     const input = screen.getByDisplayValue('2:00');
     fireEvent.change(input, { target: { value: '3' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(cellMutate).toHaveBeenCalledWith(
-      expect.objectContaining({ date: THIS_MONDAY, minutes: 180, entryId: 'e1' }),
+    expect(cellMutate).toHaveBeenCalledTimes(1);
+    const [vars, opts] = cellMutate.mock.calls[0] as [
+      { date: string; minutes: number; entryId: string | null },
+      { onError?: unknown },
+    ];
+    expect(vars).toMatchObject({ date: THIS_MONDAY, minutes: 180, entryId: 'e1' });
+    // The page routes rejections back to the cell via a per-call onError (#1945).
+    expect(typeof opts.onError).toBe('function');
+  });
+
+  it('shows a rejected save inline on the cell, then clears it on re-edit (#1945)', () => {
+    const rejection = new AxiosError('Request failed with status code 400');
+    rejection.response = {
+      status: 400,
+      data: { entry_date: ['Entry date cannot be in the future.'] },
+    } as AxiosResponse;
+    // Drive the per-call onError the page passes so the 400 surfaces on the cell.
+    cellMutate.mockImplementation(
+      (_vars: unknown, opts?: { onError?: (e: unknown) => void }) => opts?.onError?.(rejection),
     );
+
+    render(<TimesheetPage />);
+    const input = screen.getByDisplayValue('2:00');
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    // The reason is shown inline (role="alert"), NOT via a toast or the sync badge.
+    expect(screen.getByRole('alert')).toHaveTextContent('Entry date cannot be in the future.');
+
+    // Re-editing the cell clears the inline error first (editing IS the re-validation).
+    cellMutate.mockImplementation(() => undefined);
+    fireEvent.change(input, { target: { value: '4' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('adds a task row from the add-task picker', () => {
