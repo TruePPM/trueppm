@@ -7997,12 +7997,18 @@ _MAX_HISTORY_ROWS = 2000
 # (issue 413). Absent/empty ``include`` keeps the response byte-identical to the
 # legacy field-diff feed, so existing consumers are untouched (backward compat).
 # Each token maps to a per-task event stream merged into the unified feed. The
-# ``schedule`` and ``risks`` tokens (ADR-0207, #1604) are backed by
+# ``schedule``, ``risks``, and ``resources`` tokens (ADR-0207/ADR-0394) are backed by
 # ``TaskActivityEvent``: ``schedule`` surfaces ``cpm_recalculated`` and
 # ``baseline_drift_detected`` (system events, null actor); ``risks`` surfaces
-# ``risk_linked`` / ``risk_unlinked`` (actor is the acting member). ``time_log_edited``
+# ``risk_linked`` / ``risk_unlinked``; ``resources`` surfaces ``assignee_added`` /
+# ``assignee_removed`` / ``assignee_units_changed`` (actor is the acting member).
+# The ``dependencies`` token (ADR-0394, #1887) reads ``HistoricalDependency`` for edges
+# touching the task and synthesizes ``dependency_added`` / ``dependency_removed`` from
+# the create row and the ``is_deleted`` soft-delete transition. ``time_log_edited``
 # remains deliberately absent rather than faked until its source lands.
-_ACTIVITY_SOURCES = frozenset({"comments", "time", "attachments", "schedule", "risks"})
+_ACTIVITY_SOURCES = frozenset(
+    {"comments", "time", "attachments", "schedule", "risks", "dependencies", "resources"}
+)
 
 # Max characters of a comment body surfaced as a timeline preview. The full body
 # is already readable by any project member via the comments thread endpoint, so
@@ -8023,6 +8029,136 @@ def _activity_actor(user: Any | None) -> dict[str, Any] | None:
         return None
     full = (user.get_full_name() or "").strip()
     return {"id": str(user.pk), "display_name": full or user.get_username()}
+
+
+# DB-fetch bound for the dependency stream. Transition detection needs each edge's
+# recent timeline, so we fetch a small multiple of the per-source cap newest-first and
+# process in memory (a task's edge-history count is small in practice). The bound keeps
+# the query from ever being an unbounded scan.
+def _dependency_activity_events(
+    task: Any,
+    request: Request,
+    cap: int,
+    until: datetime.datetime | None = None,
+) -> tuple[list[tuple[Any, dict[str, Any]]], bool]:
+    """Dependency add/remove events for edges touching ``task`` (ADR-0394, #1887).
+
+    Reads ``HistoricalDependency`` (Dependency IS history-tracked, so no new table) for
+    edges where the task is the predecessor or the successor, and synthesizes:
+
+    * ``dependency_added`` — from each ``+`` create row, and from a ``~`` row whose
+      ``is_deleted`` transitions ``True → False`` (restore);
+    * ``dependency_removed`` — from a ``~`` row whose ``is_deleted`` transitions
+      ``False → True`` (``Dependency.soft_delete()`` writes a ``~`` row, never a ``-``).
+
+    Plain field edits (lag, acceptance) produce no event. Transition detection compares
+    each row to the immediately-older row of the *same* edge; at the fetch-window
+    boundary the prior state is unknown, so such a row is recorded as state without
+    emitting — under-reporting at the truncation edge rather than emitting a false event.
+
+    **Cross-project guard (ADR-0120):** an edge's far endpoint can live in a project the
+    caller is not a member of, and this endpoint only authorized the current task's
+    project. The far task's name is rendered only when the caller can access its project;
+    otherwise ``other_task_name`` is null (direction + dep_type still shown), closing the
+    cross-project title-leak vector.
+    """
+    from django.db.models import Q
+
+    historical_model = Dependency.history.model
+    qs = historical_model.objects.filter(
+        Q(predecessor_id=task.pk) | Q(successor_id=task.pk)
+    ).select_related("history_user")
+    if until is not None:
+        qs = qs.filter(history_date__lt=until)
+    # Newest-first, bounded. cap*3+1 gives headroom for add/edit/remove per edge while
+    # never scanning unboundedly; +1 lets us detect that the window itself was truncated.
+    fetch_cap = cap * 3 + 1
+    rows = list(qs.order_by("-history_date")[:fetch_cap])
+    window_truncated = len(rows) > cap * 3
+    if not rows:
+        return [], False
+
+    # Group by edge id and walk each edge's timeline oldest-first to detect transitions.
+    by_edge: dict[Any, list[Any]] = {}
+    for row in rows:
+        by_edge.setdefault(row.id, []).append(row)
+
+    # Resolve far-endpoint task labels in one batched query, gated by caller access.
+    other_task_ids = {
+        (row.successor_id if row.predecessor_id == task.pk else row.predecessor_id) for row in rows
+    }
+    other_task_ids.discard(None)
+    other_tasks = {
+        t.pk: t for t in Task.objects.filter(pk__in=other_task_ids).only("id", "name", "project_id")
+    }
+    # Projects the caller may see the far task's name in: the current project is already
+    # authorized; add any other project the caller is a member of.
+    far_project_ids = {t.project_id for t in other_tasks.values()} - {task.project_id}
+    accessible_projects = {task.project_id}
+    if far_project_ids:
+        accessible_projects |= set(
+            ProjectMembership.objects.filter(
+                user=request.user,  # type: ignore[misc]
+                project_id__in=far_project_ids,
+                # Revoked memberships are soft-deleted (access/views.py soft_delete),
+                # so exclude them — a removed member must not regain the far task's
+                # name. Matches the M1 contract in access.permissions._membership_role.
+                is_deleted=False,
+            ).values_list("project_id", flat=True)
+        )
+
+    def _label(other_id: Any) -> str | None:
+        other = other_tasks.get(other_id)
+        if other is None or other.project_id not in accessible_projects:
+            return None
+        return other.name
+
+    candidates: list[tuple[Any, dict[str, Any]]] = []
+    for edge_rows in by_edge.values():
+        edge_rows.sort(key=lambda r: r.history_date)
+        prev_deleted: bool | None = None
+        for row in edge_rows:
+            event_type: str | None = None
+            if row.history_type == "+":
+                event_type = "dependency_added"
+            elif row.history_type == "~" and prev_deleted is not None:
+                if row.is_deleted and not prev_deleted:
+                    event_type = "dependency_removed"
+                elif not row.is_deleted and prev_deleted:
+                    event_type = "dependency_added"
+            prev_deleted = row.is_deleted
+            if event_type is None:
+                continue
+            if row.predecessor_id == task.pk:
+                # This task is the predecessor → the OTHER task is downstream.
+                other_id, direction = row.successor_id, "successor"
+            else:
+                other_id, direction = row.predecessor_id, "predecessor"
+            candidates.append(
+                (
+                    row.history_date,
+                    {
+                        "event_type": event_type,
+                        "actor": _activity_actor(row.history_user),
+                        "timestamp": row.history_date.isoformat(),
+                        "detail": {
+                            "dependency_id": str(row.id),
+                            "dep_type": row.dep_type,
+                            "lag": row.lag,
+                            # Role of the OTHER task relative to this one:
+                            # "predecessor" = upstream (this task depends on it),
+                            # "successor" = downstream (depends on this task).
+                            "direction": direction,
+                            "other_task_id": str(other_id) if other_id else None,
+                            "other_task_name": _label(other_id),
+                        },
+                    },
+                )
+            )
+
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    truncated = window_truncated or len(candidates) > cap
+    return candidates[:cap], truncated
 
 
 def _build_activity_events(
@@ -8231,6 +8367,41 @@ def _build_activity_events(
                 )
             )
 
+    # resources: assignment add/remove/re-allocation, also backed by TaskActivityEvent
+    # (TaskResource is a through-table with no history; ADR-0394, #1886). detail is
+    # stored verbatim ({resource_id, resource_name, units}) and surfaced as-is.
+    if "resources" in include:
+        rows = list(
+            task.activity_events.select_related("actor")
+            .filter(
+                event_type__in=[
+                    "assignee_added",
+                    "assignee_removed",
+                    "assignee_units_changed",
+                ],
+                **created_before,
+            )
+            .order_by("-created_at")[: cap + 1]
+        )
+        truncated = truncated or len(rows) > cap
+        for ev in rows[:cap]:
+            events.append(
+                (
+                    ev.created_at,
+                    {
+                        "event_type": ev.event_type,
+                        "actor": _activity_actor(ev.actor),
+                        "timestamp": ev.created_at.isoformat(),
+                        "detail": ev.detail,
+                    },
+                )
+            )
+
+    if "dependencies" in include:
+        dep_events, dep_truncated = _dependency_activity_events(task, request, cap, until)
+        events.extend(dep_events)
+        truncated = truncated or dep_truncated
+
     if until is not None:
         # The DB filter above bounds created_at only; a comment/attachment created
         # before the cursor can still carry a derived edited_at/deleted_at event at
@@ -8319,7 +8490,8 @@ def _build_activity_events(
                     "(`comment_added`, `comment_edited`, `comment_deleted`, "
                     "`time_logged`, `attachment_uploaded`, `attachment_deleted`, "
                     "`cpm_recalculated`, `baseline_drift_detected`, `risk_linked`, "
-                    "`risk_unlinked`) "
+                    "`risk_unlinked`, `dependency_added`, `dependency_removed`, "
+                    "`assignee_added`, `assignee_removed`, `assignee_units_changed`) "
                     "carry only that unified shape, with `actor` null for "
                     "system/authorless events. `count_truncated` is true when any "
                     "source exceeded the row cap and only the most recent events "

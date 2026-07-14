@@ -441,3 +441,95 @@ def test_task_resource_project_id_property(
     tr = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
     assert tr.project_id == task.project_id
     assert tr.project_id == project.pk
+
+
+@pytest.mark.django_db
+class TestTaskResourceActivityEvents:
+    """TaskResourceViewSet writes TaskActivityEvent audit rows (ADR-0394, #1886).
+
+    Rows are written synchronously in the request transaction (not on_commit), so they
+    are asserted directly without needing transaction=True.
+    """
+
+    def _events(self, task: Task, event_type: str) -> list:
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        return list(TaskActivityEvent.objects.filter(task=task, event_type=event_type))
+
+    def test_create_emits_assignee_added(
+        self,
+        client: APIClient,
+        user: object,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+    ) -> None:
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        events = self._events(task, "assignee_added")
+        assert len(events) == 1
+        ev = events[0]
+        assert ev.actor_id == user.pk  # the acting member, never null
+        assert ev.detail["resource_id"] == str(resource.pk)
+        assert ev.detail["resource_name"] == "Alice"
+        assert ev.detail["units"] == "1.00"
+
+    def test_units_change_emits_assignee_units_changed(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+    ) -> None:
+        assignment = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+        r = client.patch(f"/api/v1/task-resources/{assignment.pk}/", {"units": "0.5"})
+        assert r.status_code == 200
+        events = self._events(task, "assignee_units_changed")
+        assert len(events) == 1
+        assert events[0].detail["units"] == {"from": "1.00", "to": "0.50"}
+        # A units-only change must NOT masquerade as an add or remove.
+        assert not self._events(task, "assignee_removed")
+        assert not self._events(task, "assignee_added")
+
+    def test_resource_repoint_emits_removed_then_added(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        resource_50: Resource,
+    ) -> None:
+        assignment = TaskResource.objects.create(task=task, resource=resource, units=Decimal("0.5"))
+        r = client.patch(
+            f"/api/v1/task-resources/{assignment.pk}/",
+            {"resource": str(resource_50.pk), "units": "0.5"},
+        )
+        assert r.status_code == 200
+        removed = self._events(task, "assignee_removed")
+        added = self._events(task, "assignee_added")
+        assert len(removed) == 1
+        assert removed[0].detail["resource_name"] == "Alice"  # the old resource
+        assert len(added) == 1
+        assert added[0].detail["resource_name"] == "Bob"  # the new resource
+        # A re-point is not an allocation change.
+        assert not self._events(task, "assignee_units_changed")
+
+    def test_delete_emits_assignee_removed(
+        self,
+        client: APIClient,
+        user: object,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+    ) -> None:
+        assignment = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+        r = client.delete(f"/api/v1/task-resources/{assignment.pk}/")
+        assert r.status_code == 204
+        events = self._events(task, "assignee_removed")
+        assert len(events) == 1
+        assert events[0].actor_id == user.pk
+        assert events[0].detail["resource_name"] == "Alice"
+        assert events[0].detail["units"] == "1.00"
