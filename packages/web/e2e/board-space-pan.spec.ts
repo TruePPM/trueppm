@@ -95,9 +95,18 @@ test.describe('Board Space+drag panning (issue 1265)', () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.2, y, { steps: 8 });
 
-    await expect(scroll).toHaveAttribute('data-space-panning', 'true');
-    const scrolled = await scroll.evaluate((el) => el.scrollLeft);
-    expect(scrolled).toBeGreaterThan(0);
+    // Assert the observable outcome — the grid scrolled right — rather than the
+    // transient `data-space-panning` attribute. That attribute is React state
+    // (`isPanning`), whereas the scroll offset is written imperatively in the
+    // pointermove handler; under CI load the true→false state transition can be
+    // coalesced into a single render so the attribute never reads "true" even
+    // though the pan physically happened. Every #1954 flake was on the attribute
+    // snapshot, never on scrollLeft. Pan-mode arming stays covered by the
+    // cursor-grab assertions above/below; the attribute wiring by the negative
+    // case below and the useSpaceDragPan unit tests.
+    await expect
+      .poll(() => scroll.evaluate((el) => el.scrollLeft), { timeout: 10_000 })
+      .toBeGreaterThan(0);
 
     await page.mouse.up();
     await page.keyboard.up('Space');
