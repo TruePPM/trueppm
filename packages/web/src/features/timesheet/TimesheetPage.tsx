@@ -20,6 +20,7 @@ import {
   type CellTaskMeta,
 } from '@/hooks/useWeekTimesheet';
 import { formatMinutesAsHm } from '@/lib/parseHours';
+import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
 import {
   addDaysIso,
@@ -54,6 +55,10 @@ export function TimesheetPage() {
   const [monday, setMonday] = useState(() => mondayOf(today));
   // Tasks the user added via the add-row that have no entries yet this week.
   const [extraTasks, setExtraTasks] = useState<CellTaskMeta[]>([]);
+  // Server validation reasons for cells whose last save was rejected with a 4xx,
+  // keyed by `${taskId}|${date}`. Shown inline on the cell — never routed through
+  // the global sync badge (#1945).
+  const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
 
   const { data, isLoading, isError, refetch } = useWeekTimesheet(monday);
   const cellMutation = useTimesheetCell(monday);
@@ -77,11 +82,37 @@ export function TimesheetPage() {
   function stepWeek(deltaWeeks: number) {
     setMonday((m) => addDaysIso(m, deltaWeeks * 7));
     setExtraTasks([]); // add-row context is per-week
+    setCellErrors({}); // inline validation errors are per-week too
   }
 
   function handleCellSave(row: TimesheetRow, date: string, minutes: number) {
     const cell = cellAt(row, date);
-    cellMutation.mutate({ meta: rowMeta(row), date, minutes, entryId: cell.entryId });
+    const cellKey = `${row.taskId}|${date}`;
+    // Editing the cell IS the re-validation: clear any prior inline error first, then
+    // route a fresh rejection back to this cell rather than the global sync badge (#1945).
+    clearCellError(cellKey);
+    cellMutation.mutate(
+      { meta: rowMeta(row), date, minutes, entryId: cell.entryId },
+      {
+        onError: (err) => {
+          if (isClientRejection(err)) {
+            setCellErrors((prev) => ({
+              ...prev,
+              [cellKey]: extractValidationMessage(err, 'That time entry was rejected.'),
+            }));
+          }
+        },
+      },
+    );
+  }
+
+  function clearCellError(cellKey: string) {
+    setCellErrors((prev) => {
+      if (!(cellKey in prev)) return prev;
+      const rest = { ...prev };
+      delete rest[cellKey];
+      return rest;
+    });
   }
 
   function handleAddTask(meta: CellTaskMeta) {
@@ -178,6 +209,7 @@ export function TimesheetPage() {
           weekTotal={weekTotal}
           existingTaskIds={existingTaskIds}
           submitted={submitted}
+          cellErrors={cellErrors}
           onCellSave={handleCellSave}
           onAddTask={handleAddTask}
         />
