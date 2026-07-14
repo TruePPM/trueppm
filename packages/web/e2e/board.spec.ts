@@ -394,8 +394,7 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('Columns button opens the settings panel (issue #170)', async ({ page }) => {
-    await page.getByRole('button', { name: 'More board controls' }).click();
-    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    await page.getByRole('button', { name: 'Board columns & WIP limits' }).click();
     const panel = page.getByRole('dialog', { name: 'Board columns' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
     // Status codes appear as text labels above each row's input field
@@ -407,8 +406,7 @@ test.describe('Board view', () => {
   });
 
   test('settings panel Escape closes it (issue #170)', async ({ page }) => {
-    await page.getByRole('button', { name: 'More board controls' }).click();
-    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    await page.getByRole('button', { name: 'Board columns & WIP limits' }).click();
     const panel = page.getByRole('dialog', { name: 'Board columns' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press('Escape');
@@ -484,8 +482,7 @@ test.describe('Board view', () => {
       await route.continue();
     });
 
-    await page.getByRole('button', { name: 'More board controls' }).click();
-    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    await page.getByRole('button', { name: 'Board columns & WIP limits' }).click();
     const panel = page.getByRole('dialog', { name: 'Board columns' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
 

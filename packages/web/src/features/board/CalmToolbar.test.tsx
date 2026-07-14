@@ -275,7 +275,7 @@ describe('CalmToolbar', () => {
 
   // Acceptance: More⋯ overflow ---------------------------------------------
 
-  it('More⋯ popover exposes Collapse all / Expand all / Show WIP / Column tints / EVM / Columns / Keyboard / Workshop', async () => {
+  it('More⋯ popover exposes Collapse all / Expand all / Show WIP / Column tints / EVM / Keyboard / Workshop', async () => {
     const user = userEvent.setup();
     renderToolbar();
     await user.click(screen.getByRole('button', { name: 'More board controls' }));
@@ -284,10 +284,36 @@ describe('CalmToolbar', () => {
     expect(screen.getByLabelText('Show WIP limits')).toBeInTheDocument();
     expect(screen.getByLabelText('Show column tints')).toBeInTheDocument();
     expect(screen.getByLabelText('EVM indicators')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open board column settings' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '? Keyboard shortcuts' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Export the board as a PDF' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start workshop session' })).toBeInTheDocument();
+  });
+
+  // Acceptance: Columns/WIP affordance (#1960) ------------------------------
+
+  it('surfaces a primary "Board columns & WIP limits" button on the toolbar (not in the ⋯ menu)', () => {
+    renderToolbar();
+    // Visible without opening the ⋯ More overflow — the whole point of #1960.
+    expect(
+      screen.getByRole('button', { name: 'Board columns & WIP limits' }),
+    ).toBeInTheDocument();
+  });
+
+  it('Columns button invokes onOpenColumns', async () => {
+    const user = userEvent.setup();
+    const onOpenColumns = vi.fn();
+    renderToolbar({ onOpenColumns });
+    await user.click(screen.getByRole('button', { name: 'Board columns & WIP limits' }));
+    expect(onOpenColumns).toHaveBeenCalledTimes(1);
+  });
+
+  it('no longer lists "⚙ Columns…" inside the ⋯ More overflow', async () => {
+    const user = userEvent.setup();
+    renderToolbar();
+    await user.click(screen.getByRole('button', { name: 'More board controls' }));
+    expect(
+      screen.queryByRole('button', { name: 'Open board column settings' }),
+    ).not.toBeInTheDocument();
   });
 
   it('Export PDF item invokes onExportPdf', async () => {
