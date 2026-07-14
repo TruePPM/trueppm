@@ -168,7 +168,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const toggleProgram = useShellStore((s) => s.toggleProgram);
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
 
-  const { data: projects } = useProjects();
+  const { data: projects, count: projectsCount } = useProjects();
   const { data: programs } = usePrograms();
   const { data: myWorkData } = useMyWork();
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
@@ -476,6 +476,19 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             />
           ))}
         </>
+      )}
+
+      {/* Overflow cue (ADR-0401/#1940): the project list is fetched at a raised
+          page ceiling, but if an account exceeds it the tree would otherwise
+          truncate silently. Surface the honest count and point at ⌘K search. */}
+      {projectsCount !== undefined && projectsCount > (projects?.length ?? 0) && (
+        <button
+          type="button"
+          onClick={() => openPalette(true)}
+          className="mt-1 w-full rounded-control px-3 py-2 text-left text-xs text-chrome-text-secondary hover:text-chrome-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:ring-offset-chrome-surface"
+        >
+          Showing {projects?.length ?? 0} of {projectsCount} projects — search in ⌘K
+        </button>
       )}
 
       {/* New project / Import (kept from the prior sidebar's affordances) */}

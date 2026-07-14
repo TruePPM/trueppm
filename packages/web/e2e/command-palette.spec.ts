@@ -81,6 +81,43 @@ test.describe('command palette', () => {
     await expect(dialog.getByText('Open a project to search its tasks and sprint.')).toBeVisible();
   });
 
+  test('people tier: a typed query surfaces a person that deep-links to the pre-filtered catalog (#1940)', async ({
+    page,
+  }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECTS[0].id });
+    // The palette people tier and the destination catalog both read /resources/?search=.
+    await page.route('**/api/v1/resources/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [{ id: 'res-ann', name: 'Ann Rivera' }],
+        }),
+      }),
+    );
+    await page.goto('/me/work');
+    await expect(page.getByRole('button', { name: /command palette/i })).toBeVisible();
+
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    await page.getByRole('combobox').fill('ann');
+    // The People group renders the server-searched resource.
+    await expect(dialog.getByText('People')).toBeVisible();
+    const person = dialog.getByRole('option', { name: /Ann Rivera/ });
+    await expect(person).toBeVisible();
+
+    // Selecting it deep-links to the org catalog pre-filtered to the name.
+    await person.click();
+    await expect(page).toHaveURL(/\/resources\?q=Ann/);
+  });
+
   test('jump-to-task opens the task drawer inline (no navigation)', async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);

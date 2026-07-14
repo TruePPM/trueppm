@@ -135,6 +135,7 @@ describe('useProjects hook', () => {
   it('returns mapped projects on a successful fetch', async () => {
     getMock.mockResolvedValueOnce({
       data: {
+        count: 2,
         results: [
           { id: 'p1', name: 'Alpha', description: '', start_date: '2026-01-01', calendar: 'default' },
           { id: 'p2', name: 'Beta',  description: '', start_date: '2026-02-01', calendar: 'default' },
@@ -149,6 +150,25 @@ describe('useProjects hook', () => {
     });
     expect(result.current.data?.[0].colorDot).toBe('#3E8C6D');
     expect(result.current.error).toBeNull();
+  });
+
+  it('exposes the server count so surfaces can show a "showing N of M" cue (#1940)', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        count: 240,
+        results: [
+          { id: 'p1', name: 'Alpha', description: '', start_date: '2026-01-01', calendar: 'default' },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useProjects(), { wrapper: makeWrapper(qc) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // No client param — the server list defaults to page_size=200 (DirectoryPagination),
+    // so the request URL stays a bare `/projects/` and count comes off the response.
+    expect(getMock).toHaveBeenCalledWith('/projects/');
+    // count exceeds the loaded rows → drives the "showing N of M" overflow cue.
+    expect(result.current.count).toBe(240);
+    expect(result.current.data).toHaveLength(1);
   });
 
   it('surfaces the error after a final fetch failure (isFetching settled to false)', async () => {

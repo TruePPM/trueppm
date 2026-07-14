@@ -6061,6 +6061,15 @@
                         }
                     },
                     {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -6756,6 +6765,15 @@
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
                         }
@@ -11912,6 +11930,15 @@
                         }
                     },
                     {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "in": "query",
                         "name": "program__isnull",
                         "schema": {
@@ -13405,6 +13432,15 @@
                         }
                     },
                     {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -13618,6 +13654,15 @@
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
                         }
@@ -26606,6 +26651,56 @@
                 }
             }
         },
+        "/api/v1/projects/health-summary/": {
+            "get": {
+                "operationId": "v1_projects_health_summary_retrieve",
+                "description": "Compact \"my projects\" health triage for the My Work page (ADR-0401).\n\nReturns one row per project the caller is a member of (excluding archived),\neach carrying a derived ``health_band`` plus the same at-risk / critical task\ncounts the single-project status-summary uses, so a PM overseeing many\nprojects can see \"which of mine is on fire?\" without opening each.\n\nScope is the caller's OWN member projects (adoption lens, OSS) — it is NOT a\ncross-program or portfolio rollup (that governance surface stays Enterprise,\nADR-0030/0088). The membership filter lives in ProjectScopedViewSet.get_queryset.\n\nAt-risk / critical use the status_summary semantics: incomplete tasks with\ntotal_float <= 5 working days → at_risk_count; incomplete is_critical=True →\ncritical_count. ``distinct=True`` on both conditional counts matches the\nannotate-over-reverse-FK convention of ProgramViewSet.projects — defensive\nagainst fan-out if a second to-many join is ever added to this queryset (the\nmembership scope is a ``pk__in`` subquery, not a join, so today there is only\nthe one ``tasks`` join).\n\nhealth_band is derived: the manual Project.health override wins when set (not\nAUTO); otherwise counts-first — critical_count > 0 → critical, else\nat_risk_count > 0 → at_risk, else on_track.",
+                "summary": "Health summary across the caller's own projects (ADR-0401, #1941)",
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/import/msproject/": {
             "post": {
                 "operationId": "v1_projects_import_msproject_create",
@@ -26686,6 +26781,15 @@
                         "required": false,
                         "in": "query",
                         "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
                         }

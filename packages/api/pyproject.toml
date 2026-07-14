@@ -205,6 +205,9 @@ ignore = ["RUF002", "RUF003"]
 "*/models.py" = ["RUF012"]
 "*/serializers.py" = ["RUF012"]
 "*/views.py" = ["RUF012"]
+# `program_views.py` is a DRF viewset module too — the `*/views.py` glob misses it
+# by filename, so the same ViewSet-attribute exemption is declared explicitly.
+"*/program_views.py" = ["RUF012"]
 
 [tool.coverage.run]
 # CI runs api:test as 4 parallel shards (each writes .coverage.<n>) and stitches
