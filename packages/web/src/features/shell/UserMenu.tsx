@@ -226,7 +226,10 @@ function AvatarChip({
       aria-expanded={isOpen}
       onClick={onClick}
       className={[
-        'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold',
+        // 32px filled avatar; on touch (< md) a transparent pseudo-element extends
+        // the tap area to 44px (WCAG 2.5.5, rule 5/247) without enlarging the disc.
+        'relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold',
+        "max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[6px]",
         'focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary',
         'bg-brand-primary text-white',
       ].join(' ')}

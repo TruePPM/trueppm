@@ -624,7 +624,7 @@ function SourceCard({ source }: { source: ExternalTaskSourceEntry }) {
           onReconnect={() => setShowConnect(true)}
         />
       ) : isConnected && isStaleSync(connection?.last_synced_at ?? null) ? (
-        <p className="text-[11px] text-neutral-text-secondary">
+        <p className="text-xs text-neutral-text-secondary">
           Last synced {formatRelative(new Date(connection?.last_synced_at as string))}
         </p>
       ) : null}
@@ -790,7 +790,7 @@ function SyncNowButton({ source }: { source: ExternalTaskSourceEntry }) {
         {sync.isPending ? 'Syncing…' : 'Sync now'}
       </button>
       {cooldown ? (
-        <span role="status" className="text-[11px] text-neutral-text-secondary max-w-[12rem] text-right">
+        <span role="status" className="text-xs text-neutral-text-secondary max-w-[12rem] text-right">
           {cooldown}
         </span>
       ) : null}
@@ -821,13 +821,13 @@ function RecentlyPulled({
   const safeUrl = (url: string) => safeExternalHref(url);
   return (
     <div className="rounded-control border border-neutral-border bg-neutral-surface p-3">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary mb-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary mb-2">
         Recently pulled · appears in My Work
       </p>
       <ul className="flex flex-col gap-1.5" aria-label={`Recently pulled ${sourceName} items`}>
         {items.slice(0, 3).map((item) => (
           <li key={item.id} className="flex items-center gap-3 min-w-0">
-            <span className="tppm-mono text-[11px] font-medium text-neutral-text-secondary w-16 shrink-0 truncate">
+            <span className="tppm-mono text-xs font-medium text-neutral-text-secondary w-16 shrink-0 truncate">
               {item.external_id}
             </span>
             <span className="flex-1 truncate text-[13px] text-neutral-text-primary">
@@ -836,7 +836,7 @@ function RecentlyPulled({
             {item.external_status ? (
               <span
                 className={[
-                  'inline-flex items-center rounded-control border px-2 h-6 text-[11px] font-medium shrink-0',
+                  'inline-flex items-center rounded-control border px-2 h-6 text-xs font-medium shrink-0',
                   BUCKET_PILL_CLASSES[item.display_bucket] ?? BUCKET_FALLBACK,
                 ].join(' ')}
               >

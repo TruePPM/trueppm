@@ -122,7 +122,7 @@ export function SignalLadder({
                 onClick={onRaiseCeiling}
                 disabled={pending || hasOpenProposal}
                 title={hasOpenProposal ? 'A raise is already pending for this signal' : undefined}
-                className="text-[12px] font-medium text-sage-700 hover:underline disabled:opacity-50"
+                className="text-[12px] font-medium text-sage-700 hover:underline disabled:text-neutral-text-disabled disabled:no-underline disabled:cursor-not-allowed"
               >
                 ↑ Raise ceiling…
               </button>
@@ -132,7 +132,7 @@ export function SignalLadder({
                 type="button"
                 onClick={onLowerCeiling}
                 disabled={pending}
-                className="text-[12px] text-neutral-text-secondary hover:underline disabled:opacity-50"
+                className="text-[12px] text-neutral-text-secondary hover:underline disabled:text-neutral-text-disabled disabled:no-underline disabled:cursor-not-allowed"
               >
                 ↓ Lower ceiling
               </button>

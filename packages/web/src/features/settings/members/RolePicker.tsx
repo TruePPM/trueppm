@@ -39,7 +39,7 @@ const VARIANT_CLASSES: Record<NonNullable<RolePickerProps['variant']>, string> =
     'h-9 pl-3 pr-8 rounded-control border border-neutral-border bg-neutral-surface text-sm',
     'text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.5rem_center]',
     'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
-    'disabled:opacity-50 disabled:cursor-not-allowed',
+    'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
   ].join(' '),
 };
 

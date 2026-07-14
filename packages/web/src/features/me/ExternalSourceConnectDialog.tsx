@@ -207,14 +207,14 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
                 onChange={(e) => setSecret(e.target.value)}
                 className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               />
-              <span className="text-[11px] text-neutral-text-secondary">
+              <span className="text-xs text-neutral-text-secondary">
                 Create a read-only API token in your {source.name} account. It is
                 encrypted at rest and never shown again.
               </span>
             </label>
 
             <div className="flex flex-col gap-1.5 rounded-control border border-neutral-border bg-neutral-surface-sunken px-3 py-2.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-semantic-on-track">
+              <span className="text-xs font-semibold uppercase tracking-wide text-semantic-on-track">
                 Read-only access
               </span>
               {/* text-primary (not -secondary): text-secondary on surface-sunken is
@@ -277,7 +277,7 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
                   className="accent-brand-primary"
                 />
                 Issues assigned to me
-                <span className="text-[11px] font-medium text-brand-primary bg-brand-primary-light rounded-full px-2 py-0.5">
+                <span className="text-xs font-medium text-brand-primary bg-brand-primary-light rounded-full px-2 py-0.5">
                   Recommended
                 </span>
               </label>
@@ -316,7 +316,7 @@ export function ExternalSourceConnectDialog({ source, onDismiss, onConnected }: 
                 onChange={(e) => setProjects(e.target.value)}
                 className="h-9 px-3 text-[13px] border border-neutral-border rounded-control bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
               />
-              <span className="text-[11px] text-neutral-text-secondary">
+              <span className="text-xs text-neutral-text-secondary">
                 Comma-separated project keys to limit the import. Leave blank for all.
               </span>
             </label>

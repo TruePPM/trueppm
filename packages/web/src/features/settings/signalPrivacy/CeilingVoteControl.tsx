@@ -64,7 +64,7 @@ export function CeilingVoteControl({ proposal, voting, onVote }: CeilingVoteCont
                 disabled={voting}
                 onClick={() => onVote(choice)}
                 className={[
-                  'h-8 flex-1 rounded text-[12px] font-medium transition-colors disabled:opacity-50',
+                  'h-8 flex-1 rounded text-[12px] font-medium transition-colors disabled:cursor-not-allowed',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   active
                     ? on

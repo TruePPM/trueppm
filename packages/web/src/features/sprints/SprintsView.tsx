@@ -48,6 +48,7 @@ import { ScopePendingReviewPanel } from './ScopePendingReviewPanel';
 import { useCanManageScope } from '@/hooks/useCanManageScope';
 import { useCanEditSprintGoal } from '@/hooks/useCanEditSprintGoal';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
 import { SprintIcon } from '@/components/Icons';
 import { RetroPanel } from './RetroPanel';
@@ -119,7 +120,7 @@ export function SprintsView() {
   const projectId = useProjectId();
   const projectQuery = useProject(projectId);
   const itl = useIterationLabel();
-  const { sprints, isLoading, error } = useSprints(projectId);
+  const { sprints, isLoading, error, refetch } = useSprints(projectId);
   const buckets = useSprintsByState(projectId);
   const { closeSprint, activateSprint } = useSprintMutations(projectId);
   const { resourceId: myResourceId } = useCurrentUserResourceId(projectId ?? undefined);
@@ -598,10 +599,12 @@ export function SprintsView() {
           </div>
         )}
 
-        {error && (
-          <p role="alert" className="text-sm text-semantic-critical">
-            Could not load {itl.lowerPlural}. {error.message}
-          </p>
+        {!isLoading && error && (
+          <QueryErrorState
+            variant="inline"
+            message={`Couldn't load ${itl.lowerPlural}.`}
+            onRetry={() => refetch?.()}
+          />
         )}
 
         {!isLoading && !error && sprints.length === 0 && (

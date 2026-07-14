@@ -113,7 +113,7 @@ export function ProjectGuardrailsPage() {
             <button
               type="button"
               onClick={toggleAck}
-              className="shrink-0 min-h-[44px] sm:min-h-0 sm:h-9 px-3 rounded-control text-xs font-medium
+              className="shrink-0 min-h-[44px] md:min-h-0 md:h-9 px-3 rounded-control text-xs font-medium
                 border border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-sunken
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -232,10 +232,13 @@ function LevelPill({ label, active, disabled, onClick, tone, ...aria }: LevelPil
       aria-label={aria['aria-label']}
       className={[
         // Touch viewport: 44px tall (WCAG 2.5.5 AA); desktop collapses to 32px.
-        'inline-flex items-center justify-center min-h-[44px] sm:min-h-0 sm:h-8 min-w-[68px]',
+        // Compaction keys off md: (rule 228) — sm: is 375px, still a phone.
+        'inline-flex items-center justify-center min-h-[44px] md:min-h-0 md:h-8 min-w-[68px]',
         'px-2.5 rounded-control text-[11px] font-medium border transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
+        // Disabled pills stay readable (they show the current policy to non-Owners);
+        // the active/inactive classes are full-opacity, so no opacity dim (rule 122).
+        'disabled:cursor-not-allowed',
         active
           ? activeClass
           : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',

@@ -114,7 +114,7 @@ export function ExternalWorkItemRow({ item, source }: Props) {
       <div className="flex shrink-0 items-center">
         <span
           className="inline-flex items-center rounded-chip border border-neutral-border
-            bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide
+            bg-neutral-surface-sunken px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide
             text-neutral-text-secondary"
         >
           Read-only

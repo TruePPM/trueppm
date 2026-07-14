@@ -126,7 +126,7 @@ export function DeadLetterActionDialog({
               value={backoffSeconds}
               onChange={(e) => setBackoffSeconds(Number(e.target.value))}
               disabled={busy}
-              className="h-8 w-full rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+              className="h-8 w-full rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               {BACKOFF_OPTIONS.map((opt) => (
                 <option key={opt.seconds} value={opt.seconds}>
@@ -151,7 +151,7 @@ export function DeadLetterActionDialog({
               rows={3}
               maxLength={1000}
               placeholder="Why is this being dropped? (recorded in the audit trail)"
-              className="w-full resize-none rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 py-2 text-[13px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+              className="w-full resize-none rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 py-2 text-[13px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             />
           </div>
         )}

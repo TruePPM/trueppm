@@ -352,7 +352,7 @@ function CalendarRow({ name, kind, summary, locked, onRemove, removing }: Calend
             onClick={onRemove}
             disabled={removing}
             aria-label={`Remove ${name} from project`}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:h-8 md:w-8"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken hover:text-neutral-text-primary disabled:text-neutral-text-disabled disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:h-8 md:w-8"
           >
             <CloseIcon aria-hidden="true" />
           </button>

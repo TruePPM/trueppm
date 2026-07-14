@@ -204,7 +204,8 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(rail.getByText('Polish onboarding copy')).toBeVisible({ timeout: 10_000 });
 
     // Empty-state copy must NOT render — the synthetic lane keeps the grid alive.
-    await expect(page.getByText(/No tasks yet\. Create tasks to see them on the board/)).toHaveCount(0);
+    // (#1934: the board's zero-task state is now the warm shared EmptyState.)
+    await expect(page.getByText(/Add your first task to get started/)).toHaveCount(0);
 
     // Project Tasks lane appears with the four status columns to drop onto.
     await expect(page.getByText('Project Tasks')).toBeVisible();

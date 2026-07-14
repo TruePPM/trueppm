@@ -253,10 +253,10 @@ export function WorkspaceEmailPage() {
             role="alert"
             className="mb-5 rounded-card border border-semantic-critical/40 bg-semantic-critical-bg px-4 py-3"
           >
-            <p className="text-[13px] font-medium text-semantic-critical-text">
+            <p className="text-[13px] font-medium text-semantic-critical">
               Transport validation failed
             </p>
-            <p className="mt-0.5 text-[13px] text-semantic-critical-text">{saveError}</p>
+            <p className="mt-0.5 text-[13px] text-semantic-critical">{saveError}</p>
             <p className="mt-1 text-[12px] text-neutral-text-secondary">
               Your entries are kept — fix the values and save again.
             </p>
@@ -566,10 +566,10 @@ export function WorkspaceEmailPage() {
                 </button>
                 <p className="text-[12px]" aria-live="polite">
                   {sendTest.data?.sent === true && (
-                    <span className="text-semantic-on-track-text">✓ Sent — check your inbox.</span>
+                    <span className="text-semantic-on-track">✓ Sent — check your inbox.</span>
                   )}
                   {sendTest.data?.sent === false && (
-                    <span className="text-semantic-critical-text">
+                    <span className="text-semantic-critical">
                       ✗ {sendTest.data.error ?? 'Send failed.'}
                     </span>
                   )}
@@ -618,9 +618,9 @@ export function WorkspaceEmailPage() {
 }
 
 const CHIP_STYLES: Record<HealthStatus, string> = {
-  pass: 'bg-semantic-on-track-bg text-semantic-on-track-text',
-  warn: 'bg-semantic-at-risk-bg text-semantic-at-risk-text',
-  fail: 'bg-semantic-critical-bg text-semantic-critical-text',
+  pass: 'bg-semantic-on-track-bg text-semantic-on-track',
+  warn: 'bg-semantic-at-risk-bg text-semantic-at-risk',
+  fail: 'bg-semantic-critical-bg text-semantic-critical',
   unknown: 'bg-neutral-surface-sunken text-neutral-text-secondary',
 };
 const CHIP_GLYPH: Record<HealthStatus, string> = {

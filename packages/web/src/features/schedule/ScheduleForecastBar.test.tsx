@@ -6,7 +6,12 @@ import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
 
 // Mutable hook state, mirrored from the deleted MonteCarloRow test harness.
-let mockResult: { data: unknown; isLoading: boolean; error: null } = {
+let mockResult: {
+  data: unknown;
+  isLoading: boolean;
+  error: Error | null;
+  refetch?: () => void;
+} = {
   data: FIXTURE_MC_RESULT,
   isLoading: false,
   error: null,
@@ -60,6 +65,20 @@ describe('ScheduleForecastBar', () => {
       screen.getByText(/Run a simulation to see P50\/P80\/P95/i),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Run Monte Carlo/i })).toBeInTheDocument();
+  });
+
+  it('shows a distinct load-failure state (not the never-run prompt) when the fetch errors', async () => {
+    // A 404 "never run" is mapped to no-error by the hook; a real error means the
+    // existing forecast couldn't load and must not read as "never run" (#1938).
+    const refetch = vi.fn();
+    mockResult = { data: undefined, isLoading: false, error: new Error('boom'), refetch };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/Couldn't load the forecast/i);
+    expect(screen.queryByText(/Run a simulation/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Run Monte Carlo/i })).not.toBeInTheDocument();
+    // Retry re-runs just the query rather than forcing a full recompute.
+    await userEvent.click(screen.getByRole('button', { name: /^Retry$/i }));
+    expect(refetch).toHaveBeenCalledOnce();
   });
 
   it('renders the P50/P80/P95 chips exactly once', () => {
