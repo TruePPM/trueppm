@@ -21,6 +21,15 @@ vi.mock('@/hooks/useIterationLabel', async (importOriginal) => {
   return { ...actual, useIterationLabel: vi.fn(actual.useIterationLabel) };
 });
 
+// Control title overflow directly (#1947): JSDOM reports scrollWidth/clientWidth
+// as 0, so the real ResizeObserver-backed hook can never observe an overflow.
+// The mock lets a test assert the title-peek button appears only when the title
+// is actually clipped, independent of unmeasurable JSDOM layout.
+const overflowState = vi.hoisted(() => ({ value: false }));
+vi.mock('@/hooks/useIsOverflowing', () => ({
+  useIsOverflowing: () => overflowState.value,
+}));
+
 // 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
 const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
   { status: 'BACKLOG', label: 'BACKLOG', slaDays: 14 },
@@ -1190,5 +1199,101 @@ describe('BoardCard v2 identity meta (issue 1230)', () => {
     const { container } = renderCard({ task: baseTask });
     expect(container.querySelector('span[title="Stream"]')).toBeNull();
     expect(screen.queryByText(/pts$/)).not.toBeInTheDocument();
+  });
+});
+
+// Coarse-pointer tap-to-peek promotion on the compact bar (#1947, web-rule 256).
+// The mobile board forces compact density (rule 193); on touch the hover-only
+// health badge and the truncated title strand meaning the user cannot recover,
+// so each promotes to a CardPeekButton. Fine pointer must stay byte-identical.
+describe('BoardCard compact bar touch affordances (#1947)', () => {
+  // Stub matchMedia so `(pointer: coarse)` reports touch while `min-width`
+  // queries keep reporting the reference `lg` layout the other specs assume.
+  function stubPointer(coarse: boolean) {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: /^\(min-width:/.test(query) || (coarse && /pointer:\s*coarse/.test(query)),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+    overflowState.value = false;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    overflowState.value = false;
+  });
+
+  it('(a) coarse + overflowing title → title-peek button opens/closes the full name', () => {
+    stubPointer(true);
+    overflowState.value = true;
+    renderCard({ task: baseTask, density: 'compact' });
+
+    const trigger = screen.getByRole('button', { name: /show full title: backend implementation/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+    const note = screen.getByRole('note');
+    expect(note).toHaveTextContent('Backend Implementation');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('(b) coarse + title that fits → no title-peek button (rule 122)', () => {
+    stubPointer(true);
+    overflowState.value = false; // scrollWidth === clientWidth (title fits)
+    renderCard({ task: baseTask, density: 'compact' });
+    expect(screen.queryByRole('button', { name: /show full title/i })).not.toBeInTheDocument();
+  });
+
+  it('(c) coarse + signal → health badge is a tap-to-peek button showing srText', () => {
+    stubPointer(true);
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
+
+    const trigger = screen.getByRole('button', { name: /what does this mean/i });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(trigger);
+    expect(screen.getByRole('note')).toHaveTextContent('On the critical path');
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('(d) fine pointer → no peek buttons; health badge stays a display-only span', () => {
+    // No stub → default matchMedia reports a fine pointer (coarse=false).
+    overflowState.value = true; // even if it would overflow, fine pointer adds nothing
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
+
+    expect(
+      screen.queryByRole('button', { name: /what does this mean/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /show full title/i })).not.toBeInTheDocument();
+
+    // The badge is a plain span carrying its meaning in title + aria-label.
+    const badge = screen.getByLabelText('On the critical path');
+    expect(badge.tagName).toBe('SPAN');
+    expect(badge).toHaveAttribute('title', 'On the critical path');
+  });
+
+  it('(e) coarse + closed → no popover in the document until opened', () => {
+    stubPointer(true);
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
   });
 });

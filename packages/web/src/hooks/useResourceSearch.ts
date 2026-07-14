@@ -13,10 +13,14 @@ interface ApiResource {
 }
 
 /**
- * GET /api/v1/resources/?search=… — search resources by name for the assignment picker.
- * Results are stale for 30 s to avoid hammering the API on every keystroke.
+ * GET /api/v1/resources/?search=… — search resources by name for the assignment
+ * picker and the command-palette people tier (ADR-0401).
+ *
+ * Results are stale for 30 s to avoid hammering the API on every keystroke. Pass
+ * `enabled: false` to hold the request — the palette gates on an open+non-empty
+ * query so it never fetches the whole catalog on a cold or closed palette.
  */
-export function useResourceSearch(query: string) {
+export function useResourceSearch(query: string, enabled = true) {
   return useQuery({
     queryKey: ['resources', 'search', query],
     queryFn: async () => {
@@ -26,5 +30,6 @@ export function useResourceSearch(query: string) {
       return res.data.results.map((r): ResourceSearchResult => ({ id: r.id, name: r.name }));
     },
     staleTime: 30_000,
+    enabled,
   });
 }

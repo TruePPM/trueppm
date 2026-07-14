@@ -16,6 +16,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast';
+import { isClientRejection } from '@/lib/apiError';
 import {
   computeTotals,
   localTodayIso,
@@ -103,9 +104,15 @@ export function useTimesheetCell(mondayIso: string) {
       }
       return { previous };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.previous) qc.setQueryData(key, context.previous);
-      toast.error('Could not save that time. Please try again.');
+      // A 4xx validation rejection is shown inline on the offending cell by the
+      // page (#1945); a generic "try again" toast on top would be redundant and
+      // misleading — retrying the same value won't help. Only surface a toast
+      // for non-validation failures (network / 5xx).
+      if (!isClientRejection(err)) {
+        toast.error('Could not save that time. Please try again.');
+      }
     },
     onSettled: () => {
       // Reconcile against the server's authoritative fold (real ids, exact totals).

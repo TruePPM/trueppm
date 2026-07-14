@@ -49,6 +49,7 @@ import { MyWorkEmptyState } from './MyWorkEmptyState';
 import { MyWorkRetroSection } from './MyWorkRetroSection';
 import { MyWorkFocusCards } from './MyWorkFocusCards';
 import { MyWorkSideColumn } from './MyWorkSideColumn';
+import { MyProjectsHealthSummary } from './MyProjectsHealthSummary';
 import { LandingPrimaryUsePrompt } from './LandingPrimaryUsePrompt';
 import { LandingContextHint } from './LandingContextHint';
 import {
@@ -272,6 +273,11 @@ export function MyWorkPage() {
           the prompt is the contributor-first first-login home picker. */}
       <LandingContextHint />
       <LandingPrimaryUsePrompt />
+
+      {/* Cross-project health triage (ADR-0401/#1941): "which of my projects is on
+          fire?" above the fold. Self-hides with <2 projects, so it sits above the
+          task-state branch — a PM with no assigned tasks still gets the signal. */}
+      <MyProjectsHealthSummary />
 
       {error && (
         <div

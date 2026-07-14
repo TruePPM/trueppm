@@ -229,6 +229,13 @@ export async function setupCatchAll(page: Page): Promise<void> {
       ),
     );
   });
+  // ADR-0401/#1941: the My Work "my projects" health summary (a bare array) is
+  // fetched on every /me/work render. Default it to empty here — registered AFTER
+  // the catch-all so it wins — so specs that render My Work don't 404 into a flaky
+  // health-summary error card. Specs testing the summary override this route.
+  await page.route('**/api/v1/projects/health-summary/', (route) =>
+    route.fulfill(jsonResponse([], 200)),
+  );
 }
 
 /**

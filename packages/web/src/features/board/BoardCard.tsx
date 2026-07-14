@@ -22,8 +22,11 @@ import { ReadinessChip } from './ReadinessChip';
 import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
 import { phaseColor } from './phaseColors';
-import { LinkIcon, WarningIcon } from '@/components/Icons';
+import { LinkIcon, WarningIcon, MoreHorizontalIcon } from '@/components/Icons';
 import { LabelPillRow } from '@/components/LabelPill';
+import { CardPeekButton } from './CardPeekButton';
+import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
+import { useIsOverflowing } from '@/hooks/useIsOverflowing';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -243,6 +246,15 @@ function BoardCardImpl({
   // hover/focus reveal it without this flag via group-hover / group-focus-within.
   const [peekOpen, setPeekOpen] = useState(false);
   const signalBadgeRef = useRef<HTMLButtonElement>(null);
+  // Compact-bar touch affordances (#1947, web-rule 256). On a coarse pointer the
+  // compact card's hover-only health badge and truncated title have no reachable
+  // channel, so each promotes to a tap-to-peek `CardPeekButton`. Both hooks are
+  // called unconditionally here (before the early-return branches) to satisfy the
+  // rules of hooks; on a fine pointer `coarsePointer` is false and the compact
+  // branch renders today's exact DOM (byte-identical desktop).
+  const coarsePointer = useIsCoarsePointer();
+  const titleRef = useRef<HTMLSpanElement>(null);
+  const titleOverflowing = useIsOverflowing(titleRef);
   const menuRef = useRef<HTMLDivElement>(null);
   // issue 838: roving-focus keyboard nav for the overflow menu + submenu.
   const menuPanelRef = useRef<HTMLDivElement>(null);
@@ -708,6 +720,7 @@ function BoardCardImpl({
         />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
           <span
+            ref={titleRef}
             className={[
               'text-xs font-medium truncate flex-1 min-w-0',
               showCriticalState
@@ -720,28 +733,68 @@ function BoardCardImpl({
           >
             {task.name}
           </span>
+          {/* Title disclosure (#1947, web-rule 256). The truncated title silently
+              drops its tail on touch, where `title=` never surfaces. On a coarse
+              pointer AND when the title actually overflows, render a dedicated
+              end-of-title glyph button that peeks the full name; when it fits,
+              render nothing (rule 122). The card body stays the task-open target
+              — the title text itself is never the trigger. Fine pointer: no
+              button, no aria (byte-identical desktop). */}
+          {coarsePointer && titleOverflowing && (
+            <CardPeekButton
+              ariaLabel={`Show full title: ${task.name}`}
+              peekAriaLabel="Full task title"
+              triggerContent={
+                <MoreHorizontalIcon
+                  className="h-3.5 w-3.5 text-neutral-text-secondary"
+                  aria-hidden="true"
+                />
+              }
+            >
+              {task.name}
+            </CardPeekButton>
+          )}
           {isPending && (
             <PendingAcceptanceChip compact explainer={pendingExplainer} className="shrink-0" />
           )}
           {isPendingSync && <PendingSyncBadge compact className="shrink-0" />}
-          {/* Worst-offender badge (issue 1305) — at compact density it is display-only
-              (no peek). On the bar it is glyph-only (issue #1925): the single
-              highest-severity glyph + tone is enough to scan by, and its word lives
-              in srText → title + aria-label, so the label never competes with the
-              title for the one line. It subsumes the old CP chip (critical path is
-              one of its tiers), so the red accent bar + name color still mark a CP
-              card even when a higher signal (blocked/stale) wins the badge. */}
-          {cardSignal && (
-            <span
-              className={`shrink-0 inline-flex items-center px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
-                cardSignal.tone,
-              )}`}
-              title={cardSignal.srText}
-              aria-label={cardSignal.srText}
-            >
-              <span aria-hidden="true">{cardSignal.glyph}</span>
-            </span>
-          )}
+          {/* Worst-offender badge (issue 1305) — on the bar it is glyph-only
+              (issue #1925): the single highest-severity glyph + tone is enough to
+              scan by, and its word lives in srText. It subsumes the old CP chip
+              (critical path is one of its tiers), so the red accent bar + name
+              color still mark a CP card even when a higher signal (blocked/stale)
+              wins the badge.
+
+              On a coarse pointer (#1947, web-rule 256) the glyph's meaning is
+              otherwise trapped in `title`/`aria-label` — unreachable on touch — so
+              the badge promotes to a tap-to-peek `CardPeekButton` revealing the
+              full `srText` sentence. The trigger keeps its semantic tone; the peek
+              surface stays neutral (rule 253a). Closed state is portaled → zero
+              added layout, so the 36px compact bar height is unchanged. Fine
+              pointer: today's exact display-only `<span>` (byte-identical). */}
+          {cardSignal &&
+            (coarsePointer ? (
+              <CardPeekButton
+                ariaLabel={`${cardSignal.label}. What does this mean?`}
+                peekAriaLabel={`${cardSignal.label} — explanation`}
+                triggerClassName={`shrink-0 px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
+                  cardSignal.tone,
+                )}`}
+                triggerContent={<span aria-hidden="true">{cardSignal.glyph}</span>}
+              >
+                {cardSignal.srText}
+              </CardPeekButton>
+            ) : (
+              <span
+                className={`shrink-0 inline-flex items-center px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
+                  cardSignal.tone,
+                )}`}
+                title={cardSignal.srText}
+                aria-label={cardSignal.srText}
+              >
+                <span aria-hidden="true">{cardSignal.glyph}</span>
+              </span>
+            ))}
           {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on a
               pending card, which shows the accept ✓ instead. */}
           {!isPending && signalChips}

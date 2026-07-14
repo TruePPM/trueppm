@@ -18,6 +18,7 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
   sprint: 'Current sprint',
   task: 'Tasks',
   current: 'Current project',
+  person: 'People',
   jump: 'Jump to',
   backlog: 'Backlog',
   board: 'Board',
@@ -25,11 +26,13 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 };
 // Render + keyboard-nav order. `sprint` (jump to today's active sprint board, the
 // first-class issue 1594 action) leads always; `task` follows (the query-gated jump-to
-// ask); `current` (the in-context role targets) sits above the global navigation.
+// ask); `current` (the in-context role targets) then `person` (query-gated global
+// people search) sit above the global navigation.
 const GROUP_ORDER: CommandItem['group'][] = [
   'sprint',
   'task',
   'current',
+  'person',
   'jump',
   'backlog',
   'board',
@@ -45,21 +48,31 @@ const DEFAULT_CHIP_CLASS = 'bg-neutral-surface-sunken text-neutral-text-secondar
 
 /** Max task results shown (ADR-0138) — keep the list scannable. */
 const TASK_RESULT_CAP = 8;
+/** Max people results shown (ADR-0401) — same scannability budget as tasks. */
+const PERSON_RESULT_CAP = 6;
 
 /**
- * Apply the Tasks section rules to the filtered list, preserving order so the
+ * Apply the per-section result caps to the filtered list, preserving order so the
  * flat list drives both rendering and keyboard nav identically:
- *  - Tasks are query-gated (a cold palette never dumps arbitrary tasks).
- *  - Tasks are capped at {@link TASK_RESULT_CAP}.
+ *  - Tasks are query-gated (a cold palette never dumps arbitrary tasks) and capped
+ *    at {@link TASK_RESULT_CAP}.
+ *  - People are already query-gated at the hook (only built with a non-empty
+ *    query) and capped at {@link PERSON_RESULT_CAP}.
+ * Truncation is surfaced to the user by {@link CommandPalette} via an explicit
+ * "showing first N" hint, so the cap is never silent (#1940).
  */
-function applyTaskRules(items: CommandItem[], query: string): CommandItem[] {
+function applyResultCaps(items: CommandItem[], query: string): CommandItem[] {
   const hasQuery = query.trim().length > 0;
   const out: CommandItem[] = [];
   let taskCount = 0;
+  let personCount = 0;
   for (const item of items) {
     if (item.group === 'task') {
       if (!hasQuery || taskCount >= TASK_RESULT_CAP) continue;
       taskCount += 1;
+    } else if (item.group === 'person') {
+      if (personCount >= PERSON_RESULT_CAP) continue;
+      personCount += 1;
     }
     out.push(item);
   }
@@ -79,18 +92,29 @@ function applyTaskRules(items: CommandItem[], query: string): CommandItem[] {
 export function CommandPalette() {
   const open = useCommandPaletteStore((s) => s.open);
   const setOpen = useCommandPaletteStore((s) => s.setOpen);
-  // Build live items only while open so the Tier-2 detail queries stay inert.
-  const allItems = useCommandItems(open);
-  const currentProjectId = useProjectId();
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const items = useMemo(
-    () => applyTaskRules(filterCommandItems(allItems, query), query),
-    [allItems, query],
+  // Build live items only while open so the Tier-2 detail queries stay inert; the
+  // query drives the server-side people tier (ADR-0401).
+  const allItems = useCommandItems(open, query);
+  const currentProjectId = useProjectId();
+
+  const filtered = useMemo(() => filterCommandItems(allItems, query), [allItems, query]);
+  const items = useMemo(() => applyResultCaps(filtered, query), [filtered, query]);
+
+  // Whether a section overflowed its cap — drives the explicit "showing first N"
+  // hints so the truncation is never silent (#1940).
+  const taskTruncated = useMemo(
+    () => filtered.filter((i) => i.group === 'task').length > TASK_RESULT_CAP,
+    [filtered],
+  );
+  const personTruncated = useMemo(
+    () => filtered.filter((i) => i.group === 'person').length > PERSON_RESULT_CAP,
+    [filtered],
   );
 
   // Reset query + selection each time the palette opens, and focus the input.
@@ -208,6 +232,21 @@ export function CommandPalette() {
                   <p className="tppm-mono px-3 py-1 text-xs uppercase tracking-wider text-neutral-text-disabled">
                     {GROUP_LABEL[group]}
                   </p>
+                  {(() => {
+                    const truncated =
+                      (group === 'task' && taskTruncated) ||
+                      (group === 'person' && personTruncated);
+                    const cap = group === 'task' ? TASK_RESULT_CAP : PERSON_RESULT_CAP;
+                    return truncated ? (
+                      <p
+                        key={`${group}-overflow`}
+                        className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary"
+                        role="note"
+                      >
+                        Showing first {cap} — refine your search to narrow it down.
+                      </p>
+                    ) : null;
+                  })()}
                   {groupItems.map((item) => {
                     const isActive = item.id === activeItem?.id;
                     return (

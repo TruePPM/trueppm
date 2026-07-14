@@ -47,6 +47,7 @@ function renderGrid(
     weekTotal: weekTotalMinutes(rows),
     existingTaskIds: new Set(rows.map((r) => r.taskId)),
     submitted: false,
+    cellErrors: {},
     onCellSave: vi.fn(),
     onAddTask: vi.fn(),
     ...overrides,
@@ -94,6 +95,11 @@ describe('TimesheetGrid', () => {
     // One inert future cell per row for each of Tue..Sun (6 days).
     expect(futureCells).toHaveLength(6);
     futureCells.forEach((c) => expect(c).toHaveAttribute('aria-readonly', 'true'));
+  });
+
+  it('surfaces a per-cell validation error passed for that (task, date) key (#1945)', () => {
+    renderGrid({ cellErrors: { [`t1|${MONDAY}`]: 'Entry date cannot be in the future.' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('Entry date cannot be in the future.');
   });
 
   it('renders the add-task row while the week is open', () => {

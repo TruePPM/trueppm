@@ -7,12 +7,17 @@
  * Route: /resources
  */
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import { useResources } from '@/hooks/useResources';
 import { ResourceList, ResourceListSkeleton } from './ResourceList';
 import { ResourceDetailPanel } from './ResourceDetailPanel';
 
 export function ResourcesPage() {
-  const [search, setSearch] = useState('');
+  // Seed the search box from `?q=` so the command palette's people tier can
+  // deep-link here pre-filtered to a name (ADR-0401/#1940). Read once on mount —
+  // the field is user-owned thereafter.
+  const [searchParams] = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
   const [showDeactivated, setShowDeactivated] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mode, setMode] = useState<'view' | 'create'>('view');

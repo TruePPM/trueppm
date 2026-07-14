@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { useResourceSearch } from '@/hooks/useResourceSearch';
 import { useActiveSprint } from '@/hooks/useSprints';
 import { useCurrentSprintTargets } from '@/hooks/useCurrentSprintTargets';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
@@ -44,8 +45,13 @@ function formatStatus(status: string | null | undefined): string {
  * The detail hooks (tasks, sprints, role/facets) are disabled while the palette is
  * closed (`enabled === false`) so the feature stays inert until it is opened. Each
  * item closes the palette before acting so focus returns cleanly.
+ *
+ * `query` drives the global people tier (ADR-0401/#1940): a server-side
+ * `/resources/?search=` fires only while the palette is open AND the query is
+ * non-empty, so a cold or closed palette never pulls the whole catalog. People
+ * results deep-link to the resource catalog pre-filtered.
  */
-export function useCommandItems(enabled = true): CommandItem[] {
+export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   const navigate = useNavigate();
   const { data: projects } = useProjects();
   const { data: programs } = usePrograms();
@@ -72,6 +78,12 @@ export function useCommandItems(enabled = true): CommandItem[] {
     () => projects?.find((p) => p.id === currentProjectId) ?? null,
     [projects, currentProjectId],
   );
+
+  // Global people tier (ADR-0401/#1940): server-side resource search, gated on an
+  // open palette with a non-empty query so it never fetches the catalog cold.
+  const trimmedQuery = query.trim();
+  const peopleEnabled = enabled && trimmedQuery.length > 0;
+  const { data: people } = useResourceSearch(trimmedQuery, peopleEnabled);
 
   return useMemo(() => {
     // Wrap every action so the overlay closes first, then the effect runs.
@@ -175,6 +187,21 @@ export function useCommandItems(enabled = true): CommandItem[] {
       }
     }
 
+    // ---- People (global, query-gated) ----------------------------------------
+    // Server-searched resources (ADR-0401/#1940). Selecting one opens the org
+    // resource catalog pre-filtered to that name (`/resources?q=`) — there is no
+    // per-resource detail route, so the catalog + seeded search is the destination.
+    const peopleItems: CommandItem[] = peopleEnabled
+      ? (people ?? []).map((person) => ({
+          id: `person:${person.id}`,
+          label: person.name,
+          group: 'person',
+          tag: 'Person',
+          keywords: `person resource member teammate ${person.name}`,
+          run: go(`/resources?q=${encodeURIComponent(person.name)}`),
+        }))
+      : [];
+
     // ---- Tier 1: Jump to (global) --------------------------------------------
     const jumps: CommandItem[] = [
       { id: 'jump:my-work', label: 'My Work', group: 'jump', tag: 'View', run: go('/me/work') },
@@ -261,6 +288,7 @@ export function useCommandItems(enabled = true): CommandItem[] {
       ...sprintJumps,
       ...taskItems,
       ...currentItems,
+      ...peopleItems,
       ...jumps,
       ...backlog,
       ...board,
@@ -270,6 +298,8 @@ export function useCommandItems(enabled = true): CommandItem[] {
     navigate,
     programs,
     projects,
+    people,
+    peopleEnabled,
     theme,
     setTheme,
     toggleSidebar,
