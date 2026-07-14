@@ -312,7 +312,9 @@ test.describe('Project lifecycle settings (#530)', () => {
     await expect(dialog.getByRole('button', { name: /Confirm transfer/i })).toBeDisabled();
 
     await dialog.getByRole('button', { name: 'Assign' }).click();
-    await dialog.getByRole('option', { name: 'bob' }).click();
+    // The picker's listbox portals to document.body (useAnchoredPopover, #1966),
+    // so its options are no longer descendants of the dialog — scope to page.
+    await page.getByRole('option', { name: 'bob' }).click();
 
     await dialog.getByRole('button', { name: /Confirm transfer/i }).click();
     await expect
@@ -388,7 +390,8 @@ test.describe('Program lifecycle settings (#530)', () => {
 
     // Two pickers render (new sponsor + optional new PM); pick the sponsor only.
     await dialog.getByRole('button', { name: 'Assign' }).first().click();
-    await dialog.getByRole('option', { name: 'bob' }).click();
+    // Listbox portals to document.body (useAnchoredPopover, #1966) — scope to page.
+    await page.getByRole('option', { name: 'bob' }).click();
 
     await dialog.getByRole('button', { name: /Confirm transfer/i }).click();
     await expect
