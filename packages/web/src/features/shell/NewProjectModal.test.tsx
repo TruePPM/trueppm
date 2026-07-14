@@ -370,4 +370,68 @@ describe('NewProjectModal', () => {
       expect.anything(),
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // "Use program defaults" copy-at-create (#1909)
+  // ---------------------------------------------------------------------------
+
+  async function goToStep3InProgram(name = 'In-Program') {
+    renderWithProviders(
+      <NewProjectModal
+        onClose={onClose}
+        onCreated={onCreated}
+        programId="program-uuid-123"
+        programName="Apollo"
+      />,
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), name);
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+  }
+
+  it('does not show the "Use program defaults" toggle for a standalone project', async () => {
+    renderModal();
+    await goToStep3();
+    expect(
+      screen.queryByRole('checkbox', { name: /use .*defaults/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows the "Use program defaults" toggle (labeled with the program name) under a program', async () => {
+    await goToStep3InProgram();
+    expect(
+      screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('sends inherit_program_defaults and omits methodology when the toggle is on', async () => {
+    await goToStep3InProgram();
+    await userEvent.click(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.inherit_program_defaults).toBe(true);
+    // Omitted so the program's methodology is copied server-side (explicit would win).
+    expect(payload).not.toHaveProperty('methodology');
+    expect(payload).not.toHaveProperty('copy_settings_from');
+  });
+
+  it('disables the methodology picker and copy-settings source while the toggle is on', async () => {
+    await goToStep3InProgram();
+    await userEvent.click(screen.getByRole('checkbox', { name: /use apollo.?s defaults/i }));
+
+    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
+    expect(within(radiogroup).getByRole('radio', { name: /waterfall/i })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: /copy settings from/i })).toBeDisabled();
+  });
+
+  it('sends methodology and no inherit flag when the toggle is left off under a program', async () => {
+    await goToStep3InProgram();
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('inherit_program_defaults');
+    expect(payload.methodology).toBe('HYBRID');
+    expect(payload.program).toBe('program-uuid-123');
+  });
 });

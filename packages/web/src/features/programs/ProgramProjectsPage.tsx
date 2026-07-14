@@ -245,6 +245,7 @@ export function ProgramProjectsPage() {
       {showNewProjectModal && (
         <NewProjectModal
           programId={programId}
+          programName={program?.name}
           onClose={() => setShowNewProjectModal(false)}
           onCreated={(newProjectId) => {
             setShowNewProjectModal(false);

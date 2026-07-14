@@ -5349,3 +5349,75 @@ def apply_settings_template(validated_data: dict[str, Any], source: Any) -> dict
             value = list(value)  # Defensive copy: don't alias the source's list.
         validated_data[field] = value
     return validated_data
+
+
+# ---------------------------------------------------------------------------
+# Program-defaults seed — copy-at-create from the parent program (#1909)
+# ---------------------------------------------------------------------------
+
+# The fields a new project seeds from its parent program when the caller opts in
+# with ``inherit_program_defaults`` (#1909, completing the "Use program defaults"
+# acceptance line of #157). This is a **one-time manual copy at create time** — a
+# convenience seed, NOT policy-enforced inheritance: the copied values are owned
+# outright by the new project and are freely editable afterward, there is no lock,
+# no ongoing sync, and no audit trail (locked/governed inheritance is Enterprise,
+# trueppm-enterprise#47). It is the program analog of the project→project
+# ``copy_settings_from`` template (ADR-0242).
+#
+# The set is deliberately the *intersection* of a Program's own settings columns
+# with the project settings that do NOT already live-inherit from the program:
+#
+#   • ``methodology`` — NOT-NULL on both Program and Project, so the project's own
+#     value always wins under the default SUGGEST policy (methodology.py): a new
+#     project silently defaults to HYBRID and the program's methodology never flows
+#     down at read time. Copying it at create is the only way to seed a project to
+#     match its program's delivery model. (Effective resolution still honors a
+#     workspace INHERIT/ENFORCE lock — copying only sets the stored value.)
+#   • ``visibility`` — owned outright on both scopes (no inheritance resolver);
+#     seeds the project's listing scope to match the program's privacy posture.
+#
+# Deliberately EXCLUDED: the nullable live-inherited overrides (iteration_label,
+# public_sharing, allow_guests, mc_history_*, task_duration_change_percent_policy,
+# attachments_*). A new project leaves these NULL, which already resolves to the
+# program's value computed-on-read (ADR-0116/0135/0144/0151/0153). Copying the
+# program's stored value onto them would PIN the value and break that live
+# inheritance — the exact ADR-0242 §3 anti-pattern. Also excluded: settings with no
+# program analog (timezone, default_view, estimation_mode, board_cadence,
+# stale_task_threshold_days, prioritization_model, default_member_role, calendar,
+# surface show_* toggles) — the Program has no column to copy from.
+PROGRAM_DEFAULT_FIELDS: tuple[str, ...] = (
+    "methodology",
+    "visibility",
+)
+
+
+def apply_program_defaults(validated_data: dict[str, Any], program: Any) -> dict[str, Any]:
+    """Seed a new project's settings from its parent program (copy-at-create, #1909).
+
+    Fills each :data:`PROGRAM_DEFAULT_FIELDS` entry the caller did **not** already
+    provide with the parent program's stored value, mutating and returning
+    ``validated_data``. Precedence matches the project→project template
+    (:func:`apply_settings_template`, ADR-0242 §3): explicit-request-value > copied >
+    model-default, so only keys *absent* from ``validated_data`` are filled.
+
+    ``program`` is the already-resolved ``Program`` instance from the create body
+    (DRF's ``PrimaryKeyRelatedField`` loaded it, and ``validate_program`` has already
+    confirmed the caller is ADMIN on it), so these scalar ``getattr`` reads add no
+    query — there is no N+1 on the create path.
+
+    This is a manual copy, not governed inheritance: the seeded values are owned by
+    the new project and freely editable afterward (no lock/sync/audit — that is
+    Enterprise).
+
+    Args:
+        validated_data: The create serializer's validated data, mutated in place.
+        program: The parent ``Program`` instance to seed settings from.
+
+    Returns:
+        The same ``validated_data`` mapping, with absent program-default fields filled.
+    """
+    for field in PROGRAM_DEFAULT_FIELDS:
+        if field in validated_data:
+            continue  # Explicit request value wins over the copied program default.
+        validated_data[field] = getattr(program, field)
+    return validated_data

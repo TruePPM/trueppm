@@ -43205,6 +43205,11 @@
                         "writeOnly": true,
                         "description": "Optional. UUID of a project the caller can read; the new project's settings are copied from it at create time (copy-at-create, not bound)."
                     },
+                    "inherit_program_defaults": {
+                        "type": "boolean",
+                        "writeOnly": true,
+                        "description": "Optional. When true, seed the new project's methodology and visibility from its parent program at create time (copy-at-create, not bound). Requires 'program' to be set; cannot be combined with copy_settings_from."
+                    },
                     "name": {
                         "type": "string",
                         "minLength": 1,
@@ -46683,6 +46688,11 @@
                         "format": "uuid",
                         "writeOnly": true,
                         "description": "Optional. UUID of a project the caller can read; the new project's settings are copied from it at create time (copy-at-create, not bound)."
+                    },
+                    "inherit_program_defaults": {
+                        "type": "boolean",
+                        "writeOnly": true,
+                        "description": "Optional. When true, seed the new project's methodology and visibility from its parent program at create time (copy-at-create, not bound). Requires 'program' to be set; cannot be combined with copy_settings_from."
                     },
                     "name": {
                         "type": "string",

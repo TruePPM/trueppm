@@ -18,6 +18,11 @@ interface Props {
    * target program — the server gate raises 400 otherwise.
    */
   programId?: string;
+  /**
+   * Optional parent program name, used only to label the "Use program defaults"
+   * affordance (#1909). Falls back to a generic label when absent.
+   */
+  programName?: string;
 }
 
 type Step = 1 | 2 | 3;
@@ -49,7 +54,7 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
  * Step 1: Name + description. Step 2: Schedule dates. Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
-export function NewProjectModal({ onClose, onCreated, programId }: Props) {
+export function NewProjectModal({ onClose, onCreated, programId, programName }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -58,6 +63,12 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
   // Optional source project to seed settings from at create time (#1659, ADR-0242).
   // Empty string = no copy (today's blank-defaults behavior).
   const [copySettingsFrom, setCopySettingsFrom] = useState('');
+  // "Use program defaults" opt-in (#1909) — only meaningful when creating under a
+  // program. When on, the server seeds the new project's planning model and
+  // visibility from the parent program (a one-time copy, not locked inheritance),
+  // so the manual planning-model picker and the project-source copy are disabled to
+  // signal the program is providing those values.
+  const [useProgramDefaults, setUseProgramDefaults] = useState(false);
   // Default RBAC role applied to members later added without an explicit role
   // (ADR-0363, #157). Defaults to Team Member; the picker offers Viewer..Project
   // Manager (Owner is never a sensible blanket default).
@@ -127,14 +138,24 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
     e.preventDefault();
     if (step < TOTAL_STEPS) { advance(); return; }
     if (!name.trim() || !startDate || createProject.isPending) return;
+    // When seeding from the program (#1909), omit `methodology` so the parent
+    // program's value is copied server-side — an explicit `methodology` in the
+    // payload always wins over the copy (server precedence), which would defeat the
+    // opt-in. `inherit_program_defaults` and `copy_settings_from` are mutually
+    // exclusive (the server rejects both); the UI already gates them to one at a time.
+    const inheritProgram = Boolean(programId) && useProgramDefaults;
     createProject.mutate(
       {
         name: name.trim(),
         start_date: startDate,
         description: description.trim() || undefined,
-        methodology,
+        ...(inheritProgram ? {} : { methodology }),
         ...(programId ? { program: programId } : {}),
-        ...(copySettingsFrom ? { copy_settings_from: copySettingsFrom } : {}),
+        ...(inheritProgram
+          ? { inherit_program_defaults: true }
+          : copySettingsFrom
+            ? { copy_settings_from: copySettingsFrom }
+            : {}),
         default_member_role: defaultMemberRole,
       },
       {
@@ -258,16 +279,49 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                 <p className="text-xs text-neutral-text-secondary -mt-2">
                   Sets which views your team sees by default. You can change it later in project settings.
                 </p>
-                <div className="flex flex-col gap-2" role="radiogroup" aria-label="Project methodology">
+                {/* "Use program defaults" opt-in (#1909) — shown only when the project
+                    is created under a program. Seeds the planning model and visibility
+                    from the parent program at create time (a one-time copy; everything
+                    stays editable in project settings afterward). Mutually exclusive
+                    with "Copy settings from", so both manual pickers dim while it is on. */}
+                {programId && (
+                  <label className="flex items-start gap-2 rounded-control border border-neutral-border p-3 bg-neutral-surface-raised/40">
+                    <input
+                      type="checkbox"
+                      checked={useProgramDefaults}
+                      onChange={(e) => setUseProgramDefaults(e.target.checked)}
+                      aria-label={`Use ${programName ? `${programName}'s` : 'program'} defaults`}
+                      className="mt-0.5 h-4 w-4 rounded border-neutral-border text-brand-primary
+                        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium text-neutral-text-primary">
+                        Use {programName ? `${programName}'s` : 'program'} defaults
+                      </span>
+                      <span className="text-xs text-neutral-text-secondary">
+                        Copies this program&rsquo;s planning model and visibility. A one-time
+                        copy — you can change everything later in project settings.
+                      </span>
+                    </span>
+                  </label>
+                )}
+                <div
+                  className={`flex flex-col gap-2 ${useProgramDefaults ? 'opacity-50' : ''}`}
+                  role="radiogroup"
+                  aria-label="Project methodology"
+                  aria-disabled={useProgramDefaults || undefined}
+                >
                   {METHODOLOGIES.map((m) => (
                     <button
                       key={m.id}
                       type="button"
                       role="radio"
                       aria-checked={methodology === m.id}
+                      disabled={useProgramDefaults}
                       onClick={() => setMethodology(m.id)}
                       className={`flex flex-col gap-1 rounded-control border p-3 text-left
                         focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
+                        disabled:cursor-not-allowed
                         ${methodology === m.id
                           ? 'border-brand-primary bg-brand-primary/5'
                           : 'border-neutral-border hover:border-brand-primary/40'}`}
@@ -278,8 +332,14 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                   ))}
                 </div>
                 {/* Copy settings from another project (#1659, ADR-0242). Optional —
-                    an empty selection keeps today's blank-defaults behavior. */}
-                <label className="flex flex-col gap-1 pt-2 mt-1 border-t border-neutral-border">
+                    an empty selection keeps today's blank-defaults behavior. Dimmed
+                    and disabled while "Use program defaults" is on (#1909): the two
+                    settings sources are mutually exclusive. */}
+                <label
+                  className={`flex flex-col gap-1 pt-2 mt-1 border-t border-neutral-border ${
+                    useProgramDefaults ? 'opacity-50' : ''
+                  }`}
+                >
                   <span className="text-xs font-medium text-neutral-text-secondary">
                     Copy settings from
                   </span>
@@ -287,7 +347,7 @@ export function NewProjectModal({ onClose, onCreated, programId }: Props) {
                     value={copySettingsFrom}
                     onChange={(e) => setCopySettingsFrom(e.target.value)}
                     aria-label="Copy settings from"
-                    disabled={projectsLoading}
+                    disabled={projectsLoading || useProgramDefaults}
                     style={{
                       backgroundImage:
                         "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
