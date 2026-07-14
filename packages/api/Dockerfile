@@ -31,8 +31,15 @@ RUN pip install --no-cache-dir /build/scheduler
 # OS-level libpq/OpenSSL security upgrades reach the driver — the recommended
 # production posture (the precompiled `[binary]` wheel bundles its own libpq and
 # is dev-only). The runtime stage ships libpq5 for the compiled extension.
+#
+# The extra is a build ARG so local dev can opt into `[binary]` (a prebuilt
+# wheel — no from-source compile, ~4 min faster) while the published image keeps
+# `[c]` (#1955). The default is `c`, so any build that omits the arg — CI,
+# release, `docker build` by hand — gets the hardened production driver
+# unchanged; only docker-compose.yml overrides it to `binary` for local speed.
+ARG PSYCOPG_EXTRA=c
 COPY packages/api /build/api
-RUN pip install --no-cache-dir "/build/api[c]"
+RUN pip install --no-cache-dir "/build/api[${PSYCOPG_EXTRA}]"
 
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
