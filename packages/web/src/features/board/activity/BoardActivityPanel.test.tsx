@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { BoardActivityPanel } from './BoardActivityPanel';
@@ -95,5 +95,17 @@ describe('BoardActivityPanel', () => {
     );
     renderPanel({ sprintId: 's-1' });
     expect(screen.getByText('No activity in this sprint yet.')).toBeInTheDocument();
+  });
+
+  it('an active filter wins over the sprint-scope empty copy (ux-review #1946)', () => {
+    // A type filter narrowing to zero must not read as "empty sprint" — else the user
+    // never thinks to clear the filter.
+    useBoardActivityMock.mockReturnValue(
+      ret({ data: { pages: [{ results: [], next_until: null }], pageParams: [undefined] } }),
+    );
+    renderPanel({ sprintId: 's-1' });
+    fireEvent.click(screen.getByRole('button', { name: 'Scope changes' }));
+    expect(screen.getByText('No matching activity in this sprint.')).toBeInTheDocument();
+    expect(screen.queryByText('No activity in this sprint yet.')).not.toBeInTheDocument();
   });
 });

@@ -145,10 +145,15 @@ export function BoardActivityPanel({
 
         {!isLoading && !isError && events.length === 0 && (
           <p className="p-4 text-xs text-neutral-text-secondary">
-            {filters.scope === 'sprint'
-              ? 'No activity in this sprint yet.'
-              : filters.typeGroup !== 'all' || filters.actorId || filters.range !== 'any'
-                ? 'No activity matches these filters.'
+            {/* A type/actor/time filter narrowing to empty must not be masked by the
+                sprint-scope message, or the user reads an active filter as "empty sprint"
+                and never thinks to clear it (ux-review #1946). Filter message wins. */}
+            {filters.typeGroup !== 'all' || filters.actorId || filters.range !== 'any'
+              ? filters.scope === 'sprint'
+                ? 'No matching activity in this sprint.'
+                : 'No activity matches these filters.'
+              : filters.scope === 'sprint'
+                ? 'No activity in this sprint yet.'
                 : 'No board activity yet.'}
           </p>
         )}

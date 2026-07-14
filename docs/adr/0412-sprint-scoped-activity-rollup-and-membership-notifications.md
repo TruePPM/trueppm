@@ -74,8 +74,13 @@ Reuse the shipped board-activity feed; add **only the two missing pieces**. Thre
 ### 1. Sprint scope on the existing feed (small backend extension + web reuse)
 
 Add an optional `?sprint=<sprint_id>` param to `GET /projects/{id}/board/activity` that
-narrows results to events whose task is currently in that sprint (`task__sprint_id`),
-composing with the existing `type` / `actor` / `since` filters. No new endpoint, no new
+narrows results to events whose task is **currently** in that sprint OR whose own
+sprint-transition references that sprint (so a removal stays visible in the sprint it
+left). The scope is applied **in Python over the already-capped keyset batch** — mirroring
+the existing `actor` post-filter — via a single bulk `Task.objects.filter(pk__in=…)
+.values_list("pk","sprint_id")` lookup, not a DB `task__sprint_id` predicate pushed into
+the activity query (this preserves the keyset paging + delta-computation invariants the
+builder relies on). Composes with the existing `type` / `actor` / `since` filters. No new endpoint, no new
 model, no new event vocabulary.
 
 **Web:** reuse `BoardActivityPanel` / `useBoardActivity` verbatim, threading a `sprintId`
@@ -100,7 +105,8 @@ New `NotificationEventType.SPRINT_MEMBERSHIP_CHANGED = "sprint.membership_change
   read back through the board feed's `entered_sprint`/`exited_sprint` derivation. This
   trigger only fans out the *notification*.
 - **Default recipient candidate set (inherited, overridable):** project leads — interim
-  `role >= Role.ADMIN` (Owner/Admin/Scheduler) until ADR-0078 PO/SM facets exist — **minus
+  `role >= Role.ADMIN` (Owner + Admin only; Scheduler is 200 < Admin 300, so excluded)
+  until ADR-0078 PO/SM facets exist — **minus
   the actor**. The only code-level default; the seed Enterprise will later lock/preset.
 - **Per-user autonomy:** plugs into `NotificationPreference` with `DEFAULT_PREFERENCES` =
   **in-app ON, email OFF** (the ADR-0075/0085 contributor-signal default). Any recipient
@@ -149,9 +155,12 @@ notification rides the existing notification-bell read path.
 - One more `NotificationEventType` to keep in `DEFAULT_PREFERENCES`, `categories.py`, and
   `ENUM_NAME_OVERRIDES` (CI enforces the category map; add all in one commit).
 - The interim `role >= Admin` recipient default is a placeholder for ADR-0078 PO/SM facets.
-- The `?sprint=` scope adds a `task__sprint_id` filter to the board-activity query; the
-  existing `Task.sprint` index covers it at sprint scale (tens of tasks). Verify the board
-  feed's server-side filter layer accepts the new param without breaking keyset paging.
+- The `?sprint=` scope is a Python post-filter over the capped keyset batch (one bulk
+  `Task` PK→sprint_id lookup), not a DB predicate — same behavior class as the existing
+  `actor` post-filter. Consequence (accepted, pre-existing class): for a sparse sprint in a
+  high-activity project a page can return fewer than `limit` rows and end paging early
+  (mitigated by the builder's 4× overfetch). Guaranteeing full pages would require
+  keyset-continuation and would also change the shipped `actor` filter — out of scope.
 
 ## Implementation Notes
 
