@@ -159,20 +159,36 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
     // by calling gotoSchedule first then overriding in the test body.
     await gotoSchedule(page);
 
-    // Wire PATCH /dependencies/dep-1/ to return a cycle 400.
+    // Wire PATCH /dependencies/dep-1/: changing to SS creates a cycle
+    // (task-a ↔ task-b) → 400; any other type is a valid change → 200. The
+    // per-type branch is what makes the "clears the row error" test
+    // deterministic: selecting a valid type must actually succeed so the row
+    // error clears permanently. Returning 400 for every PATCH (the old mock)
+    // meant the alert only "cleared" during the transient optimistic-clear
+    // window before the next error re-showed — which React coalesces away under
+    // load, so no hidden frame ever renders and toBeHidden times out (#1954).
     await page.route('**/api/v1/dependencies/dep-1/', (route) => {
-      if (route.request().method() === 'PATCH') {
+      const request = route.request();
+      if (request.method() === 'PATCH') {
+        const newType = (request.postDataJSON() ?? {}).dep_type;
+        if (newType === 'SS') {
+          return route.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              detail: 'cyclic_dependency',
+              cycle: [
+                { id: 'task-a', name: 'Design Phase', hex_id: 'aa11' },
+                { id: 'task-b', name: 'Build Phase', hex_id: 'bb22' },
+                { id: 'task-a', name: 'Design Phase', hex_id: 'aa11' },
+              ],
+            }),
+          });
+        }
         return route.fulfill({
-          status: 400,
+          status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({
-            detail: 'cyclic_dependency',
-            cycle: [
-              { id: 'task-a', name: 'Design Phase', hex_id: 'aa11' },
-              { id: 'task-b', name: 'Build Phase', hex_id: 'bb22' },
-              { id: 'task-a', name: 'Design Phase', hex_id: 'aa11' },
-            ],
-          }),
+          body: JSON.stringify({ ...FIXTURE_DEPENDENCY, dep_type: newType ?? 'FF' }),
         });
       }
       return route.continue();
@@ -207,12 +223,12 @@ test.describe('Per-row cycle error on dep-type PATCH (#249)', () => {
     const rowAlert = drawer.getByRole('alert');
     await expect(rowAlert).toBeVisible({ timeout: 3_000 });
 
-    // Change again — the row error clears. The clear is asynchronous (the PATCH
-    // resolves, then the alert unmounts), so gate on the cleared state with a
-    // generous timeout rather than the default 5s, which flakes under CI runner
-    // load when the async clear runs long (#1923).
+    // Change to a valid type — the PATCH succeeds (see the per-type mock above),
+    // so the optimistic clear sticks and the alert unmounts for good. This is a
+    // deterministic clear, not the transient optimistic-clear window, so a
+    // normal timeout is enough (#1954).
     await depTypeSelect.selectOption('FF');
-    await expect(rowAlert).toBeHidden({ timeout: 15_000 });
+    await expect(rowAlert).toBeHidden({ timeout: 5_000 });
   });
 });
 
