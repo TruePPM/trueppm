@@ -3447,7 +3447,7 @@ export function BoardView() {
                   `select-none` while panning stops text selection mid-drag. The
                   `relative` wrapper hosts the bottom edge-fade overflow cue
                   (#1962) — the vertical analog of ShellNavScroller (rule 174). */}
-              <div className="relative flex-1 min-h-0 flex flex-col">
+              <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
               <div
                 ref={boardScrollRef}
                 data-testid="board-scroll"
