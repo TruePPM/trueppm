@@ -382,6 +382,27 @@ describe('useCreateTask', () => {
     const callArgs = postMock.mock.calls[0][1] as Record<string, unknown>;
     expect(callArgs).not.toHaveProperty('parent_id');
   });
+
+  it('includes story_points in the POST body when provided (#1961)', async () => {
+    // Estimate persistence on create was previously dropped by the mutationFn
+    // even for agile projects; ADR-0418 forwards it on every methodology.
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Estimated Task', duration: 3, story_points: 5 });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/tasks/',
+        expect.objectContaining({ story_points: 5 }),
+      ),
+    );
+  });
+
+  it('omits story_points from the POST body when undefined', async () => {
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'No Estimate', duration: 3 });
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const callArgs = postMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).not.toHaveProperty('story_points');
+  });
 });
 
 describe('useUpdateTask', () => {

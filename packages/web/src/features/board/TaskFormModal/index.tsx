@@ -508,7 +508,10 @@ export function TaskFormModal({
           ...(isMilestoneCreate
             ? {}
             : { type: form.type, governance_class: form.governanceClass, delivery_mode: form.deliveryMode }),
-          ...(projectDetail?.agile_features ? { sprint: form.sprintId, story_points: form.storyPoints } : {}),
+          // The point estimate is available on every methodology (ADR-0418, #1961) —
+          // decoupled from agile_features. Sprint assignment stays agile-only.
+          story_points: form.storyPoints,
+          ...(projectDetail?.agile_features ? { sprint: form.sprintId } : {}),
         });
         savedTaskId = created.id;
       } else {
@@ -528,7 +531,9 @@ export function TaskFormModal({
           type: form.type,
           governance_class: form.governanceClass,
           delivery_mode: form.deliveryMode,
-          ...(projectDetail?.agile_features ? { sprint: form.sprintId, story_points: form.storyPoints } : {}),
+          // Estimate on every methodology (ADR-0418, #1961); sprint stays agile-only.
+          story_points: form.storyPoints,
+          ...(projectDetail?.agile_features ? { sprint: form.sprintId } : {}),
         });
         savedTaskId = task.id;
       }
@@ -806,34 +811,42 @@ export function TaskFormModal({
           </div>
         )}
 
-        {/* Sprint + Story points — only when project.agile_features */}
-        {projectDetail?.agile_features && (() => {
+        {/* Story points (the card estimate) is available on every methodology
+            (ADR-0418, #1961); the Sprint selector remains agile-only. On a
+            non-agile project only the Pts input renders. */}
+        {(() => {
+          const showSprint = !!projectDetail?.agile_features;
           const selectedSprint = sprints.find((s) => s.id === form.sprintId);
           // Commitment is frozen once a sprint goes ACTIVE — match EstimatesTab.
+          // No sprint exists off agile, so points stay editable there.
           const pointsReadOnly = isReadOnly || (isEdit && selectedSprint?.state === 'ACTIVE');
           return (
-            <div className="grid grid-cols-[1fr_auto] gap-3 items-end">
-              <div>
-                <label htmlFor="task-sprint" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                  {itl.singular}
-                </label>
-                <select
-                  id="task-sprint"
-                  disabled={isReadOnly}
-                  value={form.sprintId ?? ''}
-                  onChange={(e) => setForm({ ...form, sprintId: e.target.value || null })}
-                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
-                >
-                  <option value="">No {itl.lower}</option>
-                  {sprints
-                    .filter((s) => s.state !== 'CANCELLED')
-                    .map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} {s.state !== 'ACTIVE' ? `(${s.state.toLowerCase()})` : ''}
-                      </option>
-                    ))}
-                </select>
-              </div>
+            <div
+              className={`grid ${showSprint ? 'grid-cols-[1fr_auto]' : 'grid-cols-[auto]'} gap-3 items-end`}
+            >
+              {showSprint && (
+                <div>
+                  <label htmlFor="task-sprint" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                    {itl.singular}
+                  </label>
+                  <select
+                    id="task-sprint"
+                    disabled={isReadOnly}
+                    value={form.sprintId ?? ''}
+                    onChange={(e) => setForm({ ...form, sprintId: e.target.value || null })}
+                    className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                  >
+                    <option value="">No {itl.lower}</option>
+                    {sprints
+                      .filter((s) => s.state !== 'CANCELLED')
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} {s.state !== 'ACTIVE' ? `(${s.state.toLowerCase()})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
               <div className="w-20">
                 <label htmlFor="task-story-points" className="block text-xs font-medium text-neutral-text-secondary mb-1">
                   Pts

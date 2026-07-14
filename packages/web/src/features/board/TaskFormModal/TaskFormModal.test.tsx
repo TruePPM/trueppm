@@ -199,6 +199,25 @@ describe('TaskFormModal (issue #305)', () => {
     expect(screen.getByRole('option', { name: /Sprint Alpha/ })).toBeInTheDocument();
   });
 
+  // ----- Story points estimate (ADR-0418, #1961) ---------------------------
+
+  it('shows the story-points (Pts) input even when project.agile_features is false (#1961)', () => {
+    // The estimate is decoupled from agile features: available on every
+    // methodology, while the Sprint selector stays agile-only.
+    mockProjectAgile = false;
+    renderModal();
+    expect(screen.getByLabelText('Pts')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Sprint')).not.toBeInTheDocument();
+  });
+
+  it('shows the Pts input alongside the Sprint field when agile_features is true', () => {
+    mockProjectAgile = true;
+    mockSprints = [{ id: 'sprint-1', name: 'Sprint Alpha', state: 'ACTIVE' }];
+    renderModal();
+    expect(screen.getByLabelText('Pts')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sprint')).toBeInTheDocument();
+  });
+
   // ----- Submit ------------------------------------------------------------
 
   it('disables Save while Name is empty', () => {
