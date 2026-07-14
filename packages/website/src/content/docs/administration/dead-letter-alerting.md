@@ -31,7 +31,10 @@ run again. At that point, three things happen exactly once per failed task:
 
 1. **A durable `FailedTask` row** is recorded (status `DEAD`). This is the
    system of record — it survives restarts and is what the metrics endpoint counts.
-   It is the same row the failed-task admin viewset reads.
+   It is the same row the failed-task admin viewset reads. From 0.4, the row will
+   also carry a `project_id` column (nullable — not every dead-lettered task is
+   project-scoped) so failures will be attributable to a project directly from the
+   admin API or the ORM, not only from the alert log line's `extra` field.
 2. **A structured `WARNING` log line** is emitted by the
    `trueppm_api.apps.scheduling.receivers` logger:
 
@@ -167,7 +170,7 @@ class AlertingConfig(AppConfig):
         # connecting a new receiver does not modify or replace the OSS one.
         from trueppm_api.apps.scheduling import signals
 
-        @signals.celery_task_permanently_failed.connect
+        @signals.celery_task_permanently_failed.connect(weak=False, dispatch_uid="enterprise.page_on_dead_letter")
         def page_on_dead_letter(sender, *, task_name, task_id, exception, project_id, **kwargs):
             pagerduty.trigger(
                 summary=f"TruePPM task {task_name} permanently failed",
@@ -181,6 +184,17 @@ class AlertingConfig(AppConfig):
 
 The signal payload carries `task_id`, `task_name`, `exception`, `traceback_str`,
 and `project_id` (`None` when the task is not project-scoped).
+
+:::caution[Always pass `weak=False` (and a `dispatch_uid`) from `ready()`]
+A receiver defined as a nested function inside `AppConfig.ready()` — as
+`page_on_dead_letter` is above — has no reference keeping it alive once `ready()`
+returns other than the signal's own bookkeeping. Django and Celery signals default
+`connect()` to a **weak** reference, so without `weak=False` the receiver is
+garbage-collected almost immediately and silently stops firing; there is no error,
+the alert just never arrives. A stable `dispatch_uid` additionally prevents a
+second `ready()` call (Django's test runner and autoreloader can trigger one) from
+registering a second, now-permanent receiver and double-firing every alert.
+:::
 
 :::caution[Apache 2.0 boundary]
 The OSS core never imports `trueppm_enterprise`. The dependency is one-way:

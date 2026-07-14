@@ -7,10 +7,11 @@ TruePPM-specific **observable gauges** that have no library auto-instrumentor, a
 is called from ``ObservabilityConfig.ready()`` immediately after
 :func:`~.instrumentation.instrument`.
 
-Two of #710's four metric families live here; the other two come free from the
-library auto-instrumentors once a meter provider is threaded through
-``instrument()`` — Django's ``http.server.*`` (request latency/count) and Celery's
-``flower.task.runtime.seconds`` (task duration):
+Two of #710's four metric families live here as ``ObservableGauge`` instruments; a
+third — the (synchronous) ``trueppm.task.duration_seconds`` histogram — was added
+by #1917. The fourth, Django's ``http.server.*`` (request latency/count), comes
+free from the library auto-instrumentor once a meter provider is threaded through
+``instrument()``:
 
 * ``trueppm.outbox.depth`` / ``trueppm.outbox.oldest_age_seconds`` — the live
   backlog and lag of the two transactional outboxes (CPM recompute + workflow
@@ -24,6 +25,12 @@ library auto-instrumentors once a meter provider is threaded through
   handed to Celery); this gauge measures the **broker backlog** downstream of them
   (messages Celery has accepted but no worker has picked up) — a distinct, and
   previously unmeasured, stage of the pipeline.
+* ``trueppm.task.duration_seconds`` (#1917) — wall-clock duration of every Celery
+  task execution, by task name and outcome. Distinct from (and additive to) the
+  Celery auto-instrumentor's own ``flower.task.runtime.seconds``: that one only
+  exists when ``CeleryInstrumentor`` is wired (Phase 1, #709) *and* a meter
+  provider is bound, whereas this one is timed directly off the
+  ``SchedulingConfig`` Celery-signal bridge, independent of the auto-instrumentor.
 
 Two **synchronous** WS instruments also live here (#1900) — WebSocket/Channels
 observability was spans-only, with no connection or fan-out signal:
@@ -35,15 +42,17 @@ observability was spans-only, with no connection or fan-out signal:
   fan-out at the broadcast point (``apps/sync/broadcast``), via
   :func:`record_ws_broadcast`.
 
-**Observable vs synchronous.** The four gauges are ``ObservableGauge`` instruments:
-the SDK invokes each callback once per export interval (default 60 s) on the
-reader's background thread. That means no per-request cost and no need to hook every
-outbox transition — which a synchronous ``UpDownCounter`` would require. The two WS
-instruments *are* synchronous, because a connection open/close and a broadcast are
-discrete events with no shared state to poll — there is nothing for a callback to
-read, so they are recorded at the event site instead. They are held as module
-globals set by :func:`install_metrics` and stay ``None`` (a cheap no-op at the
-record site) whenever telemetry is disabled or metrics are off.
+**Observable vs synchronous.** The outbox/DB and broker gauges are
+``ObservableGauge`` instruments: the SDK invokes each callback once per export
+interval (default 60 s) on the reader's background thread. That means no per-request
+cost and no need to hook every outbox transition — which a synchronous
+``UpDownCounter`` would require. The two WS instruments and the task-duration
+histogram *are* synchronous: a connection open/close, a broadcast, and a task
+completion are discrete events with no shared state to poll — there is nothing for a
+callback to read, so they are recorded at the event site instead. The WS instruments
+are held as module globals set by :func:`install_metrics` and stay ``None`` (a cheap
+no-op at the record site) whenever telemetry is disabled or metrics are off; the
+task-duration ``Histogram`` behaves the same way.
 
 **Cluster-wide — aggregate with ``max`` / ``last``, never ``sum``.** Every process
 that runs ``ready()`` (web, Celery worker, Celery beat) registers these gauges and
@@ -78,7 +87,13 @@ from . import attributes
 from .provider import get_meter
 
 if TYPE_CHECKING:
-    from opentelemetry.metrics import CallbackOptions, Counter, Meter, UpDownCounter
+    from opentelemetry.metrics import (
+        CallbackOptions,
+        Counter,
+        Histogram,
+        Meter,
+        UpDownCounter,
+    )
 
     from .provider import OTelBootstrapContext
 
@@ -93,6 +108,7 @@ DB_CONNECTIONS = "trueppm.db.connections"
 BROKER_QUEUE_DEPTH = "trueppm.broker.queue.depth"
 WS_CONNECTIONS_ACTIVE = "trueppm.ws.connections.active"
 WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
+TASK_DURATION_SECONDS = "trueppm.task.duration_seconds"
 
 # Server-side statement timeout for the pg_stat_activity probe, so a slow or
 # contended database can never stall the exporter's collection thread. It is set
@@ -113,6 +129,14 @@ _installed = False
 _ws_connections: UpDownCounter | None = None
 _ws_broadcasts: Counter | None = None
 
+# The task-duration instrument, unlike the observable gauges above, is a plain
+# (synchronous) Histogram: there is no "current value" a callback can sample —
+# each Celery task execution is one observation, recorded by the SchedulingConfig
+# Celery-signal bridge (task_prerun/task_postrun) at the moment it completes.
+# None until install_metrics() creates it (i.e. metrics disabled, or not yet
+# registered), which record_task_duration() treats as "nothing to record".
+_task_duration_histogram: Histogram | None = None
+
 
 def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None) -> None:
     """Register the TruePPM observable gauges against the bootstrap context.
@@ -130,7 +154,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
             global (which ``bootstrap()`` already set to ``context.meter_provider``);
             a test overrides it to read from an in-memory metric reader.
     """
-    global _installed, _ws_connections, _ws_broadcasts
+    global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
     if _installed:
         return
     if not context.enabled or context.meter_provider is None:
@@ -175,8 +199,16 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         unit="{broadcast}",
         description="WebSocket board-event broadcasts fanned out to a project group.",
     )
+    _task_duration_histogram = meter.create_histogram(
+        TASK_DURATION_SECONDS,
+        unit="s",
+        description=(
+            "Celery task execution wall-clock duration, from task_prerun to "
+            "task_postrun, by task name and outcome (#1917)."
+        ),
+    )
     _installed = True
-    logger.info("OpenTelemetry native metrics registered (6 instruments)")
+    logger.info("OpenTelemetry native metrics registered (7 instruments)")
 
 
 def _resolve_meter(meter_provider: Any) -> Meter:
@@ -239,6 +271,44 @@ def _observe_broker_queue_depth(options: CallbackOptions) -> Iterable[Observatio
         logger.debug("broker queue depth probe skipped (broker error)", exc_info=True)
         return []
     return [Observation(depth, {attributes.BROKER_QUEUE: name}) for name, depth in rows]
+
+
+# --- Synchronous histogram: task duration (#1917) --------------------------
+
+
+def record_task_duration(task_name: str, duration_seconds: float, outcome: str) -> None:
+    """Record one Celery task execution into the ``trueppm.task.duration_seconds`` histogram.
+
+    Called from the Celery-framework signal bridge in
+    ``SchedulingConfig.ready()`` (``task_prerun``/``task_postrun``) — those are
+    process-wide Celery signals, so this fires for every task that runs in the
+    process, not only tasks the scheduling app defines. Adds no query: the
+    duration is timed in-process between the two signals and passed in.
+
+    A no-op when metrics are disabled or not yet registered — install_metrics()
+    only creates ``_task_duration_histogram`` when a meter provider is bound, so
+    the default (telemetry-off) deployment pays nothing per task beyond this
+    early return. Recording is wrapped so an exporter/SDK error can never
+    surface as (or cause) a failure in the task whose duration it is reporting.
+
+    Args:
+        task_name: The Celery task's registered name (e.g. ``scheduling.recalculate``).
+        duration_seconds: Wall-clock time from ``task_prerun`` to ``task_postrun``.
+        outcome: Lower-cased terminal Celery state for this execution, e.g.
+            ``success`` | ``failure`` | ``retry`` | ``rejected`` | ``ignored``.
+    """
+    if _task_duration_histogram is None:
+        return
+    try:
+        _task_duration_histogram.record(
+            duration_seconds,
+            {
+                attributes.CELERY_TASK_NAME: task_name,
+                attributes.CELERY_TASK_OUTCOME: outcome,
+            },
+        )
+    except Exception:
+        logger.debug("task duration recording skipped (metric error)", exc_info=True)
 
 
 # --- Sampling queries (imported lazily so a disabled deployment stays light) ---
@@ -443,13 +513,15 @@ def record_ws_broadcast() -> None:
 def reset_for_testing() -> None:
     """Clear the idempotency guard so a test can re-register against a fresh reader.
 
-    Test-suite only. Observable gauges cannot be unregistered from a ``MeterProvider``,
-    so tests pass a *new* in-memory ``meter_provider`` per case and reset this guard
-    between them; production registers exactly once. Also drops the synchronous WS
-    instrument handles so a subsequent ``install_metrics`` rebinds them to the new
-    provider (and the ``record_*`` helpers no-op in between).
+    Test-suite only. Observable gauges (and the task-duration histogram) cannot
+    be unregistered from a ``MeterProvider``, so tests pass a *new* in-memory
+    ``meter_provider`` per case and reset this guard between them; production
+    registers exactly once. Also drops the synchronous WS instrument handles so a
+    subsequent ``install_metrics`` rebinds them to the new provider (and the
+    ``record_*`` helpers no-op in between).
     """
-    global _installed, _ws_connections, _ws_broadcasts
+    global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
     _installed = False
     _ws_connections = None
     _ws_broadcasts = None
+    _task_duration_histogram = None

@@ -37,17 +37,26 @@ def record_failed_task(
         tb_module.format_exception(type(exception), exception, exception.__traceback__)
     )
 
+    defaults: dict[str, object] = {
+        "task_name": task_name,
+        "args": list(args) if args else [],
+        "kwargs": dict(kwargs) if kwargs else {},
+        "exception_type": exc_type,
+        "exception_message": exc_msg,
+        "traceback": exc_tb,
+        "status": FailedTaskStatus.DEAD,
+    }
+    # Only set project_id when this call actually knows it (#1917).
+    # update_or_create's defaults overwrite unconditionally, so unconditionally
+    # including a bare `None` here would erase a project attribution recorded by
+    # an earlier failure of the same task_id the moment a later re-failure's
+    # call site didn't have project_id in scope.
+    if project_id is not None:
+        defaults["project_id"] = project_id
+
     obj, created = FailedTask.objects.update_or_create(
         task_id=task_id,
-        defaults={
-            "task_name": task_name,
-            "args": list(args) if args else [],
-            "kwargs": dict(kwargs) if kwargs else {},
-            "exception_type": exc_type,
-            "exception_message": exc_msg,
-            "traceback": exc_tb,
-            "status": FailedTaskStatus.DEAD,
-        },
+        defaults=defaults,
     )
     if not created:
         FailedTask.objects.filter(pk=obj.pk).update(
