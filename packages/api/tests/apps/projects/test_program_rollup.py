@@ -14,9 +14,11 @@ Covers:
 from __future__ import annotations
 
 import datetime
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, Role
@@ -35,6 +37,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.program_rollup import compute_program_rollup
 
 User = get_user_model()
 
@@ -371,3 +374,40 @@ def test_weighted_by_budget_falls_back_to_average(
     assert data["aggregation_policy"] == AggregationPolicy.WEIGHTED_BY_BUDGET.value
     assert data["policy_available"] is False
     assert data["kpis"]["baseline_variance"]["value"] == 6.0  # average fallback
+
+
+# ---------------------------------------------------------------------------
+# Timezone boundary (#1930)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_schedule_health_day_boundary_follows_configured_timezone(
+    program: Program, calendar: Calendar
+) -> None:
+    """The health-band day boundary follows Django's TIME_ZONE, not the OS clock.
+
+    Regression for #1930: the rollup read ``datetime.date.today()`` (the
+    container's OS-clock local date) instead of ``timezone.localdate()`` (the
+    configured TIME_ZONE). At an instant that falls on different calendar days in
+    two zones, the same data must classify differently — proving the boundary is
+    anchored to the configured zone. Under the old code both invocations returned
+    the identical OS date and this assertion would fail.
+    """
+    project = _project(program, calendar, "P1")
+    # Due exactly on 2026-06-16; not started, no baseline → uses CPM early_finish.
+    _task(project, early_finish=datetime.date(2026, 6, 16), status=TaskStatus.NOT_STARTED)
+
+    # 23:30 on 2026-06-15 UTC is still the 15th in UTC but already the 16th at UTC+14.
+    frozen_now = datetime.datetime(2026, 6, 15, 23, 30, tzinfo=datetime.UTC)
+
+    with patch("django.utils.timezone.now", return_value=frozen_now):
+        with override_settings(TIME_ZONE="UTC"):
+            utc_health = compute_program_rollup(program)["program_health"]
+        with override_settings(TIME_ZONE="Pacific/Kiritimati"):
+            kiritimati_health = compute_program_rollup(program)["program_health"]
+
+    # UTC today = 06-15: the task is not yet due → no due-by-today work → unknown.
+    assert utc_health == "unknown"
+    # UTC+14 today = 06-16: the task is due-and-incomplete → SPI 0 → critical.
+    assert kiritimati_health == "critical"
