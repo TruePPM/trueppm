@@ -1,9 +1,14 @@
-/** Format an ISO date as "Mon D" (e.g. "Apr 15") — shared display format. */
+import { fmtUtcShort } from '@/lib/formatUtcDate';
+
+/**
+ * Format an ISO date as "Mon D" (e.g. "Apr 15") — shared display format.
+ *
+ * Server ISO date-only fields are UTC calendar dates, so this delegates to the
+ * UTC-pinned `fmtUtcShort` helper. Formatting in the browser's local zone would
+ * shift the rendered day one earlier for every viewer west of UTC (#1927).
+ */
 export function formatShortDate(isoDate: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(isoDate));
+  return fmtUtcShort(isoDate);
 }
 
 /**
