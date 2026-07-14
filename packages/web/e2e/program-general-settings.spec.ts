@@ -150,12 +150,13 @@ test.describe('Program Settings → General', () => {
     });
   });
 
-  // #790 / ADR-0095: program navigation lives in the global TopBar (ProgramTabs),
-  // which persists across settings routes with the Settings tab active. There is no
-  // in-content program tab strip, so the shared SettingsShell (and its SCOPE
-  // switcher) mounts top-aligned, identical to the workspace and project scopes —
-  // the #776 top-alignment fix is preserved, just without any chrome to suppress.
-  test('keeps program nav in the top bar with Settings active, settings shell top-aligned', async ({
+  // #790 / ADR-0095 / #1920: program navigation lives in the left rail's "This
+  // program" tier, which persists across settings routes with the Settings entry
+  // active. There is no in-content program tab strip, so the shared SettingsShell
+  // (and its SCOPE switcher) mounts top-aligned, identical to the workspace and
+  // project scopes — the #776 top-alignment fix is preserved, just without any
+  // chrome to suppress.
+  test('keeps program nav in the rail with Settings active, settings shell top-aligned', async ({
     page,
   }) => {
     await setup(page);
@@ -163,7 +164,7 @@ test.describe('Program Settings → General', () => {
 
     const general = page.locator('[data-settings-section="general"]');
     await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
-    // The program nav now lives in the TopBar and persists here, Settings active.
+    // The program nav now lives in the rail and persists here, Settings active.
     const programNav = page.getByRole('navigation', { name: 'Program' });
     await expect(programNav.getByRole('link', { name: /Backlog/i })).toBeVisible();
     await expect(programNav.getByRole('link', { name: /Settings/i })).toHaveAttribute(

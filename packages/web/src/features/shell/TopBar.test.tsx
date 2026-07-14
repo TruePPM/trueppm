@@ -98,6 +98,15 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
     expect(screen.queryByRole('group', { name: /plan views/i })).not.toBeInTheDocument();
   });
 
+  it('no longer carries the ProgramTabs strip, even in a program context (#1920)', () => {
+    // Program view switching moved to the rail's "This program" tier; the bar must
+    // render no "Program" nav even when a program is active.
+    programId = 'prog-1';
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    expect(screen.queryByRole('navigation', { name: /^program$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Backlog/i })).not.toBeInTheDocument();
+  });
+
   it('renders the health cluster and no longer carries the relocated affordances (#1680)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByTestId('health-cluster')).toBeInTheDocument();

@@ -11,8 +11,8 @@ import { methodologyLabel } from '@/lib/methodologyLabel';
 import type { Program } from '@/api/types';
 
 /**
- * Program-route view segment → display label. Mirrors `ProgramTabs`' `TABS` order
- * (the program nav's source of truth) so the location switcher's leaf reads the
+ * Program-route view segment → display label. Mirrors the rail's `PROGRAM_VIEWS`
+ * order (the program nav's source of truth, #1920) so the location switcher's leaf reads the
  * same word the tab did. `settings` stays labelled across every `/settings/*`
  * sub-route (the segment after the id is always `settings`).
  */
