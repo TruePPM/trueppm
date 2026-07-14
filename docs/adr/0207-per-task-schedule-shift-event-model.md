@@ -90,3 +90,23 @@ it into the existing feed:
   noisy and unbounded; "the schedule moved this task" is the honest, self-limiting grain.
 
 Relates #413, #1604, !979.
+
+## Amendment (#1948) — per-project recalc summary on `cpm_recalculated`
+
+Each `cpm_recalculated.detail` now additionally carries a per-project aggregate of the
+recompute it belongs to, denormalized onto every moved task's row at emit time:
+
+- `recalc_moved_count` — how many of that task's project's tasks moved in this pass (≥1);
+- `recalc_finish` — the project's latest `early_finish` after the pass (ISO date, or null);
+- `recalc_finish_delta_days` — signed day delta of that finish (`+N` slip later, `-N`
+  pulled in, `0` unchanged, `null` when no prior finish exists — the first-ever recalc).
+
+This adds **no new rows, no new table, and no correlation id** — the values ride the
+existing per-task rows and all prior detail keys are retained for back-compat. A recalc
+touches many tasks, but the per-task activity drawer only ever reads *one* task's events,
+so a recalc-wide "N tasks moved" count cannot be reconstructed client-side; it must be
+denormalized here. The aggregate is computed **strictly per `project_id`**: the emit helper
+is shared by the program-scoped writeback, where `tasks_to_update` spans several member
+projects in one call, so a single program-wide count would leak one project's schedule
+scope onto another project's row — grouping per project keeps the OSS project-isolation
+boundary intact. `baseline_drift_detected` is unchanged.

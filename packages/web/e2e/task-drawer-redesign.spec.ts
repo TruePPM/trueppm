@@ -106,7 +106,14 @@ const FIXTURE_HISTORY = {
       event_type: 'cpm_recalculated',
       actor: null,
       timestamp: '2026-04-25T11:00:00Z',
-      detail: { early_finish: { from: '2026-06-01', to: '2026-06-03' }, is_critical: true },
+      detail: {
+        early_finish: { from: '2026-06-01', to: '2026-06-03' },
+        is_critical: true,
+        // #1948 per-project recalc summary.
+        recalc_moved_count: 5,
+        recalc_finish: '2026-06-03',
+        recalc_finish_delta_days: 2,
+      },
     },
     {
       id: 1,
@@ -531,8 +538,19 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await expect(drawer.getByRole('radio', { name: 'Schedule' })).toBeVisible();
     await expect(drawer.getByRole('radio', { name: 'Risks' })).toBeVisible();
     await expect(drawer.getByText(/recalculated the schedule/i)).toBeVisible();
+    // #1948: the recalc row names what moved and links into the schedule.
+    await expect(drawer.getByText(/5 tasks moved · finish \+2d/)).toBeVisible();
     await expect(drawer.getByText(/linked a risk/i)).toBeVisible();
     await expect(drawer.getByText(/edited a comment/i)).toBeVisible();
+  });
+
+  test('the recalc row links into the schedule', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('tab', { name: 'Activity' }).click();
+    await drawer.getByRole('button', { name: 'Activity' }).click();
+    const link = drawer.getByRole('link', { name: /View in schedule/i });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('href', `/projects/${FIXTURE_PROJECT_ID}/schedule`);
   });
 
   test('Overview is rendered inline (no accordion); secondary sections start collapsed', async ({
