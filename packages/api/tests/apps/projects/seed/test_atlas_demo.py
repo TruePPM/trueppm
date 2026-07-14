@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import models
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.models import Project, Task
@@ -58,12 +59,25 @@ def test_atlas_demo_runs_cpm_and_monte_carlo(owner: Any, capsys: Any) -> None:
         )
         assert scheduled, f"{project.name}: CPM produced no scheduled tasks"
 
-    # The waterfall + hybrid streams carry dependencies → must yield a critical path.
-    for methodology in ("WATERFALL", "HYBRID"):
-        proj = next(p for p in projects if p.methodology == methodology)
-        assert Task.objects.filter(project=proj, is_critical=True).exists(), (
-            f"{proj.name}: expected a critical path"
-        )
+    # The dependency-bearing streams must yield a critical path — but this is a
+    # program-scoped pass (ADR-0120 D3), so only the program's driving chain is
+    # critical. A member project off that chain legitimately carries zero critical
+    # tasks: here GTM Readiness is the latest-finishing stream and holds the path,
+    # while Migration Tooling's live tail runs one working day of float behind it.
+    # Assert the invariant at the program level rather than per project.
+    program_critical = Task.objects.filter(project__in=projects, is_critical=True, is_deleted=False)
+    assert program_critical.exists(), "program-scoped CPM produced no critical path"
+
+    # #1863: a completed task carries zero total float (its late == early after the
+    # backward pass) but must never be on the critical path — it has no remaining
+    # work and cannot drive the finish. The critical path is live work only.
+    completed_on_path = program_critical.filter(
+        models.Q(percent_complete__gte=100) | models.Q(actual_finish__isnull=False)
+    )
+    assert not completed_on_path.exists(), (
+        "a completed task must never be on the critical path (#1863): "
+        f"{list(completed_on_path.values_list('name', flat=True))}"
+    )
 
     # 2. Monte Carlo on the waterfall stream (three-point estimates throughout).
     waterfall = next(p for p in projects if p.methodology == "WATERFALL")
