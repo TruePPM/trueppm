@@ -4190,6 +4190,117 @@ def notify_carryover_assignees(
     transaction.on_commit(_emit)
 
 
+def notify_sprint_membership_change(
+    task: Any,
+    old_sprint_id: Any,
+    new_sprint_id: Any,
+    actor: Any,
+) -> None:
+    """Notify the project leads when a task enters or leaves an ACTIVE sprint (ADR-0412, #1946).
+
+    Closes the "silent mid-sprint injection" gap — a PM/admin can add a task to (or
+    pull one from) an active sprint's scope and the accountable roles get no signal
+    (Jordan's PO and Alex's SM hard-NOs in the 2026-07-14 activity-streams VoC audit).
+    This turns the *committed* sprint-FK change (the single interception point is
+    ``TaskViewSet.perform_update``, where the FK has already flipped — a post-activation
+    ADR-0102 injection commits the FK here and marks it pending; ``accept_scope_change``
+    never re-touches the FK, so this is the one place the live-scope change is observable)
+    into a targeted in-app inbox row for the project lead cohort.
+
+    Fires ONLY on a real enter/leave of an ``ACTIVE`` sprint (``Sprint.state == ACTIVE``):
+    a no-op PATCH (``old == new``) fans out nothing, and a change touching only
+    ``PLANNED`` / ``COMPLETED`` / ``CANCELLED`` sprints is not a live-commitment change so
+    it is ignored (honoring ADR-0102 §6 — board mechanics on a non-active sprint carry no
+    accountability signal). Recipients are the project's lead cohort (``role >= ADMIN`` —
+    the interim stand-in until ADR-0078 PO/SM facets exist), minus the actor (they made the
+    change). Per-user ``NotificationPreference`` (in-app ON, email OFF by default) governs
+    delivery so any lead can mute it; DND holds email but never the durable inbox row
+    (ADR-0292). Dispatch is deferred to ``transaction.on_commit`` and wrapped in try/except
+    so a notification failure can never fail or revert the (already-committed) task update
+    (the ADR-0232 carryover pattern).
+
+    Args:
+        task: the just-saved ``Task`` (already carries the new sprint FK).
+        old_sprint_id: the task's ``sprint_id`` before the save (str or ``None``).
+        new_sprint_id: the task's ``sprint_id`` after the save (str or ``None``).
+        actor: the acting user; excluded from recipients and named in the copy.
+    """
+    from trueppm_api.apps.access.models import ProjectMembership, Role
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    old_id = str(old_sprint_id) if old_sprint_id else None
+    new_id = str(new_sprint_id) if new_sprint_id else None
+    if old_id == new_id:
+        return  # no-op PATCH — the sprint link did not move
+
+    # Resolve name + state of both endpoints in one query. Only ACTIVE sprints
+    # matter: a scope change into or out of a PLANNED/COMPLETED/CANCELLED sprint is
+    # not a live-commitment change, so it never notifies.
+    ids = {sid for sid in (old_id, new_id) if sid is not None}
+    sprints = {
+        str(s["pk"]): s for s in Sprint.objects.filter(pk__in=ids).values("pk", "name", "state")
+    }
+    old_sprint = sprints.get(old_id) if old_id else None
+    new_sprint = sprints.get(new_id) if new_id else None
+    entered_active = new_sprint is not None and new_sprint["state"] == SprintState.ACTIVE
+    left_active = old_sprint is not None and old_sprint["state"] == SprintState.ACTIVE
+    if not (entered_active or left_active):
+        return
+
+    actor_id: Any = (
+        actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
+    )
+
+    # Recipients = project leads (role >= ADMIN), minus the actor. is_deleted=False
+    # is load-bearing for privacy: a revoked lead's membership row survives the soft
+    # delete with its role, so without this filter they'd keep receiving scope-change
+    # notices for a project they no longer belong to (rbac-check).
+    recipient_ids = list(
+        ProjectMembership.objects.filter(
+            project_id=task.project_id, role__gte=Role.ADMIN, is_deleted=False
+        )
+        .exclude(user_id=actor_id)
+        .values_list("user_id", flat=True)
+    )
+    if not recipient_ids:
+        return
+
+    actor_name = getattr(actor, "username", "") or "Someone"
+    task_name = task.name
+    subject = "Sprint scope changed"
+    # Narrowed to non-None in each branch (entered ⇒ new_sprint set; left ⇒ old_sprint
+    # set); the local names give mypy the None-guard it can't infer from the bool flags.
+    old_name = old_sprint["name"] if old_sprint is not None else None
+    new_name = new_sprint["name"] if new_sprint is not None else None
+    if entered_active and left_active:
+        body = f'{actor_name} moved "{task_name}" from sprint {old_name} to sprint {new_name}.'
+    elif entered_active:
+        body = f'{actor_name} added "{task_name}" to sprint {new_name}.'
+    else:  # left_active
+        body = f'{actor_name} removed "{task_name}" from sprint {old_name}.'
+
+    project_id = str(task.project_id)
+    task_id = str(task.pk)
+    rows = [(rid, subject, body, task_id) for rid in recipient_ids]
+
+    def _emit() -> None:
+        # Best-effort: a notification write must never strand the (already committed)
+        # task update, so a failure here is logged and swallowed rather than raised
+        # out of the on_commit hook.
+        try:
+            create_event_notifications_batch(
+                event_type=NotificationEventType.SPRINT_MEMBERSHIP_CHANGED,
+                project_id=project_id,
+                rows=rows,
+            )
+        except Exception:
+            logger.exception("notify_sprint_membership_change: emit failed for task %s", task.pk)
+
+    transaction.on_commit(_emit)
+
+
 def project_forecast(project_id: str | uuid.UUID) -> dict[str, Any]:
     """Aggregate the project forecast read (ADR-0106 §5, #487/#860).
 

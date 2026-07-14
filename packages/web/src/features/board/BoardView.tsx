@@ -3978,6 +3978,10 @@ export function BoardView() {
             onClose={toggleActivity}
             onOpenTask={(taskId) => setSelectedTaskId(taskId)}
             isTaskOpenable={(taskId) => taskIndex.has(taskId)}
+            // ADR-0412 (#1946): when a sprint is active, open the feed scoped to it
+            // ("This sprint" default with a Whole-board toggle) — Activity where the
+            // team already looks, narrowed to the ~40 sprint cards Alex/Jordan watch.
+            sprintId={activeSprint?.id ?? null}
           />
         </div>
       )}

@@ -116,6 +116,29 @@ control they cannot act on.
 *Screenshot TODO: Board sprint panel header showing the `⚠ 3 tasks added
 mid-sprint` badge, and the open scope-change audit drawer.*
 
+### Sprint-scoped activity, and a heads-up when scope moves
+
+:::note[Ships in 0.4]
+Sprint scope on the board Activity rail, and the sprint-membership notification,
+ship in **TruePPM 0.4**.
+:::
+
+The board **Activity** rail can be narrowed to the current sprint. Opened from a
+sprint's board, it defaults to **"This sprint"** — with a **"Whole board"** toggle —
+so you read added / removed / moved-sprint events for *this* sprint's tasks instead
+of scanning the whole project's history. The sprint-transition filter chip is labeled
+**"Scope changes"** to make those events easy to find. A removal stays visible in the
+sprint it left, even after the task moves on.
+
+Separately, when a task actually **enters or leaves an ACTIVE sprint**, the project's
+**leads** (Owner / Admin / Scheduler — everyone but whoever made the change) get an
+**in-app notification**. This closes the "someone silently added a task to our active
+sprint" gap: the change is now both auditable in the rail *and* actively surfaced to
+the accountable roles. The notice is **in-app by default with email opt-in**, fully
+mutable per person in [Notification settings](/features/settings/project-notifications),
+and honors Do-Not-Disturb. It never fires for planned, completed, or cancelled
+sprints, or for a no-op edit.
+
 ## Where to find it in the app
 
 - Route: any project Board, `/projects/:projectId/board`
@@ -130,9 +153,13 @@ mid-sprint` badge, and the open scope-change audit drawer.*
 | `GET`  | `/api/v1/sprints/{id}/burndown/` | Burndown series for the active sprint |
 | `GET`  | `/api/v1/projects/{id}/velocity/` | Rolling 8-sprint velocity for the sparkline |
 | `GET`  | `/api/v1/sprints/{id}/scope-changes/` | Read-only audit of tasks added to the sprint after activation — backs the mid-sprint scope-change badge and drawer *(added in 0.3)* |
+| `GET`  | `/api/v1/projects/{id}/board/activity?sprint={sprintId}` | Board activity feed narrowed to one sprint's scope — backs the "This sprint" activity rail *(ships in 0.4)* |
 
 The `scope-changes` endpoint is the one new addition (added in 0.3); the rest
-of the panel is a UI composition over existing data.
+of the panel is a UI composition over existing data. 0.4 will add an optional
+`sprint` scope parameter to the board activity feed, and a change that enters
+or leaves an ACTIVE sprint will emit a `sprint.membership_changed` notification
+to the project leads.
 
 ## Related
 

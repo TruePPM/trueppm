@@ -18145,6 +18145,14 @@
                     },
                     {
                         "in": "query",
+                        "name": "sprint",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Narrow to one sprint's scope (ADR-0412): events whose task is currently in this sprint, plus entered/exited/moved events that reference it. Must be a sprint in this project (404 otherwise)."
+                    },
+                    {
+                        "in": "query",
                         "name": "type",
                         "schema": {
                             "type": "string"

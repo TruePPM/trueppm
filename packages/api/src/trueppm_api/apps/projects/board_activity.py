@@ -78,6 +78,7 @@ def build_board_activity(
     event_types: set[str] | None = None,
     limit: int = DEFAULT_LIMIT,
     role: int | None = None,
+    sprint_id: str | None = None,
 ) -> dict[str, Any]:
     """Build one page of the board activity feed (ADR-0160).
 
@@ -89,6 +90,10 @@ def build_board_activity(
         event_types: optional set of ``EVENT_TYPES`` to include (default all).
         limit: page size (clamped to ``[1, MAX_LIMIT]``).
         role: the requester's project ``Role`` ordinal — drives cost-field gating.
+        sprint_id: optional sprint scope (ADR-0412, #1946) — narrow to events whose
+            task is currently in this sprint OR that reference this sprint directly
+            (an entered/exited/moved event whose old-or-new sprint is this one), so a
+            removal stays visible in the sprint it left even after the task moves on.
 
     Returns:
         ``{"results": [event, ...], "next_until": <iso str | None>}`` where each event
@@ -110,6 +115,14 @@ def build_board_activity(
         events.extend(_history_events(project, until, since, wanted, cap, role))
     if wanted & _COMMENT_EVENT_TYPES:
         events.extend(_comment_events(project, until, since, cap))
+
+    # Sprint scope (ADR-0412, #1946) is applied AFTER the per-source fetch for the
+    # same reason as the actor post-filter below: pushing ``task__sprint_id`` into
+    # the HistoricalTask query would drop the immediately-prior row a diff needs, and
+    # it could not express the "event references the sprint it *left*" case that keeps
+    # a removal visible in the sprint it was pulled from.
+    if sprint_id is not None:
+        events = _filter_by_sprint(events, str(sprint_id))
 
     # Actor filtering is applied AFTER the per-source fetch, not pushed into the
     # HistoricalTask query: filtering the source rows by actor would drop the
@@ -133,6 +146,40 @@ def build_board_activity(
     return {
         "results": [_serialize_event(e) for e in page],
         "next_until": next_until,
+    }
+
+
+def _filter_by_sprint(events: list[dict[str, Any]], sprint_id: str) -> list[dict[str, Any]]:
+    """Narrow the feed to one sprint's scope (ADR-0412, #1946).
+
+    An event is in scope when its task is CURRENTLY in ``sprint_id`` (``task.sprint_id``,
+    read live in one bulk query — not from the historical row, so the feed tracks where
+    a task *is now*) OR the event itself references ``sprint_id`` directly (an
+    entered/exited/moved event whose old-or-new sprint is this one). The second clause is
+    what keeps a *removal* visible in the sprint it left: an ``exited_sprint`` carries the
+    left sprint as its old id even though the task's current sprint is now null/elsewhere.
+    """
+    task_ids = {e["task_id"] for e in events}
+    current = _current_sprint_map(task_ids)
+    out: list[dict[str, Any]] = []
+    for e in events:
+        if current.get(e["task_id"]) == sprint_id or sprint_id in (
+            e.get("_old_sprint_id"),
+            e.get("_new_sprint_id"),
+        ):
+            out.append(e)
+    return out
+
+
+def _current_sprint_map(task_ids: set[str]) -> dict[str, str | None]:
+    """Map each task id (str) to its CURRENT ``sprint_id`` (str or None), in one query."""
+    if not task_ids:
+        return {}
+    from trueppm_api.apps.projects.models import Task
+
+    return {
+        str(pk): (str(sid) if sid is not None else None)
+        for pk, sid in Task.objects.filter(pk__in=task_ids).values_list("pk", "sprint_id")
     }
 
 
@@ -338,6 +385,11 @@ def _sprint_event(
         "id": f"hist:{rec.history_id}:sprint",
         "event_type": event_type,
         "sprint_id": str(new_sprint) if new_sprint is not None else None,
+        # Internal (stripped before serialization) — both endpoints of the sprint
+        # transition so ``_filter_by_sprint`` can keep a removal visible in the
+        # sprint it LEFT (its old id), not just the one it entered (ADR-0412, #1946).
+        "_old_sprint_id": str(old_sprint) if old_sprint is not None else None,
+        "_new_sprint_id": str(new_sprint) if new_sprint is not None else None,
         "changes": [
             {
                 "field": "sprint",
@@ -394,8 +446,13 @@ def _sprint_name_map(sprint_ids: set[Any]) -> dict[Any, str]:
 
 
 def _serialize_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Stamp the timestamp as an ISO string for the response (kept native for sort)."""
-    out = dict(event)
+    """Stamp the timestamp as an ISO string for the response (kept native for sort).
+
+    Internal ``_``-prefixed keys (e.g. the sprint-transition endpoints used by the
+    ``?sprint=`` scope filter) are dropped here — the payload is rendered directly to
+    JSON (the response serializer is schema-only), so they must not leak.
+    """
+    out = {k: v for k, v in event.items() if not k.startswith("_")}
     ts = out["timestamp"]
     out["timestamp"] = ts.isoformat() if isinstance(ts, datetime) else ts
     out.setdefault("sprint_id", None)

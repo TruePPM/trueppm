@@ -110,6 +110,15 @@ class BoardActivityView(APIView):
                 description=f"Comma-separated event types: {', '.join(sorted(EVENT_TYPES))}.",
             ),
             OpenApiParameter("limit", int, description=f"Page size (1..{MAX_LIMIT}, default 50)."),
+            OpenApiParameter(
+                "sprint",
+                str,
+                description=(
+                    "Narrow to one sprint's scope (ADR-0412): events whose task is "
+                    "currently in this sprint, plus entered/exited/moved events that "
+                    "reference it. Must be a sprint in this project (404 otherwise)."
+                ),
+            ),
         ],
         responses={200: OpenApiResponse(BoardActivityResponseSerializer)},
     )
@@ -140,6 +149,30 @@ class BoardActivityView(APIView):
         except (TypeError, ValueError):
             return Response({"limit": "Must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Sprint scope (ADR-0412, #1946). Validate the sprint belongs to THIS project
+        # so a sprint id from another project can never leak that project's activity —
+        # the view is already project-scoped and IsProjectMember-gated, so a cross-
+        # project or unknown id is a 404 (a malformed non-UUID id is a 400).
+        sprint_scope: str | None = None
+        sprint_raw = request.query_params.get("sprint") or None
+        if sprint_raw is not None:
+            from django.core.exceptions import ValidationError as DjangoValidationError
+
+            from trueppm_api.apps.projects.models import Sprint
+
+            try:
+                sprint = Sprint.objects.get(pk=sprint_raw, project_id=project.pk, is_deleted=False)
+            except Sprint.DoesNotExist:
+                return Response(
+                    {"sprint": "No such sprint in this project."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            except (DjangoValidationError, ValueError):
+                return Response(
+                    {"sprint": "Invalid sprint id."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            sprint_scope = str(sprint.pk)
+
         payload = build_board_activity(
             project,
             until=until,
@@ -148,5 +181,6 @@ class BoardActivityView(APIView):
             event_types=event_types,
             limit=limit,
             role=_membership_role(request, project.pk),
+            sprint_id=sprint_scope,
         )
         return Response(payload)

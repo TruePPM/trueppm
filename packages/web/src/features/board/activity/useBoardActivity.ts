@@ -57,17 +57,22 @@ export const EVENT_META: Record<BoardEventType, { icon: string; tint: string; ve
 /** Coarse type groups the chip bar exposes, mapped to the server `type` comma list. */
 export type TypeGroup = 'all' | 'cards' | 'sprint' | 'comments';
 export type TimeRange = 'any' | '24h' | '7d' | '30d';
+/** Whether the feed is narrowed to the current sprint or shows the whole board
+ *  (ADR-0412, #1946). Only meaningful when the host supplies an active sprint id. */
+export type ActivityScope = 'sprint' | 'board';
 
 export interface BoardActivityFilterState {
   typeGroup: TypeGroup;
   actorId: string | null;
   range: TimeRange;
+  scope: ActivityScope;
 }
 
 export const DEFAULT_FILTERS: BoardActivityFilterState = {
   typeGroup: 'all',
   actorId: null,
   range: 'any',
+  scope: 'board',
 };
 
 const TYPE_PARAM: Record<TypeGroup, string | undefined> = {
@@ -90,12 +95,31 @@ export function sinceFor(range: TimeRange, now: number = Date.now()): string | u
   return ms === undefined ? undefined : new Date(now - ms).toISOString();
 }
 
+/** The sprint id actually sent to the server, or undefined for whole-board scope.
+ *  Sprint scope only applies when the host supplied a sprint id AND the toggle is
+ *  on "This sprint" (ADR-0412, #1946). */
+export function effectiveSprintId(
+  scope: ActivityScope,
+  sprintId: string | null | undefined,
+): string | undefined {
+  return scope === 'sprint' && sprintId ? sprintId : undefined;
+}
+
 export function useBoardActivity(
   projectId: string | undefined,
   filters: BoardActivityFilterState,
+  sprintId?: string | null,
 ) {
+  const sprintScope = effectiveSprintId(filters.scope, sprintId);
   return useInfiniteQuery({
-    queryKey: ['board-activity', projectId, filters.typeGroup, filters.actorId, filters.range],
+    queryKey: [
+      'board-activity',
+      projectId,
+      filters.typeGroup,
+      filters.actorId,
+      filters.range,
+      sprintScope ?? null,
+    ],
     queryFn: async ({ pageParam }) => {
       const params: Record<string, string> = { limit: '50' };
       if (pageParam) params.until = pageParam;
@@ -104,6 +128,7 @@ export function useBoardActivity(
       if (filters.actorId) params.actor = filters.actorId;
       const since = sinceFor(filters.range);
       if (since) params.since = since;
+      if (sprintScope) params.sprint = sprintScope;
       const res = await apiClient.get<BoardActivityResponse>(
         `/projects/${projectId}/board/activity`,
         { params },
