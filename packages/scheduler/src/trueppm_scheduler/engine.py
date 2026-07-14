@@ -2488,7 +2488,17 @@ def monte_carlo(
 
         1. ``actual_finish`` recorded: the finish is truth; the start is the
            recorded ``actual_start`` if present, else a full duration back from
-           the finish.
+           the finish. The exclusive-EF offset is snapped to the working-day
+           index (``fin_off + 1`` off the previous working day) so it anchors
+           FS/SS successors exactly as ``_forward_pass`` does — there a weekend
+           ``actual_finish`` pushes an FS successor to ``next_working_day(
+           actual_finish + 1)`` all the same. What the working-day offset cannot
+           carry is a *non-working* ``actual_finish`` itself: ``_forward_pass``
+           keeps it VERBATIM (``early_finish = actual_finish``, ADR-0136
+           "actuals are truth"), so the caller records the raw recorded date in
+           ``completed_finish_override`` and ``_offset_to_date`` restores it for
+           the terminal project-completion date — otherwise a Saturday finish
+           would report the project ending the previous Friday (#1929/#1830).
         2. Only ``actual_start`` recorded (e.g. a REVIEW task — done, awaiting
            sign-off): the full duration lays forward from the known start.
         3. No actuals at all (``percent_complete >= 100`` alone): the full
@@ -2544,6 +2554,31 @@ def monte_carlo(
     completed_offsets: dict[str, tuple[float, float]] = {
         t.id: _completed_offsets(t) for t in task_map.values() if _is_complete(t)
     }
+
+    # WHY: schedule() keeps a completed task's recorded ``actual_finish`` VERBATIM
+    # even on a non-working day (``_forward_pass`` sets ``early_finish =
+    # actual_finish``, ADR-0136 "actuals are truth"). The working-day offset index
+    # cannot represent a weekend, so its exclusive-EF offset resolves back to the
+    # previous working day and monte_carlo() reported the project finishing a day
+    # before schedule() did (#1929/#1830). Record the raw recorded finish keyed by
+    # its (integer) exclusive-EF offset so ``_offset_to_date`` restores the exact
+    # date whenever the controlling completion offset is such a task. Only the
+    # terminal date conversion is affected — the network math (FS/SS anchoring off
+    # the snapped offset) is untouched, so in-progress and not-started tasks are
+    # unchanged. Two completed tasks that share an offset keep the later date, and
+    # a working-day ``actual_finish`` needs no override (the index already lands on
+    # it). Aligning MC to schedule() (not the reverse) upholds the docstring
+    # contract that a fully deterministic completed project simulates to precisely
+    # the CPM finish date.
+    completed_finish_override: dict[int, date] = {}
+    for tid, (_es_off, ef_off) in completed_offsets.items():
+        finish = task_map[tid].actual_finish
+        if finish is not None and not calendar.is_working_day(finish):
+            ef_key = round(ef_off)
+            prev = completed_finish_override.get(ef_key)
+            if prev is None or finish > prev:
+                completed_finish_override[ef_key] = finish
+
     elapsed_days: dict[str, float] = {}
     for t in task_map.values():
         if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
@@ -2621,9 +2656,17 @@ def monte_carlo(
     # plus all lags); reuse it rather than rebuilding. ``_offset_to_date`` clamps
     # to the final index entry, so an offset at the very edge is still safe.
     def _offset_to_date(offset: float) -> date:
+        # A completed task whose recorded ``actual_finish`` is a non-working day is
+        # kept verbatim by schedule() (ADR-0136); restore that exact date when the
+        # controlling offset is one of those pins, since the working-day index below
+        # can only ever return a working day (#1929/#1830).
+        key = round(offset)
+        override = completed_finish_override.get(key)
+        if override is not None:
+            return override
         # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1
         # to get the last working day of the task, matching CPM's inclusive EF.
-        idx = max(0, min(round(offset) - 1, len(wd_index) - 1))
+        idx = max(0, min(key - 1, len(wd_index) - 1))
         return wd_index[idx]
 
     all_dates = sorted(_offset_to_date(o) for o in completion_offsets.tolist())

@@ -1107,6 +1107,39 @@ class TestMonteCarlo:
         mc_result = monte_carlo(p, runs=100, seed=0)
         assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
 
+    def test_mc_completed_weekend_actual_finish_matches_cpm(self) -> None:
+        """A completed task whose actual_finish falls on a non-working day must
+        report the same project finish in MC as in CPM (#1929, closes #1830).
+
+        schedule() keeps a recorded actual_finish VERBATIM (ADR-0136 "actuals are
+        truth"), so a task finishing Sat 2026-04-11 makes the project end Saturday.
+        MC previously snapped that finish to the previous working day (Fri 04-10)
+        via the working-day offset index and reported the project a day early. The
+        two engines must now agree exactly.
+        """
+        p = make_project(
+            tasks=[
+                task(
+                    "T",
+                    "T",
+                    3,
+                    actual_start=date(2026, 4, 6),  # Monday
+                    actual_finish=date(2026, 4, 11),  # Saturday (non-working)
+                )
+            ],
+            start=date(2026, 4, 6),  # Monday
+        )
+        cpm_result = schedule(p)
+        assert cpm_result.project_finish == date(2026, 4, 11)  # Saturday, verbatim
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert (
+            mc_result.p50
+            == mc_result.p80
+            == mc_result.p95
+            == cpm_result.project_finish
+            == date(2026, 4, 11)
+        )
+
 
 # ---------------------------------------------------------------------------
 # schedule() — parallel roots
