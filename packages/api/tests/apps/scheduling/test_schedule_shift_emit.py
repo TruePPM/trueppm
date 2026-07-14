@@ -82,6 +82,38 @@ def test_run_schedule_writes_cpm_recalculated_with_null_actor(
 
 
 @pytest.mark.django_db
+def test_run_schedule_stamps_per_project_recalc_summary(
+    project: Project, chain: tuple[Task, Task, Task]
+) -> None:
+    """A real recompute denormalizes the per-project recalc summary (#1948)."""
+    a, _, _ = chain
+    _run(project)  # first schedule: all three tasks transition null -> computed
+
+    events = TaskActivityEvent.objects.filter(event_type="cpm_recalculated")
+    assert events.count() == 3
+    ev = events.filter(task=a).first()
+    assert ev is not None
+    # First recalc: every task moved, so count == 3; finish is set; delta is null
+    # because no task had a prior early_finish.
+    assert ev.detail["recalc_moved_count"] == 3
+    assert ev.detail["recalc_finish"] is not None
+    assert ev.detail["recalc_finish_delta_days"] is None
+
+    # Lengthen the head so the chain finish slips later -> positive delta.
+    Task.objects.filter(pk=a.pk).update(duration=6)
+    _run(project)
+    latest = (
+        TaskActivityEvent.objects.filter(event_type="cpm_recalculated", task=a)
+        .order_by("-created_at")
+        .first()
+    )
+    assert latest is not None
+    assert latest.detail["recalc_moved_count"] >= 1
+    assert latest.detail["recalc_finish_delta_days"] is not None
+    assert latest.detail["recalc_finish_delta_days"] > 0
+
+
+@pytest.mark.django_db
 def test_run_schedule_emits_baseline_drift_only_on_crossing(
     project: Project, chain: tuple[Task, Task, Task]
 ) -> None:

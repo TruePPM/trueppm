@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Link } from 'react-router';
 import { useTaskHistory, type TaskActivityEntry } from '@/hooks/useTaskHistory';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { EmptyState } from '@/components/EmptyState';
@@ -380,11 +381,25 @@ function detailLine(entry: TaskActivityEntry): string | null {
     case 'attachment_deleted':
       return str(detail, 'label');
     case 'cpm_recalculated': {
-      const finish = nestedTo(detail, 'early_finish');
-      const parts = [];
-      if (finish) parts.push(`Finish ${fmtUtcShort(finish)}`);
-      if (detail.is_critical === true) parts.push('on the critical path');
-      return parts.length ? parts.join(' · ') : null;
+      // #1948: newer rows carry a per-project recalc summary (how many tasks
+      // moved + where finish landed). Legacy pre-#1948 rows lack
+      // `recalc_moved_count` → keep the original single-task Finish line.
+      const moved = num(detail, 'recalc_moved_count');
+      if (moved == null) {
+        const finish = nestedTo(detail, 'early_finish');
+        const parts = [];
+        if (finish) parts.push(`Finish ${fmtUtcShort(finish)}`);
+        if (detail.is_critical === true) parts.push('on the critical path');
+        return parts.length ? parts.join(' · ') : null;
+      }
+      const parts = [`${moved} ${moved === 1 ? 'task' : 'tasks'} moved`];
+      const delta = num(detail, 'recalc_finish_delta_days');
+      if (delta != null) {
+        // ASCII sign per web-rule 120 (no Unicode +/− glyphs in copy).
+        if (delta === 0) parts.push('finish unchanged');
+        else parts.push(`finish ${delta > 0 ? '+' : '-'}${Math.abs(delta)}d`);
+      }
+      return parts.join(' · ');
     }
     case 'baseline_drift_detected': {
       const drift = num(detail, 'drift_days');
@@ -558,7 +573,15 @@ function changeVerb(entry: TaskActivityEntry): string {
   return `updated ${diff.length} fields`;
 }
 
-function ActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
+function ActivityRow({
+  event,
+  isLast,
+  projectId,
+}: {
+  event: TimelineEvent;
+  isLast: boolean;
+  projectId: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { entry } = event;
   const date = new Date(event.ts);
@@ -627,6 +650,19 @@ function ActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean 
           <p title={secondary} className="mt-0.5 line-clamp-1 text-xs text-neutral-text-secondary">
             {secondary}
           </p>
+        )}
+
+        {/* A CPM recalc names what moved but can't link the individual tasks
+            (the row carries no per-task correlation id, #1948) — so offer a
+            jump to the schedule where the shift is visible in context. */}
+        {entry.event_type === 'cpm_recalculated' && (
+          <Link
+            to={`/projects/${projectId}/schedule`}
+            className="mt-0.5 inline-block rounded text-xs text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            View in schedule{' '}
+            <span aria-hidden="true">→</span>
+          </Link>
         )}
 
         {/* Single-field change shows its diff inline; multi-field reveals on expand */}
@@ -799,7 +835,12 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
       ) : (
         <div className="flex flex-col">
           {filtered.map((event, i) => (
-            <ActivityRow key={event.key} event={event} isLast={i === filtered.length - 1} />
+            <ActivityRow
+              key={event.key}
+              event={event}
+              isLast={i === filtered.length - 1}
+              projectId={projectId}
+            />
           ))}
         </div>
       )}

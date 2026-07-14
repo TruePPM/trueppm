@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
-import { renderWithProviders } from '@/test/utils';
+import { renderWithProviders, renderWithProvidersAndRouter } from '@/test/utils';
 import type { TaskActivityEntry, TaskHistoryDiff } from '@/hooks/useTaskHistory';
 
 // ---------------------------------------------------------------------------
@@ -270,7 +270,8 @@ describe('ActivityTimeline — schedule / risk / time / attachment events (#1883
     historySpy.mockReturnValue(makeHistory([]));
   });
 
-  it('renders a cpm_recalculated system event under the Schedule chip', () => {
+  it('renders a legacy cpm_recalculated row with the old Finish / critical-path line', () => {
+    // A pre-#1948 row carries no recalc_moved_count → the original fallback copy.
     const cpm = evt({
       event_type: 'cpm_recalculated',
       actor: null, // system event
@@ -278,12 +279,84 @@ describe('ActivityTimeline — schedule / risk / time / attachment events (#1883
       detail: { early_finish: { from: '2026-06-01', to: '2026-06-03' }, is_critical: true },
     });
     historySpy.mockReturnValue(makeHistory([cpm]));
-    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
     expect(screen.getByRole('radio', { name: 'Schedule' })).toBeInTheDocument();
     expect(screen.getByText(/recalculated the schedule/i)).toBeInTheDocument();
     // System actor renders as "System", and the critical-path delta surfaces.
     expect(screen.getByText('System')).toBeInTheDocument();
     expect(screen.getByText(/on the critical path/i)).toBeInTheDocument();
+  });
+
+  it('renders the #1948 recalc summary: N tasks moved · finish slip, with a schedule link', () => {
+    const cpm = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: {
+        early_finish: { from: '2026-06-01', to: '2026-06-07' },
+        recalc_moved_count: 12,
+        recalc_finish: '2026-06-07',
+        recalc_finish_delta_days: 6,
+      },
+    });
+    historySpy.mockReturnValue(makeHistory([cpm]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText(/recalculated the schedule/i)).toBeInTheDocument();
+    expect(screen.getByText('12 tasks moved · finish +6d')).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /View in schedule/i });
+    expect(link).toHaveAttribute('href', '/projects/p1/schedule');
+  });
+
+  it('renders a pull-in as a negative finish delta', () => {
+    const cpm = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: { recalc_moved_count: 4, recalc_finish: '2026-06-01', recalc_finish_delta_days: -2 },
+    });
+    historySpy.mockReturnValue(makeHistory([cpm]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('4 tasks moved · finish -2d')).toBeInTheDocument();
+  });
+
+  it('renders "finish unchanged" when the delta is zero', () => {
+    const cpm = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: { recalc_moved_count: 3, recalc_finish: '2026-06-01', recalc_finish_delta_days: 0 },
+    });
+    historySpy.mockReturnValue(makeHistory([cpm]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('3 tasks moved · finish unchanged')).toBeInTheDocument();
+  });
+
+  it('omits the finish clause when the delta is null (first recalc)', () => {
+    const cpm = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: {
+        recalc_moved_count: 12,
+        recalc_finish: '2026-06-07',
+        recalc_finish_delta_days: null,
+      },
+    });
+    historySpy.mockReturnValue(makeHistory([cpm]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('12 tasks moved')).toBeInTheDocument();
+  });
+
+  it('uses the singular noun for a single moved task', () => {
+    const cpm = evt({
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-05-06T10:00:00Z',
+      detail: { recalc_moved_count: 1, recalc_finish: '2026-06-01', recalc_finish_delta_days: 1 },
+    });
+    historySpy.mockReturnValue(makeHistory([cpm]));
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
+    expect(screen.getByText('1 task moved · finish +1d')).toBeInTheDocument();
   });
 
   it('renders baseline_drift_detected with a drift detail line under Schedule', () => {
@@ -474,7 +547,7 @@ describe('ActivityTimeline — actor identity (#1878)', () => {
       detail: {},
     });
     historySpy.mockReturnValue(makeHistory([cpm, bobChange]));
-    renderWithProviders(<ActivityTimeline projectId="p1" taskId="t1" />);
+    renderWithProvidersAndRouter(<ActivityTimeline projectId="p1" taskId="t1" />);
     expect(screen.getByText('System')).toBeInTheDocument();
     // System is not a person option.
     expect(screen.queryByRole('option', { name: 'System' })).not.toBeInTheDocument();
