@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING, Any
@@ -153,6 +154,15 @@ def build_logging_config(*, level: str, json_output: bool) -> dict[str, Any]:
     """
 
     handler = "json" if json_output else "console"
+    # Render %(asctime)s / the renamed "timestamp" in UTC, not container-local
+    # time (#1952). logging.Formatter.converter defaults to time.localtime, so on
+    # any node whose host clock is not UTC the log timestamps would drift by the
+    # host offset while settings pin TIME_ZONE="UTC"/USE_TZ=True — meaning ORM
+    # timestamps and timezone.now() are UTC but log lines are not, making a
+    # log-to-DB or log-to-trace correlation off by the offset. Setting the base
+    # converter forces UTC on both the "json" and "console" formatters (both
+    # subclass logging.Formatter) without sacrificing millisecond precision.
+    logging.Formatter.converter = time.gmtime
     return {
         "version": 1,
         "disable_existing_loggers": False,
