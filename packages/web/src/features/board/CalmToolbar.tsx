@@ -6,7 +6,8 @@
  *   - Primary chips (Group / Sort / Density popovers)
  *   - Quiet pill toggles (My tasks / At-risk / Cost)
  *   - Layout segmented control (Rail · Drawer · Queue)
- *   - More⋯ overflow popover (Collapse / Expand / WIP / Tints / EVM / Columns / ? / Workshop)
+ *   - Columns/WIP settings button (opens BoardSettingsPanel — #1960)
+ *   - More⋯ overflow popover (Collapse / Expand / WIP / Tints / EVM / ? / Workshop)
  *
  * No behaviour changes: every control delegates to the same setters previously
  * wired in BoardView.tsx. Sibling MRs #383 (drawer) and #384 (queue) will plug
@@ -25,6 +26,7 @@ import {
   DensityCompactIcon,
   DensityComfortableIcon,
   DensityDetailedIcon,
+  SlidersIcon,
 } from '@/components/Icons';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
@@ -743,6 +745,28 @@ export function CalmToolbar(props: CalmToolbarProps) {
 
       <LayoutSwitcher layout={props.layout} onChange={props.onLayoutChange} />
 
+      <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+
+      {/* Columns & WIP limits (#1960) — a primary, always-visible affordance that
+          opens BoardSettingsPanel. Previously the only entry point was the
+          "⚙ Columns…" item buried in the ⋯ More overflow, so schedulers could not
+          find where to set a column's WIP limit. The panel self-handles readOnly
+          for non-schedulers, so the button stays visible to everyone. */}
+      <button
+        type="button"
+        onClick={props.onOpenColumns}
+        aria-label="Board columns & WIP limits"
+        title="Board columns & WIP limits"
+        className={[
+          'inline-flex items-center justify-center w-7 h-7 rounded-full',
+          'text-neutral-text-primary hover:bg-neutral-surface-raised',
+          'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          'focus-visible:outline-none',
+        ].join(' ')}
+      >
+        <SlidersIcon className="h-4 w-4" aria-hidden="true" />
+      </button>
+
       <div className="ml-auto">
         <ToolbarChip
           label="More"
@@ -781,9 +805,6 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 ))}
               </select>
             </label>
-            <MoreItem onClick={props.onOpenColumns} ariaLabel="Open board column settings">
-              ⚙ Columns…
-            </MoreItem>
             {props.onShare && (
               <MoreItem onClick={props.onShare} ariaLabel="Share this board with a public link">
                 ↗ Share this board…

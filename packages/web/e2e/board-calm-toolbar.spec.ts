@@ -143,7 +143,11 @@ test.describe('Board calm toolbar (epic #361 child B, issue #382)', () => {
     await expect(page.getByLabel('Show WIP limits')).toBeVisible();
     await expect(page.getByLabel('Show column tints')).toBeVisible();
     await expect(page.getByLabel('EVM indicators')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Open board column settings' })).toBeVisible();
+    // Columns/WIP settings moved out of ⋯ More onto the primary toolbar (#1960);
+    // still reachable, now as an always-visible button.
+    await expect(
+      page.getByRole('button', { name: 'Board columns & WIP limits' }),
+    ).toBeVisible();
     await expect(page.getByRole('button', { name: '? Keyboard shortcuts' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start workshop session' })).toBeVisible();
   });
