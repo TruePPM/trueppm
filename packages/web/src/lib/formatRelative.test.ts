@@ -31,4 +31,22 @@ describe('formatRelative', () => {
     expect(formatted).not.toMatch(/ago|just now/);
     expect(formatted).toMatch(/[A-Z][a-z]+ \d+/);
   });
+
+  // #1953, ADR-0410: the <7d relative values are timezone-independent, but the
+  // >7d fallback re-clocks + restyles to the user's prefs when they are passed.
+  it('leaves the m/h/d-ago values unchanged when prefs are passed', () => {
+    const prefs = { timeZone: 'Asia/Tokyo', dateFormat: 'eu' as const };
+    expect(formatRelative(new Date(NOW - 5 * 60_000), NOW, prefs)).toBe('5m ago');
+    expect(formatRelative(new Date(NOW - 3 * 86_400_000), NOW, prefs)).toBe('3d ago');
+  });
+
+  it('routes the >7d fallback through the user format + timezone', () => {
+    const eightDaysAgo = new Date(NOW - 8 * 86_400_000); // 2026-04-27T12:00:00Z
+    expect(formatRelative(eightDaysAgo, NOW, { timeZone: 'UTC', dateFormat: 'iso' })).toBe(
+      '2026-04-27',
+    );
+    expect(formatRelative(eightDaysAgo, NOW, { timeZone: 'UTC', dateFormat: 'eu' })).toBe(
+      '27 April 2026',
+    );
+  });
 });

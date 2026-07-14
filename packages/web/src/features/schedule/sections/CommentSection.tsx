@@ -17,6 +17,7 @@ import { canEditTask } from '@/lib/roles';
 import { useAcknowledgeComment, useReactToComment, useTaskComments } from '@/hooks/useTaskComments';
 import { useTaskAttachments } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import type { TaskAttachment, TaskComment } from '@/types';
 import { CommentComposer } from './CommentComposer';
 
@@ -157,8 +158,11 @@ function CommentRow({
   const ack = useAcknowledgeComment();
   const react = useReactToComment();
 
+  // A comment's created_at is an INSTANT (#1953, ADR-0410) — re-clock its
+  // relative label + full-date tooltip to the viewer's timezone + format.
+  const { prefs, formatInstant } = useUserDateFormat();
   const author = comment.author?.display_name ?? 'Unknown';
-  const ts = formatRelative(new Date(comment.created_at));
+  const ts = formatRelative(new Date(comment.created_at), undefined, prefs);
   const wasEdited = comment.edited_at != null;
 
   function handleAckToggle() {
@@ -190,7 +194,13 @@ function CommentRow({
     >
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-sm font-medium text-neutral-text-primary">{author}</span>
-        <span className="text-xs text-neutral-text-secondary tppm-mono">{ts}</span>
+        <time
+          dateTime={comment.created_at}
+          title={formatInstant(comment.created_at)}
+          className="text-xs text-neutral-text-secondary tppm-mono"
+        >
+          {ts}
+        </time>
         {wasEdited && <span className="text-xs text-neutral-text-secondary italic">· edited</span>}
       </div>
       <div className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">

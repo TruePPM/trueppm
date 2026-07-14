@@ -6,7 +6,12 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.profiles.models import DefaultLanding, RoleContext, UserProfile
+from trueppm_api.apps.profiles.models import (
+    DateFormat,
+    DefaultLanding,
+    RoleContext,
+    UserProfile,
+)
 
 User = get_user_model()
 
@@ -258,3 +263,93 @@ def test_user_can_only_touch_own_schedule_in_deliver() -> None:
     # Bob's profile is untouched (defaults to False), Alice's is True.
     assert _client(bob).get(URL).data["schedule_in_deliver"] is False
     assert UserProfile.objects.get(user=alice).schedule_in_deliver is True
+
+
+# --- timezone + date_format (#1953, ADR-0410) -------------------------------
+
+
+@pytest.mark.django_db
+def test_get_profile_lazily_returns_auto_timezone_and_date_format() -> None:
+    """A fresh profile defaults both display prefs to the 'auto' sentinel."""
+    user = User.objects.create_user(username="tz_lazy", password="pw")
+    resp = _client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "auto"
+    assert resp.data["date_format"] == DateFormat.AUTO
+
+
+@pytest.mark.django_db
+def test_patch_sets_concrete_iana_timezone() -> None:
+    user = User.objects.create_user(username="tz_set", password="pw")
+    resp = _client(user).patch(URL, {"timezone": "America/Chicago"})
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "America/Chicago"
+    assert UserProfile.objects.get(user=user).timezone == "America/Chicago"
+
+
+@pytest.mark.django_db
+def test_patch_accepts_auto_timezone_sentinel() -> None:
+    """'auto' is a valid value — it resolves to the browser zone client-side."""
+    user = User.objects.create_user(username="tz_auto", password="pw")
+    c = _client(user)
+    c.patch(URL, {"timezone": "Europe/London"})
+    resp = c.patch(URL, {"timezone": "auto"})
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "auto"
+    assert UserProfile.objects.get(user=user).timezone == "auto"
+
+
+@pytest.mark.django_db
+def test_patch_rejects_unknown_timezone() -> None:
+    user = User.objects.create_user(username="tz_bad", password="pw")
+    resp = _client(user).patch(URL, {"timezone": "Mars/Olympus_Mons"})
+    assert resp.status_code == 400
+    assert "timezone" in resp.data
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("choice", ["auto", "iso", "us", "eu"])
+def test_patch_date_format_round_trips_every_choice(choice: str) -> None:
+    user = User.objects.create_user(username=f"df_{choice}", password="pw")
+    resp = _client(user).patch(URL, {"date_format": choice})
+    assert resp.status_code == 200
+    assert resp.data["date_format"] == choice
+    assert UserProfile.objects.get(user=user).date_format == choice
+
+
+@pytest.mark.django_db
+def test_patch_rejects_invalid_date_format() -> None:
+    user = User.objects.create_user(username="df_bad", password="pw")
+    resp = _client(user).patch(URL, {"date_format": "dd/mm/yy"})
+    assert resp.status_code == 400
+    assert "date_format" in resp.data
+
+
+@pytest.mark.django_db
+def test_patch_display_prefs_do_not_clobber_other_prefs() -> None:
+    """A partial PATCH of timezone/date_format leaves the other prefs alone."""
+    user = User.objects.create_user(username="tz_partial", password="pw")
+    c = _client(user)
+    c.patch(URL, {"default_landing": "my_work"}, format="json")
+    c.patch(URL, {"role_context": "scrum_master"}, format="json")
+    c.patch(URL, {"timezone": "Asia/Tokyo", "date_format": "eu"}, format="json")
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == "my_work"
+    assert profile.role_context == "scrum_master"
+    assert profile.timezone == "Asia/Tokyo"
+    assert profile.date_format == "eu"
+
+
+@pytest.mark.django_db
+def test_user_can_only_touch_own_display_prefs() -> None:
+    """No :id in the path — a user's PATCH only ever writes their own row."""
+    alice = User.objects.create_user(username="tz_alice", password="pw")
+    bob = User.objects.create_user(username="tz_bob", password="pw")
+    _client(alice).patch(URL, {"timezone": "Australia/Sydney", "date_format": "iso"})
+
+    bob_data = _client(bob).get(URL).data
+    assert bob_data["timezone"] == "auto"
+    assert bob_data["date_format"] == "auto"
+    alice_profile = UserProfile.objects.get(user=alice)
+    assert alice_profile.timezone == "Australia/Sydney"
+    assert alice_profile.date_format == "iso"

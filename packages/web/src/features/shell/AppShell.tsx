@@ -16,6 +16,7 @@ import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
+import { DisplayFormatSync } from './DisplayFormatSync';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
 
 export function AppShell() {
@@ -64,6 +65,9 @@ export function AppShell() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      {/* Sync the user's date-format preference into the calendar-date formatter
+          default (#1953, ADR-0410). Inside the provider — reads useCurrentUser. */}
+      <DisplayFormatSync />
       <div className="flex flex-col h-screen overflow-hidden">
         {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
             keyboard users jump past the sidebar/topbar straight to content. */}
