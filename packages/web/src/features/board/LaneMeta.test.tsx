@@ -57,16 +57,28 @@ describe('LaneMeta', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('progress bar fill uses semantic-on-track at avg ≥ 50 (issue #385)', () => {
-    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={50} />);
-    const bar = container.querySelector('[role="progressbar"] > div');
-    expect(bar?.className).toContain('bg-semantic-on-track');
+  // #1965: progress magnitude uses the neutral sage fill, NOT the health
+  // palette. The old amber-below-50 → green-above-50 flip conflated progress
+  // with health (web-rule 7); an early-but-healthy lane must not read as amber.
+  it('progress bar fill uses brand-primary (sage) regardless of magnitude (issue #1965)', () => {
+    for (const avg of [10, 49, 50, 90, 100]) {
+      const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={avg} />);
+      const bar = container.querySelector('[role="progressbar"] > div');
+      expect(bar?.className).toContain('bg-brand-primary');
+    }
   });
 
-  it('progress bar fill uses brand-accent at avg < 50 (issue #385)', () => {
+  it('progress bar fill never uses a semantic health token for magnitude (issue #1965)', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={49} />);
     const bar = container.querySelector('[role="progressbar"] > div');
-    expect(bar?.className).toContain('bg-brand-accent');
+    expect(bar?.className).not.toContain('bg-semantic-on-track');
+    expect(bar?.className).not.toContain('bg-brand-accent');
+  });
+
+  it('progress bar track is h-1.5 for pre-attentive color mass (issue #1965)', () => {
+    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={42} />);
+    const track = container.querySelector('[role="progressbar"]');
+    expect(track?.className).toContain('h-1.5');
   });
 
   it('progress bar width matches avgProgress (issue #385)', () => {
