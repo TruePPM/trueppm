@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { MonteCarloResult } from '@/types';
+import { fmtUtcShort, fmtUtcLong } from '@/lib/formatUtcDate';
 import type { GanttScaleData } from './engine';
 import { dateToLeft } from './engine';
 import { HEADER_HEIGHT } from './scheduleConstants';
@@ -31,20 +32,6 @@ const MARKERS = [
     chipClass: 'text-semantic-critical border-semantic-critical/40',
   },
 ] as const;
-
-function fmtShort(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-    new Date(iso),
-  );
-}
-
-function fmtLong(iso: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date(iso));
-}
 
 /**
  * HTML overlay rendering P50/P80/P95 vertical marker lines on the Gantt canvas.
@@ -102,12 +89,12 @@ export function MonteCarloGanttMarkers({ result, scaleData, canvasScrollRef }: P
             aria-hidden="true"
             style={{ top: HEADER_HEIGHT, bottom: 0, position: 'absolute', left: 0, width: 1 }}
             className={`pointer-events-none ${lineClass}`}
-            title={`${label}: ${fmtLong(isoDate)}`}
+            title={`${label}: ${fmtUtcLong(isoDate)}`}
           >
             <span
               className={`absolute top-1 left-1 whitespace-nowrap text-xs font-medium border rounded-chip px-1.5 py-px bg-neutral-surface ${chipClass}`}
             >
-              {label}: {fmtShort(isoDate)}
+              {label}: {fmtUtcShort(isoDate)}
             </span>
           </div>
         );

@@ -5,13 +5,15 @@ import { formatShortDate, nudgeWorkingDays } from './scheduleUtils';
 // formatShortDate
 // ---------------------------------------------------------------------------
 
-// formatShortDate wraps Intl.DateTimeFormat; tests verify the format contract
-// rather than specific date strings to stay timezone-independent.
+// formatShortDate wraps a UTC-pinned Intl.DateTimeFormat; the reference formatter
+// must also pin timeZone:'UTC' so the contract test holds in any runner zone.
 const fmt = (iso: string) =>
-  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso));
+  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
+    new Date(iso),
+  );
 
 describe('formatShortDate', () => {
-  it('matches Intl.DateTimeFormat en-US short month + numeric day', () => {
+  it('matches UTC-pinned Intl.DateTimeFormat en-US short month + numeric day', () => {
     expect(formatShortDate('2025-04-07')).toBe(fmt('2025-04-07'));
   });
 
@@ -21,6 +23,16 @@ describe('formatShortDate', () => {
 
   it('does not include a four-digit year', () => {
     expect(formatShortDate('2025-01-05')).not.toMatch(/\d{4}/);
+  });
+
+  // Regression guard for #1927: a date-only ISO parses to UTC midnight. Without
+  // timeZone:'UTC' the formatter renders in the browser's local zone and shows
+  // the *previous* calendar day for every viewer west of UTC. Pinning the
+  // expected output to the UTC calendar day fails if the UTC pinning regresses
+  // (on any machine whose local zone is west of UTC — CI and most dev machines).
+  it('renders the UTC calendar day, not the local day west of UTC', () => {
+    expect(formatShortDate('2025-04-07')).toBe('Apr 7');
+    expect(formatShortDate('2026-01-01')).toBe('Jan 1');
   });
 });
 

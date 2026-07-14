@@ -136,6 +136,9 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
                     month: 'short',
                     day: 'numeric',
                     year: 'numeric',
+                    // Parsed as UTC midnight above; format in UTC too so the
+                    // derived finish day matches west of UTC (#1927).
+                    timeZone: 'UTC',
                   })
                 : '—'}
             </p>

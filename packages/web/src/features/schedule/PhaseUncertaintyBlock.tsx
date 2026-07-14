@@ -18,10 +18,15 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
 
   if (isLoading) return null;
 
+  // Server MC forecast dates are UTC calendar dates — pin timeZone:'UTC' so the
+  // rendered day does not shift one earlier for viewers west of UTC (#1927).
   const fmtShort = (iso: string) =>
-    new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(
-      new Date(iso),
-    );
+    new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(new Date(iso));
 
   const chips = mcResult
     ? ([

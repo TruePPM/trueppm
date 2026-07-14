@@ -37,7 +37,14 @@ export function MCResultPanel({ result, onClose }: Props) {
   }, [onClose]);
 
   function fmtDate(iso: string) {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Server MC forecast dates are UTC calendar dates — pin timeZone:'UTC' so the
+    // rendered day does not shift one earlier for viewers west of UTC (#1927).
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
   }
 
   return (
