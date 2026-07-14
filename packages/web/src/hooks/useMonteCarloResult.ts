@@ -8,6 +8,12 @@ export interface UseMonteCarloResultReturn {
   data: MonteCarloResult | undefined;
   isLoading: boolean;
   error: Error | null;
+  /**
+   * Re-run just this query — wired to the forecast bar's load-error retry.
+   * Optional so happy-path mocks/consumers that never retry aren't forced to
+   * thread it; the production hook always provides it.
+   */
+  refetch?: () => void;
 }
 
 // Wire shape returned by GET /projects/{pk}/monte-carlo/latest/. Distinct from
@@ -127,5 +133,6 @@ export function useMonteCarloResult(projectId?: string): UseMonteCarloResultRetu
     data: query.data ?? undefined,
     isLoading: query.isLoading,
     error: query.error,
+    refetch: () => void query.refetch(),
   };
 }

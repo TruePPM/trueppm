@@ -224,7 +224,7 @@ export function AddCalendarPicker({
         type="button"
         onClick={() => onAdd([...selected])}
         disabled={count === 0 || submitting}
-        className="inline-flex min-h-[44px] items-center rounded-control border border-brand-primary-dark bg-brand-primary px-3.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
+        className="inline-flex min-h-[44px] items-center rounded-control border border-brand-primary-dark bg-brand-primary px-3.5 text-[13px] font-medium text-white disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
       >
         {submitting ? 'Adding…' : `Add ${count} calendar${count === 1 ? '' : 's'}`}
       </button>

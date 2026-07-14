@@ -14,6 +14,12 @@ export interface UseSprintsResult {
   sprints: ApiSprint[];
   isLoading: boolean;
   error: Error | null;
+  /**
+   * Re-run just this query — wired to the surface's error-state retry.
+   * Optional so happy-path mocks/consumers that never retry aren't forced to
+   * thread it; the production hook always provides it.
+   */
+  refetch?: () => void;
 }
 
 /**
@@ -40,6 +46,7 @@ export function useSprints(projectId: string | null | undefined): UseSprintsResu
     sprints: query.data ?? [],
     isLoading: query.isLoading,
     error: query.error,
+    refetch: () => void query.refetch(),
   };
 }
 

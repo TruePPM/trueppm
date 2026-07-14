@@ -16,7 +16,9 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { WarningIcon } from '@/components/Icons';
+import { WarningIcon, BoardIcon } from '@/components/Icons';
+import { EmptyState } from '@/components/EmptyState';
+import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import {
   memo,
@@ -3763,12 +3765,17 @@ export function BoardView() {
                       );
                     }
                     return (
-                      <div
-                        className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"
-                        role="status"
-                      >
-                        No tasks yet. Create tasks to see them on the board.
-                      </div>
+                      <EmptyState
+                        className="h-full bg-neutral-surface"
+                        icon={BoardIcon}
+                        title="No tasks yet"
+                        description="Add your first task to get started — it will appear here and across every view."
+                        action={
+                          projectId ? (
+                            <Button onClick={handleMobileFabAdd}>+ Add task</Button>
+                          ) : undefined
+                        }
+                      />
                     );
                   }
 

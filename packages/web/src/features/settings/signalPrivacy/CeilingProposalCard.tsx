@@ -85,7 +85,7 @@ export function CeilingProposalCard({
                 onWithdraw();
                 setConfirmWithdraw(false);
               }}
-              className="h-7 rounded border border-neutral-border px-3 font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+              className="h-7 rounded border border-neutral-border px-3 font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Withdraw
             </button>

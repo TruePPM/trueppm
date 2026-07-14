@@ -113,7 +113,7 @@ export function ProjectSignalPrivacyPage() {
                   onClick={() => setConfirmRatchet(true)}
                   disabled={allTeamOnly || saving}
                   title={allTeamOnly ? 'Already all team-only' : undefined}
-                  className="h-8 rounded bg-brand-primary px-3 text-[12px] font-medium text-white disabled:opacity-50"
+                  className="h-8 rounded bg-brand-primary px-3 text-[12px] font-medium text-white disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
                 >
                   Make everything team-only
                 </button>

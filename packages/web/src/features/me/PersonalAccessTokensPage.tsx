@@ -149,17 +149,17 @@ function TokenRow({ token, onRevoke }: { token: MyApiToken; onRevoke: () => void
     >
       <div className="flex flex-col min-w-0 flex-1">
         <span className="text-sm font-medium text-neutral-text-primary truncate">{token.name}</span>
-        <span className="tppm-mono text-[11px] text-neutral-text-disabled">
+        <span className="tppm-mono text-xs text-neutral-text-disabled">
           {token.token_prefix}…
         </span>
       </div>
       <div className="flex flex-col items-end text-right shrink-0">
         <StatusChip token={token} />
-        <span className="text-[11px] text-neutral-text-secondary">
+        <span className="text-xs text-neutral-text-secondary">
           {token.last_used_at ? `Last used ${formatDate(token.last_used_at)}` : 'Never used'}
         </span>
         {token.expires_at && (
-          <span className="text-[11px] text-neutral-text-secondary">
+          <span className="text-xs text-neutral-text-secondary">
             {expiryLabel(token.expires_at)}
           </span>
         )}
@@ -188,7 +188,7 @@ function StatusChip({ token }: { token: MyApiToken }) {
     tone = 'text-semantic-critical';
   }
   return (
-    <span className={`text-[11px] font-medium uppercase tracking-wide ${tone}`}>{label}</span>
+    <span className={`text-xs font-medium uppercase tracking-wide ${tone}`}>{label}</span>
   );
 }
 

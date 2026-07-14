@@ -64,7 +64,7 @@ export function ScheduleForecastBar({
   cpmFinish,
   mutationVersion = 0,
 }: Props) {
-  const { data: result, isLoading } = useMonteCarloResult(projectId);
+  const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
   const [expanded, setExpanded] = useState(readExpanded);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -102,31 +102,50 @@ export function ScheduleForecastBar({
     });
   }
 
-  // No-result empty state — the ONLY "Run a simulation" prompt on the Schedule
-  // view now (the old MonteCarloRow + ScheduleInsightsBar double-claim is gone).
+  // No-result state — the ONLY "Run a simulation" prompt on the Schedule view now
+  // (the old MonteCarloRow + ScheduleInsightsBar double-claim is gone). A genuine
+  // load failure (`error`; a 404 "never run" is mapped to no-error by the hook) is
+  // kept distinct from the cold-start prompt so it doesn't read as "never run"
+  // (#1938) — and it offers a cheap Retry (refetch) rather than forcing a recompute.
   if (!result) {
     if (!projectId) return null;
+    const loadFailed = Boolean(error);
     return (
       <section
         className="hidden md:flex flex-row items-center gap-3 flex-shrink-0 border-t border-neutral-border bg-neutral-surface px-5 py-2.5"
-        aria-label="Schedule forecast — no simulation run yet"
+        aria-label={
+          loadFailed
+            ? 'Schedule forecast — could not load'
+            : 'Schedule forecast — no simulation run yet'
+        }
       >
         <span className="text-xs font-semibold text-neutral-text-primary">Forecast</span>
-        <span className="text-xs text-neutral-text-secondary">
+        <span
+          className={`text-xs ${loadFailed ? 'text-semantic-critical' : 'text-neutral-text-secondary'}`}
+          {...(loadFailed ? { role: 'alert' } : {})}
+        >
           {isLoading
             ? 'Loading forecast…'
-            : runMc.isError
-              ? 'Could not run simulation. Try again.'
-              : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
+            : loadFailed
+              ? "Couldn't load the forecast."
+              : runMc.isError
+                ? 'Could not run simulation. Try again.'
+                : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
         </span>
-        <button
-          type="button"
-          onClick={() => runMc.mutate({})}
-          disabled={runMc.isPending || isLoading}
-          className={`ml-auto ${BTN_CLS}`}
-        >
-          {runMc.isPending ? 'Running…' : 'Run Monte Carlo'}
-        </button>
+        {loadFailed ? (
+          <button type="button" onClick={() => refetch?.()} className={`ml-auto ${BTN_CLS}`}>
+            Retry
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => runMc.mutate({})}
+            disabled={runMc.isPending || isLoading}
+            className={`ml-auto ${BTN_CLS}`}
+          >
+            {runMc.isPending ? 'Running…' : 'Run Monte Carlo'}
+          </button>
+        )}
       </section>
     );
   }

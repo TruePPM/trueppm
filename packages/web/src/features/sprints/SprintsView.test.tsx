@@ -124,7 +124,10 @@ describe('SprintsView', () => {
       error: new Error('boom'),
     });
     renderWithRouter(<SprintsView />);
-    expect(screen.getByRole('alert')).toHaveTextContent(/Could not load sprints/i);
+    // Shared QueryErrorState (inline variant → role="status") replaces the raw
+    // error.message leak; a real Retry sits alongside the message (#1937).
+    expect(screen.getByText(/Couldn't load sprints/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
   });
 
   it('renders empty state when no sprints exist', () => {
