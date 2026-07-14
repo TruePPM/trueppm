@@ -35,6 +35,7 @@ import datetime
 from typing import Any
 
 from django.db.models import Count, F, Max, Q, Sum
+from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
     AggregationPolicy,
@@ -83,7 +84,7 @@ def compute_program_rollup(program: Program) -> dict[str, Any]:
     Pure read: deterministic for a given DB state, no writes, safe to call on
     every GET.
     """
-    today = datetime.date.today()
+    today = timezone.localdate()
     policy = program.rollup_aggregation_policy or AggregationPolicy.WORST.value
     enabled = list(program.rollup_enabled_kpis or [])
 

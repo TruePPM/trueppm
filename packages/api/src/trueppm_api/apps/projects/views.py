@@ -1960,7 +1960,7 @@ class ProjectViewSet(
                 # Anchor on today, but clamp the anchor into [first, last] so a
                 # schedule entirely in the past or future still yields its nearest
                 # real days rather than an empty window.
-                anchor = min(max(datetime.date.today(), first), last)
+                anchor = min(max(timezone.localdate(), first), last)
                 window = datetime.timedelta(weeks=_DEFAULT_WINDOW_WEEKS)
                 window_start = (
                     _parse_date(start_str, "start") if start_str else max(anchor - window, first)
@@ -2253,7 +2253,7 @@ class ProjectViewSet(
             if start_str:
                 start_date: datetime.date = datetime.date.fromisoformat(start_str)
             else:
-                today = datetime.date.today()
+                today = timezone.localdate()
                 start_date = today - datetime.timedelta(days=today.weekday())
         except ValueError:
             return Response(
@@ -2316,7 +2316,7 @@ class ProjectViewSet(
                 status=status.HTTP_409_CONFLICT,
             )
 
-        today = datetime.date.today()
+        today = timezone.localdate()
         start_date = today - datetime.timedelta(days=today.weekday())
         heatmap = aggregate_utilization_weekly(project, start_date, 8, "none")
 
@@ -7681,7 +7681,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        today = datetime.date.today()
+        today = timezone.localdate()
         active_statuses = [
             TaskStatus.BACKLOG,
             TaskStatus.NOT_STARTED,
@@ -7901,7 +7901,7 @@ class ProjectAttentionView(APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        today = datetime.date.today()
+        today = timezone.localdate()
         items: list[dict[str, Any]] = []
 
         # ── Critical-path tasks that are already late ──────────────────────
@@ -8097,7 +8097,7 @@ class ProjectMyTasksView(APIView):
         project = get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
 
-        today = datetime.date.today()
+        today = timezone.localdate()
         # ISO week: Monday = 0
         week_start = today - datetime.timedelta(days=today.weekday())
         week_end = week_start + datetime.timedelta(days=6)

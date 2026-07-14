@@ -243,7 +243,7 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         },
     )
     def post(self, request: Request) -> Response:
-        from datetime import date
+        from django.utils import timezone
 
         from trueppm_api.apps.msproject.models import ImportRequest
         from trueppm_api.apps.msproject.services import enqueue_import
@@ -259,7 +259,7 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         # ADR-0070 program-admin gate apply exactly as on POST /projects/.
         project_payload: dict[str, object] = {
             "name": _project_name_from_filename(filename),
-            "start_date": date.today().isoformat(),
+            "start_date": timezone.localdate().isoformat(),
         }
         program_id = request.data.get("program")
         if program_id:
