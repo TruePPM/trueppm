@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate, useMatch } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -31,6 +32,14 @@ const VELOCITY_PRIVACY_NOTE = 'Visible to project members only — not on portfo
 // At-risk / critical drill lists cap at five items with a "+N more" tail so the
 // popover never grows unbounded (mirrors the previous SegmentPopover behaviour).
 const MAX_VISIBLE = 5;
+
+// Popover positioning constants (web-rule 253). The panel is portaled to
+// document.body and positioned `fixed` from the chip's rect: an in-flow
+// `absolute right-0` panel grows leftward from the trigger, which clips off the
+// left viewport edge on a phone where the chip sits mid-bar (#1969).
+const POPOVER_MIN_WIDTH = 260;
+const POPOVER_GAP = 4;
+const VIEWPORT_MARGIN = 8;
 
 // Inline padlock glyph for the ADR-0104 velocity privacy wall (rule 168). No
 // LockIcon exists in the icon set; this is decorative (aria-hidden) — the gate is
@@ -469,22 +478,66 @@ export function HealthCluster({ onTaskNavigate }: Props) {
 
   const [open, setOpen] = useState(false);
   const [showMCPanel, setShowMCPanel] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+  // Portaled-panel fixed coords (web-rule 253); null until measured (#1969).
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   // Focus trap on the popover panel (rule 206): moves focus in on open, wraps
   // Tab, routes Escape to close, and restores focus to the chip trigger on close.
   const dialogRef = useFocusTrap<HTMLDivElement>(open, () => setOpen(false));
 
-  // Outside pointer-down closes the popover. The wrapper spans BOTH the chip and
-  // the panel, so a click on the chip is "inside" and toggles via its own
+  // Position the portaled panel below the chip, right-aligned to it, but clamped
+  // so it never leaves the viewport — on a phone the chip sits mid-bar, so a
+  // right-anchored panel would clip off the left edge (#1969). Width is read from
+  // the already-rendered panel so the clamp accounts for its real (content) width.
+  const reposition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = dialogRef.current?.offsetWidth || POPOVER_MIN_WIDTH;
+    setPos({
+      top: rect.bottom + POPOVER_GAP,
+      left: Math.max(
+        VIEWPORT_MARGIN,
+        Math.min(rect.right - width, window.innerWidth - width - VIEWPORT_MARGIN),
+      ),
+    });
+  }, [dialogRef]);
+
+  // Measure + place on open (pre-paint, so the panel never flashes at 0,0), clear
+  // on close.
+  useLayoutEffect(() => {
+    if (!open) {
+      setPos(null);
+      return;
+    }
+    reposition();
+  }, [open, reposition]);
+
+  // A fixed popover can't track its anchor, so re-derive coords on scroll/resize.
+  useEffect(() => {
+    if (!open) return undefined;
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [open, reposition]);
+
+  // Outside pointer-down closes the popover. The panel is portaled out of the
+  // chip's wrapper (rule 253), so the check must span BOTH the trigger and the
+  // portaled panel; a click on the chip is "inside" and toggles via its own
   // onClick rather than double-firing a close-then-reopen.
   useEffect(() => {
     if (!open) return undefined;
     function onMouseDown(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (triggerRef.current?.contains(t) || dialogRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', onMouseDown);
     return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [open]);
+  }, [open, dialogRef]);
 
   // Project-scoped chrome; suppressed on project settings routes (rule 123 — the
   // SettingsShell carries its own chrome). The `useProjectId()` null path already
@@ -550,10 +603,11 @@ export function HealthCluster({ onTaskNavigate }: Props) {
   }
 
   return (
-    <div ref={wrapperRef} className="relative">
+    <div className="relative">
       {/* Status chip trigger — all-width (no md:flex / md:hidden split). The
           data-testid stays on the trigger: e2e locates the surface by it. */}
       <button
+        ref={triggerRef}
         type="button"
         data-testid="health-cluster"
         onClick={() => setOpen((o) => !o)}
@@ -594,41 +648,50 @@ export function HealthCluster({ onTaskNavigate }: Props) {
         </span>
       </button>
 
-      {/* Health popover — pop-surface exception to rule 1 (shadow-pop allowed). */}
-      {open && (
-        <div
-          ref={dialogRef}
-          role="dialog"
-          aria-label="Project health"
-          tabIndex={-1}
-          className="absolute top-full right-0 mt-1 z-50 min-w-[260px] rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none"
-        >
-          {/* Header — worst-state dot + word, same read as the chip. */}
-          <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
-            <span
-              aria-hidden="true"
-              className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
-            />
-            <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
-          </div>
+      {/* Health popover — portaled to document.body and positioned `fixed` so it
+          clamps to the viewport instead of clipping off the left edge on a phone
+          (web-rule 253, #1969). Pop-surface exception to rule 1 (shadow-pop). It
+          renders before `pos` is measured (opacity-0) so useLayoutEffect can read
+          its width; the measure→place is pre-paint, so it never flashes. */}
+      {open &&
+        createPortal(
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-label="Project health"
+            tabIndex={-1}
+            style={{ position: 'fixed', top: pos?.top ?? 0, left: pos?.left ?? 0 }}
+            className={`z-50 min-w-[260px] max-w-[calc(100vw-1rem)] max-h-[calc(100vh-4.5rem)] overflow-y-auto rounded-card shadow-pop border border-neutral-border bg-neutral-surface p-1.5 focus:outline-none ${
+              pos ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+          >
+            {/* Header — worst-state dot + word, same read as the chip. */}
+            <div className="flex items-center gap-2 px-2 py-1.5 mb-1 border-b border-neutral-border">
+              <span
+                aria-hidden="true"
+                className={`inline-block w-2 h-2 rounded-full ${chip.dotClass}`}
+              />
+              <span className={`text-xs font-medium ${chip.wordClass}`}>{chip.word}</span>
+            </div>
 
-          {segments.map((segment, i) => (
-            <SegmentRows
-              key={`${segment.kind}-${i}`}
-              segment={segment}
-              iterationSingular={iteration.singular}
-              iterationLower={iteration.lower}
-              canOpenForecast={Boolean(mcResult)}
-              onOpenForecast={openForecast}
-              onGoToSprints={goToSprints}
-              onTaskNavigate={drillTask}
-              inContextBoardPath={inContextBoardPath}
-              crossTeamTargets={crossTeamTargets}
-              onJumpToBoard={jumpToBoard}
-            />
-          ))}
-        </div>
-      )}
+            {segments.map((segment, i) => (
+              <SegmentRows
+                key={`${segment.kind}-${i}`}
+                segment={segment}
+                iterationSingular={iteration.singular}
+                iterationLower={iteration.lower}
+                canOpenForecast={Boolean(mcResult)}
+                onOpenForecast={openForecast}
+                onGoToSprints={goToSprints}
+                onTaskNavigate={drillTask}
+                inContextBoardPath={inContextBoardPath}
+                crossTeamTargets={crossTeamTargets}
+                onJumpToBoard={jumpToBoard}
+              />
+            ))}
+          </div>,
+          document.body,
+        )}
 
       {/* MC distribution panel — opened by the Forecast P80 "Details ›" row (issue 196) */}
       {showMCPanel && mcResult && (

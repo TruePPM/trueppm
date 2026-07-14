@@ -295,6 +295,18 @@ test.describe('TopBar health chip (mobile — all-width, no dropdown)', () => {
     const dialog = await openHealthPopover(page);
     await expect(dialog.getByRole('button', { name: /database migration/i })).toBeVisible();
   });
+
+  test('the health popover stays fully within the viewport on a phone (#1969)', async ({
+    page,
+  }) => {
+    const dialog = await openHealthPopover(page);
+    // The popover is portaled + fixed and clamped to the viewport (rule 253); it
+    // previously grew leftward from a mid-bar chip and clipped off the left edge.
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+  });
 });
 
 test.describe('Wave 1 — BottomNav path-based routing (issue #250)', () => {
