@@ -1,31 +1,32 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { useTaskHistory, type TaskHistoryRecord } from '@/hooks/useTaskHistory';
-import { useTaskComments } from '@/hooks/useTaskComments';
+import { useTaskHistory, type TaskActivityEntry } from '@/hooks/useTaskHistory';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
-import type { TaskComment } from '@/types';
 import { EmptyState } from '@/components/EmptyState';
 import { ListIcon } from '@/components/Icons';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 /**
- * Unified task Activity timeline (issue 869, ADR-0096 Part 2).
+ * Unified task Activity timeline (issue 869, ADR-0096 Part 2; extended #1883).
  *
- * Replaces the former split `HistoryTab` (field-diff cards) + `ActivityLog`
- * (semantic timeline) drawer sections with ONE chronological timeline that
- * merges two client-side feeds — the task history (`useTaskHistory`) and task
- * comments (`useTaskComments`) — sorted newest-first. A field-group filter
- * (Dates / Progress / Status / Assignment / Estimates / Description / Comments)
- * and a per-person filter let a PM slice to just the changes they care about.
+ * ONE chronological timeline over the server's merged activity feed
+ * (`?include=comments,time,attachments,schedule,risks`, ADR-0207). Before #1883
+ * this component called the plain `/history/` field-diff feed and merged comments
+ * client-side, so schedule/risk/time/attachment events — and the full comment
+ * lifecycle (edited/deleted) — were written by the backend but read by nobody.
+ * It now renders every event type from the single feed; the client-side comment
+ * merge is gone (the server emits `comment_added`/`comment_edited`/`comment_deleted`
+ * directly, which is what fixes the missing "· edited" marker and vanishing
+ * deleted comments).
  *
- * The separate Comments section still owns the threaded discussion; here a
- * comment is a read-only "commented" event. CPM recalculations never appear
- * (they write no history rows — ADR-0096 Finding B), so there is deliberately
- * no "System" group in v1.
+ * A type-group filter (Dates / Progress / Status / Assignment / Estimates /
+ * Description / Comments / Schedule / Risks / Time / Attachments) and a per-person
+ * filter let a PM slice to just the events they care about. System events
+ * (CPM recalcs, baseline drift) render under the "System" actor treatment.
  */
 
 // ---------------------------------------------------------------------------
-// Field → filter-group taxonomy (ADR-0096 Part 2)
+// Filter-group taxonomy (ADR-0096 Part 2; Schedule/Risks/Time/Attachments #1883)
 // ---------------------------------------------------------------------------
 
 type Group =
@@ -35,7 +36,11 @@ type Group =
   | 'assignment'
   | 'estimates'
   | 'description'
-  | 'comments';
+  | 'comments'
+  | 'schedule'
+  | 'risks'
+  | 'time'
+  | 'attachments';
 
 const GROUP_ORDER: Group[] = [
   'dates',
@@ -45,6 +50,10 @@ const GROUP_ORDER: Group[] = [
   'estimates',
   'description',
   'comments',
+  'schedule',
+  'risks',
+  'time',
+  'attachments',
 ];
 
 const GROUP_LABEL: Record<Group, string> = {
@@ -55,7 +64,29 @@ const GROUP_LABEL: Record<Group, string> = {
   estimates: 'Estimates',
   description: 'Description',
   comments: 'Comments',
+  schedule: 'Schedule',
+  risks: 'Risks',
+  time: 'Time',
+  attachments: 'Attachments',
 };
+
+// Non-field event types → their single filter group. Field-diff events
+// (task_created/fields_changed/task_deleted) derive groups from FIELD_TO_GROUP.
+const EVENT_GROUP: Record<string, Group> = {
+  comment_added: 'comments',
+  comment_edited: 'comments',
+  comment_deleted: 'comments',
+  cpm_recalculated: 'schedule',
+  baseline_drift_detected: 'schedule',
+  risk_linked: 'risks',
+  risk_unlinked: 'risks',
+  time_logged: 'time',
+  time_deleted: 'time',
+  attachment_uploaded: 'attachments',
+  attachment_deleted: 'attachments',
+};
+
+const FIELD_DIFF_TYPES = new Set(['task_created', 'fields_changed', 'task_deleted']);
 
 /** Maps a history diff field name to its filter group. Fields with no entry are
  *  still shown under "All" — they simply match no group chip. */
@@ -176,50 +207,198 @@ function fmtValue(field: string, val: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Unified event model (history record OR comment)
+// Unified event model — one shape over every merged-feed event_type (#1883)
 // ---------------------------------------------------------------------------
 
 /**
- * Every event carries TWO actor fields (#1878):
- * - `actorKey` — stable person identity, the username in BOTH feeds. The person
- *   filter matches and dedupes on this, so a history row ("atlas-yuki") and a
- *   comment by the same human are one person, not two.
- * - `actor` — the label rendered in the row: full/display name when the feed
- *   provides one, username fallback. Null on a change event means "System".
+ * A single timeline event derived from one merged-feed entry.
+ * - `actorKey` — stable person identity (`actor.id`) used to dedupe and filter
+ *   by person; `null` for system/authorless events (excluded from the filter).
+ * - `actor` — the label rendered in the row (`actor.display_name`); `null` renders
+ *   as "System".
+ * - `groups` — filter groups this event matches (a field-diff event can match
+ *   several; every other event type matches exactly one).
  */
-type UnifiedEvent =
-  | {
-      kind: 'change';
-      key: string;
-      ts: number;
-      actorKey: string | null;
-      actor: string | null;
-      record: TaskHistoryRecord;
-      groups: Set<Group>;
-    }
-  | {
-      kind: 'comment';
-      key: string;
-      ts: number;
-      actorKey: string;
-      actor: string;
-      comment: TaskComment;
-    };
+interface TimelineEvent {
+  key: string;
+  ts: number;
+  actorKey: string | null;
+  actor: string | null;
+  groups: Set<Group>;
+  entry: TaskActivityEntry;
+}
 
-function groupsForRecord(record: TaskHistoryRecord): Set<Group> {
-  const groups = new Set<Group>();
-  for (const d of record.diff) {
-    const g = FIELD_TO_GROUP[d.field];
-    if (g) groups.add(g);
+/**
+ * Guarantee the two fields every downstream reader depends on (`event_type`,
+ * `timestamp`). The merged feed always supplies both, but a legacy field-diff
+ * payload (an older cache, or a test/mock that returns the pre-#1883 shape) may
+ * not — and a missing `event_type` would otherwise crash `summaryVerb` and tear
+ * down the whole drawer via the error boundary. Infer from the legacy keys.
+ */
+function normalize(entry: TaskActivityEntry): TaskActivityEntry {
+  if (entry.event_type && entry.timestamp) return entry;
+  const inferred =
+    entry.history_type === '+'
+      ? 'task_created'
+      : entry.history_type === '-'
+        ? 'task_deleted'
+        : 'fields_changed';
+  return {
+    ...entry,
+    event_type: entry.event_type ?? inferred,
+    timestamp: entry.timestamp ?? entry.history_date ?? new Date(0).toISOString(),
+    actor:
+      entry.actor ??
+      (entry.history_user
+        ? { id: entry.history_user, display_name: entry.history_user_display ?? entry.history_user }
+        : null),
+  };
+}
+
+function groupsFor(entry: TaskActivityEntry): Set<Group> {
+  if (FIELD_DIFF_TYPES.has(entry.event_type)) {
+    const groups = new Set<Group>();
+    for (const d of entry.diff ?? []) {
+      const g = FIELD_TO_GROUP[d.field];
+      if (g) groups.add(g);
+    }
+    return groups;
   }
-  return groups;
+  const g = EVENT_GROUP[entry.event_type];
+  return g ? new Set<Group>([g]) : new Set<Group>();
 }
 
 /** A change record that conveys nothing the user can read — an empty `~` diff —
- *  is the bare "Updated" pill (issue 874). It is stripped server-side once ADR-0096
- *  Part 1 lands; this client guard keeps it out regardless of backend version. */
-function isEmptyChange(e: UnifiedEvent): boolean {
-  return e.kind === 'change' && e.record.history_type === '~' && e.record.diff.length === 0;
+ *  is the bare "Updated" pill (issue 874). Guarded here regardless of backend version. */
+function isEmptyChange(entry: TaskActivityEntry): boolean {
+  return entry.event_type === 'fields_changed' && (entry.diff?.length ?? 0) === 0;
+}
+
+// A per-entry-type stable id inside the detail payload, so React keys don't
+// collide when two events share a timestamp (e.g. add + edit of one comment).
+const DETAIL_ID_KEYS = [
+  'comment_id',
+  'time_entry_id',
+  'attachment_id',
+  'risk_id',
+  'baseline_id',
+] as const;
+
+function eventKey(entry: TaskActivityEntry, idx: number): string {
+  if (entry.id != null) return `h-${entry.id}`;
+  const detailId = DETAIL_ID_KEYS.map((k) => entry.detail[k]).find(
+    (v) => typeof v === 'string' || typeof v === 'number',
+  );
+  return `${entry.event_type}-${entry.timestamp}-${detailId ?? idx}`;
+}
+
+// ---------------------------------------------------------------------------
+// Per-event-type copy (terse verb + optional secondary detail line, #1883)
+// ---------------------------------------------------------------------------
+
+function str(detail: Record<string, unknown>, key: string): string | null {
+  const v = detail[key];
+  return typeof v === 'string' && v.trim() !== '' ? v : null;
+}
+
+function num(detail: Record<string, unknown>, key: string): number | null {
+  const v = detail[key];
+  return typeof v === 'number' ? v : null;
+}
+
+/** Nested `{from, to}` date deltas the CPM event carries; we surface the `to`. */
+function nestedTo(detail: Record<string, unknown>, key: string): string | null {
+  const v = detail[key];
+  if (v && typeof v === 'object' && 'to' in v) {
+    const to = (v as { to: unknown }).to;
+    return typeof to === 'string' ? to : null;
+  }
+  return null;
+}
+
+function fmtMinutes(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  return `${m}m`;
+}
+
+/** The summary verb rendered after the actor name. Field-diff verbs live in
+ *  `changeVerb`; everything else is a fixed phrase (a couple vary on detail). */
+function summaryVerb(entry: TaskActivityEntry): string {
+  const { event_type: et, detail } = entry;
+  switch (et) {
+    case 'task_created':
+      return 'created this task';
+    case 'task_deleted':
+      return 'deleted this task';
+    case 'fields_changed':
+      return changeVerb(entry);
+    case 'comment_added':
+      return 'commented';
+    case 'comment_edited':
+      return 'edited a comment';
+    case 'comment_deleted':
+      return 'deleted a comment';
+    case 'time_logged':
+      return 'logged time';
+    case 'time_deleted':
+      return 'deleted a time entry';
+    case 'attachment_uploaded':
+      return detail.kind === 'url' ? 'attached a link' : 'attached a file';
+    case 'attachment_deleted':
+      return 'deleted an attachment';
+    case 'cpm_recalculated':
+      return 'recalculated the schedule';
+    case 'baseline_drift_detected':
+      return 'detected baseline drift';
+    case 'risk_linked':
+      return 'linked a risk';
+    case 'risk_unlinked':
+      return 'unlinked a risk';
+    default:
+      return et.replace(/_/g, ' ');
+  }
+}
+
+/** Optional muted secondary line under the summary (preview, label, delta). */
+function detailLine(entry: TaskActivityEntry): string | null {
+  const { event_type: et, detail } = entry;
+  switch (et) {
+    case 'comment_added':
+    case 'comment_edited':
+      return str(detail, 'preview');
+    case 'time_logged':
+    case 'time_deleted': {
+      const min = num(detail, 'minutes');
+      const on = str(detail, 'entry_date');
+      if (min == null) return null;
+      return on ? `${fmtMinutes(min)} on ${fmtUtcShort(on)}` : fmtMinutes(min);
+    }
+    case 'attachment_uploaded':
+    case 'attachment_deleted':
+      return str(detail, 'label');
+    case 'cpm_recalculated': {
+      const finish = nestedTo(detail, 'early_finish');
+      const parts = [];
+      if (finish) parts.push(`Finish ${fmtUtcShort(finish)}`);
+      if (detail.is_critical === true) parts.push('on the critical path');
+      return parts.length ? parts.join(' · ') : null;
+    }
+    case 'baseline_drift_detected': {
+      const drift = num(detail, 'drift_days');
+      return drift != null ? `${drift}d behind baseline` : null;
+    }
+    case 'risk_linked':
+    case 'risk_unlinked': {
+      const shortId = str(detail, 'risk_short_id');
+      const title = str(detail, 'risk_title');
+      return [shortId, title].filter(Boolean).join(' · ') || null;
+    }
+    default:
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -340,10 +519,10 @@ function EventAvatar({ actor }: { actor: string | null }) {
 // Diff rows (revealed on expand, or shown inline for a single-field change)
 // ---------------------------------------------------------------------------
 
-function DiffRows({ record }: { record: TaskHistoryRecord }) {
+function DiffRows({ entry }: { entry: TaskActivityEntry }) {
   return (
     <dl className="mt-1 flex flex-col gap-1">
-      {record.diff.map((d) => (
+      {(entry.diff ?? []).map((d) => (
         <div key={d.field} className="flex items-baseline gap-1 text-xs">
           <dt className="w-28 shrink-0 truncate text-neutral-text-secondary">
             {fieldLabel(d.field)}
@@ -371,25 +550,28 @@ function DiffRows({ record }: { record: TaskHistoryRecord }) {
 // Single timeline row
 // ---------------------------------------------------------------------------
 
-function changeVerb(record: TaskHistoryRecord): string {
-  if (record.history_type === '+') return 'created this task';
-  if (record.history_type === '-') return 'deleted this task';
-  if (record.diff.length === 1) return `changed ${fieldLabel(record.diff[0].field).toLowerCase()}`;
-  return `updated ${record.diff.length} fields`;
+function changeVerb(entry: TaskActivityEntry): string {
+  if (entry.event_type === 'task_created') return 'created this task';
+  if (entry.event_type === 'task_deleted') return 'deleted this task';
+  const diff = entry.diff ?? [];
+  if (diff.length === 1) return `changed ${fieldLabel(diff[0].field).toLowerCase()}`;
+  return `updated ${diff.length} fields`;
 }
 
-function ActivityRow({ event, isLast }: { event: UnifiedEvent; isLast: boolean }) {
+function ActivityRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const { entry } = event;
   const date = new Date(event.ts);
-  const isSystem = event.kind === 'change' && event.actor === null;
+  const isSystem = event.actor === null;
   const actorLabel = isSystem ? 'System' : (event.actor as string);
 
-  // A multi-field change is collapsible; a single-field change shows inline; a
-  // comment / creation / deletion has nothing more to reveal.
-  const multiField = event.kind === 'change' && event.record.diff.length > 1;
-  const singleField = event.kind === 'change' && event.record.diff.length === 1;
-
-  const summary = event.kind === 'comment' ? 'commented' : changeVerb(event.record);
+  // Only field-diff changes carry a diff to reveal; a multi-field change is
+  // collapsible, a single-field change shows inline, everything else is a
+  // one-line event.
+  const diffLen = FIELD_DIFF_TYPES.has(entry.event_type) ? (entry.diff?.length ?? 0) : 0;
+  const multiField = diffLen > 1;
+  const singleField = diffLen === 1;
+  const secondary = detailLine(entry);
 
   return (
     <div className="flex gap-3">
@@ -401,8 +583,8 @@ function ActivityRow({ event, isLast }: { event: UnifiedEvent; isLast: boolean }
         )}
       </div>
 
-      {/* Content. No container aria-label: the summary line + diff rows / comment
-          body read naturally (rule 171 — an aria-label here would be read AND the
+      {/* Content. No container aria-label: the summary line + diff rows / detail
+          line read naturally (rule 171 — an aria-label here would be read AND the
           non-hidden descendants re-read in NVDA/JAWS). */}
       <div className="min-w-0 flex-1 pb-4">
         <div className="flex items-start justify-between gap-2">
@@ -412,7 +594,7 @@ function ActivityRow({ event, isLast }: { event: UnifiedEvent; isLast: boolean }
             ) : (
               <span className="font-semibold">{actorLabel}</span>
             )}{' '}
-            {summary}
+            {summaryVerb(entry)}
           </p>
           <time
             dateTime={date.toISOString()}
@@ -436,16 +618,20 @@ function ActivityRow({ event, isLast }: { event: UnifiedEvent; isLast: boolean }
           )}
         </div>
 
-        {/* Comment preview (read-only; the Comments section owns the thread) */}
-        {event.kind === 'comment' && event.comment.body.trim() !== '' && (
-          <p className="mt-0.5 line-clamp-1 text-xs text-neutral-text-secondary">
-            {event.comment.body}
+        {/* Secondary detail line (comment preview, attachment label, risk title,
+            logged duration, schedule delta) — muted, single-line. */}
+        {secondary != null && secondary.trim() !== '' && (
+          // title exposes the full value: risk titles, filenames, and comment
+          // previews can exceed one line and clamp silently otherwise (web-rule:
+          // a clamped line must never be the only place a value appears).
+          <p title={secondary} className="mt-0.5 line-clamp-1 text-xs text-neutral-text-secondary">
+            {secondary}
           </p>
         )}
 
         {/* Single-field change shows its diff inline; multi-field reveals on expand */}
-        {singleField && <DiffRows record={event.record} />}
-        {multiField && expanded && <DiffRows record={event.record} />}
+        {singleField && <DiffRows entry={entry} />}
+        {multiField && expanded && <DiffRows entry={entry} />}
       </div>
     </div>
   );
@@ -489,49 +675,33 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
     hasNextPage,
     isFetchingNextPage,
   } = useTaskHistory(projectId, taskId);
-  // Comments are a second, non-fatal feed: if they fail to load the timeline
-  // still renders the history-only view (never crash the section).
-  const { comments } = useTaskComments(projectId, taskId);
 
   const [group, setGroup] = useState<FilterKey>('all');
   const [person, setPerson] = useState<string | null>(null);
 
-  const historyRecords = useMemo(() => data?.pages.flatMap((p) => p.results) ?? [], [data]);
+  const entries = useMemo(() => data?.pages.flatMap((p) => p.results) ?? [], [data]);
 
-  const events = useMemo<UnifiedEvent[]>(() => {
-    const changeEvents: UnifiedEvent[] = historyRecords.map((record) => ({
-      kind: 'change',
-      key: `h-${record.id}`,
-      ts: new Date(record.history_date).getTime(),
-      actorKey: record.history_user,
-      actor: record.history_user_display ?? record.history_user,
-      record,
-      groups: groupsForRecord(record),
-    }));
-    const commentEvents: UnifiedEvent[] = comments
-      .filter((c) => !c.is_deleted)
-      .map((c) => ({
-        kind: 'comment',
-        key: `c-${c.id}`,
-        ts: new Date(c.created_at).getTime(),
-        // Authorless comments keep the pre-#1878 semantics: they group under a
-        // "Someone" pseudo-person rather than the change feed's null => System.
-        actorKey: c.author?.username ?? 'Someone',
-        actor: c.author?.display_name ?? c.author?.username ?? 'Someone',
-        comment: c,
-      }));
-    return [...changeEvents, ...commentEvents]
-      .filter((e) => !isEmptyChange(e))
+  // One event per merged-feed entry. The feed is already newest-first from the
+  // server; we re-sort defensively so pages appended out of order stay ordered.
+  const events = useMemo<TimelineEvent[]>(() => {
+    return entries
+      .map(normalize)
+      .filter((entry) => !isEmptyChange(entry))
+      .map((entry, i) => ({
+        key: eventKey(entry, i),
+        ts: new Date(entry.timestamp).getTime(),
+        actorKey: entry.actor?.id ?? null,
+        actor: entry.actor?.display_name ?? null,
+        groups: groupsFor(entry),
+        entry,
+      }))
       .sort((a, b) => b.ts - a.ts);
-  }, [historyRecords, comments]);
+  }, [entries]);
 
   // Filter chips: only groups actually present in the data (plus All).
   const chips = useMemo<{ key: FilterKey; label: string }[]>(() => {
     const present = new Set<Group>();
-    for (const e of events) {
-      if (e.kind === 'comment') present.add('comments');
-      else e.groups.forEach((g) => present.add(g));
-    }
+    for (const e of events) e.groups.forEach((g) => present.add(g));
     return [
       { key: 'all' as FilterKey, label: `All · ${events.length}` },
       ...GROUP_ORDER.filter((g) => present.has(g)).map((g) => ({
@@ -542,17 +712,13 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
   }, [events]);
 
   // Distinct actors for the per-person filter (this task only — rule: no cross-task).
-  // Deduped by actorKey (username) so the same human arriving via the history feed
-  // and the comments feed is ONE entry (#1878); labeled by the best display name seen
-  // (a plain-username label is upgraded when a later event carries the full name).
+  // Deduped by actorKey (actor.id) so the same human across event sources is ONE
+  // entry (#1878); system/authorless events (null actorKey) are excluded.
   const persons = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const e of events) {
       if (!e.actorKey) continue;
-      const existing = byKey.get(e.actorKey);
-      if (existing === undefined || existing === e.actorKey) {
-        byKey.set(e.actorKey, e.actor ?? e.actorKey);
-      }
+      if (!byKey.has(e.actorKey)) byKey.set(e.actorKey, e.actor ?? e.actorKey);
     }
     return [...byKey.entries()]
       .map(([key, label]) => ({ key, label }))
@@ -561,15 +727,13 @@ export function ActivityTimeline({ projectId, taskId }: DrawerSectionProps) {
 
   // A chip/person that no longer exists after a refetch falls back gracefully.
   const effectiveGroup = chips.some((c) => c.key === group) ? group : 'all';
-  const effectivePerson =
-    person !== null && persons.some((p) => p.key === person) ? person : null;
+  const effectivePerson = person !== null && persons.some((p) => p.key === person) ? person : null;
 
   const filtered = useMemo(
     () =>
       events.filter((e) => {
         if (effectivePerson !== null && e.actorKey !== effectivePerson) return false;
         if (effectiveGroup === 'all') return true;
-        if (e.kind === 'comment') return effectiveGroup === 'comments';
         return e.groups.has(effectiveGroup);
       }),
     [events, effectiveGroup, effectivePerson],

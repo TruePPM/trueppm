@@ -594,8 +594,11 @@ export function TaskFormModal({
     }
   }
 
-  // Last-edited footer source.
-  const latestHistory = taskHistory.data?.pages?.[0]?.results?.[0] ?? null;
+  // Last-edited footer source. The feed is now a merged activity stream (#1883),
+  // so pick the newest actual field edit (only field-diff entries carry
+  // history_date) rather than the newest event of any type.
+  const latestHistory =
+    taskHistory.data?.pages?.flatMap((p) => p.results).find((r) => r.history_date != null) ?? null;
   const lastEditLabel = latestHistory
     ? latestHistory.history_user
       ? `Edited by ${latestHistory.history_user} ${formatRelative(latestHistory.history_date)}`

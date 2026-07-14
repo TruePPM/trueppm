@@ -82,17 +82,42 @@ const FIXTURE_API_TASKS = [
   },
 ];
 
+// Merged activity feed (#1883): every entry carries {event_type, actor,
+// timestamp, detail}; the field-diff entry additionally keeps its legacy keys.
 const FIXTURE_HISTORY = {
-  count: 1,
+  count: 4,
   next: null,
   previous: null,
+  count_truncated: false,
   results: [
     {
+      event_type: 'comment_edited',
+      actor: { id: 'u-erin', display_name: 'Erin' },
+      timestamp: '2026-04-25T13:00:00Z',
+      detail: { comment_id: 'c1', preview: 'Reworded take' },
+    },
+    {
+      event_type: 'risk_linked',
+      actor: { id: 'u-bob', display_name: 'Bob' },
+      timestamp: '2026-04-25T12:00:00Z',
+      detail: { risk_id: 'r1', risk_short_id: 'R-7', risk_title: 'Vendor slip' },
+    },
+    {
+      event_type: 'cpm_recalculated',
+      actor: null,
+      timestamp: '2026-04-25T11:00:00Z',
+      detail: { early_finish: { from: '2026-06-01', to: '2026-06-03' }, is_critical: true },
+    },
+    {
       id: 1,
+      event_type: 'fields_changed',
+      actor: { id: 'u-alice', display_name: 'alice' },
+      timestamp: '2026-04-25T10:00:00Z',
       history_date: '2026-04-25T10:00:00Z',
       history_type: '~',
       history_user: 'alice',
-      history_user_display: null,
+      history_user_display: 'alice',
+      detail: { diff: [{ field: 'duration', old: '8', new: '10' }] },
       diff: [{ field: 'duration', old: '8', new: '10' }],
     },
   ],
@@ -493,12 +518,21 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
     await expect(drawer.getByRole('button', { name: 'History' })).toHaveCount(0);
   });
 
-  test('Activity timeline shows audit records when expanded', async ({ page }) => {
+  test('Activity timeline surfaces merged events (schedule/risk/comment lifecycle)', async ({
+    page,
+  }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Activity' }).click();
     await drawer.getByRole('button', { name: 'Activity' }).click();
-    // FIXTURE_HISTORY is a single-field duration change by alice → rendered inline.
-    await expect(drawer.getByText('alice')).toBeVisible({ timeout: 5_000 });
+    // Field-diff change renders inline (single-field duration change).
+    await expect(drawer.getByText(/changed duration/i)).toBeVisible({ timeout: 5_000 });
+    // #1883: schedule + risk streams now surface, and edited comments appear —
+    // none of these rendered before ?include= was adopted.
+    await expect(drawer.getByRole('radio', { name: 'Schedule' })).toBeVisible();
+    await expect(drawer.getByRole('radio', { name: 'Risks' })).toBeVisible();
+    await expect(drawer.getByText(/recalculated the schedule/i)).toBeVisible();
+    await expect(drawer.getByText(/linked a risk/i)).toBeVisible();
+    await expect(drawer.getByText(/edited a comment/i)).toBeVisible();
   });
 
   test('Overview is rendered inline (no accordion); secondary sections start collapsed', async ({
