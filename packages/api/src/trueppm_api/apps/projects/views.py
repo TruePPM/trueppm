@@ -6863,10 +6863,9 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
 
     def get_serializer_context(self) -> dict[str, Any]:
         # Feed project_id into the serializer so its case-insensitive uniqueness
-        # check works on create (the instance has no project yet).
-        ctx = super().get_serializer_context()
-        ctx["project_id"] = self.kwargs.get("project_pk")
-        return ctx
+        # check works on create (the instance has no project yet). Build a fresh
+        # dict — the base return is typed as an immutable Mapping.
+        return {**super().get_serializer_context(), "project_id": self.kwargs.get("project_pk")}
 
     def perform_create(self, serializer: BaseSerializer[Label]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -6978,7 +6977,9 @@ class TaskLabelView(APIView):
             )
         )
 
-    def _labels_payload(self, task: Task) -> list[dict[str, Any]]:
+    def _labels_payload(self, task: Task) -> Any:
+        # Serialized nested-pill list for the attach response; DRF's ``.data`` is a
+        # ReturnList, so the return type stays ``Any`` (as the rest of the app does).
         labels = task.labels.filter(is_deleted=False)
         return TaskLabelChipSerializer(labels, many=True).data
 
