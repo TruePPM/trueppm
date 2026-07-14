@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams } from 'react-router';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramCeremonies } from '@/features/programs/hooks/useProgramCeremonies';
@@ -81,6 +83,34 @@ function CeremonyRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Portal + flip/clamp so the menu escapes the SettingsCard's `overflow-hidden`
+  // clip (the last row's menu was cut off by the card's bottom edge) and never
+  // spills off a narrow viewport (web-rule 253, #1966). Right-aligned to the ⋯.
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({
+    open: menuOpen,
+    width: 160,
+    estimatedHeight: 84,
+    align: 'right',
+    onDismiss: () => setMenuOpen(false),
+  });
+
+  const closeMenu = (returnFocus: boolean) => {
+    setMenuOpen(false);
+    if (returnFocus) triggerRef.current?.focus();
+  };
+
+  // Focus the first menuitem when the menu opens. Portaling the menu to
+  // document.body removes its items from natural tab order (web-rule 260), so a
+  // role="menu" MUST move focus into itself on open or a keyboard user can never
+  // reach Edit/Delete. Arrow keys then rove between items (see onKeyDown below).
+  useEffect(() => {
+    if (!menuOpen) return;
+    popoverRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  }, [menuOpen, popoverRef]);
+
   return (
     <div
       className={[
@@ -109,8 +139,12 @@ function CeremonyRow({
       <div className="relative flex justify-end">
         {canEdit && !confirmDelete && (
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && menuOpen) closeMenu(true);
+            }}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label={`More options for ${ceremony.name}`}
@@ -119,37 +153,71 @@ function CeremonyRow({
             ⋯
           </button>
         )}
-        {menuOpen && (
-          <div
-            role="menu"
-            tabIndex={-1}
-            className="absolute right-0 top-full mt-1 z-10 min-w-[140px] rounded-card border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
-            onMouseLeave={() => setMenuOpen(false)}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onEdit();
+        {menuOpen &&
+          popoverStyle &&
+          createPortal(
+            <div
+              ref={popoverRef}
+              role="menu"
+              tabIndex={-1}
+              style={popoverStyle}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  closeMenu(true);
+                  return;
+                }
+                // Tab out closes the (portaled) menu so focus doesn't strand in
+                // document.body order; arrows rove between the menuitems.
+                if (e.key === 'Tab') {
+                  closeMenu(false);
+                  return;
+                }
+                const items = Array.from(
+                  popoverRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+                );
+                if (!items.length) return;
+                const idx = items.indexOf(document.activeElement as HTMLElement);
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  items[(idx + 1) % items.length]?.focus();
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  items[(idx - 1 + items.length) % items.length]?.focus();
+                } else if (e.key === 'Home') {
+                  e.preventDefault();
+                  items[0]?.focus();
+                } else if (e.key === 'End') {
+                  e.preventDefault();
+                  items[items.length - 1]?.focus();
+                }
               }}
-              className="block w-full text-left px-3 py-1.5 hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:bg-neutral-surface-sunken"
+              className="z-50 min-w-[140px] rounded-card border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
             >
-              Edit
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                setConfirmDelete(true);
-              }}
-              className="block w-full text-left px-3 py-1.5 text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:bg-semantic-critical/5"
-            >
-              Delete…
-            </button>
-          </div>
-        )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  closeMenu(true);
+                  onEdit();
+                }}
+                className="block w-full text-left px-3 py-1.5 hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:bg-neutral-surface-sunken"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  closeMenu(false);
+                  setConfirmDelete(true);
+                }}
+                className="block w-full text-left px-3 py-1.5 text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:bg-semantic-critical/5"
+              >
+                Delete…
+              </button>
+            </div>,
+            document.body,
+          )}
         {confirmDelete && (
           <span className="flex items-center gap-1">
             <button
