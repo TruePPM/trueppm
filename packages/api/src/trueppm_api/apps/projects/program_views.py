@@ -23,7 +23,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -64,6 +64,11 @@ from trueppm_api.apps.projects.serializers import (
     ProgramSerializer,
     ProjectSerializer,
 )
+
+# DirectoryPagination is defined in views.py (which does not import this module, so
+# the module-level import is cycle-safe) and shared so /programs/ matches /projects/
+# on the raised page ceiling (ADR-0401).
+from trueppm_api.apps.projects.views import DirectoryPagination
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
@@ -102,6 +107,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     """
 
     serializer_class = ProgramSerializer
+    pagination_class = DirectoryPagination
+    # Parity with ProjectViewSet: name/code substring search so the program
+    # switchers and command palette stay findable past the default page (ADR-0401).
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "code"]
+    ordering_fields = ["name"]
 
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the

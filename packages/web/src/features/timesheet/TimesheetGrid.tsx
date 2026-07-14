@@ -33,6 +33,8 @@ interface TimesheetGridProps {
   weekTotal: number;
   existingTaskIds: Set<string>;
   submitted: boolean;
+  /** Server validation reason per `${taskId}|${date}` cell whose last save was rejected (#1945). */
+  cellErrors: Record<string, string>;
   onCellSave: (row: TimesheetRow, date: string, minutes: number) => void;
   onAddTask: (meta: CellTaskMeta) => void;
 }
@@ -48,6 +50,7 @@ export function TimesheetGrid({
   weekTotal,
   existingTaskIds,
   submitted,
+  cellErrors,
   onCellSave,
   onAddTask,
 }: TimesheetGridProps) {
@@ -112,6 +115,7 @@ export function TimesheetGrid({
                     isToday={d.isToday}
                     isFuture={d.isFuture}
                     ariaLabel={`${row.taskShortId} ${row.taskName}, ${WEEKDAY_LABELS[i]} ${dayOfMonth(d.date)}`}
+                    errorText={cellErrors[`${row.taskId}|${d.date}`]}
                     onSave={(minutes) => onCellSave(row, d.date, minutes)}
                   />
                 );

@@ -20,6 +20,15 @@ function toHealthState(health: string | undefined): HealthState {
 
 export interface UseProjectsResult {
   data: Project[] | undefined;
+  /**
+   * Total server-side project count. Exceeds `data.length` only when the account
+   * has more projects than the page ceiling (ADR-0401), letting nav surfaces show
+   * an honest "showing N of M" cue instead of silently truncating.
+   *
+   * Optional so existing `{ data, isLoading, error }` mocks stay valid; the real
+   * hook always populates it once the query resolves.
+   */
+  count?: number;
   isLoading: boolean;
   error: Error | null;
 }
@@ -81,13 +90,17 @@ export function useProjects(): UseProjectsResult {
   const query = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
+      // The server list defaults to page_size=200 (DirectoryPagination, ADR-0401),
+      // so the sidebar/palette no longer truncate at the DRF-default 50 without the
+      // client sending any param (which would break the `/projects/` route mocks).
       const res = await apiClient.get<PaginatedResponse<ApiProject>>('/projects/');
-      return res.data.results.map(mapProject);
+      return { items: res.data.results.map(mapProject), count: res.data.count };
     },
   });
 
   return {
-    data: query.data,
+    data: query.data?.items,
+    count: query.data?.count,
     isLoading: query.isLoading,
     // Suppress transient errors during the 401→token-refresh→retry cycle:
     // the axios interceptor retries transparently, so query.isFetching is true

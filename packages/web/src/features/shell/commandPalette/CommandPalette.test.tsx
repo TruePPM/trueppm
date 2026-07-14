@@ -39,7 +39,9 @@ const MOCK_ITEMS: CommandItem[] = [
     run: runTheme,
   },
 ];
-vi.mock('./useCommandItems', () => ({ useCommandItems: () => MOCK_ITEMS }));
+// Mutable so a test can swap in a large task/person set to exercise the caps.
+let mockItems: CommandItem[] = MOCK_ITEMS;
+vi.mock('./useCommandItems', () => ({ useCommandItems: () => mockItems }));
 
 // Default to an in-context project so the off-project hint stays hidden; the
 // off-project test overrides this per-case.
@@ -55,6 +57,7 @@ afterEach(() => {
   vi.clearAllMocks();
   // clearAllMocks wipes the implementation too — restore the in-context default.
   mockProjectId.mockReturnValue('p1');
+  mockItems = MOCK_ITEMS;
 });
 
 describe('CommandPalette', () => {
@@ -167,6 +170,41 @@ describe('CommandPalette', () => {
     render(<CommandPalette />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'oauth' } });
     expect(screen.getByText('1.4.2 · In progress')).toBeInTheDocument();
+  });
+
+  it('caps task results at 8 and surfaces an explicit overflow hint (#1940)', () => {
+    mockItems = Array.from({ length: 10 }, (_, i) => ({
+      id: `task:t${i}`,
+      label: `Open task: Widget ${i}`,
+      group: 'task' as const,
+      tag: 'Task',
+      keywords: 'widget',
+      run: vi.fn(),
+    }));
+    open();
+    render(<CommandPalette />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'widget' } });
+    // Only 8 of the 10 task options render...
+    expect(screen.getAllByRole('option', { name: /Open task: Widget/ })).toHaveLength(8);
+    // ...and the truncation is called out, never silent.
+    expect(screen.getByText(/Showing first 8 — refine your search/)).toBeInTheDocument();
+  });
+
+  it('renders a People group and caps it at 6 with an overflow hint (#1940)', () => {
+    mockItems = Array.from({ length: 8 }, (_, i) => ({
+      id: `person:r${i}`,
+      label: `Ann ${i}`,
+      group: 'person' as const,
+      tag: 'Person',
+      keywords: 'person',
+      run: vi.fn(),
+    }));
+    open();
+    render(<CommandPalette />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ann' } });
+    expect(screen.getByText('People')).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: /Ann/ })).toHaveLength(6);
+    expect(screen.getByText(/Showing first 6 — refine your search/)).toBeInTheDocument();
   });
 
   it('shows the off-project hint only when there is no current project (cold)', () => {

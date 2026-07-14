@@ -274,6 +274,49 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
       .not.toBe(before);
   });
 
+  test('an online validation 400 shows inline on the cell, not the global sync badge (#1945)', async ({
+    page,
+  }) => {
+    await setupTimesheet(page);
+
+    // Force the Monday cell of Foundation pour (entry ts-a-mon) to be rejected with a
+    // DRF 400. Registered after setup so it takes precedence for that exact path; GET /
+    // DELETE fall through to the stateful store route.
+    await page.route('**/api/v1/me/time-entries/ts-a-mon/', async (route) => {
+      if (route.request().method() === 'PATCH') {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ entry_date: ['Entry date cannot be in the future.'] }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.goto('/me/timesheet');
+    const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
+    await expect(grid).toBeVisible();
+
+    // The badge is calm before the write.
+    await expect(page.getByRole('button', { name: /Synced/ })).toBeVisible();
+
+    // Edit the Monday (first day) cell of Foundation pour → the PATCH 400s.
+    const row = grid.getByRole('row').filter({ hasText: 'Foundation pour' });
+    const monCell = row.getByRole('gridcell').nth(0);
+    const input = monCell.locator('input');
+    await input.click();
+    await input.fill('6');
+    await input.press('Enter');
+
+    // The reason renders inline on the cell (role="alert")…
+    await expect(page.getByRole('alert')).toHaveText('Entry date cannot be in the future.');
+
+    // …and the global sync badge NEVER escalates to "Sync error".
+    await expect(page.getByRole('button', { name: /Sync error/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Synced/ })).toBeVisible();
+  });
+
   test('Submit week toggles the submission marker', async ({ page }) => {
     await setupTimesheet(page);
     await page.goto('/me/timesheet');

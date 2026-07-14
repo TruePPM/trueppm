@@ -7,12 +7,21 @@
  */
 
 /**
- * Result sections (ADR-0138, issue 647; `sprint` added issue 1594). `sprint` leads as
- * the first-class "jump to current sprint" action; `task` and `current` are
- * Tier-2 (current project only); the rest are Tier-1 (all reachable projects) or
- * global.
+ * Result sections (ADR-0138, issue 647; `sprint` added issue 1594; `person` added
+ * ADR-0401/#1940). `sprint` leads as the first-class "jump to current sprint"
+ * action; `task` and `current` are Tier-2 (current project only); `person` is a
+ * global, query-gated people search; the rest are Tier-1 (all reachable projects)
+ * or global.
  */
-export type CommandGroup = 'sprint' | 'task' | 'current' | 'jump' | 'backlog' | 'board' | 'action';
+export type CommandGroup =
+  | 'sprint'
+  | 'task'
+  | 'current'
+  | 'person'
+  | 'jump'
+  | 'backlog'
+  | 'board'
+  | 'action';
 
 export interface CommandItem {
   /** Stable id for React keys and active-item tracking. */

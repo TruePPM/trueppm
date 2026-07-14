@@ -4,6 +4,7 @@ import type { Mutation } from '@tanstack/react-query';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
 import { deriveSyncStatus, type SyncStatus } from '@/features/shell/syncStatus';
+import { isClientRejection } from '@/lib/apiError';
 
 /** How a pending write is progressing, for the badge modal's list. */
 export type PendingWriteState = 'queued' | 'sending' | 'failed';
@@ -22,6 +23,13 @@ interface MutationSummary {
   isPaused: boolean;
   label: string;
   error: string | null;
+  /**
+   * The write was refused by the server with a `4xx` (validation / permission /
+   * conflict). Excluded from the offline-pending set: it is not a queued change
+   * waiting to drain, and replaying it verbatim would just be rejected again
+   * (#1945). The offending surface shows the reason inline instead.
+   */
+  clientRejected: boolean;
 }
 
 function readLabel(mutation: Mutation<unknown, Error, unknown, unknown>): string {
@@ -48,6 +56,7 @@ const selectSummary = (
   isPaused: mutation.state.isPaused,
   label: readLabel(mutation),
   error: readError(mutation),
+  clientRejected: isClientRejection(mutation.state.error),
 });
 
 export interface SyncStatusView {
@@ -82,6 +91,9 @@ export function useSyncStatus(): SyncStatusView {
   const pendingWrites: PendingWrite[] = [];
 
   for (const m of mutations) {
+    // A 4xx client rejection is surfaced inline on the offending surface, never
+    // through the global sync badge — skip it entirely (#1945).
+    if (m.clientRejected) continue;
     if (m.status === 'error') {
       errorCount += 1;
       lastError = m.error;
@@ -128,7 +140,10 @@ export function useRetrySync(): () => Promise<void> {
     const errored = queryClient
       .getMutationCache()
       .getAll()
-      .filter((m) => m.state.status === 'error');
+      // Never blindly replay a 4xx client rejection — the server already
+      // refused it and would refuse it again; it re-validates when the user
+      // edits and re-submits the offending value instead (#1945).
+      .filter((m) => m.state.status === 'error' && !isClientRejection(m.state.error));
     await Promise.allSettled(errored.map((m) => m.continue()));
   };
 }
