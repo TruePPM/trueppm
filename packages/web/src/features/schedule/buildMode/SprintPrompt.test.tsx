@@ -79,6 +79,21 @@ function agileProjectClient(): QueryClient {
   return qc;
 }
 
+function nonAgileProjectClient(): QueryClient {
+  const qc = agileProjectClient();
+  const agile = qc.getQueryData(['project', 'p1']) as ApiProjectDetail;
+  const project: ApiProjectDetail = {
+    ...agile,
+    board_cadence: 'continuous',
+    agile_features: false,
+    methodology: 'WATERFALL',
+    effective_methodology: 'WATERFALL',
+    inherited_methodology: 'WATERFALL',
+  };
+  qc.setQueryData(['project', 'p1'], project);
+  return qc;
+}
+
 describe('SprintPrompt', () => {
   it('renders nothing when open=false', () => {
     const { container } = wrap(
@@ -174,5 +189,51 @@ describe('SprintPrompt', () => {
     fireEvent.keyDown(document, { key: 'Escape', bubbles: true });
     expect(screen.getByText('Add to sprint?')).toBeInTheDocument();
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  // ADR-0418 (#1968): the estimate step is decoupled from the agile gate. A
+  // non-agile project skips the sprint step and opens directly on story points.
+  describe('non-agile project (ADR-0418)', () => {
+    it('opens directly on the story-points step, skipping the sprint step', () => {
+      wrap(
+        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+        nonAgileProjectClient(),
+      );
+      expect(screen.getByRole('dialog', { name: 'Story points' })).toBeInTheDocument();
+      expect(screen.getByText('Story points?')).toBeInTheDocument();
+      expect(screen.queryByText('Add to sprint?')).not.toBeInTheDocument();
+    });
+
+    it('calls onSelect(null, 8) when a point estimate is entered and confirmed', () => {
+      const onSelect = vi.fn();
+      wrap(
+        <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
+        nonAgileProjectClient(),
+      );
+      fireEvent.change(screen.getByRole('spinbutton', { name: /story points/i }), {
+        target: { value: '8' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+      // Sprint is always null on a non-agile project — no sprint assignment.
+      expect(onSelect).toHaveBeenCalledWith(null, 8);
+    });
+
+    it('dismisses (does not step back) when Esc is pressed, since there is no sprint step', () => {
+      const onDismiss = vi.fn();
+      wrap(
+        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={onDismiss} />,
+        nonAgileProjectClient(),
+      );
+      fireEvent.keyDown(document, { key: 'Escape', bubbles: true });
+      expect(onDismiss).toHaveBeenCalled();
+    });
+
+    it('labels the Esc hint "skip" rather than "go back"', () => {
+      wrap(
+        <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+        nonAgileProjectClient(),
+      );
+      expect(screen.getByText(/Esc to skip/)).toBeInTheDocument();
+    });
   });
 });

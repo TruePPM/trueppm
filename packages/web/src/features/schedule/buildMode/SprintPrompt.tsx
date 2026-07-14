@@ -14,10 +14,16 @@ interface Props {
 }
 
 /**
- * Two-step sprint-assignment prompt for newly committed tasks (#346 #468).
+ * Sprint-assignment + estimate prompt for newly committed tasks (#346 #468).
  *
  * Step 1 — which sprint? 1·current, 2·next planned, 3·Backlog, Esc·later.
  * Step 2 — story points? type a number + Enter to set, Enter/Esc to skip.
+ *
+ * Per ADR-0418 (#1961/#1968) the estimate step is decoupled from the agile gate:
+ * the **sprint** step is agile-only, but the **story-point** step is available on
+ * every methodology. On a non-agile project the prompt skips step 1 and opens
+ * directly on the estimate step (with no sprint assignment), so a PM can set a
+ * point estimate from build-mode quick-add just as they can from the board form.
  */
 export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
   const { data: project } = useProject(projectId);
@@ -32,14 +38,16 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
 
   const isAgile = project?.agile_features === true;
 
-  // Reset to sprint step whenever the prompt opens.
+  // Reset whenever the prompt opens (or once the project's methodology resolves).
+  // Agile projects start on the sprint step; non-agile projects skip straight to
+  // the estimate step with no sprint assignment (ADR-0418).
   useEffect(() => {
     if (open) {
-      setStep('sprint');
+      setStep(isAgile ? 'sprint' : 'points');
       setPendingSprintId(null);
       setPtsValue('');
     }
-  }, [open]);
+  }, [open, isAgile]);
 
   // Focus the pts input when we transition to step 2.
   useEffect(() => {
@@ -60,7 +68,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
 
   // Dismiss on outside click
   useEffect(() => {
-    if (!open || !isAgile) return;
+    if (!open) return;
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         onDismiss();
@@ -68,15 +76,16 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [open, isAgile, onDismiss]);
+  }, [open, onDismiss]);
 
-  // Escape: step 1 → dismiss, step 2 → back to step 1
+  // Escape: on the estimate step of an agile project, step back to the sprint
+  // step; otherwise (sprint step, or the estimate-only non-agile flow) dismiss.
   useEffect(() => {
-    if (!open || !isAgile) return;
+    if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        if (step === 'points') {
+        if (step === 'points' && isAgile) {
           setStep('sprint');
         } else {
           onDismiss();
@@ -106,7 +115,10 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
     return () => document.removeEventListener('keydown', handler, true);
   }, [open, isAgile, step, active, planned]);
 
-  if (!open || !isAgile) return null;
+  // Wait for the project to load before rendering: `isAgile` is derived from it,
+  // and showing the estimate-only (non-agile) step before the methodology is known
+  // would flash the wrong step and re-seat once `agile_features` resolves.
+  if (!open || !project) return null;
 
   const sprintOptions = (
     [
@@ -183,7 +195,7 @@ export function SprintPrompt({ open, projectId, onSelect, onDismiss }: Props) {
             </Button>
           </div>
           <p className="text-xs text-neutral-text-disabled px-1 pt-0.5">
-            Enter to confirm · Esc to go back
+            {isAgile ? 'Enter to confirm · Esc to go back' : 'Enter to confirm · Esc to skip'}
           </p>
         </>
       )}
