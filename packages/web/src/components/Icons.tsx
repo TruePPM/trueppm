@@ -864,6 +864,28 @@ export function FilePdfIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Printer — the "send to print dialog" affordance (issue 1970). */
+export function PrinterIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.25"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M4.5 6V2.75h7V6" strokeLinecap="round" />
+      <path d="M4.5 11.5h-1A1.5 1.5 0 0 1 2 10V7.5A1.5 1.5 0 0 1 3.5 6h9A1.5 1.5 0 0 1 14 7.5V10a1.5 1.5 0 0 1-1.5 1.5h-1" />
+      <rect x="4.5" y="10" width="7" height="3.25" rx="0.5" />
+      <path d="M11.5 8.25h0.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** Spreadsheet — sheet with a small grid. */
 export function FileSpreadsheetIcon({ className, ...rest }: IconProps) {
   return (

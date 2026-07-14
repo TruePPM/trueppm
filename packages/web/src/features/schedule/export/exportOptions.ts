@@ -3,7 +3,9 @@
  * (issue 1438, ADR-0233). Kept React-free so the option shape, the render-time
  * estimate, and the file-card formatters are unit-testable without a DOM.
  */
-import type { SchedulePaper } from './exportSchedulePdf';
+import type { ExportDestination, SchedulePaper } from './exportSchedulePdf';
+
+export type { ExportDestination };
 
 /** Layout choice. `report` (Layout B, the 3-page report) is issue 1439 — disabled. */
 export type ExportLayoutChoice = 'gantt' | 'report';
@@ -14,6 +16,8 @@ export interface ScheduleExportOptions {
   layout: ExportLayoutChoice;
   paper: SchedulePaper;
   range: ExportRangeChoice;
+  /** Whether the finished PDF is downloaded as a file or sent to the print dialog. */
+  destination: ExportDestination;
   /** Render FS dependency arrows. */
   includeArrows: boolean;
   /** Include non-critical rows. Off ⇒ chart only the critical-path chain. */
@@ -28,6 +32,7 @@ export const DEFAULT_EXPORT_OPTIONS: ScheduleExportOptions = {
   layout: 'gantt',
   paper: 'letter',
   range: 'full',
+  destination: 'download',
   includeArrows: true,
   includeNonCritical: false,
   includeCpSummary: true,

@@ -135,7 +135,7 @@ test('a tall schedule exports as a multi-page PDF with repeated headers', async 
   await expect(dialog).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
-  await dialog.getByRole('button', { name: 'Export PDF' }).click();
+  await dialog.getByRole('button', { name: 'Download PDF' }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^Migration_Tooling_Schedule_\d{4}-\d{2}-\d{2}\.pdf$/);
 

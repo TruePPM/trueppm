@@ -229,6 +229,9 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
             openedAtIso || new Date().toISOString(),
           ),
           paper: options.paper,
+          // Frozen at generate-start: `options` don't mutate while generating, so
+          // reading `destination` here is equivalent to capturing it (issue 1970).
+          destination: options.destination,
           signal: controller.signal,
           onProgress: (p) => {
             if (!cancelled) setProgress(p);

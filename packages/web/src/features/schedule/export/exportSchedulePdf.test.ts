@@ -3,18 +3,29 @@ import { exportSchedulePdf, scheduledPdfFileName, type ExportProgress } from './
 
 // html-to-image + jspdf are dynamically imported by the helper; mock both. Spies
 // go through vi.hoisted so the hoisted vi.mock factories can close over them.
-const { toPng, addImage, addPage, save, output, text, setFontSize, setTextColor } = vi.hoisted(
-  () => ({
-    toPng: vi.fn(),
-    addImage: vi.fn(),
-    addPage: vi.fn(),
-    save: vi.fn(),
-    output: vi.fn(),
-    text: vi.fn(),
-    setFontSize: vi.fn(),
-    setTextColor: vi.fn(),
-  }),
-);
+const {
+  toPng,
+  addImage,
+  addPage,
+  save,
+  output,
+  text,
+  setFontSize,
+  setTextColor,
+  autoPrint,
+  dispatchPrintViaIframe,
+} = vi.hoisted(() => ({
+  toPng: vi.fn(),
+  addImage: vi.fn(),
+  addPage: vi.fn(),
+  save: vi.fn(),
+  output: vi.fn(),
+  text: vi.fn(),
+  setFontSize: vi.fn(),
+  setTextColor: vi.fn(),
+  autoPrint: vi.fn(),
+  dispatchPrintViaIframe: vi.fn(),
+}));
 vi.mock('html-to-image', () => ({ toPng }));
 vi.mock('jspdf', () => ({
   jsPDF: class {
@@ -26,10 +37,15 @@ vi.mock('jspdf', () => ({
     text = text;
     setFontSize = setFontSize;
     setTextColor = setTextColor;
+    // Embeds the auto-print OpenAction on the print destination (#1970).
+    autoPrint = autoPrint;
     // A4 landscape in points; the mock ignores the `format` option.
     internal = { pageSize: { getWidth: () => 841.89, getHeight: () => 595.28 } };
   },
 }));
+// The print destination dispatches through this shared helper; assert on the call,
+// not on real iframe/OS behavior (undrivable in jsdom).
+vi.mock('../../export/printPdf', () => ({ dispatchPrintViaIframe }));
 
 /** Stub `Image` so `loadImage` resolves deterministically with a known size. */
 function stubImage(width: number, height: number) {
@@ -72,6 +88,8 @@ beforeEach(() => {
   text.mockClear();
   setFontSize.mockClear();
   setTextColor.mockClear();
+  autoPrint.mockClear();
+  dispatchPrintViaIframe.mockClear();
 });
 
 afterEach(() => {
@@ -444,6 +462,70 @@ describe('exportSchedulePdf — selectable text layer (issue 1687)', () => {
     stubImage(800, 400);
     await exportSchedulePdf(document.createElement('div'), { fileName: 'plain.pdf' });
     expect(text).not.toHaveBeenCalled();
+  });
+});
+
+describe('exportSchedulePdf — print destination (#1970)', () => {
+  /** Stub `URL.createObjectURL` so a blob URL exists and the print dispatch fires. */
+  function stubObjectUrl() {
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:print'),
+      revokeObjectURL: vi.fn(),
+    });
+  }
+
+  it('embeds auto-print and dispatches to the print dialog instead of saving', async () => {
+    stubImage(800, 400);
+    stubObjectUrl();
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'apollo_schedule.pdf',
+      destination: 'print',
+    });
+
+    // Auto-print action embedded BEFORE the blob is materialized.
+    expect(autoPrint).toHaveBeenCalledTimes(1);
+    // Sent to the print dialog, never downloaded.
+    expect(dispatchPrintViaIframe).toHaveBeenCalledTimes(1);
+    expect(dispatchPrintViaIframe).toHaveBeenCalledWith(expect.stringContaining('blob:'));
+    expect(save).not.toHaveBeenCalled();
+    // The identical artifact is still produced — same page count + byte size.
+    expect(result).toMatchObject({ destination: 'print', pageCount: 1, byteSize: 2048 });
+  });
+
+  it('leaves the download path untouched — save, no auto-print, no print dispatch', async () => {
+    stubImage(800, 400);
+    stubObjectUrl();
+
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'apollo_schedule.pdf',
+      destination: 'download',
+    });
+
+    expect(save).toHaveBeenCalledWith('apollo_schedule.pdf');
+    expect(autoPrint).not.toHaveBeenCalled();
+    expect(dispatchPrintViaIframe).not.toHaveBeenCalled();
+    expect(result.destination).toBe('download');
+  });
+
+  it('defaults to the download destination when unspecified', async () => {
+    stubImage(800, 400);
+    const result = await exportSchedulePdf(document.createElement('div'), { fileName: 'd.pdf' });
+    expect(result.destination).toBe('download');
+    expect(dispatchPrintViaIframe).not.toHaveBeenCalled();
+  });
+
+  it('stamps the print destination onto a canceled result', async () => {
+    stubImage(800, 400);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await exportSchedulePdf(document.createElement('div'), {
+      fileName: 'x.pdf',
+      destination: 'print',
+      signal: controller.signal,
+    });
+    expect(result).toMatchObject({ canceled: true, destination: 'print' });
+    expect(dispatchPrintViaIframe).not.toHaveBeenCalled();
   });
 });
 
