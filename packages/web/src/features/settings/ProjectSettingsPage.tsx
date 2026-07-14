@@ -22,6 +22,7 @@ import { ProjectGuardrailsPage } from './project/ProjectGuardrailsPage';
 import { ProjectIntegrationsPage } from './project/ProjectIntegrationsPage';
 import { ProjectNotificationsPage } from './project/ProjectNotificationsPage';
 import { ProjectAttachmentsPage } from './project/ProjectAttachmentsPage';
+import { ProjectLabelsPage } from './project/ProjectLabelsPage';
 import { ProjectVisibilityPage } from './project/ProjectVisibilityPage';
 import { ProjectSharingPage } from './project/ProjectSharingPage';
 import { ProjectArchivePage } from './project/ProjectArchivePage';
@@ -101,6 +102,7 @@ export function ProjectSettingsPage() {
       label: 'Configuration',
       items: [
         { id: 'workflow',   label: 'Workflow & fields',                icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'labels',     label: 'Labels',                           icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'calendars',  label: 'Working calendars',                icon: <NavIcon><CalendarIcon aria-hidden="true" /></NavIcon> },
         { id: 'guardrails', label: `${iterationSingular} guardrails`,  icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
         ...(showTeamTab
@@ -142,6 +144,7 @@ export function ProjectSettingsPage() {
       <SettingsSection id="methodology"><ProjectMethodologyPage /></SettingsSection>
       {showTeamTab && <SettingsSection id="team"><ProjectTeamPage /></SettingsSection>}
       <SettingsSection id="workflow"><ProjectWorkflowPage /></SettingsSection>
+      <SettingsSection id="labels"><ProjectLabelsPage /></SettingsSection>
       <SettingsSection id="calendars"><ProjectCalendarsPage /></SettingsSection>
       <SettingsSection id="guardrails"><ProjectGuardrailsPage /></SettingsSection>
       {showTeamTab && (

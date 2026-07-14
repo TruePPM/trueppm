@@ -19351,6 +19351,477 @@
                 "summary": "Retrieve import"
             }
         },
+        "/api/v1/projects/{project_pk}/labels/": {
+            "get": {
+                "operationId": "v1_projects_labels_list",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedLabelList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List labels"
+            },
+            "post": {
+                "operationId": "v1_projects_labels_create",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Label"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create label"
+            }
+        },
+        "/api/v1/projects/{project_pk}/labels/{id}/": {
+            "get": {
+                "operationId": "v1_projects_labels_retrieve",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this label.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Label"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve label"
+            },
+            "put": {
+                "operationId": "v1_projects_labels_update",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this label.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/LabelRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Label"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update label"
+            },
+            "patch": {
+                "operationId": "v1_projects_labels_partial_update",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this label.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedLabelRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedLabelRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedLabelRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Label"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update label"
+            },
+            "delete": {
+                "operationId": "v1_projects_labels_destroy",
+                "description": "CRUD for the project-scoped label catalog (ADR-0400).\n\nPermission matrix (adoption-first with a curation floor):\n  list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary\n  create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro\n  update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a\n                                    shared label changes *everyone's* board\n  destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks\n\nReads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay\nhuman-only until the 0.6 agent write surface (ADR-0186).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this label.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete label"
+            }
+        },
         "/api/v1/projects/{project_pk}/members/": {
             "get": {
                 "operationId": "v1_projects_members_list",
@@ -24060,6 +24531,306 @@
                             }
                         },
                         "description": "Page-number-paginated envelope `{count, next, previous, results, count_truncated}`. Without `include`, each `results` entry is `{id, history_date, history_type, history_user, history_user_display, diff}`, where `diff` is a list of `{field, old, new}` changes, `history_user` is the author's username, and `history_user_display` is their full name (username fallback; both null for programmatic writes). With `include` (`attachments`, `comments`, `dependencies`, `resources`, `risks`, `schedule`, `time`), each entry additionally carries `{event_type, actor, timestamp, detail}`; field-diff entries emit `task_created`, `fields_changed`, or `task_deleted`, and non-diff events (`comment_added`, `comment_edited`, `comment_deleted`, `time_logged`, `time_deleted`, `attachment_uploaded`, `attachment_deleted`, `cpm_recalculated`, `baseline_drift_detected`, `risk_linked`, `risk_unlinked`, `dependency_added`, `dependency_removed`, `assignee_added`, `assignee_removed`, `assignee_units_changed`) carry only that unified shape, with `actor` null for system/authorless events. `count_truncated` is true when any source exceeded the row cap and only the most recent events are returned."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/": {
+            "post": {
+                "operationId": "v1_projects_tasks_labels_create",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "summary": "Attach a label to a task",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TaskLabelChip"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_labels_destroy",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "summary": "Detach a label from a task",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Detached (idempotent)"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/": {
+            "post": {
+                "operationId": "v1_projects_tasks_labels_create_2",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "summary": "Attach a label to a task",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "label_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TaskLabelChip"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_labels_destroy_2",
+                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).",
+                "summary": "Detach a label from a task",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "label_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Detached (idempotent)"
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -38458,6 +39229,20 @@
                 "type": "string",
                 "description": "* `approve` - approve\n* `reject` - reject"
             },
+            "ColorEnum": {
+                "enum": [
+                    "slate",
+                    "teal",
+                    "purple",
+                    "blue",
+                    "rose",
+                    "amber",
+                    "green",
+                    "cyan"
+                ],
+                "type": "string",
+                "description": "* `slate` - Slate\n* `teal` - Teal\n* `purple` - Purple\n* `blue` - Blue\n* `rose` - Rose\n* `amber` - Amber\n* `green` - Green\n* `cyan` - Cyan"
+            },
             "ColumnEnum": {
                 "enum": [
                     "went_well",
@@ -40080,6 +40865,66 @@
                 "type": "string",
                 "description": "* `file` - file\n* `link` - link"
             },
+            "Label": {
+                "type": "object",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 50
+                    },
+                    "color": {
+                        "$ref": "#/components/schemas/ColorEnum"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "name",
+                    "server_version"
+                ]
+            },
+            "LabelRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 50
+                    },
+                    "color": {
+                        "$ref": "#/components/schemas/ColorEnum"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
             "Landing": {
                 "type": "object",
                 "properties": {
@@ -41493,6 +42338,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Group"
+                        }
+                    }
+                }
+            },
+            "PaginatedLabelList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Label"
                         }
                     }
                 }
@@ -42944,6 +43820,25 @@
                     "lead": {
                         "type": "integer",
                         "nullable": true
+                    }
+                }
+            },
+            "PatchedLabelRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 50
+                    },
+                    "color": {
+                        "$ref": "#/components/schemas/ColorEnum"
+                    },
+                    "position": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768
                     }
                 }
             },
@@ -49586,6 +50481,13 @@
                         },
                         "readOnly": true
                     },
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskLabelChip"
+                        },
+                        "readOnly": true
+                    },
                     "readiness": {
                         "type": "string",
                         "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee AND still in BACKLOG (unrefined, uncommitted)\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee without predecessors, OR promoted out of BACKLOG\n             without an assignee (committed but unowned — ADR-0047)\n\nSemantic boundary: 'idea' only applies while status == BACKLOG. Once a PM\nmoves a card to any working column they have made a commitment decision;\nghost styling is suppressed even if no assignee has been set yet.",
@@ -49880,6 +50782,7 @@
                     "is_phase",
                     "is_stalled",
                     "is_summary",
+                    "labels",
                     "late_finish",
                     "late_start",
                     "latest_note_at",
@@ -50216,6 +51119,51 @@
                 ],
                 "type": "string",
                 "description": "* `keep` - Keep percent-complete\n* `prorate` - Prorate percent-complete\n* `confirm` - Confirm percent-complete (client prompt)"
+            },
+            "TaskLabelAttachRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "label_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "label_id"
+                ]
+            },
+            "TaskLabelChip": {
+                "type": "object",
+                "description": "Lightweight read-only label serializer nested inside ``TaskSerializer``.\n\nCarries only the fields the board card / schedule drawer pill needs (color is\nthe stable enum key — the frontend maps it to theme-aware AA-safe tokens).\nNested so the board renders label pills without a per-task round-trip; the\nviewset prefetches ``labels`` to keep it O(1).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "color": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ColorEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "position": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "color",
+                    "id",
+                    "name",
+                    "position"
+                ]
             },
             "TaskLink": {
                 "type": "object",

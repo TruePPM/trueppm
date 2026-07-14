@@ -60,6 +60,7 @@ from trueppm_api.apps.projects.models import (
     ExportJobStatus,
     ForecastSnapshot,
     InboundTaskLink,
+    Label,
     PhaseGateConfig,
     Program,
     Project,
@@ -2078,6 +2079,68 @@ class AcceptanceCriterionSerializer(serializers.ModelSerializer[AcceptanceCriter
 MAX_TASK_SPAN_DAYS = 36525
 
 
+class TaskLabelChipSerializer(serializers.ModelSerializer[Label]):
+    """Lightweight read-only label serializer nested inside ``TaskSerializer``.
+
+    Carries only the fields the board card / schedule drawer pill needs (color is
+    the stable enum key — the frontend maps it to theme-aware AA-safe tokens).
+    Nested so the board renders label pills without a per-task round-trip; the
+    viewset prefetches ``labels`` to keep it O(1).
+    """
+
+    class Meta:
+        model = Label
+        fields = ["id", "name", "color", "position"]
+        read_only_fields = fields
+
+
+class LabelSerializer(serializers.ModelSerializer[Label]):
+    """Read/write serializer for the project-scoped label catalog (ADR-0400).
+
+    ``color`` is validated against the fixed ``LabelColor`` enum by the choices
+    field. ``name`` is normalized (trimmed) and checked for case-insensitive
+    uniqueness within the project so a clean 400 is returned instead of a raw
+    IntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``
+    and ``created_by`` are stamped by the viewset, never client-supplied.
+    """
+
+    class Meta:
+        model = Label
+        fields = ["id", "name", "color", "position", "server_version", "created_at"]
+        read_only_fields = ["id", "server_version", "created_at"]
+
+    def validate_name(self, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Label name cannot be blank.")
+        return cleaned
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Case-insensitive uniqueness within the project. ``project`` is injected
+        # by the viewset via serializer.save(project=...), so read it from the
+        # instance (update) or the viewset-provided context (create).
+        name = attrs.get("name")
+        if name is not None:
+            project_id = (
+                self.instance.project_id
+                if self.instance is not None
+                else self.context.get("project_id")
+            )
+            if project_id is not None:
+                clash = Label.objects.filter(
+                    project_id=project_id,
+                    name__iexact=name,
+                    is_deleted=False,
+                )
+                if self.instance is not None:
+                    clash = clash.exclude(pk=self.instance.pk)
+                if clash.exists():
+                    raise serializers.ValidationError(
+                        {"name": "A label with this name already exists in this project."}
+                    )
+        return attrs
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
@@ -2121,6 +2184,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
     # Nested resource assignments — read-only, used for Gantt assignee chips.
     assignments = TaskAssignmentSerializer(many=True, read_only=True)
+
+    # Nested labels (ADR-0400) — read-only pills for board cards + schedule drawer.
+    # Writes go through the task-nested attach/detach endpoints, never here, so the
+    # replace-set lost-update race never exists. Prefetched in TaskViewSet.get_queryset.
+    labels = TaskLabelChipSerializer(many=True, read_only=True)
 
     # Computed readiness state for board cards (issue #179).  Derived from
     # assignee_id, baseline_start annotation, and has_predecessors annotation
@@ -2275,6 +2343,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_phase",
             "parent_id",
             "assignments",
+            "labels",
             "readiness",
             "predecessor_count",
             "is_blocked",
@@ -2359,6 +2428,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_phase",
             "parent_id",
             "assignments",
+            "labels",
             "readiness",
             "predecessor_count",
             "is_blocked",

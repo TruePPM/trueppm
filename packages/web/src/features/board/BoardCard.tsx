@@ -23,6 +23,7 @@ import { TypeBadge } from '@/features/project/backlog/components/TypeBadge';
 import { classifyCardSignal, cardSignalToneClass } from './cardSignal';
 import { phaseColor } from './phaseColors';
 import { LinkIcon, WarningIcon } from '@/components/Icons';
+import { LabelPillRow } from '@/components/LabelPill';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -744,6 +745,12 @@ function BoardCardImpl({
           {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on a
               pending card, which shows the accept ✓ instead. */}
           {!isPending && signalChips}
+          {/* Labels (ADR-0400): color dots only at compact density. */}
+          {(task.labels?.length ?? 0) > 0 && (
+            <span className="shrink-0">
+              <LabelPillRow labels={task.labels ?? []} density="compact" />
+            </span>
+          )}
         </div>
         {/* 3px progress strip at the bottom of each compact card */}
         <div
@@ -902,6 +909,7 @@ function BoardCardImpl({
           isPendingSync ||
           (!isPending && (showChain || showRisk)) ||
           task.assignees.length > 0 ||
+          (task.labels?.length ?? 0) > 0 ||
           isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
             {isPending && <PendingAcceptanceChip explainer={pendingExplainer} />}
@@ -941,6 +949,11 @@ function BoardCardImpl({
             {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on
                 a pending card, which shows the accept ✓ instead. */}
             {!isPending && signalChips}
+            {/* Labels (ADR-0400): 2 pills + overflow at comfortable, all at detailed. */}
+            <LabelPillRow
+              labels={task.labels ?? []}
+              density={isDetailed ? 'detailed' : 'comfortable'}
+            />
             {isIdea ? (
               <span
                 className="inline-block w-5 h-5 rounded-full border border-dashed border-neutral-border

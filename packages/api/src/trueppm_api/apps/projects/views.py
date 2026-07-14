@@ -100,6 +100,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     ExportJobStatus,
+    Label,
     Project,
     ProjectApiToken,
     ProjectCalendarLayer,
@@ -117,6 +118,7 @@ from trueppm_api.apps.projects.models import (
     TaskActivityEvent,
     TaskAttachment,
     TaskComment,
+    TaskLabel,
     TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
@@ -149,6 +151,7 @@ from trueppm_api.apps.projects.serializers import (
     GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
     InboundTaskSyncResultSerializer,
+    LabelSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     MilestoneListItemSerializer,
@@ -180,6 +183,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskCommentSerializer,
+    TaskLabelChipSerializer,
     TaskNoteSerializer,
     TaskRecurrenceRuleSerializer,
     TaskReorderSerializer,
@@ -908,6 +912,11 @@ class ProjectViewSet(
                         queryset=SprintScopeChange.objects.select_related("added_by"),
                         to_attr="_prefetched_sprint_scope_changes",
                     ),
+                    # Nested label pills (ADR-0400): this LIST path bypasses
+                    # annotate_tasks_queryset, so prefetch labels here too or the
+                    # serializer N+1s one query per story/epic. Filter tombstoned
+                    # labels so a soft-deleted label never renders as a pill.
+                    db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
                 )
                 # Freshness signal (ADR-0143, #740) — this LIST path bypasses
                 # annotate_tasks_queryset, so annotate latest_note_at here too or
@@ -2892,7 +2901,12 @@ def annotate_tasks_queryset(
     # by the TaskSerializer blocker getters — select_related so a list response
     # serializes them without one query per row.
     qs = qs.select_related("project", "sprint", "blocked_by", "blocking_task").prefetch_related(
-        "assignments__resource"
+        "assignments__resource",
+        # Nested label pills (ADR-0400) are serialized by TaskSerializer; prefetch
+        # here — not just on the list viewset — so the bulk re-fetch path (#998) and
+        # any bare-manager caller serialize labels O(1) instead of one query per row.
+        # Filter tombstoned labels so a soft-deleted label never renders as a pill.
+        db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
     )
 
     # Summary task annotations: is_summary = has at least one direct child,
@@ -3394,6 +3408,11 @@ class TaskViewSet(
         .prefetch_related("assignments__resource")
         .filter(is_deleted=False)
     )
+    # NB: the board/schedule label-pill prefetch (ADR-0400) lives in
+    # annotate_tasks_queryset, not here — every read path (list/retrieve/bulk)
+    # routes through it. Prefetching ``labels`` in *both* places double-registers
+    # the lookup with a distinct queryset; get_object() then raises ValueError,
+    # which get_object_or_404 silently converts to a 404 on every retrieve.
 
     def get_queryset(self) -> QuerySet[Task]:
         qs = super().get_queryset()
@@ -6789,6 +6808,224 @@ class RiskViewSet(
             },
             status=status.HTTP_200_OK,
         )
+
+
+# ---------------------------------------------------------------------------
+# Task labels (ADR-0400, closes #1089)
+# ---------------------------------------------------------------------------
+
+# Soft cap on label definitions per project. A ceiling — not a hard governance
+# limit — that keeps the member-create escape valve (a team coins `tech-debt`
+# mid-retro) from degenerating into 50 near-duplicate labels. Configurable via
+# settings so an operator can raise it without a migration.
+_LABEL_SOFT_CAP_DEFAULT = 50
+
+
+def _label_soft_cap() -> int:
+    from django.conf import settings
+
+    return int(getattr(settings, "TRUEPPM_LABEL_SOFT_CAP", _LABEL_SOFT_CAP_DEFAULT))
+
+
+class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelViewSet[Label]):
+    """CRUD for the project-scoped label catalog (ADR-0400).
+
+    Permission matrix (adoption-first with a curation floor):
+      list / retrieve                 — Viewer+ (IsProjectMember): everyone sees the vocabulary
+      create                          — Team Member+ (IsProjectMemberWrite): coin a label mid-retro
+      update / partial_update         — Project Admin+ (IsProjectAdmin): renaming/recoloring a
+                                        shared label changes *everyone's* board
+      destroy                         — Project Admin+ (IsProjectAdmin): destructive across tasks
+
+    Reads are MCP-reachable (``mcp:read``) via the mixin; label *writes* stay
+    human-only until the 0.6 agent write surface (ADR-0186).
+    """
+
+    # No select_related: the serializer emits neither project nor created_by, and
+    # scoping filters on the project_id column (no join) — the FK joins were dead weight.
+    queryset = Label.objects.filter(is_deleted=False)
+    serializer_class = LabelSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name"]
+    ordering_fields = ["position", "name", "created_at"]
+
+    def get_permissions(self) -> list[BasePermission]:
+        # ADR-0186 §E: append the read-only MCP token guards so a mcp:read token
+        # can never reach a write branch; human auth passes both layers.
+        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+
+    def _rbac_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action == "create":
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        # update / partial_update / destroy — curation is admin-gated.
+        return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+
+    def get_queryset(self) -> QuerySet[Label]:
+        qs = super().get_queryset()
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            qs = qs.filter(project_id=project_pk)
+        return qs
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        # Feed project_id into the serializer so its case-insensitive uniqueness
+        # check works on create (the instance has no project yet). Build a fresh
+        # dict — the base return is typed as an immutable Mapping.
+        return {**super().get_serializer_context(), "project_id": self.kwargs.get("project_pk")}
+
+    def perform_create(self, serializer: BaseSerializer[Label]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # DRF does not call has_object_permission on create — check explicitly.
+        self.check_object_permissions(self.request, project)
+
+        # Soft cap: enforced here (not the serializer) because it needs the live
+        # project-scoped count. A clean 400, not an opaque IntegrityError.
+        current = Label.objects.filter(project=project, is_deleted=False).count()
+        if current >= _label_soft_cap():
+            raise DRFValidationError(
+                {
+                    "detail": (
+                        f"This project has reached the label limit "
+                        f"({_label_soft_cap()}). Delete an unused label first."
+                    )
+                }
+            )
+        # Append to the end of the palette order unless the client pinned a position.
+        next_position = serializer.validated_data.get("position")
+        if next_position is None:
+            max_position = (
+                Label.objects.filter(project=project, is_deleted=False).aggregate(
+                    m=Max("position")
+                )["m"]
+                or 0
+            )
+            next_position = max_position + 1
+
+        instance = serializer.save(
+            project=project,
+            created_by=self.request.user,
+            position=next_position,
+        )
+        label_id = str(instance.pk)
+        project_id_str = str(project_pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id_str, "label_created", {"id": label_id})
+        )
+
+    def perform_update(self, serializer: BaseSerializer[Label]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = serializer.save()
+        project_id = str(instance.project_id)
+        label_id = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "label_updated", {"id": label_id})
+        )
+
+    def perform_destroy(self, instance: Label) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id = str(instance.project_id)
+        label_id = str(instance.pk)
+        # Detach the label from every task it's on so it stops rendering as a pill.
+        # The plain ``TaskLabel`` through-rows are hard-deleted; the ``Label`` itself
+        # soft-deletes so the tombstone reaches mobile via the sync-delta.
+        TaskLabel.objects.filter(label=instance).delete()
+        instance.soft_delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "label_deleted", {"id": label_id})
+        )
+
+
+class TaskLabelView(IdempotencyMixin, APIView):
+    """Idempotent attach/detach of a label to a task (ADR-0400 §D4).
+
+    Deliberately NOT a replace-set PATCH: attaching label X and detaching label Y
+    are commutative single-row operations, so two concurrent clients toggling
+    *different* labels never clobber each other (the lost-update race a replace-set
+    ``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a
+    duplicate attach a no-op. Both operations bump ``Task.server_version`` (only when
+    the set actually changed) so the WS ``task_updated`` broadcast and the sync-delta
+    reconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).
+
+    Assignment is a *task edit*, not vocabulary management, so it is gated by the
+    same ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a
+    Member may label their own editable tasks; a Viewer cannot. Label writes stay
+    human-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWriteOrOwn, IsProjectNotArchived]
+
+    def _get_task(self, project_pk: str, task_pk: str) -> Task:
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        # APIView does not auto-run has_object_permission — enforce the task-edit
+        # verdict (assignee-own vs project-write) explicitly.
+        self.check_object_permissions(self.request, task)
+        return task
+
+    def _broadcast(self, task: Task) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+
+        project_id = str(task.project_id)
+        task_id = str(task.pk)
+        version = task.server_version
+        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
+        transaction.on_commit(
+            lambda: broadcast_task_updated(
+                project_id,
+                task_id=task_id,
+                changed_fields=["labels"],
+                version=version,
+                actor_id=actor_id,
+            )
+        )
+
+    def _labels_payload(self, task: Task) -> Any:
+        # Serialized nested-pill list for the attach response; DRF's ``.data`` is a
+        # ReturnList, so the return type stays ``Any`` (as the rest of the app does).
+        labels = task.labels.filter(is_deleted=False)
+        return TaskLabelChipSerializer(labels, many=True).data
+
+    @extend_schema(
+        summary="Attach a label to a task",
+        request=inline_serializer(
+            name="TaskLabelAttachRequest",
+            fields={"label_id": serializers.UUIDField()},
+        ),
+        responses={200: TaskLabelChipSerializer(many=True)},
+    )
+    def post(self, request: Request, project_pk: str, task_pk: str) -> Response:
+        task = self._get_task(project_pk, task_pk)
+        label_id = request.data.get("label_id")
+        if not label_id:
+            raise DRFValidationError({"label_id": "This field is required."})
+        # Cross-project IDOR guard: the label must belong to the task's OWN project.
+        # A label id from another project resolves to 404, never an attach.
+        label = get_object_or_404(Label, pk=label_id, project_id=task.project_id, is_deleted=False)
+        _, created = TaskLabel.objects.get_or_create(task=task, label=label)
+        if created:
+            # Bump the task version only on a real change so an idempotent re-attach
+            # does not churn server_version or emit a spurious broadcast.
+            task.save(known_exists=True, update_fields=["server_version"])
+            self._broadcast(task)
+        return Response(self._labels_payload(task), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Detach a label from a task",
+        responses={204: OpenApiResponse(description="Detached (idempotent)")},
+    )
+    def delete(self, request: Request, project_pk: str, task_pk: str, label_id: str) -> Response:
+        task = self._get_task(project_pk, task_pk)
+        deleted, _ = TaskLabel.objects.filter(task=task, label_id=label_id).delete()
+        if deleted:
+            task.save(known_exists=True, update_fields=["server_version"])
+            self._broadcast(task)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

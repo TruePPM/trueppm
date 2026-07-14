@@ -107,6 +107,7 @@ import {
   activeFacetCount,
   isFacetsActive,
   collectAssigneeOptions,
+  collectLabelOptions,
   parseFacetsFromParams,
   writeFacetsToParams,
   paramsHaveFacets,
@@ -2110,6 +2111,14 @@ export function BoardView() {
     for (const opt of assigneeOptions) m.set(opt.resourceId, opt.name);
     return m;
   }, [assigneeOptions]);
+  // Label facet options + id→name map (ADR-0400) — derived from the labels on the
+  // board's committed cards, mirroring the assignee-facet derivation above.
+  const labelOptions = useMemo(() => collectLabelOptions(committedTasks), [committedTasks]);
+  const labelNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const opt of labelOptions) m.set(opt.id, opt.name);
+    return m;
+  }, [labelOptions]);
   const facetMatchIds = useMemo(() => {
     if (!facetsActive) return null;
     const now = new Date();
@@ -3003,6 +3012,7 @@ export function BoardView() {
               <BoardFilterControl
                 filters={facetFilters}
                 assigneeOptions={assigneeOptions}
+                labelOptions={labelOptions}
                 onChange={onFacetsChange}
                 onClearAll={onClearAllFacets}
                 open={filterPanelOpen}
@@ -3043,6 +3053,7 @@ export function BoardView() {
           <BoardFilterChips
             filters={facetFilters}
             assigneeNameById={assigneeNameById}
+            labelNameById={labelNameById}
             matchCount={facetMatchCount}
             onChange={onFacetsChange}
             onClearAll={onClearAllFacets}

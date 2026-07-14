@@ -54,3 +54,23 @@ export function canEditTask(role: number | null | undefined): boolean {
 export function canEditRisk(role: number | null | undefined): boolean {
   return role != null && role >= ROLE_MEMBER;
 }
+
+/**
+ * True iff a viewer with this project role may create a task label (ADR-0400).
+ * Member+ qualifies — adoption-first, so a team can coin `tech-debt` mid-retro
+ * without a ticket (the server soft-caps the count). Mirrors the server gate
+ * (IsProjectMemberWrite on label create). `null`/`undefined` → `false`.
+ */
+export function canCreateLabel(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_MEMBER;
+}
+
+/**
+ * True iff a viewer with this project role may curate the label catalog (ADR-0400)
+ * — rename, recolor, reorder, or delete a label. Admin+ only, because a shared
+ * label edit changes every card that carries it. Mirrors the server gate
+ * (IsProjectAdmin). `null`/`undefined` → `false`.
+ */
+export function canManageLabels(role: number | null | undefined): boolean {
+  return role != null && role >= ROLE_ADMIN;
+}

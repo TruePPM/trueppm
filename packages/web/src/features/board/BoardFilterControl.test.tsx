@@ -9,7 +9,12 @@ const ASSIGNEES = [
   { resourceId: 'r2', name: 'Bob' },
 ];
 
-function renderControl(filters: FacetFilters, open = true) {
+const LABELS = [
+  { id: 'lab-1', name: 'tech-debt', color: 'amber' },
+  { id: 'lab-2', name: 'blocked', color: 'rose' },
+];
+
+function renderControl(filters: FacetFilters, open = true, labelOptions = LABELS) {
   const onChange = vi.fn();
   const onClearAll = vi.fn();
   const onOpenChange = vi.fn();
@@ -18,6 +23,7 @@ function renderControl(filters: FacetFilters, open = true) {
     <BoardFilterControl
       filters={filters}
       assigneeOptions={ASSIGNEES}
+      labelOptions={labelOptions}
       onChange={onChange}
       onClearAll={onClearAll}
       open={open}
@@ -36,7 +42,7 @@ describe('BoardFilterControl', () => {
   });
 
   it('shows the active count on the trigger badge + aria-label', () => {
-    renderControl({ assignees: ['r1'], priority: ['high'], due: [] }, false);
+    renderControl({ assignees: ['r1'], priority: ['high'], due: [], labels: [] }, false);
     expect(screen.getByTestId('board-filter-count')).toHaveTextContent('2');
     expect(screen.getByTestId('board-filter-trigger')).toHaveAttribute('aria-label', 'Filters, 2 active');
   });
@@ -70,6 +76,24 @@ describe('BoardFilterControl', () => {
     fireEvent.click(screen.getByTestId('board-filter-clear-all'));
     expect(onClearAll).toHaveBeenCalledOnce();
   });
+
+  it('renders the Label facet with a checkbox per label option (ADR-0400)', () => {
+    renderControl(EMPTY_FACETS);
+    expect(screen.getByTestId('facet-label-lab-1')).toBeInTheDocument();
+    expect(screen.getByText('tech-debt')).toBeInTheDocument();
+    expect(screen.getByText('blocked')).toBeInTheDocument();
+  });
+
+  it('hides the Label facet when the board has no labeled cards', () => {
+    renderControl(EMPTY_FACETS, true, []);
+    expect(screen.queryByTestId('facet-label-lab-1')).toBeNull();
+  });
+
+  it('toggling a label checkbox calls onChange with the label id', () => {
+    const { onChange } = renderControl(EMPTY_FACETS);
+    fireEvent.click(screen.getByTestId('facet-label-lab-1'));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ labels: ['lab-1'] }));
+  });
 });
 
 describe('BoardFilterChips', () => {
@@ -77,12 +101,17 @@ describe('BoardFilterChips', () => {
     ['r1', 'Alice'],
     ['r2', 'Bob'],
   ]);
+  const labelNameById = new Map([
+    ['lab-1', 'tech-debt'],
+    ['lab-2', 'blocked'],
+  ]);
 
   it('renders nothing when no facet is active', () => {
     const { container } = render(
       <BoardFilterChips
         filters={EMPTY_FACETS}
         assigneeNameById={nameById}
+        labelNameById={labelNameById}
         matchCount={0}
         onChange={vi.fn()}
         onClearAll={vi.fn()}
@@ -94,8 +123,9 @@ describe('BoardFilterChips', () => {
   it('renders a chip per active value, with Unassigned and priority/due labels', () => {
     render(
       <BoardFilterChips
-        filters={{ assignees: ['r1', UNASSIGNED], priority: ['high'], due: ['overdue'] }}
+        filters={{ assignees: ['r1', UNASSIGNED], priority: ['high'], due: ['overdue'], labels: ['lab-1'] }}
         assigneeNameById={nameById}
+        labelNameById={labelNameById}
         matchCount={4}
         onChange={vi.fn()}
         onClearAll={vi.fn()}
@@ -114,6 +144,7 @@ describe('BoardFilterChips', () => {
       <BoardFilterChips
         filters={{ ...EMPTY_FACETS, priority: ['high'] }}
         assigneeNameById={nameById}
+        labelNameById={labelNameById}
         matchCount={1}
         onChange={onChange}
         onClearAll={vi.fn()}

@@ -4,9 +4,10 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
-import { canEditTask } from '@/lib/roles';
+import { canEditTask, canCreateLabel } from '@/lib/roles';
 import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
+import { LabelAssignControl } from './LabelAssignControl';
 import { isPhaseTask } from '@/lib/isPhaseTask';
 import { BacklogDemoteConfirmDialog } from '../BacklogDemoteConfirmDialog';
 import { ScopeChangedChip } from '@/features/sprints/ScopeChangedChip';
@@ -256,6 +257,20 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
       {!isPhaseTask(task, tasks ?? []) && (
         <ResourceAssignmentSection taskId={taskId} projectId={projectId} canEdit={editable} />
       )}
+
+      {/* Labels (ADR-0400, #1089) — colored pills + assign/create popover. Any
+          member may create a label; assigning is gated on task-edit (`editable`).
+          Viewers see read-only pills only. */}
+      <div className="mt-4">
+        <div className={LABEL_CLASS}>Labels</div>
+        <LabelAssignControl
+          projectId={projectId}
+          taskId={taskId}
+          labels={task.labels ?? []}
+          canAssign={editable}
+          canCreate={canCreateLabel(userRole)}
+        />
+      </div>
     </div>
   );
 }

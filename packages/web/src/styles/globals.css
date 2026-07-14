@@ -120,6 +120,38 @@
     --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 
+  /* ── Task label palette (ADR-0400) ───────────────────────────────────────
+     8 categorical label colors, each a precomputed {bg, text, border} triad.
+     Color is stored server-side as an enum KEY (slate/teal/…), never hex; the
+     key maps here so a label pill is theme-aware and WCAG-AA in BOTH themes —
+     a raw hue as pill text fails AA (brand §15). Light = tint bg (hue-100) +
+     dark text (hue-800); dark = deep bg (hue-900/800) + light text (hue-300).
+     The leading pill dot reuses the -text hue (never color-alone; rule 208).
+     Referenced via inline `var(--label-<key>-*)` (not arbitrary Tailwind
+     classes, so the design-system arbitrary-color gate is satisfied).         */
+  :root,
+  .theme-light {
+    --label-slate-bg: #f1f5f9;  --label-slate-text: #1e293b;  --label-slate-border: #cbd5e1;
+    --label-teal-bg: #ccfbf1;   --label-teal-text: #115e59;   --label-teal-border: #99f6e4;
+    --label-purple-bg: #f3e8ff; --label-purple-text: #6b21a8; --label-purple-border: #e9d5ff;
+    --label-blue-bg: #dbeafe;   --label-blue-text: #1e40af;   --label-blue-border: #bfdbfe;
+    --label-rose-bg: #ffe4e6;   --label-rose-text: #9f1239;   --label-rose-border: #fecdd3;
+    --label-amber-bg: #fef3c7;  --label-amber-text: #92400e;  --label-amber-border: #fde68a;
+    --label-green-bg: #dcfce7;  --label-green-text: #166534;  --label-green-border: #bbf7d0;
+    --label-cyan-bg: #cffafe;   --label-cyan-text: #155e75;   --label-cyan-border: #a5f3fc;
+  }
+
+  .dark {
+    --label-slate-bg: #1e293b;  --label-slate-text: #cbd5e1;  --label-slate-border: #334155;
+    --label-teal-bg: #134e4a;   --label-teal-text: #5eead4;   --label-teal-border: #115e59;
+    --label-purple-bg: #581c87; --label-purple-text: #d8b4fe; --label-purple-border: #6b21a8;
+    --label-blue-bg: #1e3a8a;   --label-blue-text: #93c5fd;   --label-blue-border: #1e40af;
+    --label-rose-bg: #881337;   --label-rose-text: #fda4af;   --label-rose-border: #9f1239;
+    --label-amber-bg: #78350f;  --label-amber-text: #fcd34d;  --label-amber-border: #92400e;
+    --label-green-bg: #14532d;  --label-green-text: #86efac;  --label-green-border: #166534;
+    --label-cyan-bg: #164e63;   --label-cyan-text: #67e8f9;   --label-cyan-border: #155e75;
+  }
+
   /* ── Risk matrix zone tokens ────────────────────────────────────────────
      Light mode: subtle tints per severity band (rule 88).
      Dark mode: higher-opacity variants against the dark surface so the zones

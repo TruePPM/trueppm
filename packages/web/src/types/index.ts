@@ -67,6 +67,20 @@ export interface TaskAssignee {
   units: number;
 }
 
+/**
+ * A colored task label (ADR-0400, #1089). `color` is a stable categorical enum
+ * KEY (`slate`/`teal`/…), never a hex — mapped to theme-aware AA tokens via
+ * `labelTokenStyle` (`@/lib/labelColors`). Nested read-only on the task; writes
+ * go through the idempotent attach/detach endpoints, never a task PATCH.
+ */
+export interface TaskLabel {
+  id: string;
+  name: string;
+  color: string;
+  /** Palette order; the pill row and legend sort by it. */
+  position?: number;
+}
+
 export interface Task {
   id: string;
   wbs: string;
@@ -139,6 +153,13 @@ export interface Task {
   latestNoteAt?: string | null;
   /** Resource assignments from TaskResource */
   assignees: TaskAssignee[];
+  /**
+   * Colored labels attached to this task (ADR-0400, #1089). Read-only pills on
+   * board cards + the schedule drawer; empty when none. Nested from
+   * `TaskSerializer.labels`, mapped in `mapTask`. `undefined` on payloads that
+   * predate the field (older WS rows / optimistic local creates).
+   */
+  labels?: TaskLabel[];
   /**
    * ISO date-time when the task entered its current status column.
    * Used to compute entry stamps ("Entered at 72% · 3d ago") on board cards.

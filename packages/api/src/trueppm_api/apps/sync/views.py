@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, connection, transaction
-from django.db.models import BooleanField, Max
+from django.db.models import BooleanField, Max, Prefetch
 from django.db.models.expressions import RawSQL
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -26,6 +26,7 @@ from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Label,
     Program,
     Project,
     RetroActionItem,
@@ -41,6 +42,7 @@ from trueppm_api.apps.sync.pagination import SyncCursor, SyncSource, paginate_ch
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
+    SyncLabelSerializer,
     SyncMembershipSerializer,
     SyncProgramMembershipSerializer,
     SyncProgramSerializer,
@@ -238,7 +240,8 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 # offline clients receive the same computed rollup flag. Static SQL
                 # literal, empty params — no user input interpolated; the ltree
                 # operator can't be expressed in the ORM.
-                Task.objects.filter(project=project, server_version__gt=since).annotate(
+                Task.objects.filter(project=project, server_version__gt=since)
+                .annotate(
                     # nosemgrep: avoid-raw-sql
                     is_phase=RawSQL(
                         "EXISTS("
@@ -254,6 +257,11 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                         [],
                         output_field=BooleanField(),
                     )
+                )
+                .prefetch_related(
+                    # label_ids array (ADR-0400) — filter tombstoned labels so a
+                    # deleted label never rides a task's sync payload; O(1) per page.
+                    Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
                 ),
                 SyncTaskSerializer,
             ),
@@ -336,6 +344,13 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     server_version__gt=since,
                 ).select_related("task"),
                 SyncTimeEntrySerializer,
+            ),
+            (
+                # Label catalog (ADR-0400) — appended to preserve the stable protocol
+                # order. Assignment is NOT a source here; it rides Task.label_ids.
+                "labels",
+                Label.objects.filter(project=project, server_version__gt=since),
+                SyncLabelSerializer,
             ),
         ]
 
@@ -592,7 +607,7 @@ class ProjectSyncView(IdempotencyMixin, APIView):
 
         Reads the denormalized ``Project.last_sync_version`` column, maintained by
         the watermark receivers (``apps/sync/receivers.py``) to equal
-        :meth:`_snapshot_max_version`. The 13-table union is kept as a one-release
+        :meth:`_snapshot_max_version`. The 14-table union is kept as a one-release
         fallback behind ``settings.SYNC_WATERMARK_USE_COLUMN`` (default ``True``)
         in case a drift bug is found in production; a conformance test asserts the
         two agree.
@@ -668,9 +683,13 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                       FROM timetracking_time_entry te
                       JOIN projects_task t ON te.task_id = t.id
                      WHERE t.project_id = %s
+                    UNION ALL
+                    SELECT MAX(server_version)
+                      FROM projects_label WHERE project_id = %s
                 ) sub
                 """,
                 [
+                    project_pk,
                     project_pk,
                     project_pk,
                     project_pk,
