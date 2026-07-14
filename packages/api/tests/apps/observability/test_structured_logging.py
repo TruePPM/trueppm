@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from collections.abc import Iterator
 
 import pytest
 from opentelemetry import trace
@@ -154,6 +156,74 @@ class TestBuildLoggingConfig:
         assert filter_factory is TraceContextFilter
         formatter_factory = resolver.resolve(config["formatters"]["json"]["()"])
         assert formatter_factory.__name__ == "JsonFormatter"
+
+
+class TestUtcTimestamps:
+    """Log timestamps must render in UTC regardless of container-local TZ (#1952).
+
+    settings pin TIME_ZONE="UTC"/USE_TZ=True, so the ORM and timezone.now() are
+    UTC; build_logging_config forces logging.Formatter.converter to time.gmtime so
+    log timestamps do not drift by the host offset on a non-UTC node.
+    """
+
+    # A fixed instant so the expected UTC render is deterministic: the epoch below
+    # is 2023-11-14 22:13:20 UTC.
+    _EPOCH = 1_700_000_000.0
+
+    @pytest.fixture
+    def non_utc_tz(self) -> Iterator[None]:
+        """Pin the process TZ to a non-UTC zone for the body of the test.
+
+        time.tzset() (POSIX-only; CI and local dev are both Unix) makes the C
+        library honor the changed TZ, so time.localtime reflects the offset — the
+        exact host condition (a non-UTC clock) that surfaced the bug. Restored
+        afterward so the change does not leak into other tests.
+        """
+
+        import os
+
+        original = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"  # UTC-5/-4, never a zero offset
+        time.tzset()
+        try:
+            yield
+        finally:
+            if original is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original
+            time.tzset()
+
+    def _record_at_epoch(self) -> logging.LogRecord:
+        record = _make_record()
+        record.created = self._EPOCH
+        record.msecs = 0.0
+        TraceContextFilter().filter(record)
+        return record
+
+    def test_json_timestamp_is_utc(self, non_utc_tz: None) -> None:
+        from pythonjsonlogger.jsonlogger import JsonFormatter
+
+        spec = build_logging_config(level="INFO", json_output=True)["formatters"]["json"]
+        formatter = JsonFormatter(spec["format"], rename_fields=spec["rename_fields"])
+        payload = json.loads(formatter.format(self._record_at_epoch()))
+
+        expected_utc = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(self._EPOCH))
+        local_render = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._EPOCH))
+        assert payload["timestamp"].startswith(expected_utc)
+        # Self-check: the pinned zone must actually differ from UTC, otherwise the
+        # assertion above would pass even with the default (local) converter.
+        assert local_render != expected_utc
+
+    def test_console_timestamp_is_utc(self, non_utc_tz: None) -> None:
+        spec = build_logging_config(level="INFO", json_output=False)["formatters"]["console"]
+        formatter = logging.Formatter(spec["format"])
+        line = formatter.format(self._record_at_epoch())
+
+        expected_utc = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(self._EPOCH))
+        local_render = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(self._EPOCH))
+        assert expected_utc in line
+        assert local_render != expected_utc
 
 
 class TestRequestIDMiddleware:

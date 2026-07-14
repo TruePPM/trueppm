@@ -106,7 +106,15 @@ CACHES = {
 }
 
 
-# Detailed SQL logging in dev
+# Detailed SQL logging in dev.
+#
+# This override replaces base.py's build_logging_config() output entirely, so the
+# UTC-timestamp fix in that function (#1952) does not reach dev. That is fine and
+# intentional: these handlers declare no "formatter", so they use logging's
+# default (message-only) formatter, which emits no %(asctime)s at all — there is
+# no log timestamp here to render in the wrong timezone. If a formatter with
+# %(asctime)s is ever added to this dev config, mirror the base fix
+# (logging.Formatter.converter = time.gmtime) so dev timestamps stay UTC too.
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
