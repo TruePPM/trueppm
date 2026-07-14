@@ -29,6 +29,7 @@ import {
   sortRisksByNewest,
   sortRisksBySeverity,
 } from './riskFilters';
+import { localTodayIso } from '@/lib/localDate';
 
 const FILTER_EMPTY_COPY: Record<Exclude<RiskFilter, 'all'>, string> = {
   high: 'No high-severity risks.',
@@ -206,7 +207,7 @@ export function RiskRegisterView() {
   }
 
   // Overdue: MITIGATING status + mitigation_due_date in the past (client-side, ADR-0043)
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = localTodayIso();
 
   // Project slug for CSV filename — derived from name since the Project type has no slug field.
   const projectSlug =
