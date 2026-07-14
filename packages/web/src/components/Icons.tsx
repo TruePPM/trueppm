@@ -346,6 +346,64 @@ export function BarChartIcon({ className, ...rest }: IconProps) {
 }
 
 /**
+ * Board-card density layout previews (issue #1925) — a small wireframe of each
+ * density so the Density menu shows what the layout looks like, not just its
+ * name. Compact = stacked thin bars (the single-line "bar" view); Comfortable =
+ * two roomy cards; Detailed = one card with a metrics row. Decorative — always
+ * `aria-hidden`; the radio option's label + aria-label carry the meaning.
+ */
+export function DensityCompactIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <rect x="1" y="3" width="14" height="2" rx="1" />
+      <rect x="1" y="7" width="14" height="2" rx="1" />
+      <rect x="1" y="11" width="14" height="2" rx="1" />
+    </svg>
+  );
+}
+
+export function DensityComfortableIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <rect x="1" y="2.5" width="14" height="4.5" rx="1.3" />
+      <rect x="1" y="9" width="14" height="4.5" rx="1.3" />
+    </svg>
+  );
+}
+
+export function DensityDetailedIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={className}
+      {...rest}
+    >
+      <rect x="1" y="2" width="14" height="8" rx="1.3" />
+      <rect x="1" y="11.5" width="3" height="2.5" rx="0.8" />
+      <rect x="5.5" y="11.5" width="3" height="2.5" rx="0.8" />
+      <rect x="10" y="11.5" width="3" height="2.5" rx="0.8" />
+    </svg>
+  );
+}
+
+/**
  * TruePPM brand mark — the duotone dependency arrow (brand v1.0, ADR-0103).
  * Two task nodes joined by the sage critical-path arrow: navy nodes, sage arrow.
  * Duotone, so it does NOT use `currentColor` — nodes and arrow are themed
@@ -721,7 +779,8 @@ export function BanIcon({ className, ...rest }: IconProps) {
  * — GitHub/GitLab/Figma/… — are a separate brand-asset decision (issue #1748).
  * All share the folded-corner sheet outline so the family reads as one set.
  */
-const FILE_OUTLINE = 'M4 1.75h4.5L12.25 5.5v8.25a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2.25a.5.5 0 0 1 .5-.5Z';
+const FILE_OUTLINE =
+  'M4 1.75h4.5L12.25 5.5v8.25a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2.25a.5.5 0 0 1 .5-.5Z';
 const FILE_CORNER = 'M8.5 1.75V5.5h3.75';
 
 /** Generic document (folded-corner sheet). */

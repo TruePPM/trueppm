@@ -715,7 +715,7 @@ function BoardCardImpl({
                   ? 'text-neutral-text-disabled italic'
                   : 'text-neutral-text-primary',
             ].join(' ')}
-            title={showCriticalState ? cpTooltip(task) : undefined}
+            title={showCriticalState ? cpTooltip(task) : task.name}
           >
             {task.name}
           </span>
@@ -724,20 +724,21 @@ function BoardCardImpl({
           )}
           {isPendingSync && <PendingSyncBadge compact className="shrink-0" />}
           {/* Worst-offender badge (issue 1305) — at compact density it is display-only
-              (no peek): one glyph + label conveying the single highest-severity
-              signal. It subsumes the old CP chip (critical path is one of its
-              tiers), so the red accent bar + name color still mark a CP card even
-              when a higher signal (blocked/stale) wins the badge. */}
+              (no peek). On the bar it is glyph-only (issue #1925): the single
+              highest-severity glyph + tone is enough to scan by, and its word lives
+              in srText → title + aria-label, so the label never competes with the
+              title for the one line. It subsumes the old CP chip (critical path is
+              one of its tiers), so the red accent bar + name color still mark a CP
+              card even when a higher signal (blocked/stale) wins the badge. */}
           {cardSignal && (
             <span
-              className={`shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
+              className={`shrink-0 inline-flex items-center px-1 py-px rounded-chip text-xs border font-medium ${cardSignalToneClass(
                 cardSignal.tone,
               )}`}
               title={cardSignal.srText}
               aria-label={cardSignal.srText}
             >
               <span aria-hidden="true">{cardSignal.glyph}</span>
-              <span>{cardSignal.label}</span>
             </span>
           )}
           {/* Dependency / risk signal chips in-flow (issue 1735). Suppressed on a

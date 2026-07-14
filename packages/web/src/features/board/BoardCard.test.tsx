@@ -343,10 +343,27 @@ describe('BoardCard', () => {
     expect(title.className).not.toContain('line-clamp-2');
   });
 
-  it('compact: renders task name and worst-offender badge for critical task (#1305)', () => {
+  it('compact: renders task name and a glyph-only worst-offender badge for critical task (#1305, #1925)', () => {
     renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
     expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
+    // On the compact bar the badge is glyph-only (#1925): the glyph renders, the
+    // word does not compete with the title, and the accessible name is preserved.
+    expect(screen.getByText('⚑')).toBeInTheDocument();
+    expect(screen.getByLabelText('On the critical path')).toBeInTheDocument();
+    expect(screen.queryByText('Critical path')).not.toBeInTheDocument();
+  });
+
+  it('comfortable: worst-offender badge keeps its visible word (glyph-only is compact-only) (#1925)', () => {
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'comfortable' });
     expect(screen.getByText('Critical path')).toBeInTheDocument();
+  });
+
+  it('compact: full task name is exposed via the title attribute (#1925)', () => {
+    renderCard({ task: baseTask, density: 'compact' });
+    expect(screen.getByText('Backend Implementation')).toHaveAttribute(
+      'title',
+      'Backend Implementation',
+    );
   });
 
   it('compact: progress strip uses semantic-on-track for 100%-complete non-critical task', () => {
