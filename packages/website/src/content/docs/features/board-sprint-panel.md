@@ -156,10 +156,10 @@ sprints, or for a no-op edit.
 | `GET`  | `/api/v1/projects/{id}/board/activity?sprint={sprintId}` | Board activity feed narrowed to one sprint's scope — backs the "This sprint" activity rail *(ships in 0.4)* |
 
 The `scope-changes` endpoint is the one new addition (added in 0.3); the rest
-of the panel is a UI composition over existing data. In 0.4 the board activity
-feed gains an optional `sprint` scope parameter, and a change that enters or
-leaves an ACTIVE sprint emits a `sprint.membership_changed` notification to the
-project leads.
+of the panel is a UI composition over existing data. 0.4 will add an optional
+`sprint` scope parameter to the board activity feed, and a change that enters
+or leaves an ACTIVE sprint will emit a `sprint.membership_changed` notification
+to the project leads.
 
 ## Related
 
