@@ -157,10 +157,28 @@ def test_future_entry_date_rejected(calendar: Calendar, alice: object) -> None:
     proj = _project(calendar)
     _member(proj, alice)
     task = _task(proj)
-    future = (timezone.localdate() + timedelta(days=1)).isoformat()
+    # >1 day ahead exceeds any real client/server timezone skew and stays rejected (#1926).
+    future = (timezone.localdate() + timedelta(days=2)).isoformat()
     resp = _client(alice).post(_url(task), {"minutes": 30, "entry_date": future}, format="json")
     assert resp.status_code == 400
     assert "entry_date" in resp.data
+
+
+@pytest.mark.django_db
+def test_entry_date_one_day_ahead_accepted(calendar: Calendar, alice: object) -> None:
+    """A single day past the server's local date is accepted (#1926).
+
+    Absorbs the client/server timezone offset: a contributor whose zone is ahead of a
+    UTC-configured server logs "today", which reads as tomorrow server-side — a spurious
+    400 before the one-day grace.
+    """
+    proj = _project(calendar)
+    _member(proj, alice)
+    task = _task(proj)
+    ahead = (timezone.localdate() + timedelta(days=1)).isoformat()
+    resp = _client(alice).post(_url(task), {"minutes": 30, "entry_date": ahead}, format="json")
+    assert resp.status_code == 201
+    assert resp.data["entry_date"] == ahead
 
 
 @pytest.mark.django_db

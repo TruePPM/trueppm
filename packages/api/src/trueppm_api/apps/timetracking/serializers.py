@@ -79,7 +79,12 @@ class TimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
 
     def validate_entry_date(self, value: date) -> date:
         today = timezone.localdate()
-        if value > today:
+        # Allow one day past the server's local date. "Today" is the *contributor's* calendar
+        # day, and their timezone can be up to ~a day ahead of the server's (e.g. any zone vs a
+        # UTC-configured server, the default). Without this grace an ahead-of-server user
+        # logging "today" would hit a spurious 400 (#1926). Genuine future-dated logging is
+        # still blocked (client offers no future day) and >1 day ahead exceeds any real skew.
+        if value > today + timedelta(days=1):
             raise serializers.ValidationError("Entry date cannot be in the future.")
         window = _backdate_window_days()
         if value < today - timedelta(days=window):

@@ -7,6 +7,7 @@ import {
   dailyTotals,
   formatWeekRange,
   isOverDaily,
+  localTodayIso,
   mondayOf,
   rowTotalMinutes,
   weekDays,
@@ -57,6 +58,30 @@ describe('weekDays', () => {
     expect(days[6].isWeekend).toBe(true); // Sun
     expect(days[2].isToday).toBe(true); // Wed 17th
     expect(days[0].isToday).toBe(false);
+  });
+
+  it('flags days after today as future, today and past as not (#1926)', () => {
+    const days = weekDays('2026-06-15', '2026-06-17'); // today = Wed 17th
+    expect(days.map((d) => d.isFuture)).toEqual([
+      false, // Mon 15 (past)
+      false, // Tue 16 (past)
+      false, // Wed 17 (today)
+      true, // Thu 18
+      true, // Fri 19
+      true, // Sat 20
+      true, // Sun 21
+    ]);
+  });
+});
+
+describe('localTodayIso', () => {
+  it('returns today from local date components, not UTC (#1926)', () => {
+    const now = new Date();
+    const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+      now.getDate(),
+    ).padStart(2, '0')}`;
+    expect(localTodayIso()).toBe(expected);
+    expect(localTodayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 

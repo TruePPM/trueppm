@@ -27,15 +27,12 @@ import {
   cellAt,
   dailyTotals,
   formatWeekRange,
+  localTodayIso,
   mondayOf,
   weekDays,
   weekTotalMinutes,
   type TimesheetRow,
 } from './weekModel';
-
-function localTodayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function rowMeta(row: TimesheetRow): CellTaskMeta {
   return {

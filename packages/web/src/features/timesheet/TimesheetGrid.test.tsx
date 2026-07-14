@@ -85,6 +85,17 @@ describe('TimesheetGrid', () => {
     );
   });
 
+  it('renders future-day cells inert so time cannot be logged ahead (#1926)', () => {
+    // days = weekDays(MONDAY, MONDAY) → Mon is today, Tue..Sun are future.
+    renderGrid();
+    const futureCells = screen
+      .getAllByRole('gridcell')
+      .filter((c) => /future date, not loggable/.test(c.getAttribute('aria-label') ?? ''));
+    // One inert future cell per row for each of Tue..Sun (6 days).
+    expect(futureCells).toHaveLength(6);
+    futureCells.forEach((c) => expect(c).toHaveAttribute('aria-readonly', 'true'));
+  });
+
   it('renders the add-task row while the week is open', () => {
     renderGrid();
     expect(screen.getByRole('button', { name: /add project or task/i })).toBeInTheDocument();

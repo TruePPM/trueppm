@@ -28,6 +28,11 @@ const SEED = [
   { id: 'ts-a-tue', task: TASK_A, offset: 1, minutes: 120 },
 ];
 
+// Pinned wall-clock (a Friday) so "today" is deterministic across runs and timezones: this
+// week's Mon–Thu are past (editable), Sat/Sun are future (inert, #1926). Noon UTC keeps the
+// browser-local date stable regardless of the runner's timezone.
+const CLOCK = new Date('2026-06-19T12:00:00Z');
+
 function addDaysIso(iso: string, n: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -68,6 +73,9 @@ function seedFor(monday: string): MockEntry[] {
 }
 
 async function setupTimesheet(page: Page): Promise<void> {
+  // Pin the wall-clock before any navigation so "today" (and therefore which day-columns are
+  // future/inert, #1926) is reproducible on any machine, any calendar day.
+  await page.clock.setFixedTime(CLOCK);
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, { projects: [{ id: 'proj-1', name: 'Riverside' }] });
@@ -230,6 +238,25 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
 
     // POST create fired, refetch reflects it: week total 11:00 → 14:00.
     await expect(page.getByLabel('Week total 14:00')).toBeVisible();
+  });
+
+  test('a future-day cell is inert — no loggable input (#1926)', async ({ page }) => {
+    await setupTimesheet(page);
+    await page.goto('/me/timesheet');
+
+    const grid = page.getByRole('grid', { name: 'Weekly timesheet' });
+    await expect(grid).toBeVisible();
+
+    // Today is pinned to Fri 2026-06-19, so this week's Saturday (6th day column) hasn't
+    // happened yet: it renders inert (no input) so the client can't POST a future entry_date
+    // the server rejects with 400.
+    const row = grid.getByRole('row').filter({ hasText: 'Foundation pour' });
+    const satCell = row.getByRole('gridcell').nth(5);
+    await expect(satCell).toHaveAttribute('aria-readonly', 'true');
+    await expect(satCell.locator('input')).toHaveCount(0);
+
+    // A past/today cell in the same row stays editable (Wednesday, 3rd column).
+    await expect(row.getByRole('gridcell').nth(2).locator('input')).toHaveCount(1);
   });
 
   test('the week stepper re-reads a different week', async ({ page }) => {

@@ -110,6 +110,7 @@ export function TimesheetGrid({
                     entryCount={cell.entries.length}
                     isWeekend={d.isWeekend}
                     isToday={d.isToday}
+                    isFuture={d.isFuture}
                     ariaLabel={`${row.taskShortId} ${row.taskName}, ${WEEKDAY_LABELS[i]} ${dayOfMonth(d.date)}`}
                     onSave={(minutes) => onCellSave(row, d.date, minutes)}
                   />

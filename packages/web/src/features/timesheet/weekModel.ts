@@ -56,6 +56,24 @@ export interface DayColumn {
   weekday: number;
   isWeekend: boolean;
   isToday: boolean;
+  /** True when the column is after "today" — a day that hasn't happened yet, so it is not
+   *  loggable (the server rejects a future `entry_date`). Drives the grid's inert cells. */
+  isFuture: boolean;
+}
+
+/**
+ * Today as a **local** ISO `YYYY-MM-DD`, built from local date components (not
+ * `toISOString`, which is UTC). A time entry's day is the contributor's calendar day, so
+ * "today" must follow the browser's timezone — a `toISOString().slice(0,10)` reads a
+ * UTC-tomorrow date for a west-of-UTC user in the evening, which then defaults the log to
+ * a future date the server rejects with 400 (#1926). Shared by every time-entry surface so
+ * the timesheet grid, the quick-log default, and the rollup can never drift on "today".
+ */
+export function localTodayIso(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
 /** The state of one `(task, date)` cell. */
@@ -137,6 +155,8 @@ export function weekDays(mondayIso: string, todayIso: string): DayColumn[] {
       weekday: i,
       isWeekend: i >= 5,
       isToday: date === todayIso,
+      // ISO `YYYY-MM-DD` strings order lexically, so a plain `>` is a correct date compare.
+      isFuture: date > todayIso,
     };
   });
 }
