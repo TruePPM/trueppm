@@ -287,6 +287,7 @@ export default defineConfig({
                 { slug: "features/task-classification" },
                 { slug: "features/methodology-preset" },
                 { slug: "features/view-focus" },
+                { slug: "features/timezone-and-date-format" },
                 { slug: "features/programs" },
                 { slug: "features/calendars" },
                 { slug: "features/resources" },

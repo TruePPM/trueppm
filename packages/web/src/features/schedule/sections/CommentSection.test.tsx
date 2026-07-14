@@ -29,6 +29,20 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: () => ({ role: ROLE_ADMIN, isLoading: false }),
 }));
 
+// #1953: CommentRow re-clocks its timestamp via useUserDateFormat (which reads
+// useCurrentUser → a query). These tests render CommentRow without a
+// QueryClientProvider, so stub the hook with a deterministic UTC formatter.
+vi.mock('@/hooks/useUserDateFormat', () => ({
+  useUserDateFormat: () => ({
+    prefs: { timeZone: 'UTC', dateFormat: 'us' },
+    formatInstant: (iso: string) => iso ?? '',
+    formatInstantDate: (iso: string) => iso ?? '',
+    formatInstantTime: (iso: string) => iso ?? '',
+    fmtDateShort: (iso: string) => iso ?? '',
+    fmtDateLong: (iso: string) => iso ?? '',
+  }),
+}));
+
 // #514: CommentComposer reads useProject to decide whether to offer @program-*
 // groups. These tests don't exercise mentions, so a standalone project is fine.
 vi.mock('@/hooks/useProject', () => ({

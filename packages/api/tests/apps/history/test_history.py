@@ -1111,6 +1111,37 @@ class TestTaskActivityInclude:
         assert by_type["cpm_recalculated"]["detail"]["early_finish"]["to"] == "2026-01-05"
         assert by_type["baseline_drift_detected"]["detail"]["drift_days"] == 4
 
+    def test_schedule_token_passes_recalc_summary_verbatim(
+        self,
+        owner_client: APIClient,
+        project: Project,
+        task: Task,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        """The per-project recalc summary (#1948) flows through the feed unchanged."""
+        from trueppm_api.apps.projects.models import TaskActivityEvent
+
+        TaskActivityEvent.objects.create(
+            task=task,
+            actor=None,
+            event_type="cpm_recalculated",
+            detail={
+                "early_finish": {"from": "2026-01-01", "to": "2026-01-07"},
+                "recalc_moved_count": 12,
+                "recalc_finish": "2026-01-07",
+                "recalc_finish_delta_days": 6,
+            },
+        )
+        r = owner_client.get(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/?include=schedule"
+        )
+        assert r.status_code == 200
+        by_type = {e.get("event_type"): e for e in r.data["results"]}
+        detail = by_type["cpm_recalculated"]["detail"]
+        assert detail["recalc_moved_count"] == 12
+        assert detail["recalc_finish"] == "2026-01-07"
+        assert detail["recalc_finish_delta_days"] == 6
+
     def test_risks_token_surfaces_link_events_with_actor(
         self,
         owner_client: APIClient,

@@ -69,6 +69,27 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert data["role_context"] == "unified"
     # Schedule-in-Deliver placement opt-in (ADR-0203, #1645): off by default (no row).
     assert data["schedule_in_deliver"] is False
+    # Display frame (#1953, ADR-0410): both prefs default to the 'auto' sentinel.
+    assert data["timezone"] == "auto"
+    assert data["date_format"] == "auto"
+
+
+def test_me_surfaces_stored_display_prefs(db: object) -> None:
+    """/auth/me/ reflects the user's stored timezone + date_format (#1953, ADR-0410).
+
+    These are read-only, display-only projections — the API itself always emits
+    aware-UTC ISO-8601; the read must not change any access fact.
+    """
+    from trueppm_api.apps.profiles.models import UserProfile
+
+    user = User.objects.create_user(username="tz_me", password="pw")
+    UserProfile.objects.create(user=user, timezone="Asia/Tokyo", date_format="eu")
+    resp = _make_client(user).get(URL)
+    assert resp.status_code == 200
+    assert resp.data["timezone"] == "Asia/Tokyo"
+    assert resp.data["date_format"] == "eu"
+    # Display prefs never grant authority.
+    assert resp.data["can_access_admin_settings"] is False
 
 
 def test_me_surfaces_stored_schedule_in_deliver(db: object) -> None:

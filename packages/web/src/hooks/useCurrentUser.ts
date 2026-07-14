@@ -1,6 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { AxiosError } from 'axios';
+import type { DateFormatStyle } from '@/lib/dateFormatStyle';
+
+export type { DateFormatStyle } from '@/lib/dateFormatStyle';
 
 /**
  * Role-based app front door (ADR-0129). The server resolves *where* a user lands
@@ -84,6 +87,18 @@ export interface CurrentUser {
    * PATCH /me/notification-settings/ (useUpdateNotificationSettings).
    */
   dnd_enabled: boolean;
+  /**
+   * Personal display frame (#1953, ADR-0410). Display-only — the API always emits
+   * aware-UTC ISO-8601; these only shape how the client renders it.
+   *   - timezone: IANA zone that *instant* timestamps (activity, comments,
+   *     relative times) are re-clocked to, or `"auto"` → the browser's detected
+   *     zone. Never re-clocks calendar dates (forecast/CPM/schedule stay UTC).
+   *   - date_format: the style EVERY displayed date reads in (instants and
+   *     UTC-pinned calendar dates alike); `"auto"` follows the browser locale.
+   * Both writable via PATCH /auth/me/profile/.
+   */
+  timezone: string;
+  date_format: DateFormatStyle;
 }
 
 /**

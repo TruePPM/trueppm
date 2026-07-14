@@ -571,11 +571,70 @@ def _build_schedule_shift_events(
     a ``baseline_drift_detected`` row is emitted only on the transition *into* drift
     (was within baseline, now past it) so a persistently-drifted task does not
     re-fire every recalc. Actor is null — CPM runs in Celery with no request user.
+
+    Each ``cpm_recalculated`` row also carries a per-project recalc summary
+    (#1948): ``recalc_moved_count`` (how many of the project's tasks moved),
+    ``recalc_finish`` (the project's latest early_finish after the pass), and
+    ``recalc_finish_delta_days`` (signed slip/pull-in of that finish). These are
+    grouped strictly per ``project_id`` because the helper is shared by the
+    program-scoped writeback, where a program-wide count would leak cross-project
+    scope (see the aggregate block below).
     """
     from trueppm_api.apps.projects.models import TaskActivityEvent
 
     def _iso(value: Any) -> str | None:
         return value.isoformat() if value is not None else None
+
+    # Per-project aggregates that denormalize a recalc-wide summary onto every
+    # moved task's ``cpm_recalculated`` row (#1948): how many tasks moved and
+    # where the project's finish landed. WHY grouped per ``project_id`` and not
+    # globally: this helper is shared by the program-scoped writeback
+    # (``schedule_program_and_writeback`` ~L1240) where ``tasks_to_update`` spans
+    # several member projects in one call. A single program-wide count stamped
+    # onto every row would leak one project's schedule scope onto another
+    # project's activity row and violate the OSS project-isolation boundary
+    # (enterprise-check constraint #1) — so each row carries only *its own*
+    # project's aggregate. The per-task drawer reads a single task's events, so
+    # this recalc-wide count cannot be reconstructed client-side; it must be
+    # denormalized here at emit time.
+    moved_by_project: dict[Any, int] = {}
+    new_finish_by_project: dict[Any, date] = {}
+    prior_finish_by_project: dict[Any, date] = {}
+    for t in tasks_to_update:
+        pid = t.project_id
+        # New finish: latest early_finish across every task in this project,
+        # moved or not (an unmoved late task still defines where finish sits).
+        if t.early_finish is not None:
+            cur_new = new_finish_by_project.get(pid)
+            if cur_new is None or t.early_finish > cur_new:
+                new_finish_by_project[pid] = t.early_finish
+        old = old_dates.get(str(t.id))
+        if old is None:
+            continue
+        old_es, old_ef, old_ls, old_lf = old
+        if old_ef is not None:
+            cur_prior = prior_finish_by_project.get(pid)
+            if cur_prior is None or old_ef > cur_prior:
+                prior_finish_by_project[pid] = old_ef
+        if (
+            old_es != t.early_start
+            or old_ef != t.early_finish
+            or old_ls != t.late_start
+            or old_lf != t.late_finish
+        ):
+            moved_by_project[pid] = moved_by_project.get(pid, 0) + 1
+
+    def _finish_delta(pid: Any) -> int | None:
+        """Signed day delta of the project finish (+ = slip later, - = pulled in).
+
+        ``None`` when either side is missing — most importantly the first-ever
+        recalc, where no prior early_finish exists for any task.
+        """
+        new_f = new_finish_by_project.get(pid)
+        prior_f = prior_finish_by_project.get(pid)
+        if new_f is None or prior_f is None:
+            return None
+        return (new_f - prior_f).days
 
     events: list[Any] = []
     for t in tasks_to_update:
@@ -602,6 +661,10 @@ def _build_schedule_shift_events(
                         "late_finish": {"from": _iso(old_lf), "to": _iso(t.late_finish)},
                         "total_float": t.total_float,
                         "is_critical": t.is_critical,
+                        # Per-project recalc summary (#1948) — see aggregate block above.
+                        "recalc_moved_count": moved_by_project.get(t.project_id, 0),
+                        "recalc_finish": _iso(new_finish_by_project.get(t.project_id)),
+                        "recalc_finish_delta_days": _finish_delta(t.project_id),
                     },
                 )
             )

@@ -44,6 +44,23 @@ class RoleContext(models.TextChoices):
     UNIFIED = "unified", "Unified Today"
 
 
+class DateFormat(models.TextChoices):
+    """Date-format *style* for displayed dates (#1953, ADR-0410).
+
+    A display-only styling preference — it never re-timezones a value, so it
+    applies to *every* displayed date (instant timestamps and UTC-pinned calendar
+    dates alike). ``AUTO`` follows the viewer's browser locale (resolved
+    client-side); the three explicit styles pin a recognizable order. Server-side
+    this is opaque — the API always emits aware-UTC ISO-8601 and localization is a
+    pure client concern.
+    """
+
+    AUTO = "auto", "Automatic (based on your locale)"
+    ISO = "iso", "2026-07-14"  # YYYY-MM-DD
+    US = "us", "Jul 14, 2026"  # MMM D, YYYY
+    EU = "eu", "14 Jul 2026"  # D MMM YYYY
+
+
 class UserProfile(models.Model):
     """Singleton per-user app preferences.
 
@@ -100,6 +117,30 @@ class UserProfile(models.Model):
     schedule_in_deliver = models.BooleanField(
         default=False,
         help_text="Also surface Schedule under Deliver (opt-in, display-only).",
+    )
+    # Personal display frame (#1953, ADR-0410). Globally-dispersed teams: each user
+    # picks the zone their *instant* timestamps (activity/comments/relative times)
+    # render in, and the *style* every displayed date reads in. Both are
+    # display-only — the API stays aware-UTC ISO-8601 and localization happens only
+    # in the client. 'auto' is the zero-config default: it resolves client-side to
+    # the browser's detected zone / locale, so display is correct on first load with
+    # no write. The two preferences have DIFFERENT scope: timezone re-clocks only
+    # instants (re-timezoning a calendar date would shift the displayed day per
+    # viewer — the ADR-0144 bug), whereas date_format restyles *all* dates (a style
+    # change is timezone-independent and never moves a day).
+    timezone = models.CharField(
+        max_length=64,
+        default="auto",
+        help_text=(
+            "IANA timezone for displaying instant timestamps, or 'auto' to use the "
+            "browser's detected zone. Display-only; API datetimes stay UTC."
+        ),
+    )
+    date_format = models.CharField(
+        max_length=8,
+        choices=DateFormat.choices,
+        default=DateFormat.AUTO,
+        help_text="Date-format style for all displayed dates. 'auto' follows browser locale.",
     )
 
     class Meta:

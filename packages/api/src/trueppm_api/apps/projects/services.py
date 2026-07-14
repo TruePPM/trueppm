@@ -4249,7 +4249,9 @@ def notify_sprint_membership_change(
     if not (entered_active or left_active):
         return
 
-    actor_id = actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
+    actor_id: Any = (
+        actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
+    )
 
     # Recipients = project leads (role >= ADMIN), minus the actor. is_deleted=False
     # is load-bearing for privacy: a revoked lead's membership row survives the soft
@@ -4268,15 +4270,16 @@ def notify_sprint_membership_change(
     actor_name = getattr(actor, "username", "") or "Someone"
     task_name = task.name
     subject = "Sprint scope changed"
+    # Narrowed to non-None in each branch (entered ⇒ new_sprint set; left ⇒ old_sprint
+    # set); the local names give mypy the None-guard it can't infer from the bool flags.
+    old_name = old_sprint["name"] if old_sprint is not None else None
+    new_name = new_sprint["name"] if new_sprint is not None else None
     if entered_active and left_active:
-        body = (
-            f'{actor_name} moved "{task_name}" from sprint '
-            f"{old_sprint['name']} to sprint {new_sprint['name']}."
-        )
+        body = f'{actor_name} moved "{task_name}" from sprint {old_name} to sprint {new_name}.'
     elif entered_active:
-        body = f'{actor_name} added "{task_name}" to sprint {new_sprint["name"]}.'
+        body = f'{actor_name} added "{task_name}" to sprint {new_name}.'
     else:  # left_active
-        body = f'{actor_name} removed "{task_name}" from sprint {old_sprint["name"]}.'
+        body = f'{actor_name} removed "{task_name}" from sprint {old_name}.'
 
     project_id = str(task.project_id)
     task_id = str(task.pk)
