@@ -411,6 +411,41 @@ describe('ProjectOverviewPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('list', { name: /items needing attention/i })).toBeInTheDocument();
     });
+    // The attention row links to the task's full-page detail view (#1984).
+    const link = screen.getByRole('link', { name: /Foundation work.*View task/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/tasks/t1');
+  });
+
+  it('renders an attention item with no task_id as a non-interactive read', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/'))
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                severity: 'warning',
+                type: 'overallocation',
+                task_id: null,
+                task_name: 'Team overallocated',
+                assignee_name: null,
+                date: null,
+                detail: 'Resource over capacity',
+                link_target: null,
+              },
+            ],
+          },
+        });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('Team overallocated')).toBeInTheDocument();
+    });
+    // A null task_id item has no task to navigate to, so it stays a static read.
+    expect(screen.queryByRole('link', { name: /Team overallocated/i })).not.toBeInTheDocument();
   });
 
   it('renders my tasks when present', async () => {
@@ -442,6 +477,9 @@ describe('ProjectOverviewPage', () => {
       expect(screen.getByRole('list', { name: /my tasks due this week/i })).toBeInTheDocument();
       expect(screen.getByText('Write specs')).toBeInTheDocument();
     });
+    // The my-task row links to the task's full-page detail view (#1984).
+    const link = screen.getByRole('link', { name: /Write specs.*View task/i });
+    expect(link).toHaveAttribute('href', '/projects/proj-1/tasks/t1');
   });
 
   it('renders critical path section', () => {
@@ -660,6 +698,12 @@ describe('CriticalPathPanel', () => {
       'href',
       '/projects/proj-42/schedule',
     );
+  });
+
+  it('each task row links to that task detail view (#1984)', () => {
+    renderPanel([{ id: 'cp1', name: 'Foundation', duration: 10, total_float: -3 }], 'proj-42');
+    const row = screen.getByRole('link', { name: /Foundation.*View task/i });
+    expect(row).toHaveAttribute('href', '/projects/proj-42/tasks/cp1');
   });
 });
 

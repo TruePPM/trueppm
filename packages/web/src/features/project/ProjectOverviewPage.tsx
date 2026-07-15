@@ -389,6 +389,26 @@ function KpiSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared task-row link
+// ---------------------------------------------------------------------------
+
+// The Overview task-list panels (Attention, My tasks, Critical path) each render
+// task rows that must drill into the task's full-page detail view — the same
+// `/projects/:id/tasks/:taskId` route the KPI "Next milestone" card already links
+// to via `KpiCard`. The affordance mirrors that card: rule-4 focus ring, rule-181
+// hover-lift via border + translate (never a shadow, rule 1), and a rule-5 44px
+// touch-target floor. A row whose task id is unknown (e.g. an overallocation
+// attention item spanning no single task) stays a non-interactive static read.
+const TASK_ROW_LINK_CLASS =
+  'transition-[transform,border-color] motion-safe:hover:-translate-y-px ' +
+  'hover:border-brand-primary/60 focus-visible:outline-none focus-visible:ring-2 ' +
+  'focus-visible:ring-brand-primary focus-visible:ring-offset-1';
+
+function taskDetailPath(projectId: string, taskId: string): string {
+  return `/projects/${projectId}/tasks/${taskId}`;
+}
+
+// ---------------------------------------------------------------------------
 // Attention panel
 // ---------------------------------------------------------------------------
 
@@ -401,6 +421,7 @@ const ATTENTION_ICONS: Record<AttentionItem['type'], string> = {
 
 interface AttentionPanelProps {
   items: AttentionItem[];
+  projectId: string;
 }
 
 // Severity dot colors mirror the design mockup (mockups-pages.jsx OverviewBody
@@ -412,7 +433,7 @@ const SEVERITY_DOT_CLASS: Record<AttentionItem['severity'], string> = {
   info: 'bg-brand-primary',
 };
 
-function AttentionPanel({ items }: AttentionPanelProps) {
+function AttentionPanel({ items, projectId }: AttentionPanelProps) {
   if (items.length === 0) {
     return (
       <div
@@ -426,36 +447,59 @@ function AttentionPanel({ items }: AttentionPanelProps) {
     );
   }
 
+  // Grid card styling is shared by the interactive (linked) and static (no
+  // task_id) forms so the two read identically apart from the link affordance.
+  const cardClass =
+    'grid grid-cols-[10px_1fr_auto] gap-3 items-start px-4 py-3 rounded-card ' +
+    'border border-neutral-border bg-neutral-surface-raised text-sm min-h-[44px]';
+
   return (
     <ul className="flex flex-col gap-2" aria-label="Items needing attention">
-      {items.map((item, i) => (
-        <li
-          key={i}
-          className="grid grid-cols-[10px_1fr_auto] gap-3 items-start px-4 py-3 rounded-card
-            border border-neutral-border bg-neutral-surface-raised text-sm"
-        >
-          {/* Severity dot — colour conveys severity, aria-label conveys severity in words */}
-          <span
-            className={`mt-1.5 w-2.5 h-2.5 rounded-full ${SEVERITY_DOT_CLASS[item.severity]}`}
-            role="img"
-            aria-label={`${item.severity} severity`}
-          />
-          <span className="flex flex-col min-w-0">
-            <span className="text-neutral-text-primary truncate flex items-center gap-1.5">
-              <span aria-hidden="true" className="text-xs">
-                {ATTENTION_ICONS[item.type]}
+      {items.map((item, i) => {
+        const body = (
+          <>
+            {/* Severity dot — colour conveys severity, aria-label conveys severity in words */}
+            <span
+              className={`mt-1.5 w-2.5 h-2.5 rounded-full ${SEVERITY_DOT_CLASS[item.severity]}`}
+              role="img"
+              aria-label={`${item.severity} severity`}
+            />
+            <span className="flex flex-col min-w-0">
+              <span className="text-neutral-text-primary truncate flex items-center gap-1.5">
+                <span aria-hidden="true" className="text-xs">
+                  {ATTENTION_ICONS[item.type]}
+                </span>
+                {item.task_name}
               </span>
-              {item.task_name}
+              <span className="text-xs text-neutral-text-secondary">{item.detail}</span>
             </span>
-            <span className="text-xs text-neutral-text-secondary">{item.detail}</span>
-          </span>
-          {item.date && (
-            <span className="text-xs text-neutral-text-secondary tppm-mono whitespace-nowrap pt-0.5">
-              {item.date}
-            </span>
-          )}
-        </li>
-      ))}
+            {item.date && (
+              <span className="text-xs text-neutral-text-secondary tppm-mono whitespace-nowrap pt-0.5">
+                {item.date}
+              </span>
+            )}
+          </>
+        );
+
+        // A single task can surface under more than one attention type
+        // (e.g. critical_task_late AND baseline_drift), so task_id alone is
+        // not unique — compose type + index in so keys never collide.
+        return (
+          <li key={`${item.task_id ?? 'none'}-${item.type}-${i}`}>
+            {item.task_id ? (
+              <Link
+                to={taskDetailPath(projectId, item.task_id)}
+                aria-label={`${item.task_name}: ${item.detail}. View task.`}
+                className={`${cardClass} ${TASK_ROW_LINK_CLASS}`}
+              >
+                {body}
+              </Link>
+            ) : (
+              <div className={cardClass}>{body}</div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -466,9 +510,10 @@ function AttentionPanel({ items }: AttentionPanelProps) {
 
 interface MyTasksPanelProps {
   tasks: MyTask[];
+  projectId: string;
 }
 
-function MyTasksPanel({ tasks }: MyTasksPanelProps) {
+function MyTasksPanel({ tasks, projectId }: MyTasksPanelProps) {
   if (tasks.length === 0) {
     return (
       <p className="text-sm text-neutral-text-secondary px-1">
@@ -504,44 +549,51 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
         const initials = task.owner_initials ?? '?';
         const ownerLabel = task.owner_name ?? 'Unassigned';
         return (
-          <li
-            key={task.id}
-            className="flex items-center gap-3 px-3 py-2 rounded-card border border-neutral-border
-              bg-neutral-surface-raised text-sm"
-          >
-            {task.is_critical && (
-              <span
-                aria-label="Critical path"
-                title="This task is on the critical path"
-                className="flex-shrink-0 text-xs font-bold text-semantic-critical
+          <li key={task.id}>
+            <Link
+              to={taskDetailPath(projectId, task.id)}
+              aria-label={`${task.name}, ${Math.round(task.percent_complete)}% complete${
+                task.is_critical ? ', on the critical path' : ''
+              }. View task.`}
+              className={`flex items-center gap-3 px-3 py-2 rounded-card border border-neutral-border
+                bg-neutral-surface-raised text-sm min-h-[44px] ${TASK_ROW_LINK_CLASS}`}
+            >
+              {task.is_critical && (
+                <span
+                  aria-label="Critical path"
+                  title="This task is on the critical path"
+                  className="flex-shrink-0 text-xs font-bold text-semantic-critical
                   border border-semantic-critical/50 rounded-chip px-1 leading-4"
-              >
-                CP
-              </span>
-            )}
-            <span
-              className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full
+                >
+                  CP
+                </span>
+              )}
+              <span
+                className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full
                 border border-neutral-border bg-neutral-surface text-xs font-semibold tppm-mono
                 text-neutral-text-secondary"
-              aria-label={`Owner: ${ownerLabel}`}
-              title={ownerLabel}
-            >
-              {initials}
-            </span>
-            <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
-            <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono w-9 text-right">
-              {Math.round(task.percent_complete)}%
-            </span>
-            {pill && (
-              <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-chip border ${pill.cls}`}>
-                {pill.label}
+                aria-label={`Owner: ${ownerLabel}`}
+                title={ownerLabel}
+              >
+                {initials}
               </span>
-            )}
-            {task.due && (
-              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
-                {task.due}
+              <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
+              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono w-9 text-right">
+                {Math.round(task.percent_complete)}%
               </span>
-            )}
+              {pill && (
+                <span
+                  className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-chip border ${pill.cls}`}
+                >
+                  {pill.label}
+                </span>
+              )}
+              {task.due && (
+                <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
+                  {task.due}
+                </span>
+              )}
+            </Link>
           </li>
         );
       })}
@@ -576,32 +628,35 @@ export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) 
     <div className="flex flex-col gap-2">
       <ul className="flex flex-col gap-1" aria-label="Critical path tasks">
         {visible.map((task) => (
-          <li
-            key={task.id}
-            className="flex flex-col gap-0.5 px-3 py-2 rounded-card border border-neutral-border
-              bg-neutral-surface-raised text-sm"
-            title="This task is on the critical path — a delay here delays the project end date"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                aria-label="Critical path"
-                className="flex-shrink-0 text-xs font-bold text-semantic-critical
-                  border border-semantic-critical/50 rounded-chip px-1 leading-4"
-              >
-                CP
-              </span>
-              <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
-                {task.name}
-              </span>
-              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
-                {task.duration}d
-              </span>
-            </div>
-            <p className="text-xs text-neutral-text-secondary pl-8">
-              {task.total_float !== null
-                ? `Total slack: ${task.total_float}d · Any slip here slips the project end date.`
-                : 'Total slack: — · Any slip here slips the project end date.'}
-            </p>
+          <li key={task.id}>
+            <Link
+              to={taskDetailPath(projectId, task.id)}
+              aria-label={`${task.name}, ${task.duration} days, on the critical path. View task.`}
+              title="This task is on the critical path — a delay here delays the project end date"
+              className={`flex flex-col gap-0.5 px-3 py-2 rounded-card border border-neutral-border
+                bg-neutral-surface-raised text-sm min-h-[44px] ${TASK_ROW_LINK_CLASS}`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  aria-label="Critical path"
+                  className="flex-shrink-0 text-xs font-bold text-semantic-critical
+                    border border-semantic-critical/50 rounded-chip px-1 leading-4"
+                >
+                  CP
+                </span>
+                <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
+                  {task.name}
+                </span>
+                <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
+                  {task.duration}d
+                </span>
+              </div>
+              <p className="text-xs text-neutral-text-secondary pl-8">
+                {task.total_float !== null
+                  ? `Total slack: ${task.total_float}d · Any slip here slips the project end date.`
+                  : 'Total slack: — · Any slip here slips the project end date.'}
+              </p>
+            </Link>
           </li>
         ))}
       </ul>
@@ -1069,44 +1124,47 @@ export function ProjectOverviewPage() {
          hidden on WATERFALL, where its permanent "warming up" state is noise (#1765). */}
       {projectId && showSprintForecast && <SprintForecastWidget projectId={projectId} />}
 
-      {/* Two-column lower section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Attention panel */}
-        <section aria-label="Attention items">
-          <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-            Needs attention
-          </h2>
-          {attentionError ? (
-            <QueryErrorState
-              variant="inline"
-              message="Couldn't load attention items."
-              onRetry={() => void refetchAttention()}
-            />
-          ) : attentionLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
-          ) : (
-            <AttentionPanel items={attention ?? []} />
-          )}
-        </section>
+      {/* Two-column lower section — gated on projectId so the task-row links can
+          address the task detail route (rows are inert until the project is known). */}
+      {projectId && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Attention panel */}
+          <section aria-label="Attention items">
+            <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+              Needs attention
+            </h2>
+            {attentionError ? (
+              <QueryErrorState
+                variant="inline"
+                message="Couldn't load attention items."
+                onRetry={() => void refetchAttention()}
+              />
+            ) : attentionLoading ? (
+              <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+            ) : (
+              <AttentionPanel items={attention ?? []} projectId={projectId} />
+            )}
+          </section>
 
-        {/* My tasks */}
-        <section aria-label="My tasks this week">
-          <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-            My tasks this week
-          </h2>
-          {myTasksError ? (
-            <QueryErrorState
-              variant="inline"
-              message="Couldn't load your tasks."
-              onRetry={() => void refetchMyTasks()}
-            />
-          ) : myTasksLoading ? (
-            <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
-          ) : (
-            <MyTasksPanel tasks={myTasks ?? []} />
-          )}
-        </section>
-      </div>
+          {/* My tasks */}
+          <section aria-label="My tasks this week">
+            <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+              My tasks this week
+            </h2>
+            {myTasksError ? (
+              <QueryErrorState
+                variant="inline"
+                message="Couldn't load your tasks."
+                onRetry={() => void refetchMyTasks()}
+              />
+            ) : myTasksLoading ? (
+              <div className="h-24 rounded-card border border-neutral-border motion-safe:animate-pulse bg-neutral-surface-raised" />
+            ) : (
+              <MyTasksPanel tasks={myTasks ?? []} projectId={projectId} />
+            )}
+          </section>
+        </div>
+      )}
 
       {/* Critical path panel — CPM/schedule artifact, hidden on AGILE (#1765). */}
       {projectId && showCriticalPath && (
