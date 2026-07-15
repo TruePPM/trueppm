@@ -69,7 +69,7 @@ describe('TaskDescriptionField', () => {
       expect(onChange).toHaveBeenCalledWith('**raw** more');
     });
 
-    it('blurring the textarea flushes the deferred save and preserves the draft in read mode', () => {
+    it('blurring the textarea calls onBlur (if given) and preserves the draft in read mode', () => {
       const onBlur = vi.fn();
       renderField({ value: '**kept**', onBlur });
 

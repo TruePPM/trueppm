@@ -38,7 +38,16 @@ function RenderedMarkdown({ value }: { value: string }) {
 export interface TaskDescriptionFieldProps {
   value: string;
   onChange: (value: string) => void;
-  onBlur: () => void;
+  /**
+   * Optional blur hook. Since #1977 the description no longer auto-saves on
+   * blur (edits stage in the drawer draft and persist only on Save), so the
+   * drawer omits this; it stays available for any surface that still wants a
+   * blur side-effect. Blurring always returns the field to read mode.
+   */
+  onBlur?: () => void;
+  /** True while the drawer's staged draft differs from the saved description —
+   *  renders a small unsaved marker beside the label (#1977). */
+  changed?: boolean;
   changedElsewhere: boolean;
   /**
    * 1046: Viewers see the description read-only rather than an editable field
@@ -58,13 +67,12 @@ export interface TaskDescriptionFieldProps {
  * Deferred-save Description field with a Markdown read/edit swap (issue 1048,
  * building on the #962 save-bar model).
  *
- * Read mode renders `task.notes` as formatted Markdown (bold, lists, inline
- * code) via a narrow react-markdown allow-list — safe React nodes, no
+ * Read mode renders the current draft as formatted Markdown (bold, lists,
+ * inline code) via a narrow react-markdown allow-list — safe React nodes, no
  * `dangerouslySetInnerHTML`. Clicking (or Enter/Space on) the rendered block
  * swaps in a plain textarea holding the raw Markdown source; blurring the
- * textarea flushes the deferred edit (`onBlur`) and returns to read mode. The
- * save bar / dirty / concurrent-edit contract is untouched: entering edit mode
- * never saves, and blur/tab-switch/close still flush.
+ * textarea returns to read mode (showing the draft) but does NOT save — since
+ * #1977 the description stages in the drawer draft and persists only on Save.
  *
  * Viewers (`readOnly`) get the rendered view with no click-to-edit affordance,
  * so the absence of an editable control is unambiguous rather than a field that
@@ -74,6 +82,7 @@ export function TaskDescriptionField({
   value,
   onChange,
   onBlur,
+  changed = false,
   changedElsewhere,
   readOnly = false,
   scrollTopRef,
@@ -98,8 +107,15 @@ export function TaskDescriptionField({
   }, [editing, scrollTopRef]);
 
   const label = (
-    <div className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-      Description
+    <div className="flex items-center gap-1.5 mb-2">
+      <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+        Description
+      </span>
+      {changed && (
+        <span aria-hidden="true" title="Unsaved" className="text-brand-primary leading-none">
+          •
+        </span>
+      )}
     </div>
   );
 
@@ -130,7 +146,7 @@ export function TaskDescriptionField({
             if (scrollTopRef) scrollTopRef.current = e.currentTarget.scrollTop;
           }}
           onBlur={() => {
-            onBlur();
+            onBlur?.();
             setEditing(false);
           }}
           rows={5}

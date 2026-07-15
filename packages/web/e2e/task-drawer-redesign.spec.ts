@@ -569,12 +569,12 @@ test.describe('TaskDetailDrawer redesign — tab grouping', () => {
   });
 });
 
-test.describe('TaskDetailDrawer redesign — Description save bar', () => {
+test.describe('TaskDetailDrawer redesign — Save/Cancel (#1977)', () => {
   test.beforeEach(async ({ page }) => {
     await gotoSchedule(page);
   });
 
-  test('typing in Description reveals the save bar; Discard reverts it', async ({ page }) => {
+  test('typing in Description reveals the shared save bar; Cancel reverts it', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     // Issue 1048: the Description is a Markdown read/edit swap — click the
     // rendered block to reveal the textarea.
@@ -583,23 +583,90 @@ test.describe('TaskDetailDrawer redesign — Description save bar', () => {
     await expect(description).toBeVisible();
 
     // No save bar while clean.
-    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0);
 
     await description.fill('Validate Phase-2 scope with the steering committee.');
-    await expect(drawer.getByText('You have unsaved changes')).toBeVisible();
+    // The shared DialogFooter appears; its status names the changed field.
+    await expect(drawer.getByRole('button', { name: 'Save' })).toBeVisible();
+    await expect(drawer.getByText('Unsaved changes: Description').first()).toBeVisible();
 
-    await drawer.getByRole('button', { name: 'Discard' }).click();
-    await expect(description).toHaveValue('');
-    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0);
+    await drawer.getByRole('button', { name: 'Cancel' }).click();
+    // Reverted to the saved (empty) value and the bar is gone.
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: 'Description' })).toContainText(
+      'Add a description',
+    );
   });
 
-  test('Save changes button persists the edit and clears the bar', async ({ page }) => {
+  test('Save persists the Description edit and clears the bar', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: 'Description' }).click();
     const description = drawer.getByRole('textbox', { name: 'Description' });
     await description.fill('A new description.');
-    await drawer.getByRole('button', { name: 'Save changes' }).click();
-    await expect(drawer.getByText('You have unsaved changes')).toHaveCount(0, { timeout: 5_000 });
+    await drawer.getByRole('button', { name: 'Save' }).click();
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0, { timeout: 5_000 });
+  });
+
+  test('editing the task name reveals the bar and Save persists it', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    const name = drawer.getByRole('textbox', { name: 'Task name' });
+    await name.fill('Discovery & Design v2');
+    await expect(drawer.getByText('Unsaved changes: Name').first()).toBeVisible();
+    await drawer.getByRole('button', { name: 'Save' }).click();
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0, { timeout: 5_000 });
+    await expect(name).toHaveValue('Discovery & Design v2');
+  });
+
+  test('Esc while dirty prompts the guard — Keep editing stays, Discard closes', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('textbox', { name: 'Task name' }).fill('Dirty name');
+
+    await page.keyboard.press('Escape');
+    const guard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
+    await expect(guard).toBeVisible();
+
+    // Keep editing keeps the drawer open with the edit intact.
+    await guard.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(guard).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('textbox', { name: 'Task name' })).toHaveValue('Dirty name');
+
+    // Discard drops the edit and closes.
+    await page.keyboard.press('Escape');
+    await expect(guard).toBeVisible();
+    await guard.getByRole('button', { name: 'Discard changes' }).click();
+    await expect(drawer).not.toBeVisible();
+  });
+
+  test('close button while dirty prompts the guard instead of silently saving', async ({ page }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('textbox', { name: 'Task name' }).fill('Dirty name');
+    await drawer.getByRole('button', { name: 'Close task detail' }).click();
+    await expect(page.getByRole('alertdialog', { name: 'Discard unsaved changes?' })).toBeVisible();
+  });
+
+  test('Expand while dirty prompts the guard — Keep editing stays, Discard navigates to the full page', async ({
+    page,
+  }) => {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('textbox', { name: 'Task name' }).fill('Dirty name');
+    const guard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?' });
+
+    // Keep editing stays on the drawer (does not navigate).
+    await drawer.getByRole('button', { name: 'Expand to full page' }).click();
+    await expect(guard).toBeVisible();
+    await guard.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(guard).toHaveCount(0);
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('textbox', { name: 'Task name' })).toHaveValue('Dirty name');
+
+    // Discard navigates to the full-page task view.
+    await drawer.getByRole('button', { name: 'Expand to full page' }).click();
+    await expect(guard).toBeVisible();
+    await guard.getByRole('button', { name: 'Discard changes' }).click();
+    await expect(page).toHaveURL(/\/tasks\/t1/);
   });
 
   test('Description renders Markdown formatting in read mode after editing (issue 1048)', async ({
@@ -610,8 +677,8 @@ test.describe('TaskDetailDrawer redesign — Description save bar', () => {
     const description = drawer.getByRole('textbox', { name: 'Description' });
     await description.fill('**Bold AC** and\n\n- first item\n- second item\n\nUse `token`.');
 
-    // Blur the editor by focusing the task-name input — flushes the deferred
-    // save and returns the Description to its rendered read mode.
+    // Blur the editor by focusing the task-name input — returns the Description
+    // to read mode (it no longer saves on blur; the draft is rendered as-is).
     await drawer.getByRole('textbox', { name: 'Task name' }).click();
 
     // Read mode now renders formatted Markdown (safe React nodes, not raw text).
