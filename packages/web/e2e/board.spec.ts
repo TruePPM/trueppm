@@ -271,6 +271,29 @@ test.describe('Board view', () => {
     await expect(dialog).not.toBeVisible({ timeout: 5_000 });
   });
 
+  test('story-points input is available on a non-agile board and is sent on create (#1961)', async ({
+    page,
+  }) => {
+    // The board fixture project has no agile_features, so this is a waterfall
+    // board. The estimate is decoupled from agile features (ADR-0418): the Pts
+    // input is available while the Sprint selector stays agile-only.
+    await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel('Pts')).toBeVisible();
+    await expect(dialog.getByLabel('Sprint')).toHaveCount(0);
+
+    await dialog.getByLabel('Task name *').fill('Estimated waterfall task');
+    await dialog.getByLabel('Pts').fill('8');
+
+    const [request] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/v1/tasks/') && r.method() === 'POST'),
+      dialog.getByRole('button', { name: 'Create task' }).click(),
+    ]);
+    expect(request.postDataJSON()).toMatchObject({ story_points: 8 });
+    await expect(dialog).not.toBeVisible({ timeout: 5_000 });
+  });
+
   test('TaskFormModal closes on Cancel', async ({ page }) => {
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
     const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });

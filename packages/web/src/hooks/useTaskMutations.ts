@@ -35,6 +35,9 @@ export interface CreateTaskPayload {
   /** Sprint UUID — null leaves the task unassigned. Only writable when
    *  the project has agile features enabled (ADR-0037). */
   sprint?: string | null;
+  /** Original commitment estimate in story points. Available on every
+   *  methodology (ADR-0418, #1961) — decoupled from agile_features. */
+  story_points?: number | null;
   /** Mark the task as a milestone (server requires duration=0 alongside). */
   is_milestone?: boolean;
   /** Mark the task as a subtask of `parent_id` (ADR-0060 #308). Depth is limited to 1. */
@@ -62,6 +65,7 @@ export function useCreateTask(projectId: string | null) {
         ...(payload.planned_start !== undefined ? { planned_start: payload.planned_start } : {}),
         ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
         ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),
+        ...(payload.story_points !== undefined ? { story_points: payload.story_points } : {}),
         ...(payload.is_milestone ? { is_milestone: true } : {}),
         ...(payload.is_subtask ? { is_subtask: true } : {}),
         ...(payload.type !== undefined ? { type: payload.type } : {}),
