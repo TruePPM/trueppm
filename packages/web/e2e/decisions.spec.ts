@@ -127,6 +127,16 @@ async function setup(page: Page, opts: SetupOpts = {}) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(SPRINTS) }),
   );
+  // The Reports → Metrics tab now mounts a sprint-scoped burndown (#1983) when
+  // sprints exist; mock its endpoint so the Metrics tab renders cleanly even
+  // though this spec drives straight to the Decisions tab.
+  await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprint: { id: 's-active', name: 'Sprint 2', state: 'ACTIVE' }, snapshots: [] }),
+    }),
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/decisions-policy/`, (r) =>
     r.fulfill({
       status: 200, contentType: 'application/json',

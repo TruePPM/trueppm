@@ -26,8 +26,9 @@ A **Burn down / Burn up / Combined** toggle sits on the chart card. **Burn up** 
 
 ## Where to find it in the app
 
-- Route: `/projects/:projectId/sprints` (left ~60% of the metrics row)
-- Renders for the active sprint; selecting a closed sprint shows its frozen historical burndown in the read-only review.
+- **Sprints view** (`/projects/:projectId/sprints`, left ~60% of the metrics row) — renders for the active sprint; selecting a closed sprint shows its frozen historical burndown in the read-only review.
+- **Reports → Metrics** (`/projects/:projectId/reports`) — the full sprint-scoped burndown with a sprint selector (defaults to the active sprint), alongside the project burn chart. This is the reporting home for the burndown.
+- **Board** (`/projects/:projectId/board`) — deliberately *demoted* so the Kanban columns are the primary content: the sprint header carries a compact at-a-glance sparkline, and the full chart is a pull-on-demand "Burndown" disclosure inside the (collapsed-by-default) sprint panel. The board is never blocked by the chart on open.
 
 ## API endpoints
 

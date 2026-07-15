@@ -113,6 +113,14 @@ function renderPanel(opts: {
   );
 }
 
+/**
+ * The panel now collapses by default for every role (#1983), so any test that
+ * inspects body content (velocity/capacity/WIP cards) must expand it first.
+ */
+function expandPanel() {
+  fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+}
+
 beforeEach(() => {
   updateSprintMock.mockReset();
   window.localStorage.clear();
@@ -170,31 +178,41 @@ describe('SprintPanel', () => {
     expect(screen.getByLabelText(/sprint panel/i)).toBeInTheDocument();
   });
 
-  it('expands by default for SCHEDULER+ and renders body content', () => {
+  it('collapses by default for SCHEDULER+ so the board stays above the fold (#1983)', () => {
     renderPanel({ role: ROLE_SCHEDULER });
-    expect(screen.getByTestId('burn-chart')).toBeVisible();
-    expect(screen.getByRole('button', { name: /collapse sprint panel/i })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
-  });
-
-  it('collapses by default for VIEWER (body hidden from AT)', () => {
-    renderPanel({ role: ROLE_VIEWER });
-    // Body is always rendered (so aria-controls stays valid), but hidden.
-    expect(screen.getByTestId('burn-chart')).not.toBeVisible();
+    // Body content (the burndown disclosure toggle) is rendered but hidden.
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
     expect(screen.getByRole('button', { name: /expand sprint panel/i })).toHaveAttribute(
       'aria-expanded',
       'false',
     );
   });
 
-  it('persists collapsed-state to localStorage on toggle', () => {
+  it('collapses by default for VIEWER (body hidden from AT)', () => {
+    renderPanel({ role: ROLE_VIEWER });
+    // Body is always rendered (so aria-controls stays valid), but hidden.
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
+    expect(screen.getByRole('button', { name: /expand sprint panel/i })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
+  it('persists expanded-state to localStorage on toggle', () => {
     renderPanel({ role: ROLE_SCHEDULER });
-    const toggle = screen.getByRole('button', { name: /collapse sprint panel/i });
-    fireEvent.click(toggle);
-    expect(window.localStorage.getItem('trueppm.board.p1.sprintPanel.open')).toBe('false');
-    expect(screen.getByTestId('burn-chart')).not.toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: /expand sprint panel/i }));
+    expect(window.localStorage.getItem('trueppm.board.p1.sprintPanel.open')).toBe('true');
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
+  });
+
+  it('reveals the burndown only when its pull-on-demand disclosure is opened (#1983)', () => {
+    renderPanel({ role: ROLE_SCHEDULER });
+    expandPanel();
+    // The panel body is open, but the burndown chart is not rendered until the
+    // disclosure is expanded — the board never pays for the chart on load.
+    expect(screen.queryByTestId('burn-chart')).toBeNull();
+    fireEvent.click(screen.getByTestId('sprint-burndown-toggle'));
+    expect(screen.getByTestId('burn-chart')).toBeVisible();
   });
 
   it('SCHEDULER+ sees a "Set capacity" edit affordance when capacity_points is null', () => {
@@ -202,6 +220,7 @@ describe('SprintPanel', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', capacity_points: null }),
     });
+    expandPanel();
     const btn = screen.getByRole('button', { name: /set planned story-point capacity/i });
     expect(btn).not.toBeDisabled();
     expect(btn).toHaveTextContent(/not set/i);
@@ -223,6 +242,7 @@ describe('SprintPanel', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', capacity_points: null }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /set planned story-point capacity/i }));
     const input = screen.getByLabelText(/planned story-point capacity/i);
     fireEvent.change(input, { target: { value: '42' } });
@@ -238,6 +258,7 @@ describe('SprintPanel', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', capacity_points: 40 }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /edit planned story-point capacity/i }));
     const input = screen.getByLabelText(/planned story-point capacity/i);
     fireEvent.change(input, { target: { value: '' } });
@@ -253,6 +274,7 @@ describe('SprintPanel', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', capacity_points: 30 }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /edit planned story-point capacity/i }));
     const input = screen.getByLabelText(/planned story-point capacity/i);
     fireEvent.change(input, { target: { value: '99' } });
@@ -283,6 +305,7 @@ describe('SprintPanel', () => {
         committed_points: 40,
       }),
     });
+    expandPanel();
     expect(screen.getByText(/Over by 10 \(\+33%\)/i)).toBeInTheDocument();
   });
 });
@@ -365,6 +388,7 @@ describe('SprintPanel WIP limit (#546)', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 2 }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
     const input = screen.getByLabelText(/wip limit/i);
     fireEvent.change(input, { target: { value: '5' } });
@@ -380,6 +404,7 @@ describe('SprintPanel WIP limit (#546)', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 2 }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /edit wip limit/i }));
     const input = screen.getByLabelText(/wip limit/i);
     fireEvent.change(input, { target: { value: '' } });
@@ -395,6 +420,7 @@ describe('SprintPanel WIP limit (#546)', () => {
       role: ROLE_SCHEDULER,
       sprint: makeSprint({ state: 'ACTIVE', wip_limit: null, wip_count: 2 }),
     });
+    expandPanel();
     fireEvent.click(screen.getByRole('button', { name: /set wip limit/i }));
     const input = screen.getByLabelText(/wip limit/i);
     fireEvent.change(input, { target: { value: '0' } });
@@ -417,10 +443,10 @@ describe('SprintPanel WIP limit (#546)', () => {
       role: ROLE_VIEWER,
       sprint: makeSprint({ state: 'ACTIVE', wip_limit: 5, wip_count: 6 }),
     });
-    // VIEWER collapses by default.
-    expect(screen.getByTestId('burn-chart')).not.toBeVisible();
+    // Collapsed by default (#1983) — body content is hidden until expanded.
+    expect(screen.getByTestId('sprint-burndown-toggle')).not.toBeVisible();
     fireEvent.click(screen.getByTestId('sprint-wip-chip'));
-    expect(screen.getByTestId('burn-chart')).toBeVisible();
+    expect(screen.getByTestId('sprint-burndown-toggle')).toBeVisible();
   });
 });
 
@@ -439,6 +465,7 @@ describe('SprintPanel velocity + forecast (#607)', () => {
       role: ROLE_SCHEDULER,
       velocity: { sprints: SPRINTS, rolling_avg_points: 28, rolling_stdev_points: 4 },
     });
+    expandPanel();
     expect(screen.getByTestId('velocity-sparkline')).toBeInTheDocument();
     expect(screen.queryByTestId('velocity-suppressed')).toBeNull();
   });
@@ -448,6 +475,7 @@ describe('SprintPanel velocity + forecast (#607)', () => {
       role: ROLE_SCHEDULER,
       velocity: { sprints: [], velocity_suppressed: true },
     });
+    expandPanel();
     expect(screen.getByTestId('velocity-suppressed')).toHaveTextContent(/team-private/i);
     // Neither the chart nor the forecast line render in the gated state.
     expect(screen.queryByTestId('velocity-sparkline')).toBeNull();
