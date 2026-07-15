@@ -70,6 +70,24 @@ on the login screen. See [SSO Is Not an Enterprise Feature](/overview/sso-is-not
 the full carve-out and a dated comparison against the open-core competition.
 :::
 
+:::note[Computed, not guessed — the AI contract]
+Every AI-facing feature on this roadmap is one capability with four parts, maturing together
+across releases rather than as scattered line items:
+
+- **Compute** — engine-calculated answers, never a model's guess: the deterministic engine
+  (shipped) and the read-only MCP server (**0.4**).
+- **Cite** — a server-side derivation the agent quotes: the provenance graph (#1058, **0.4**).
+- **Refuse** — the engine rejects any change that breaks the plan's rules, identically for
+  humans and agents: feasibility refusal is in the engine today; the agent **write** path lands
+  at **0.6** (#1062, plan-mode first).
+- **Reproduce** — every answer and refusal is attributable and re-derivable: the Phase-0
+  agent-action audit foundation (hash-chained record + `audit_verify`, [ADR-0112](/architecture/decisions/)
+  Accepted) **lands with this beta** and is already in `main`; a signed answer stamp follows at
+  **0.9** (#1065).
+
+See [Computed, not guessed](/overview/computed-not-guessed/) for the full principle.
+:::
+
 - **Read-only MCP server** *(headliner)* (#503 #504 #603) — point any MCP client (Claude Desktop and the like) at your self-hosted instance and ask real questions of the live schedule: critical path, a non-mutating Monte Carlo what-if ("slip this task three days — when do we ship?") with feasibility surfaced over the MCP tool (#1663), sprint status and velocity, the risk register, and My Work. Every answer is computed server-side by the same CPM/Monte Carlo engine the UI uses — never an LLM guess, never leaving your box. This is the principle we call [**computed, not guessed**](/architecture/overview/#computed-not-guessed), and it is the spine of everything AI-facing on this roadmap. Per-team token scopes keep sprint internals private. Read-only by design; write tools are deliberately held to 0.6. The server ships listed in the MCP registries and client directories at launch (#1485), so TruePPM is discoverable from the agent ecosystem, not just from PPM searches
 - **Core-flow delight** (#1666) — repair the primary schedule editing loop so the beta feels finished: a working drag-to-link affordance between tasks and Enter-to-add-row on the schedule, the two interactions an evaluator hits in the first minute
 - **Basic single sign-on (OIDC / OAuth2)** — point TruePPM at your own identity provider (Keycloak, Authentik, Authelia, Zitadel, Google, GitHub, GitLab) and your whole team logs in through it. Self-hosted, login-only, no directory required — the federation a self-hoster expects as table stakes, not behind a paywall. The org identity-*governance* layer (SAML 2.0, SCIM provisioning, LDAP/AD directory sync, enforced org-wide SSO) stays in the enterprise edition. [**SSO is not an enterprise feature**](/overview/sso-is-not-enterprise/) — the positioning page makes that line explicit and compares it against the open-core competition (#1483)
@@ -80,7 +98,7 @@ the full carve-out and a dated comparison against the open-core competition.
 - **Try before you install** (#1487) — a hosted read-only demo instance with the sample projects (and the bridge wow) preloaded, plus a one-command trial path leading the getting-started docs. The evaluation story starts here, not at the Helm chart
 - **Inbound Jira, coexistence-first** (#1394 #1418 #1419) — continuous one-way, personal, read-only Jira → TruePPM card sync into My Work (distinct from the full one-time migration import, which lands at 0.5) so contributors never double-enter. Run TruePPM alongside Jira and get the CPM forecast without asking the team to switch first. Paired with a minimal computable Jira import (#1664) that turns issues into a CPM-schedulable network, and a write-parity + cycle guard (#1665) that validates any agent- or importer-generated task graph before it touches the schedule
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
-- **Provenance graph** (#1058) — the first piece of the AI-native foundation that backs the MCP server: every computed date, float, and P80 carries the server-side derivation an agent can cite, so an answer is explainable, not asserted — provenance is what makes *computed, not guessed* auditable rather than merely claimed. The rest of the AI-native foundation — a local natural-language query layer (#1060) and a bring-your-own local-model adapter (#1061) — moves to 0.5 alongside the decision &amp; forecast memory, keeping the beta focused on its MCP and evaluation headliners
+- **Provenance and the audit foundation** (#1058, #1805) — the *cite* and *reproduce* halves of the AI contract, both landing with this beta and already merged to `main`. **Provenance** (#1058) gives every computed date, float, and P80 the server-side derivation an agent cites, so an answer is explainable, not asserted. The **agent-action audit foundation** (#1805, [ADR-0112](/architecture/decisions/) Accepted) records every agent read and every verdict — actor, decision, engine version — in a hash-chained, `audit_verify`-checkable log, with an `identity`/`policy` refusal taxonomy from day one; it makes *computed, not guessed* reproducible rather than merely claimed. The rest of the AI-native foundation — a local natural-language query layer (#1060) and a bring-your-own local-model adapter (#1061) — moves to 0.5 alongside the decision &amp; forecast memory, keeping the beta focused on its MCP and evaluation headliners
 
 ## Planned
 
@@ -111,7 +129,8 @@ the full carve-out and a dated comparison against the open-core competition.
 
 - **Multi-format import with preview** (epics #624, #613) — top-10 PM tools (Jira, Asana, Monday, Wrike, ClickUp, Planview, Trello, Notion, Linear, Basecamp) plus Primavera P6 (XER/PMXML), OmniPlan, GanttProject, MPX/ProjectLibre. CSV/Excel and the one-time Jira migration land earlier, at 0.5 — 0.6 adds the breadth and the preview polish
 - **MCP write surface** (#505 #604) — write tools (create/update task, move card, log time, update status), session auth, and broader surface coverage layered on top of the read-only MCP server that lands in 0.4, with read restrictions on sprint-internal fields so automation never becomes surveillance
-- **Safe agent writes** — the write surface lands with guardrails so an agent can act without wrecking the plan: an **engine-as-referee** (#1062) that rejects any write which would create an impossible schedule (the write side of *computed, not guessed*), **agent-as-audited-actor** scoping (#1063) with a team-readable record of everything an agent did, and **standing subscriptions** (#1064) so an agent can be told "alert me when P80 crosses the committed date." Organizational governance of those agents — immutable audit, approval workflows — stays in the enterprise edition
+- **Safe agent writes** — the write path lands **on top of the audit foundation already in `main`** (the *reproduce* substrate from 0.4), so an agent can act without wrecking the plan: an **engine-as-referee** (#1062) that refuses any write which would create an impossible schedule — the *refuse* verb reaching the write side, plan-mode `dry_run` first — **agent-as-audited-actor** scoping (#1063) that extends the landed audit record with a capability-scoped actor identity, and **standing subscriptions** (#1064) so an agent can be told "alert me when P80 crosses the committed date." Organizational governance of those agents — immutable audit, approval workflows — stays in the enterprise edition
+- **Instance #2 — the open falsification** (#1998) — the one AI-native item that is *building*, not naming. Everything grounding-related above grounds a single domain: scheduling feasibility. This experiment expresses one concrete **non-scheduling** control — a DORA or data-residency rule — as an `Invariant` and runs it through the *same* verdict → refusal → audit path the scheduling checks use. If it refuses-with-derivation and writes a clean agent-action audit entry with no knowledge of tasks or schedules, the refusal pipeline generalizes and the domain-agnostic `Invariant → Verdict` registry becomes real; if it does not, we have learned the boundary cheaply. **Unproven by design** — not committed to a release date until the factoring result is known, and no public copy describes TruePPM as a general "grounding engine" until it passes
 - **Public REST API depth** and JSON import/export
 - **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder, built on the 0.4 share-link token mechanism (#1486)
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
@@ -143,7 +162,7 @@ the full carve-out and a dated comparison against the open-core competition.
 - **Onboarding polish** — the "easier than MS Project / Planview / Smartsheet" promise audited end to end; the first-run setup rail (#725) ships at 0.5, this pass refines it to GA quality
 - **Intuitiveness pass** — the "easier than MS Project / Planview / Smartsheet" promise, audited end to end
 - **GA hardening** — public API v1 freeze, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n execution per the framework decision made at 0.5 (#728) (rate limiting and API stability contract land at 0.4; this hardens the final v1 surface)
-- **Reproducible answers** (#1065) — computed responses carry an engine-version + input hash, so an AI-surfaced number can be reproduced and audited later from the same inputs — the last piece of *computed, not guessed*: an answer you can re-run (the compliance archive of those answers is an enterprise overlay)
+- **Reproducible answers** (#1065) — the *reproduce* verb's signed answer stamp, layered on the 0.4 agent-action audit foundation: computed responses carry an engine-version + input hash, so an AI-surfaced number can be reproduced and audited later from the same inputs — an answer you can re-run (the compliance archive of those answers is an enterprise overlay)
 - **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
 
 ### 1.0 — first stable release (target: Feb 22 – Mar 1, 2027)

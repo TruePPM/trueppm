@@ -113,6 +113,7 @@ If you are evaluating TruePPM, these six records explain the shape of the whole 
 - **ADR-0104** — Unified team-signal privacy model + enterprise rollup extension point
 - **ADR-0077** — MCP server scope, edition boundary, and token-scope model
 - **ADR-0112** — AI-layer OSS extension points — agent-as-actor and signed-answer provenance
+- **ADR-0362** — Plan-grounded governance — the "computed, not guessed" positioning frame (layer, don't invert)
 
 ### Data exchange & import / export
 

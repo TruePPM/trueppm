@@ -16,6 +16,9 @@ client is connected, the model translates the question and phrases the result, a
 supplies the number.
 
 **The line:** an AI-surfaced answer is a computation you can cite, never the model's opinion.
+It is one capability with four parts — an agent can **compute** an answer, **cite** its
+derivation, be **refused** when a change breaks the plan's rules, and **reproduce** any answer
+later — the same contract for a human and an agent.
 
 → [Computed, not guessed](/overview/computed-not-guessed/) · deep dive:
 [AI-native by design](/architecture/ai-native/)
