@@ -10,9 +10,11 @@
  * Escape reverts to the saved name; Enter/blur commits by calling onPhaseRename.
  *
  * The earlier ProgressRing layout was replaced in epic #361 child E
- * (issue #385) — an inline 4px bar carries the same signal in less vertical
- * real estate, and it composes cleanly with the new phase-grid quieting (empty
- * cells render as 16px ticks instead of card-shaped slots).
+ * (issue #385) — an inline bar carries the same signal in less vertical real
+ * estate, and it composes cleanly with the phase-grid quieting (empty cells
+ * render as 16px ticks instead of card-shaped slots). #1965 thickened the bar
+ * to h-1.5 (glanceable color mass) and moved the fill to the neutral sage
+ * brand-primary, so progress amount is no longer painted with health colors.
  */
 import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
 
@@ -115,17 +117,17 @@ export function LaneMeta({
   );
 
   // No committed tasks → bar empty, percent reads as em-dash (ADR-0057).
-  // Below 50% the fill is brand-accent (in-flight signal); at/above 50% it
-  // shifts to semantic-on-track (closing in on done). Mirrors the prior ring.
+  // Progress magnitude uses the neutral brand-primary (sage) fill — NOT the
+  // semantic health palette. Green/amber/red are the health vocabulary
+  // (web-rule 7); keying the fill off "how far along" (the pre-#385/#1965
+  // amber-below-50 → green-above-50 flip) conflated progress magnitude with
+  // health state, so an early-but-healthy lane read as amber "at risk". Sage
+  // carries amount; semantic colors are reserved for a real health signal.
   // committedTaskCount distinguishes "has cards but none committed" (idea
   // inbox) from "has committed delivery"; legacy callers that pass only
   // taskCount fall through to the prior behavior.
   const hasCommitted = (committedTaskCount ?? taskCount) > 0;
-  const fillClass = !hasCommitted
-    ? 'bg-transparent'
-    : pct >= 50
-      ? 'bg-semantic-on-track'
-      : 'bg-brand-accent';
+  const fillClass = hasCommitted ? 'bg-brand-primary' : 'bg-transparent';
 
   return (
     <div
@@ -210,11 +212,13 @@ export function LaneMeta({
           {focusToggle}
         </div>
 
-        {/* Progress row — 4px inline bar + mono percent + task count.
+        {/* Progress row — 6px inline bar + mono percent + task count.
             Em-dash empty state when no committed tasks (ADR-0057). After
             BACKLOG was lifted into the band above the grid, a phase whose
             only cards are backlog ideas has zero committed delivery.
-            "0%" would imply "0% done"; "—" reads as "not applicable yet". */}
+            "0%" would imply "0% done"; "—" reads as "not applicable yet".
+            Height is h-1.5 (matches TaskRow) so the sage fill carries enough
+            color mass to read across a rail of lanes at a glance (#1965). */}
         <div className="flex items-center gap-2 min-w-0">
           <div
             role="progressbar"
@@ -224,7 +228,7 @@ export function LaneMeta({
             aria-label={
               hasCommitted ? `Phase progress ${pct} percent` : 'No committed tasks'
             }
-            className="flex-1 h-1 rounded-full bg-neutral-surface-sunken overflow-hidden"
+            className="flex-1 h-1.5 rounded-full bg-neutral-surface-sunken overflow-hidden"
           >
             <div
               aria-hidden="true"

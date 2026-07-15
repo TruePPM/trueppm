@@ -300,8 +300,10 @@ test.describe('Board view', () => {
   test('phase-grid quieting: lane meta + column dots + empty ticks (issue #385)', async ({
     page,
   }) => {
-    // Lane meta — the inline 4px progress bar replaces the old ProgressRing.
-    // The lane meta div is `role="progressbar"` with aria-label / aria-valuenow.
+    // Lane meta — the inline 6px progress bar replaces the old ProgressRing
+    // (#385 introduced it at 4px; #1965 thickened it to h-1.5 for glanceable
+    // color mass). The lane meta div is `role="progressbar"` with aria-label /
+    // aria-valuenow.
     const laneBar = page.locator('[role="progressbar"][aria-label*="Phase progress"]').first();
     await expect(laneBar).toBeVisible();
 
