@@ -267,6 +267,51 @@ test.describe('Reports tab — export menu', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Sprint-scoped burndown — the full analytical home the Board demotes to (#1983)
+// ---------------------------------------------------------------------------
+
+test.describe('Reports tab — sprint-scoped burndown (#1983)', () => {
+  const SPRINT = {
+    id: 'sp-reports-1',
+    server_version: 1,
+    name: 'Iteration 9',
+    goal: '',
+    start_date: '2026-04-01',
+    finish_date: '2026-04-14',
+    state: 'ACTIVE',
+  };
+
+  test('renders a sprint selector and the sprint burndown above the project chart', async ({
+    page,
+  }) => {
+    await setup(page);
+    // A sprint must exist for the sprint-scoped section to render (last-wins).
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [SPRINT] }),
+      }),
+    );
+    await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sprint: SPRINT, snapshots: [] }),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/reports`);
+    // The selector defaults to the active sprint.
+    const selector = page.getByLabel(/to chart/i);
+    await expect(selector).toBeVisible({ timeout: 10_000 });
+    await expect(selector).toHaveValue(SPRINT.id);
+    // Both charts render: the sprint-scoped "… Burndown" and the project "Burn Chart".
+    await expect(page.getByRole('heading', { name: /burndown/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /burn chart/i })).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error state
 // ---------------------------------------------------------------------------
 

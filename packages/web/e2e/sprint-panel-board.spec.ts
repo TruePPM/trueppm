@@ -209,28 +209,45 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     ).toBeVisible();
   });
 
-  test('expanded by default for SCHEDULER+ and collapse persists across reload', async ({
+  test('collapsed by default for SCHEDULER+ and expand persists across reload (#1983)', async ({
     page,
   }) => {
     await setupSprintRoutes(page);
     await page.goto(BASE_URL);
     const panel = page.getByRole('region', { name: /active sprint summary/i });
     await expect(panel).toBeVisible({ timeout: 10_000 });
-    const collapseBtn = panel.getByRole('button', {
-      name: /collapse sprint panel/i,
-    });
-    await expect(collapseBtn).toHaveAttribute('aria-expanded', 'true');
-    await collapseBtn.click();
+    // Collapsed by default (#1983) so the board sits above the fold on open.
+    const expandBtn = panel.getByRole('button', { name: /expand sprint panel/i });
+    await expect(expandBtn).toHaveAttribute('aria-expanded', 'false');
+    await expandBtn.click();
     await expect(
-      panel.getByRole('button', { name: /expand sprint panel/i }),
-    ).toHaveAttribute('aria-expanded', 'false');
+      panel.getByRole('button', { name: /collapse sprint panel/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
 
     await page.reload();
     const panelAfter = page.getByRole('region', { name: /active sprint summary/i });
     await expect(panelAfter).toBeVisible({ timeout: 10_000 });
     await expect(
-      panelAfter.getByRole('button', { name: /expand sprint panel/i }),
-    ).toHaveAttribute('aria-expanded', 'false');
+      panelAfter.getByRole('button', { name: /collapse sprint panel/i }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('reveals the pull-on-demand burndown only behind its disclosure (#1983)', async ({
+    page,
+  }) => {
+    await setupSprintRoutes(page);
+    await page.goto(BASE_URL);
+    const panel = page.getByRole('region', { name: /active sprint summary/i });
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await panel.getByRole('button', { name: /expand sprint panel/i }).click();
+    // The burndown is collapsed even inside the open panel — it never dominates
+    // the board and its chart is not mounted until the disclosure is opened.
+    const burndownToggle = panel.getByTestId('sprint-burndown-toggle');
+    await expect(burndownToggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel.getByTestId('sprint-burndown-body')).toHaveCount(0);
+    await burndownToggle.click();
+    await expect(burndownToggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(panel.getByTestId('sprint-burndown-body')).toBeVisible();
   });
 
   test('surfaces the WIP chip and flips it to at-risk when over the limit (#546)', async ({
@@ -306,6 +323,8 @@ test.describe('Board sprint panel (#482 / ADR-0073)', () => {
     await page.goto(BASE_URL);
     const panel = page.getByRole('region', { name: /active sprint summary/i });
     await expect(panel).toBeVisible({ timeout: 10_000 });
+    // The panel collapses by default (#1983) — expand it to inspect the body.
+    await panel.getByRole('button', { name: /expand sprint panel/i }).click();
     // Velocity chart with the min–max band exposes the range in its aria-label.
     await expect(panel.getByTestId('velocity-sparkline')).toBeVisible();
     await expect(panel.getByRole('img', { name: /range 24–31 points/i })).toBeVisible();

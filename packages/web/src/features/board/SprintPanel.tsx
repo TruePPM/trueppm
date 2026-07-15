@@ -38,11 +38,15 @@ interface Props {
  * Hidden entirely on WATERFALL projects (ADR-0041 tab-visibility precedent)
  * and on projects with no ACTIVE sprint. Renders a 56px header band with
  * sprint goal, dates, and days-remaining; below the band a collapsible body
- * shows burndown, velocity sparkline, and a capacity_points editor that is
- * read-only for VIEWER/MEMBER and inline-editable for SCHEDULER+.
+ * shows the velocity/capacity/WIP cards and a pull-on-demand burndown
+ * disclosure. Capacity/WIP editors are read-only for VIEWER/MEMBER and
+ * inline-editable for SCHEDULER+.
  *
- * Collapsed-state defaults: expanded for SCHEDULER+, collapsed for
- * VIEWER/MEMBER. Persisted in localStorage per project.
+ * Collapsed-state default: collapsed for EVERY role (#1983) so the Kanban
+ * board — the surface the team works on every standup — sits above the fold
+ * on open. The header band still carries the at-a-glance signals (committed
+ * points, WIP chip, "N on critical path"). A user's manual expand is
+ * persisted in localStorage per project.
  */
 export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
   const { sprint } = useActiveSprint(projectId);
@@ -60,13 +64,16 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
   // server enforces the same gate; this is render-gate only.
   const [promoting, setPromoting] = useState(false);
 
-  // Restore prior choice or apply role-based default once we know the role.
+  // Restore prior choice, else default collapsed for everyone (#1983) — the
+  // board must be above the fold on open, not a chart. Role no longer changes
+  // the default; the effect still waits for the role so a stored choice and the
+  // header's role-gated affordances resolve together.
   useEffect(() => {
     if (open !== null) return;
     if (role === null) return;
     const stored = readStoredOpen(storageKey);
-    setOpen(stored ?? isScheduler);
-  }, [open, role, isScheduler, storageKey]);
+    setOpen(stored ?? false);
+  }, [open, role, storageKey]);
 
   // Hide for WATERFALL projects, continuous-flow Kanban boards (ADR-0164, issue 410),
   // and projects without an active sprint.
@@ -75,7 +82,7 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
   if (!sprint) return null;
 
   const handleToggle = () => {
-    const next = !(open ?? isScheduler);
+    const next = !(open ?? false);
     setOpen(next);
     writeStoredOpen(storageKey, next);
   };
@@ -88,7 +95,7 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
     updateSprint.mutate({ sprintId: sprint.id, payload: { wip_limit: value } });
   };
 
-  const isOpen = open ?? isScheduler;
+  const isOpen = open ?? false;
 
   // The header WIP chip opens (never toggles closed) the panel so its editor is
   // reachable in one click — chip → expand → WipCard inline edit (#546).
@@ -127,34 +134,45 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
       <div
         id={`sprint-panel-body-${sprint.id}`}
         hidden={!isOpen}
-        className="px-4 py-4 flex flex-col gap-3 lg:flex-row lg:gap-4"
+        className="px-4 py-4 flex flex-col gap-4"
       >
-        <div className="flex-1 min-w-0">
-          <BurnChart sprintId={sprint.id} defaultVariant="burndown" />
-          {/* Sprint-finish + release-horizon projections (#487) — beneath the
-              chart, both linking to the full backlog forecast on the overview. */}
-          <SprintForecastChips projectId={projectId} sprintId={sprint.id} />
+        {/* Velocity / capacity / WIP as an equal-width card row (#1983). The
+            burndown no longer sits here as a dominating left column — it is
+            pull-on-demand below, and its full analytical view lives on
+            Reports → Metrics. */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
+          <div className="lg:flex-1 min-w-0">
+            <VelocityCard
+              projectId={projectId}
+              velocity={velocity}
+              isLoading={velocityLoading}
+              targetMilestoneId={sprint.target_milestone}
+            />
+          </div>
+          <div className="lg:flex-1 min-w-0">
+            <CapacityCard
+              sprint={sprint}
+              canEdit={isScheduler}
+              isSaving={updateSprint.isPending}
+              onSave={handleSaveCapacity}
+            />
+          </div>
+          <div className="lg:flex-1 min-w-0">
+            <WipCard
+              sprint={sprint}
+              canEdit={isScheduler}
+              isSaving={updateSprint.isPending}
+              onSave={handleSaveWip}
+            />
+          </div>
         </div>
-        <div className="flex flex-col gap-3 lg:w-60 flex-shrink-0">
-          <VelocityCard
-            projectId={projectId}
-            velocity={velocity}
-            isLoading={velocityLoading}
-            targetMilestoneId={sprint.target_milestone}
-          />
-          <CapacityCard
-            sprint={sprint}
-            canEdit={isScheduler}
-            isSaving={updateSprint.isPending}
-            onSave={handleSaveCapacity}
-          />
-          <WipCard
-            sprint={sprint}
-            canEdit={isScheduler}
-            isSaving={updateSprint.isPending}
-            onSave={handleSaveWip}
-          />
-        </div>
+        {/* Sprint-finish + release-horizon projections (#487), both linking to
+            the full backlog forecast on the overview. */}
+        <SprintForecastChips projectId={projectId} sprintId={sprint.id} />
+        {/* Pull-on-demand burndown (#1983): collapsed by default so it never
+            dominates the board. The header sparkline is the at-a-glance
+            trigger; the full cross-sprint view lives on Reports → Metrics. */}
+        <BurndownDisclosure sprintId={sprint.id} storageKey={`${storageKey}.burndown`} />
       </div>
       {promoting && (
         <PromoteMilestoneDialog
@@ -164,6 +182,65 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Pull-on-demand burndown (#1983). Collapsed by default and separately
+ * persisted, so revealing the full chart on the board is an explicit opt-in
+ * that never pushes the columns below the fold. The at-a-glance trigger is the
+ * compact sparkline in the sibling `BoardSprintHeader` (which renders above
+ * this panel on the board); this disclosure is the on-board detail view.
+ * `aria-expanded`/`aria-controls` are sourced from the toggle state only
+ * (rule 210 — no hover-reveal desync). The chart mounts only while open, so a
+ * closed disclosure costs no fetch.
+ */
+function BurndownDisclosure({ sprintId, storageKey }: { sprintId: string; storageKey: string }) {
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(storageKey) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setOpen((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(storageKey, String(next));
+      } catch {
+        /* storage may be unavailable (private mode) — in-memory state still works */
+      }
+      return next;
+    });
+  };
+  const bodyId = `sprint-burndown-body-${sprintId}`;
+  return (
+    <div className="border-t border-neutral-border/60 pt-3">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        data-testid="sprint-burndown-toggle"
+        className="flex w-full min-h-[44px] items-center gap-2 rounded-control px-1 py-1 text-left text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary hover:bg-chrome-row-hover focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+      >
+        <span aria-hidden="true" className={`transition-transform ${open ? 'rotate-90' : ''}`}>
+          ▸
+        </span>
+        Burndown
+      </button>
+      {/* The controlled region is always in the DOM so aria-controls never
+          dangles; the chart itself mounts only when open, so a closed
+          disclosure still costs no fetch. */}
+      <div id={bodyId} hidden={!open}>
+        {open && (
+          <div className="pt-3" data-testid="sprint-burndown-body">
+            <BurnChart sprintId={sprintId} defaultVariant="burndown" />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
