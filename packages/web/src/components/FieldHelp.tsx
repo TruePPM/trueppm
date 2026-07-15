@@ -37,7 +37,7 @@ export interface FieldHelpProps {
   /**
    * Docs-site page slug + anchor, passed through {@link docsUrl} internally —
    * a slug like `features/task-classification/#governance-class-…`, never a
-   * full URL and never an in-app `/docs/…` path (web-rule 212).
+   * full URL and never a relative in-app docs path (web-rule 212).
    */
   docHref: string;
   /** Footer link text; a trailing " →" is appended. Defaults to "Learn more". */
