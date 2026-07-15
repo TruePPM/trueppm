@@ -271,6 +271,23 @@ test.describe('Project overview page', () => {
     await expect(page.getByText('Write specs')).toBeVisible();
   });
 
+  test('attention and my-task rows link to the task detail view (#1984)', async ({ page }) => {
+    // The "needs attention" row is a link to the task's full-page detail view,
+    // not an inert list item — a user can get from the callout to the item.
+    const attention = page.getByRole('region', { name: /attention items/i });
+    const attentionLink = attention.getByRole('link', { name: /Foundation work.*View task/i });
+    await expect(attentionLink).toBeVisible();
+    await expect(attentionLink).toHaveAttribute(
+      'href',
+      `/projects/${PROJECT_ID}/tasks/t1`,
+    );
+
+    // Same for the "my tasks this week" row.
+    const myTasks = page.getByRole('region', { name: /my tasks this week/i });
+    const myTaskLink = myTasks.getByRole('link', { name: /Write specs.*View task/i });
+    await expect(myTaskLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/tasks/t2`);
+  });
+
   test('URL uses path-based routing — /projects/:id/overview', async ({ page }) => {
     expect(page.url()).toMatch(new RegExp(`/projects/${PROJECT_ID}/overview`));
     expect(page.url()).not.toContain('?project=');
