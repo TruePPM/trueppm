@@ -3,7 +3,7 @@
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
-        pre-push-behind-warn pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
+        pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
 
@@ -235,6 +235,14 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
 
+pre-push-collision-check: ## Block the push if this branch's issue already has an open MR from another branch (#2000)
+	@# Fail-fast duplicate-work guard: runs BEFORE the parallel code gates so a
+	@# duplicate MR aborts the push in ~1 glab call rather than after ~60s of
+	@# lint/typecheck. Catches the `git checkout -b` path that bypasses the
+	@# `scripts/wt` claim lock. Best-effort (passes when glab is unavailable);
+	@# override with TRUEPPM_ALLOW_DUP_MR=1 for legitimate stacked MRs.
+	@bash scripts/check-issue-collision.sh
+
 pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — catches schema/migration drift
 	@# Best-effort: silent on network failure, only prints when a refetched
 	@# origin/main is genuinely ahead of HEAD. CLAUDE.md "Always merge
@@ -248,7 +256,7 @@ pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — c
 
 pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check migrations-numbering schema-check pre-push-wasm pre-push-mobile ## Run pre-push gate subtargets (use via `pre-push`, not directly)
 
-pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
+pre-push: pre-push-collision-check pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
 	@# migration/schema jobs across cores. Output may interleave on failure;
 	@# each subtarget prefixes its own output so attribution is still readable.

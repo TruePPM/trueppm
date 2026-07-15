@@ -28,9 +28,13 @@ discipline — stop one session from stomping another's worktree:
    shared `test_trueppm`, which removes the need for an external run lock (and
    `flock(1)` isn't available on macOS anyway).
 
-The GitLab `status::wip` label (below) is now an **advisory visibility** signal
-layered on top — correctness rests on these local guards, not on a label that a
-`glab` outage could silently drop.
+Those local guards stop two *worktrees* from editing the same files. A second,
+distinct hazard is two *agents* independently implementing the **same issue** and
+opening duplicate MRs (this happened with #1985 → !1352 + !1353). The GitLab
+`status::wip` label (below) is the checked claim signal against that, and the
+[pre-push duplicate-MR gate](#pre-push-duplicate-mr-gate) re-enforces it at push
+time for **every** branch — including one created with a plain `git checkout -b`,
+which bypasses the in-`wt` lock entirely.
 
 ## Quick start
 
@@ -89,6 +93,40 @@ collision. The label name is overridable with `TRUEPPM_WT_LOCK_LABEL`.
 
 Only issue-numbered branches are locked. A branch with no leading issue number
 (`chore/some-slug`, `docs/0.4-release-notes`) is created without a check-out.
+
+**This lock only guards the `wt` code path.** A branch created with a plain
+`git checkout -b feat/<issue>-…` never calls it, so on its own the lock cannot
+stop a raw-git session from duplicating an issue `wt` already claimed. The
+pre-push gate below closes that hole.
+
+## Pre-push duplicate-MR gate
+
+`scripts/check-issue-collision.sh` runs as the first step of `make pre-push`
+(and therefore of the `git push` pre-push hook), *before* the code gates, so a
+duplicate aborts the push in one `glab` call rather than after ~60s of
+lint/typecheck. It is the **path-independent** backstop: every branch is pushed,
+however it was created, so this is the one chokepoint that catches the
+`git checkout -b` bypass.
+
+For a branch whose name starts with an issue number it checks GitLab for merge
+requests referencing that issue and:
+
+- **Blocks the push** if an **open MR already exists from a different branch** —
+  the strong, authoritative duplicate signal. (Had this gate existed, the #1985
+  second session would have been stopped: its push found `!1352` open on another
+  branch before it could open `!1353`.)
+- **Warns only** if the issue carries `status::wip` claimed by another worktree
+  but no MR is open yet — the label/comment can be stale, so it is not
+  authoritative enough to block.
+- **Passes** for a branch with no issue number, for the branch that owns the
+  existing MR (re-pushing your own branch is fine), and — best-effort, mirroring
+  the `wt` lock — when `glab` is missing or offline.
+
+Legitimate stacked or multi-MR-per-issue work overrides the block:
+
+```bash
+TRUEPPM_ALLOW_DUP_MR=1 git push        # or: TRUEPPM_ALLOW_DUP_MR=1 make pre-push
+```
 
 ## Reserving ADR and migration numbers
 
