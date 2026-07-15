@@ -289,6 +289,28 @@ test.describe('Board viewability — bottom scroll breathing room (#1963)', () =
   });
 });
 
+test.describe('Board viewability — right scroll breathing room (#1972)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('In Progress')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alpha Phase')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('the lane scroll container reserves right padding so the last column is not sheared at the edge', async ({
+    page,
+  }) => {
+    // The fixed-track grid overflows horizontally by design (boardGrid.ts), so
+    // the rightmost DONE column shears flush at the viewport edge and reads as
+    // truncated, not scrollable (#1972). The scroll container carries pr-6
+    // (24px) — the horizontal analog of the #1963 bottom gutter.
+    const paddingRight = await page.getByTestId('board-scroll').evaluate(
+      (el) => parseFloat(getComputedStyle(el).paddingRight),
+    );
+    expect(paddingRight).toBeGreaterThanOrEqual(24);
+  });
+});
+
 test.describe('Board viewability — phase-lane focus (#1460)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);

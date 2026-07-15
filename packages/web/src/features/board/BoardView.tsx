@@ -38,6 +38,7 @@ import { ROLE_ADMIN } from '@/lib/roles';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
 import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
+import { useHasScrollRight } from '@/hooks/useHasScrollRight';
 import {
   DndContext,
   KeyboardSensor,
@@ -2165,6 +2166,7 @@ export function BoardView() {
   // card clipped at the fold reads as truncation; the fade renders only while
   // content sits below the scroll position.
   const hasScrollBelow = useHasScrollBelow(boardScrollRef);
+  const hasScrollRight = useHasScrollRight(boardScrollRef);
 
   const sensors = useSensors(
     useSensor(SpaceAwarePointerSensor, {
@@ -3552,11 +3554,15 @@ export function BoardView() {
                 ref={boardScrollRef}
                 data-testid="board-scroll"
                 data-space-panning={isBoardPanning ? 'true' : undefined}
-                // pb-6 keeps the final lane's tallest card off the scroll fold
-                // (#1963): a card sheared flush at the viewport edge reads as
-                // truncated, not scrollable. The bottom gap — paired with the
-                // #1962 edge-fade — is the "keep scrolling" signal.
-                className={`flex-1 overflow-auto min-h-0 pb-6 bg-neutral-surface-sunken${
+                // pb-6 / pr-6 keep the final lane's tallest card and the
+                // rightmost (DONE) column off the scroll fold (#1963 / #1972):
+                // a card sheared flush at the viewport edge reads as truncated,
+                // not scrollable. The trailing gutters — paired with the #1962
+                // bottom edge-fade and the #1972 right edge-fade — are the "keep
+                // scrolling" signal on both axes. The fixed-track grid overflows
+                // horizontally by design (boardGrid.ts), so the right gutter is
+                // the horizontal analog of the vertical breathing room.
+                className={`flex-1 overflow-auto min-h-0 pb-6 pr-6 bg-neutral-surface-sunken${
                   isBoardPanArmed
                     ? isBoardPanning
                       ? ' cursor-grabbing select-none'
@@ -3921,6 +3927,22 @@ export function BoardView() {
                   aria-hidden="true"
                   data-testid="board-scroll-fade"
                   className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-gradient-to-t from-neutral-surface-sunken to-transparent"
+                />
+              )}
+              {/* Right edge-fade — the "more to the right" cue for horizontal
+                  overflow (#1972), the horizontal analog of the bottom fade
+                  above. The fixed-track grid overflows its scroll container by
+                  design (boardGrid.ts), so the rightmost DONE column shears
+                  flush at the viewport edge with no scroll affordance on
+                  auto-hiding-scrollbar platforms (macOS/touch). Decorative (rule
+                  6): the column-header aria-labels (rule 101) already announce
+                  the true per-column totals. Rendered only while content sits to
+                  the right of the current scroll position. */}
+              {hasScrollRight && (
+                <span
+                  aria-hidden="true"
+                  data-testid="board-scroll-fade-right"
+                  className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-neutral-surface-sunken to-transparent"
                 />
               )}
               </div>
