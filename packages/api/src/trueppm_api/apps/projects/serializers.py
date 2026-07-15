@@ -63,6 +63,7 @@ from trueppm_api.apps.projects.models import (
     Label,
     PhaseGateConfig,
     Program,
+    ProgramExportJob,
     Project,
     ProjectApiToken,
     ProjectCustomField,
@@ -1237,6 +1238,39 @@ class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
         if obj.status != ExportJobStatus.SUCCESS:
             return None
         return f"/api/v1/projects/{obj.project_id}/export/jobs/{obj.id}/download/"
+
+
+class ProgramExportJobSerializer(serializers.ModelSerializer[ProgramExportJob]):
+    """Read serializer for an async program export job's status + download (#1958).
+
+    The program-grain sibling of :class:`ProjectExportJobSerializer`: exposes the
+    job lifecycle and a ``download_url`` present only once the archive is ready. The
+    URL is a relative API path (never a raw storage URL) so the archive is always
+    fetched through the Admin-gated download endpoint.
+    """
+
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProgramExportJob
+        fields = [
+            "id",
+            "program",
+            "status",
+            "file_size",
+            "error_detail",
+            "expires_at",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "download_url",
+        ]
+        read_only_fields = fields
+
+    def get_download_url(self, obj: ProgramExportJob) -> str | None:
+        if obj.status != ExportJobStatus.SUCCESS:
+            return None
+        return f"/api/v1/programs/{obj.program_id}/export/jobs/{obj.id}/download/"
 
 
 # Program-context labels for the shared ``Role`` enum (#1794). The enum labels

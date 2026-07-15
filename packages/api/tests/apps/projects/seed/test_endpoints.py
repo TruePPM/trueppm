@@ -155,7 +155,10 @@ def test_export_requires_auth(imported_program: Program) -> None:
     assert resp.status_code in (401, 403)
 
 
-def test_export_member_downloads_json(user: Any, imported_program: Program) -> None:
+def test_export_owner_downloads_json(user: Any, imported_program: Program) -> None:
+    # `user` is the importing OWNER of `imported_program` (not a plain member) — the
+    # sync seed export is Owner/Admin-gated (#1957). Genuine Member/Viewer=403 coverage
+    # lives in test_program_export_async.py; this asserts the Owner happy path.
     resp = _client(user).get(_export_url(imported_program))
     assert resp.status_code == 200
     assert resp["Content-Type"] == "application/json"

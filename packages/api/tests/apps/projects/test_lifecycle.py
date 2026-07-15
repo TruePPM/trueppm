@@ -998,7 +998,7 @@ def test_transfer_project_ownership_rejects_non_owner_actor(
 
 
 # ---------------------------------------------------------------------------
-# Project export (#967) — GET /projects/:id/export/ (any member, read-only)
+# Project export (#967) — GET /projects/:id/export/ (Admin/Owner-only, #1957)
 # ---------------------------------------------------------------------------
 
 
@@ -1030,13 +1030,12 @@ def test_export_project_non_member_denied(stranger: object, project: Project) ->
 
 
 @pytest.mark.django_db
-def test_export_project_viewer_can_download(
-    owner: object, other_user: object, project: Project
-) -> None:
-    # Read-only data portability is open to any member, including a Viewer.
+def test_export_project_viewer_denied(owner: object, other_user: object, project: Project) -> None:
+    # The seed export carries raw team-private points/velocity without field-level
+    # ADR-0104 gating, so it is Admin/Owner-only (#1957) — a Viewer now gets 403.
     ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
     resp = _client(other_user).get(f"/api/v1/projects/{project.pk}/export/")
-    assert resp.status_code == 200, resp.content
+    assert resp.status_code == 403, resp.content
 
 
 @pytest.mark.django_db

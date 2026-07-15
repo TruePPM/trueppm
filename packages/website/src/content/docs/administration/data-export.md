@@ -12,8 +12,8 @@ developer to edit and re-import.
 
 ### Web
 
-Open **Program → Settings → General** and choose **Export to JSON**. The program
-downloads as a seed file.
+Open **Program → Settings → General**, find the **Export program** control, and
+choose **Export to JSON**. The program downloads as a seed file.
 
 ### Command line
 
@@ -30,8 +30,10 @@ write to stdout.
 GET /api/v1/programs/{id}/export/
 ```
 
-Available to any program member (Viewer and above). The response is a JSON
-attachment.
+Requires **Admin** (a Program Admin or the Owner). The seed includes team-private
+data raw — story points and committed/completed/capacity velocity — so it sits at
+the same tier as the async export bundle rather than being open to every member.
+The response is a JSON attachment.
 
 ## Export a project
 
@@ -48,9 +50,10 @@ project downloads as a seed file.
 GET /api/v1/projects/{id}/export/
 ```
 
-Available to any project member (Viewer and above), including on **archived**
-projects (so data stays portable for archival). The response is a JSON
-attachment.
+Requires **Admin** (a project Admin or the Owner), including on **archived**
+projects (so data stays portable for archival). Like the program seed, the file
+contains team-private points and velocity raw, so it is an Admin-tier action
+rather than open to every member. The response is a JSON attachment.
 
 Because the seed format always describes a program and its projects, a
 project export wraps the project in a small synthesized single-project program
@@ -122,6 +125,62 @@ same credential-safety rule as the JSON export applies: **no passwords, tokens,
 or internal secrets are ever included.**
 :::
 
+## Export a program bundle (async)
+
+The program has the same complete archive as a project, at program grain. The
+**program export bundle** is a single downloadable `.tar.gz` containing the
+program's canonical JSON seed **plus**, for each member project, an MS Project
+file, every task attachment, all logged time entries, and that project's change
+history. Like the project bundle it is built in the background and offered as a
+download when ready.
+
+### Web
+
+Open **Program → Settings → General** and choose **Export program bundle…**. The
+card shows the job move through *queued → building → ready*, then offers
+**Download bundle**. A finished bundle's download link stays valid for a few days
+(see [retention](/administration/retention/)); use **Rebuild** to make a fresh one.
+
+Exporting a program bundle is an **Admin+** action (a Program Admin or the Owner),
+for the same reason as the project bundle — it aggregates the full change history,
+every member's time entries, and all attachment binaries across the program.
+
+### API
+
+```
+POST /api/v1/programs/{id}/export/          # queue a bundle → 202 + job
+GET  /api/v1/programs/{id}/export/jobs/{job_id}/           # poll status
+GET  /api/v1/programs/{id}/export/jobs/{job_id}/download/  # download when ready
+```
+
+`POST` returns `202 Accepted` with a job whose `status` is `pending`. Poll the
+job endpoint until `status` is `success` (or `failed`), then fetch `download_url`.
+The download endpoint is authenticated, returns `409` while the job is still
+building and `410 Gone` once the link has expired, and reuses a bundle already
+`pending`/`running` for the program rather than queuing a duplicate build.
+
+Inside the archive, each member project's contents are nested under
+`projects/<project-id>/` (its `msproject.xml`, `attachments/…`,
+`time_entries.json`, and `history/*.json`), with one program-wide `seed.json`,
+`manifest.json`, and `counts.json` at the top level.
+
+## Who can export, and where bundles are stored
+
+Exporting a full project or program — the JSON seed **and** the async bundle — is
+restricted to **project/program Admins and Owners**. A bundle is a complete copy of
+the project's or program's data (including time entries, attachments, and history),
+so a Viewer or Member cannot bulk-export it even though they can read individual
+items through the app.
+
+Async bundles are written to your configured object storage under the
+`project-exports/` and `program-exports/` prefixes, downloaded only through the
+authenticated API (never a raw or presigned storage URL), and purged automatically
+once they expire (see [retention](/administration/retention/)). **Operator note:**
+because a bundle is sensitive by nature, keep the storage location private — the
+bucket/prefix hosting these archives must not be publicly readable. TruePPM never
+emits a public URL for them, but the storage backend's own ACL is your
+responsibility.
+
 ## Round-trip guarantee
 
 Export is deterministic: exporting a program, re-importing the result into a
@@ -145,6 +204,8 @@ A seed file is the program's **declarative state**, not its database internals.
 - the program, its projects, tasks (WBS paths, three-point estimates,
   durations, statuses), dependencies, sprints, baselines, risks, resources, and
   memberships,
+- each project's board-card **labels** (name, color, and which tasks carry them),
+  so a re-import restores the label catalog,
 - the email addresses of the program's members and resources.
 
 :::caution

@@ -16,6 +16,11 @@ import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '..
 import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { useExportProgramSeed } from '@/hooks/useProgramSeedIo';
+import {
+  downloadProgramExport,
+  useProgramExportJob,
+  useStartProgramExport,
+} from '../hooks/useProgramExport';
 import { ROLE_ADMIN } from '@/lib/roles';
 import type {
   DurationChangePercentPolicy,
@@ -51,6 +56,88 @@ const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: st
   { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can see this program.' },
   { id: 'PRIVATE', label: 'Private', hint: 'Only invited members can see this program.' },
 ];
+
+/**
+ * Async program export bundle control (issue 1958, ADR-0219). The program-grain
+ * sibling of the project ExportBundleCard: queue a richer .tar.gz (the program
+ * seed + per-project MS Project XML, attachments, time entries, and audit
+ * history), poll queued → building → ready-to-download / failed, then download
+ * through the authenticated endpoint. Admin-gated and assembled off the request
+ * thread — distinct from the synchronous JSON-seed "Export program" control.
+ */
+function ExportProgramBundle({ programId, code }: { programId: string; code?: string | null }) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const start = useStartProgramExport(programId);
+  const { data: job } = useProgramExportJob(programId, jobId);
+
+  const startError = start.error instanceof Error ? start.error.message : null;
+  const building = job?.status === 'pending' || job?.status === 'running';
+  const ready = job?.status === 'success' && job.downloadUrl != null;
+  const failed = job?.status === 'failed';
+  const busy = start.isPending || building;
+
+  const statusLabel = start.isPending
+    ? 'Queuing…'
+    : job?.status === 'pending'
+      ? 'Queued…'
+      : job?.status === 'running'
+        ? 'Building bundle…'
+        : null;
+
+  const onStart = () => {
+    setDownloadError(null);
+    start.mutate(undefined as void, { onSuccess: (j) => setJobId(j.id) });
+  };
+
+  const onDownload = () => {
+    if (!job) return;
+    setDownloadError(null);
+    downloadProgramExport(programId, job, code).catch(() => {
+      setDownloadError('Download failed — the link may have expired. Build a new bundle.');
+    });
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={ready ? onDownload : onStart}
+          disabled={busy}
+          className="h-9 rounded-control border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
+          hover:bg-neutral-surface-raised
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          disabled:opacity-60"
+        >
+          {busy ? 'Working…' : ready ? 'Download bundle' : 'Export program bundle…'}
+        </button>
+        {statusLabel ? (
+          <span className="text-[12px] text-neutral-text-secondary" role="status">
+            {statusLabel}
+          </span>
+        ) : null}
+        {ready ? (
+          <button
+            type="button"
+            onClick={onStart}
+            className="text-[12px] text-neutral-text-secondary underline hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+          >
+            Rebuild
+          </button>
+        ) : null}
+      </div>
+      {startError || failed || downloadError ? (
+        <p className="mt-2 text-[12px] text-semantic-critical" role="alert">
+          {downloadError ??
+            (failed
+              ? `Export failed${job?.errorDetail ? `: ${job.errorDetail}` : ''}. Try again.`
+              : startError)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Program > General settings page (issue #523).
@@ -717,7 +804,7 @@ export function ProgramGeneralPage() {
           </FieldRow>
 
           <FieldRow
-            label="Export"
+            label="Export program"
             hint="Download this program as a canonical JSON seed file. Re-importing it reproduces the program."
           >
             <button
@@ -736,6 +823,15 @@ export function ProgramGeneralPage() {
                 Export failed — please try again.
               </p>
             )}
+          </FieldRow>
+
+          <FieldRow
+            label="Export program bundle"
+            hint="Download a complete .tar.gz archive of this program: the JSON seed plus, per project, MS Project XML, attachments, time entries, and change history. Admin+ only; built in the background and the download link expires after a few days."
+          >
+            {programId ? (
+              <ExportProgramBundle programId={programId} code={program?.code} />
+            ) : null}
           </FieldRow>
         </div>
       </StubFieldset>

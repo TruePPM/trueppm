@@ -19,11 +19,12 @@ from typing import Any, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -52,13 +53,16 @@ from trueppm_api.apps.projects.bulk_settings import (
     build_bulk_response,
 )
 from trueppm_api.apps.projects.models import (
+    ExportJobStatus,
     Methodology,
     Program,
+    ProgramExportJob,
     Project,
     Task,
     TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import (
+    ProgramExportJobSerializer,
     ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
     ProgramSerializer,
@@ -154,15 +158,31 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             if self.request.method == "PATCH":
                 return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
             return [IsAuthenticated(), IsProgramMember()]
-        if self.action in ("rollup", "export", "schedule"):
-            # Computed overview rollup / JSON export / merged program schedule —
-            # read-only. Open to any program member, including on closed programs
-            # (overview, data portability, and the cross-project schedule stay
-            # available for forensics/archival). Per-project task redaction inside
-            # the schedule payload (ADR-0120 D5) is enforced in the action body,
-            # not here — a program member who cannot read a member project still
-            # reaches the endpoint but sees only that project's ExternalTaskCards.
+        if self.action in ("rollup", "schedule"):
+            # Computed overview rollup / merged program schedule — read-only. Open
+            # to any program member, including on closed programs (overview and the
+            # cross-project schedule stay available for forensics/archival).
+            # Per-project task redaction inside the schedule payload (ADR-0120 D5)
+            # is enforced in the action body, not here — a program member who cannot
+            # read a member project still reaches the endpoint but sees only that
+            # project's ExternalTaskCards.
             return [IsAuthenticated(), IsProgramMember()]
+        if self.action == "export":
+            # Program seed export — Admin+ for BOTH the GET sync JSON seed and the
+            # POST async .tar.gz bundle (#1957, mirroring the project-side gate).
+            # The seed dumps team-private data raw across every member project
+            # (story points, committed/completed/capacity velocity, per-member
+            # effort) with no ADR-0104 field-gating (deferred to 0.5, #1959), so a
+            # Viewer/Member reaching it is a bulk ADR-0104 bypass. Bulk export at
+            # program grain is a program-admin action. Stays available on closed
+            # programs (portability for archival/forensics).
+            return [IsAuthenticated(), IsProgramAdmin()]
+        if self.action in ("export_jobs", "export_job_detail", "export_job_download"):
+            # Async program export bundle list / poll / download (#1958, ADR-0219):
+            # Admin+, matching the POST enqueue. Available on closed programs;
+            # object-level cross-program IDOR (a job_id from another program) is
+            # closed in the action bodies via program-scoped lookups.
+            return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "resource_contention":
             # Resource allocation/contention data is Scheduler+ even on read
             # (web-rule 94, matching the per-project resource-allocation gate);
@@ -261,6 +281,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         becomes the program OWNER (same authorization as ``create`` — any
         authenticated user may create a program). ``create_users`` is forced off:
         importing a seed on a live instance must never mint arbitrary logins.
+
+        Permission parity (#1957): import stays ``IsAuthenticated`` (via the
+        get_permissions default) deliberately, because program ``create`` is
+        likewise ``IsAuthenticated`` — both mint a brand-new program owned by the
+        caller, touching no existing data. Import is not tightened beyond create;
+        if create ever becomes workspace-gated, this action must move with it.
         """
         from django.conf import settings
 
@@ -300,6 +326,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        methods=["GET"],
         summary="Export the program as a downloadable JSON seed file",
         responses={
             200: OpenApiResponse(
@@ -308,17 +335,141 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             )
         },
     )
-    @action(detail=True, methods=["get"], url_path="export")
+    @extend_schema(
+        methods=["POST"],
+        summary="Queue a richer asynchronous program export bundle",
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=ProgramExportJobSerializer,
+                description=(
+                    "An async program export job (ADR-0219, #1958). The job builds a "
+                    ".tar.gz containing the canonical JSON seed plus, per member project, "
+                    "MS Project XML, task attachments, time entries, and the audit/change "
+                    "history. Poll GET .../export/jobs/{job_id}/ until status is 'success', "
+                    "then fetch download_url. Admin+ only; an in-flight job is returned "
+                    "rather than queuing a duplicate build."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["get", "post"], url_path="export")
     def export(self, request: Request, pk: str | None = None) -> HttpResponse:
-        """Export this program as a downloadable canonical JSON seed file (#616)."""
+        """GET: synchronous JSON seed (#616). POST: queue the async bundle (#1958).
+
+        Both paths are Admin+ (#1957, see get_permissions). The GET path returns the
+        canonical JSON seed as a synchronous attachment; the POST path (ADR-0219)
+        enqueues the richer async ``.tar.gz`` bundle across every member project and
+        returns ``202`` with the job row.
+        """
+        program = self.get_object()
+
+        if request.method == "POST":
+            from trueppm_api.apps.projects.services import enqueue_program_export
+
+            job = enqueue_program_export(program=program, requested_by=request.user)
+            return Response(ProgramExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_program
 
-        program = self.get_object()
         body = dump_seed(export_program(program))
         filename = f"{program.code or program.pk}.json"
         response = HttpResponse(body, content_type="application/json")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
+
+    @extend_schema(
+        summary="List this program's async export jobs",
+        responses={200: ProgramExportJobSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="export/jobs")
+    def export_jobs(self, request: Request, pk: str | None = None) -> Response:
+        """List recent async export jobs for this program (#1958, ADR-0219). Admin+.
+
+        Page-number envelope so an integrator can tell a truncated list from a
+        complete one. Scoped to the resolved (membership-checked) program, so no
+        cross-program rows leak.
+        """
+        program = self.get_object()
+        jobs = ProgramExportJob.objects.filter(program=program)
+        paginator = pagination.PageNumberPagination()
+        page = paginator.paginate_queryset(jobs, request, view=self)
+        data = ProgramExportJobSerializer(page if page is not None else jobs, many=True).data
+        return paginator.get_paginated_response(data)
+
+    @extend_schema(
+        summary="Poll one async program export job's status",
+        responses={200: ProgramExportJobSerializer},
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"export/jobs/(?P<job_id>[0-9a-f-]{36})",
+    )
+    def export_job_detail(
+        self, request: Request, pk: str | None = None, job_id: str | None = None
+    ) -> Response:
+        """Poll an async program export job (#1958, ADR-0219). Admin+.
+
+        The job is looked up scoped to the resolved program, so a ``job_id``
+        belonging to another program 404s rather than leaking (object-level IDOR
+        guard).
+        """
+        program = self.get_object()
+        job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
+        return Response(ProgramExportJobSerializer(job).data)
+
+    @extend_schema(
+        summary="Download a completed async program export bundle",
+        responses={
+            (200, "application/gzip"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="The program export .tar.gz as a file attachment.",
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Export is not ready yet."
+            ),
+            410: OpenApiResponse(
+                response=OpenApiTypes.OBJECT, description="Download link has expired."
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"export/jobs/(?P<job_id>[0-9a-f-]{36})/download",
+    )
+    def export_job_download(
+        self, request: Request, pk: str | None = None, job_id: str | None = None
+    ) -> Any:
+        """Stream a completed program export bundle (#1958, ADR-0219). Admin+.
+
+        Authenticated — the archive contains the whole program including its audit
+        history, so it is never served from a raw, unauthenticated storage URL.
+        ``409`` if not ready, ``410 Gone`` once the link has expired. The job is
+        program-scoped so a ``job_id`` from another program 404s (IDOR guard).
+        """
+        from django.core.files.storage import default_storage
+
+        program = self.get_object()
+        job = get_object_or_404(ProgramExportJob, pk=job_id, program=program)
+        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
+            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
+        if job.expires_at is not None and job.expires_at < timezone.now():
+            return Response(
+                {"detail": "This export has expired. Request a new one."},
+                status=status.HTTP_410_GONE,
+            )
+        try:
+            handle = default_storage.open(job.file_path, "rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("Export archive is no longer available.") from exc
+        return FileResponse(
+            handle,
+            as_attachment=True,
+            filename=f"program-{program.code or program.pk}.tar.gz",
+            content_type="application/gzip",
+        )
 
     @extend_schema(
         summary="Within-program resource contention (cross-project allocation)",

@@ -5376,6 +5376,51 @@ def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
     return job
 
 
+def enqueue_program_export(*, program: Any, requested_by: Any) -> Any:
+    """Create a program export job row and best-effort dispatch the Celery task.
+
+    The program-grain sibling of :func:`enqueue_project_export` (#1958). Same
+    transactional-outbox convention (ADR-0080): the row commits with the request;
+    ``.delay()`` is attempted in ``transaction.on_commit`` and broker errors are
+    swallowed because ``drain_program_exports`` re-dispatches stuck ``pending``
+    rows. ``.delay()`` is only ever called from here and the drain.
+
+    De-dupes in-flight work per program: assembling a program bundle (every member
+    project's seed + attachment blobs + history) is expensive, so if an export for
+    this program is already ``pending``/``running`` the existing job is returned
+    rather than queuing a second build. The returned ``ProgramExportJob`` row is
+    itself the audit record (``requested_by`` + timestamps).
+    """
+    from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
+
+    existing = ProgramExportJob.objects.filter(
+        program=program,
+        status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING],
+    ).first()
+    if existing is not None:
+        return existing
+
+    job = ProgramExportJob.objects.create(program=program, requested_by=requested_by)
+
+    # Capture the plain job id (not the ORM instance) in the on_commit closure — a
+    # deferred callback must not close over a live row that could be stale by the
+    # time it runs (transactional-outbox hygiene).
+    job_id = str(job.id)
+
+    def _dispatch() -> None:
+        from trueppm_api.apps.projects.tasks import run_program_export
+
+        try:
+            run_program_export.delay(job_id)
+        except Exception:  # pragma: no cover - broker-down path, drain recovers
+            logger.warning(
+                "broker unavailable; drain_program_exports will pick up export %s", job_id
+            )
+
+    transaction.on_commit(_dispatch)
+    return job
+
+
 # ---------------------------------------------------------------------------
 # Project settings template — copy-at-create (#157, ADR-0242)
 # ---------------------------------------------------------------------------

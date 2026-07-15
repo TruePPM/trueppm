@@ -416,6 +416,25 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('button', { name: 'Change' })).toBeEnabled();
   });
 
+  // ----- Export parity naming + async bundle (#1958) -------------------------
+
+  it('labels the sync seed card "Export program" (object-explicit naming)', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: 300 }) });
+    renderPage();
+    // The FieldRow label makes project-vs-program export unambiguous.
+    expect(screen.getByText('Export program')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export to JSON/i })).toBeInTheDocument();
+  });
+
+  it('renders the async "Export program bundle" card', () => {
+    useProgram.mockReturnValue({ data: makeProgram({ my_role: 300 }) });
+    renderPage();
+    expect(screen.getByText('Export program bundle')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Export program bundle/i }),
+    ).toBeInTheDocument();
+  });
+
   // ----- Methodology cascade lock (ADR-0107, issue 955) ----------------------
 
   it('locks the methodology picker (but not other fields) under a workspace INHERIT policy', () => {

@@ -36,12 +36,14 @@ from trueppm_api.apps.projects.models import (
     CalendarException,
     Dependency,
     EstimateStatus,
+    Label,
     Program,
     Project,
     Risk,
     RiskTask,
     Sprint,
     Task,
+    TaskLabel,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
 from trueppm_api.apps.projects.seed.reldates import (
@@ -141,6 +143,10 @@ class _SeedImporter:
         # global task / sprint indices keyed by (project_slug, local_id)
         self.tasks: dict[tuple[str, str], Task] = {}
         self.sprints: dict[tuple[str, str], Sprint] = {}
+        # Label index keyed by (project_slug, label_slug) — ADR-0400 labels folded
+        # into the seed (#1958). Populated in Pass A, consumed by the Pass B
+        # ``_link_task_labels`` attach step.
+        self.labels: dict[tuple[str, str], Label] = {}
         # v2 (ADR-0114): relative dates resolve against an anchor (import day),
         # and an events timeline is replayed with backdated history. v1 docs set
         # the major to "1", so replay is off and dates are plain ISO literals.
@@ -172,6 +178,7 @@ class _SeedImporter:
             self._link_dependencies(project, project_data)
             self._link_parent_epics(project_data)
             self._link_sprint_milestones(project_data)
+            self._link_task_labels(project_data)
             self._assign_resources(project, project_data)
             self._capture_baselines(project, project_data)
             self._create_risks(project, project_data.get("risks", []), project_data["slug"])
@@ -479,6 +486,20 @@ class _SeedImporter:
             project=project, user=self.owner, defaults={"role": Role.OWNER}
         )
 
+        # Labels (ADR-0400, #1958): the project's curated label catalog. Created
+        # here in Pass A so the Pass B ``_link_task_labels`` step can attach each
+        # task's slugged labels once all tasks exist. Slugs are file-local and
+        # project-scoped; the seed carries no label UUID (0.5 adds that, #1959).
+        for label_data in data.get("labels", []):
+            label = Label.objects.create(
+                project=project,
+                name=label_data["name"],
+                color=label_data.get("color", "slate"),
+                position=label_data.get("position", 0),
+                created_by=self.owner,
+            )
+            self.labels[(slug, label_data["slug"])] = label
+
         for sprint_data in data.get("sprints", []):
             start = self._date(sprint_data["start_date"], slug)
             finish = self._date(sprint_data["finish_date"], slug)
@@ -611,6 +632,25 @@ class _SeedImporter:
             sprint = self.sprints[(slug, sprint_data["slug"])]
             sprint.target_milestone = self.tasks[(slug, target)]
             sprint.save(update_fields=["target_milestone"])
+
+    def _link_task_labels(self, data: dict[str, Any]) -> None:
+        """Attach each task's slugged labels via the ``TaskLabel`` through table (#1958).
+
+        Runs in Pass B (after all tasks exist). A task's ``labels`` is a list of
+        project-local label slugs resolved against the ``self.labels`` index built
+        in Pass A. Unknown slugs are skipped defensively — validation (#614) rejects
+        a dangling label ref before we reach here, so this is belt-and-braces.
+        """
+        slug = data["slug"]
+        for task_data in data.get("tasks", []):
+            label_slugs = task_data.get("labels", [])
+            if not label_slugs:
+                continue
+            task = self.tasks[(slug, task_data["wbs_path"])]
+            for label_slug in label_slugs:
+                label = self.labels.get((slug, label_slug))
+                if label is not None:
+                    TaskLabel.objects.get_or_create(task=task, label=label)
 
     def _assign_resources(self, project: Project, data: dict[str, Any]) -> None:
         slug = data["slug"]
