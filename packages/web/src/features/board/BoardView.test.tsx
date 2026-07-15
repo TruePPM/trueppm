@@ -1818,3 +1818,121 @@ describe('collapsed column stub signals (#1695/#1696/#1697)', () => {
     expect(screen.queryByTestId('expand-my-hidden-columns')).toBeNull();
   });
 });
+
+describe('per-cell card cap (issue 1967, ADR-0420)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetMocks();
+  });
+
+  // A committed leaf (plannedStart is inherited from FIXTURE_TASKS[1]) in a
+  // WIP-limitless column (TO DO) so the cap — not a breach — governs it. Calm by
+  // default: not critical/blocked/late, unassigned (the resource pool is empty
+  // so my-own never fires).
+  const leaf = (id: string, name: string, extra: Partial<Task> = {}): Task => ({
+    ...FIXTURE_TASKS[1],
+    id,
+    name,
+    isSummary: false,
+    isMilestone: false,
+    isCritical: false,
+    isComplete: false,
+    isBlocked: false,
+    blockedAgeSeconds: null,
+    totalFloat: 5,
+    readiness: 'ready',
+    parentId: null,
+    status: 'NOT_STARTED',
+    progress: 10,
+    assignees: [],
+    ...extra,
+  });
+
+  function enableCap(cap = 6) {
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ cellCap: cap }));
+  }
+
+  const cardCount = () => screen.getAllByRole('button', { name: /% complete/i }).length;
+
+  it('does not cap when the pref is off (default) — the full stack renders', () => {
+    mockTasks = Array.from({ length: 8 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));
+    renderBoard();
+    expect(cardCount()).toBe(8);
+    expect(screen.queryByTestId('cell-overflow-toggle')).toBeNull();
+  });
+
+  it('collapses the calm overflow behind a "+N more" disclosure when the cap is on', () => {
+    enableCap(6);
+    mockTasks = Array.from({ length: 8 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));
+    renderBoard();
+    // 8 calm cards, cap 6 → 6 visible, 2 hidden.
+    expect(cardCount()).toBe(6);
+    const toggle = screen.getByTestId('cell-overflow-toggle');
+    expect(toggle).toHaveAttribute('aria-label', 'Show 2 more cards');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('does not collapse a single overflow card (min-overflow threshold)', () => {
+    enableCap(6);
+    // cap 6, 7 cards → hiding 1 is friction; show all, no toggle.
+    mockTasks = Array.from({ length: 7 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));
+    renderBoard();
+    expect(cardCount()).toBe(7);
+    expect(screen.queryByTestId('cell-overflow-toggle')).toBeNull();
+  });
+
+  it('expands to show every card when the disclosure is clicked, then collapses again', async () => {
+    const user = userEvent.setup();
+    enableCap(6);
+    mockTasks = Array.from({ length: 8 }, (_, i) => leaf(`c${i}`, `Card ${i + 1}`));
+    renderBoard();
+    await user.click(screen.getByTestId('cell-overflow-toggle'));
+    expect(cardCount()).toBe(8);
+    expect(screen.getByTestId('cell-overflow-toggle')).toHaveAttribute(
+      'aria-label',
+      'Show fewer cards',
+    );
+    expect(screen.getByTestId('cell-overflow-toggle')).toHaveAttribute('aria-expanded', 'true');
+    await user.click(screen.getByTestId('cell-overflow-toggle'));
+    expect(cardCount()).toBe(6);
+  });
+
+  it('never caps a WIP-breached cell — the overload pile stays fully visible', () => {
+    enableCap(6);
+    // 8 cards in IN_PROGRESS (wipLimit 3, showWip on) → over-limit → exempt.
+    mockTasks = Array.from({ length: 8 }, (_, i) =>
+      leaf(`c${i}`, `Card ${i + 1}`, { status: 'IN_PROGRESS' }),
+    );
+    renderBoard();
+    expect(cardCount()).toBe(8);
+    expect(screen.queryByTestId('cell-overflow-toggle')).toBeNull();
+  });
+
+  it('keeps exception cards (critical path) visible even past the cap', () => {
+    enableCap(6);
+    // 6 calm + 2 critical = 8 in TO DO. Both critical (exceptions) stay visible +
+    // 4 calm fill the cap → 6 visible, 2 calm overflow.
+    const calm = Array.from({ length: 6 }, (_, i) => leaf(`calm${i}`, `Calm ${i + 1}`));
+    const crit = [1, 2].map((n) => leaf(`crit${n}`, `Critical ${n}`, { isCritical: true }));
+    mockTasks = [...calm, ...crit];
+    renderBoard();
+    expect(
+      screen.getByRole('button', { name: /Critical 1,.*% complete/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Critical 2,.*% complete/i }),
+    ).toBeInTheDocument();
+    expect(cardCount()).toBe(6);
+    expect(screen.getByTestId('cell-overflow-toggle')).toHaveAttribute(
+      'aria-label',
+      'Show 2 more cards',
+    );
+  });
+
+  it('exposes the "Cap tall cells" toggle in the More menu', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await openMore(user);
+    expect(screen.getByRole('checkbox', { name: /Cap tall cells/i })).toBeInTheDocument();
+  });
+});

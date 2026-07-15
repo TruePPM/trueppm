@@ -78,6 +78,8 @@ function Harness(overrides: Partial<CalmToolbarProps> = {}) {
     onShowWipToggle: vi.fn(),
     showColTints: true,
     onShowColTintsToggle: vi.fn(),
+    capCellsOn: false,
+    onCapCellsToggle: vi.fn(),
     evmMode: 'off',
     onEvmChange: vi.fn(),
     onOpenColumns: vi.fn(),

@@ -211,6 +211,52 @@ describe('useBoardToolbarPrefs', () => {
   });
 });
 
+describe('cellCap pref (issue 1967)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('defaults to null (off) when never set', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.cellCap).toBeNull();
+  });
+
+  it('defaults to null for a stored blob without the key (additive, no version bump)', () => {
+    localStorage.setItem(
+      'trueppm.board.toolbarPrefs.v1',
+      JSON.stringify({ layout: 'rail', zoom: 'large' }),
+    );
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.cellCap).toBeNull();
+  });
+
+  it('honors a positive integer cap', () => {
+    localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ cellCap: 6 }));
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    expect(result.current.cellCap).toBe(6);
+  });
+
+  it('coerces a non-positive or non-numeric cap to null', () => {
+    for (const bad of [0, -3, 'lots', null, 2.9]) {
+      localStorage.clear();
+      localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ cellCap: bad }));
+      const { result } = renderHook(() => useBoardToolbarPrefs());
+      // 2.9 floors to 2 (a valid positive int); everything else → null.
+      expect(result.current.cellCap).toBe(bad === 2.9 ? 2 : null);
+    }
+  });
+
+  it('persists a set cap and clears back to null', () => {
+    const { result } = renderHook(() => useBoardToolbarPrefs());
+    act(() => result.current.setCellCap(6));
+    expect(result.current.cellCap).toBe(6);
+    const stored = JSON.parse(localStorage.getItem('trueppm.board.toolbarPrefs.v1')!) as {
+      cellCap?: number | null;
+    };
+    expect(stored.cellCap).toBe(6);
+    act(() => result.current.setCellCap(null));
+    expect(result.current.cellCap).toBeNull();
+  });
+});
+
 describe('resolveBoardLayout (issue 605)', () => {
   it('auto-defaults an unset layout to queue on mobile', () => {
     expect(resolveBoardLayout('rail', false, true)).toBe('queue');

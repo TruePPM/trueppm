@@ -540,6 +540,25 @@ export function ChevronDownIcon({ className, ...rest }: IconProps) {
   );
 }
 
+export function ChevronUpIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <polyline points="4 10 8 6 12 10" />
+    </svg>
+  );
+}
+
 /** Drag handle — six-dot grip for reorderable rows */
 export function DragHandleIcon({ className, ...rest }: IconProps) {
   return (

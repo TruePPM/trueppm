@@ -308,3 +308,89 @@ test.describe('Board viewability — phase-lane focus (#1460)', () => {
     await expect(page.getByRole('group', { name: 'Alpha Phase swimlane' })).toHaveCount(0);
   });
 });
+
+test.describe('Board viewability — per-cell card cap (#1967, ADR-0420)', () => {
+  // A phase with 8 calm leaf cards in To Do (NOT_STARTED has wip_limit null in
+  // the canonical config, so the cell is under-WIP and the cap — not a breach —
+  // governs it).
+  const CAP_PHASE = {
+    id: 'cap-phase', wbs_path: '9', name: 'Cap Phase',
+    early_start: '2026-01-05', early_finish: '2026-02-14',
+    duration: 30, percent_complete: 0, is_critical: false,
+    is_milestone: false, is_summary: true, parent_id: null,
+    status: 'NOT_STARTED', assignees: [], total_float: null,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+  };
+  const CAP_TASKS = [
+    CAP_PHASE,
+    ...Array.from({ length: 8 }, (_, i) =>
+      leaf(`cap${i}`, 'cap-phase', `9.${i + 1}`, 'NOT_STARTED', `Cap Card ${i + 1}`),
+    ),
+  ];
+
+  async function setupCap(page: import('@playwright/test').Page, capOn: boolean) {
+    if (capOn) {
+      await page.addInitScript(() => {
+        localStorage.setItem('trueppm.board.toolbarPrefs.v1', JSON.stringify({ cellCap: 6 }));
+      });
+    }
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: CAP_TASKS,
+      statusSummary: { task_count: 8 },
+    });
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: CAP_TASKS.length, next: null, previous: null, results: CAP_TASKS }),
+      }),
+    );
+    await page.route('**/api/v1/dependencies/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.goto(`${BASE_URL}/board`);
+    await expect(page.getByText('Cap Phase')).toBeVisible({ timeout: 10_000 });
+  }
+
+  test('with the cap off (default) every card renders and no overflow toggle appears', async ({
+    page,
+  }) => {
+    await setupCap(page, false);
+    await expect(page.getByRole('button', { name: /Cap Card 8,/ })).toBeVisible();
+    await expect(page.getByTestId('cell-overflow-toggle')).toHaveCount(0);
+  });
+
+  test('with the cap on, the calm overflow collapses behind a "+N more" disclosure', async ({
+    page,
+  }) => {
+    await setupCap(page, true);
+    const toggle = page.getByTestId('cell-overflow-toggle');
+    await expect(toggle).toBeVisible();
+    // 8 calm cards, cap 6 → 2 hidden.
+    await expect(toggle).toHaveAccessibleName('Show 2 more cards');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('clicking the disclosure reveals the hidden cards', async ({ page }) => {
+    await setupCap(page, true);
+    const toggle = page.getByTestId('cell-overflow-toggle');
+    await toggle.click();
+    await expect(page.getByTestId('cell-overflow-toggle')).toHaveAccessibleName('Show fewer cards');
+    await expect(page.getByTestId('cell-overflow-toggle')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('the "Cap tall cells" control lives in the More menu', async ({ page }) => {
+    await setupCap(page, false);
+    await page.getByRole('button', { name: 'More board controls' }).click();
+    await expect(page.getByRole('checkbox', { name: /Cap tall cells/ })).toBeVisible();
+  });
+});
