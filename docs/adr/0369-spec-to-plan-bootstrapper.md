@@ -28,10 +28,13 @@ one substrate and two interchangeable adapters onto it:
   approver (defaulting to the team)** promotes into a real single Project/Program via the
   existing seed importer. The promoted result is a **sprint-flexible backlog, not a
   locked CPM schedule**.
-- **Adapter (a): web-upload dissector** — the operator configures an **in-boundary,
-  self-hostable, EU-pinnable** bring-your-own-LLM endpoint (no external fallback); a user
-  uploads a spec in the web UI; the server's LLM populates the draft with human-authored
-  writes. **Depends on nothing unbuilt → near-term (0.5).**
+- **Adapter (a): web-upload dissector** — the operator configures a bring-your-own-LLM
+  endpoint; a user uploads a spec in the web UI; the server's LLM populates the draft with
+  human-authored writes. **Residency is per-credential-type** (threat-model 2026-07-13):
+  only a **self-hosted** endpoint is genuinely zero-egress/in-boundary; a hosted API
+  (Anthropic/Bedrock/Vertex) sends spec text to a third-party cloud under the operator's
+  own DPA — §4 requires the config UI to disclose this per credential type, so "in-boundary"
+  is not claimed uniformly. **Depends on nothing unbuilt → near-term (0.5).**
 - **Adapter (b): client-agent dissector** — the user's own MCP-connected agent holds the
   spec, dissects it off-server, and populates the draft via a **narrow new
   `mcp:write:draft` capability scope** (per-project, draft-only, never touches the live
@@ -182,8 +185,12 @@ Alex's "manual velocity" concern).
   holds **no model credential at all** and bears no inference cost. This is the path for
   users who want to use a Claude subscription rather than an API key — the server-upload
   adapter (§4) cannot use a subscription, this door needs none.
-
-### 5a. Discoverability — MCP prompt + next-step affordances
+- **Persists excerpts, not the spec**: the write tools store only per-item `span_excerpt`s
+  (short quotable spans), **never** the full `source_spec_text` — the spec stays in the
+  user's client, so adapter (b) keeps its residency benefit and provenance stays
+  server-verifiable. (`source_spec_text` is populated only by adapter (a).) The token's
+  `PlanDraft.program` is pinned to its own scope at creation and `request_plan_promotion`
+  cannot redirect the promotion target.
 
 The client-agent door is a *sequence* (`create_plan_draft → add_plan_draft_items →
 attach_spec_provenance → request_plan_promotion`). Four layered mechanisms mean neither the
@@ -342,10 +349,43 @@ egress).
 2. **`LlmProviderSettings` scope** — admin-wide singleton (chosen, OIDC/email precedent)
    vs per-user (`IntegrationCredential`, ADR-0097). Confirm; also the home for `#1061`
    BYO-local-model adapter.
-3. **Decision memory (#1059)** — feed elicitation answers + de-scoped requirements to the
-   decision store, or note as an explicit 0.5 non-goal.
+3. **Decision memory (#1059)** — RESOLVED (see Pre-code gate outcomes #5): explicit 0.5
+   non-goal; revisit in 0.6.
 4. **Extension-point shape** — freeze the `PlanDraft` status/forecast + `SpecProvenance`
    serializer shapes (ADR-0029/0030) before Enterprise builds against them.
 5. **MCP prompt args** — settle the `bootstrap_plan_from_spec` prompt's parameters (spec
    text/file, target program, elicitation defaults) and the next-step-hint copy during
    `ai-review` of the agent-write path.
+
+## Pre-code design-gate outcomes (2026-07-13)
+
+Four gates ran against this design (`ai-review`, `rbac-check`, `security-review`,
+`threat-model`); no gate warranted an architecture rethink — the substrate/two-adapter
+shape holds. Per-issue requirements are attached to #1868–#1875. Five items were flagged
+as blocking decisions; **all five are RESOLVED (2026-07-13, locked to the gate
+recommendations):**
+
+1. **Adapter (b) spec-persistence contract — RESOLVED.** The write tools persist **only
+   per-item `span_excerpt`s** (short, human-quotable spans), **never** the full
+   `source_spec_text` server-side. This preserves adapter (b)'s residency benefit (the spec
+   stays in the user's client) and keeps provenance server-verifiable against the stored
+   excerpt. `source_spec_text` is populated **only by adapter (a)** (the operator-configured
+   in-boundary path); it is null for agent-originated drafts.
+2. **Non-durability CI negative test — RESOLVED (required, #1875).** An automated CI
+   assertion that no PlanDraft-family write triggers
+   `enqueue_recalculate`/`broadcast_board_event`/notifications (boundary invariant 🔴 #1),
+   enforced in CI — not by review.
+3. **`PlanDraft.program` scope-pinning — RESOLVED (required, #1875).** `program` is pinned
+   to the token's own scope at creation; `request_plan_promotion` may not redirect the
+   promotion target. Closes the EoP path around the token's project-scoping.
+4. **Promotion permission — RESOLVED.** The promote action uses a **new** permission class
+   (never `import_seed`'s "any authenticated user" policy) with an approver role floor of
+   **Admin+** (baseline-create precedent). Changing the configurable approver is gated to
+   Admin+, and the approver may not be set below Member — closing the self-escalation path.
+5. **Decision-memory (#1059) — RESOLVED.** Explicit **0.5 non-goal**; revisit in 0.6. The
+   elicitation answers + de-scoped requirements are not fed to the decision store in the MVP.
+
+Note: the SSRF guard is `assert_url_allowed` (ADR-0049 §3, `integrations/http.py`) applied
+at **both** save-time and generation call-time (DNS-rebinding TOCTOU), https-only, with an
+explicit loopback affordance for genuinely-local models. The `schedule:simulate` blast-radius
+analogy in §Boundary references a *planned* ADR-0112 capability, not a shipped one.
