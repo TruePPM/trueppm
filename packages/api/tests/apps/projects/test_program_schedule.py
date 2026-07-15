@@ -215,3 +215,106 @@ def test_schedule_too_large_program_returns_422(calendar: Calendar) -> None:
         resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
     assert resp.status_code == 422
     assert resp.data["detail"].code == "program_schedule_too_large"
+
+
+def _program_with_invalid_task(
+    calendar: Calendar,
+) -> tuple[Program, Project, Task]:
+    """One program, a good project + a "Migration Tooling" project holding a task
+    with an invalid three-point triple (opt=1, ml=5, pess=0). Created via the ORM
+    to simulate imported/seeded/legacy data that bypassed serializer validation;
+    the engine's #1069 ordering guard rejects it."""
+    program = Program.objects.create(name="Atlas Platform Launch")
+    good = Project.objects.create(
+        name="Core API", start_date=START, calendar=calendar, program=program
+    )
+    bad = Project.objects.create(
+        name="Migration Tooling", start_date=START, calendar=calendar, program=program
+    )
+    Task.objects.create(project=good, name="Ship", duration=3)
+    offending = Task.objects.create(
+        project=bad,
+        name="Something",
+        duration=2,
+        optimistic_duration=1,
+        most_likely_duration=5,
+        pessimistic_duration=0,
+    )
+    return program, bad, offending
+
+
+@pytest.mark.django_db
+def test_schedule_invalid_task_data_returns_structured_422_not_500(calendar: Calendar) -> None:
+    """A single member-project task the CPM rejects (invalid three-point estimate)
+    must not 500 the whole program view (#1981): the endpoint returns a structured
+    422 naming the offending project and task, not an unhandled 500 or a blank
+    retry loop. Here the requester can read the offending project, so the raw engine
+    reason (which carries the estimate values) is included."""
+    program, bad, offending = _program_with_invalid_task(calendar)
+    user = User.objects.create_user(username="pm", password="pw")
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+    # Full read access to the offending project → reason is disclosed.
+    ProjectMembership.objects.create(project=bad, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+
+    assert resp.status_code == 422, resp.data
+    assert resp.data["code"] == "program_schedule_invalid_input"
+    assert resp.data["project"]["id"] == str(bad.pk)
+    assert resp.data["project"]["name"] == "Migration Tooling"
+    assert resp.data["task"]["id"] == str(offending.pk)
+    assert resp.data["task"]["name"] == "Something"
+    # The raw engine reason is carried through for debugging when the requester can
+    # read the offending project.
+    assert "optimistic <= most_likely <= pessimistic" in resp.data["reason"]
+
+
+@pytest.mark.django_db
+def test_schedule_invalid_task_redacts_reason_for_inaccessible_project(
+    calendar: Calendar,
+) -> None:
+    """When the offending task sits in a member project the requester cannot read,
+    the 422 still names the project/task (already public via lane metadata + the
+    ExternalTaskCard) but redacts the engine ``reason`` — it embeds the task's
+    estimate day-values, which ADR-0120 D5 withholds for inaccessible projects."""
+    program, _bad, offending = _program_with_invalid_task(calendar)
+    user = User.objects.create_user(username="viewer", password="pw")
+    # Program member, but NOT a member of the offending project → no full read.
+    ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
+
+    resp = _client(user).get(f"/api/v1/programs/{program.pk}/schedule/")
+
+    assert resp.status_code == 422, resp.data
+    assert resp.data["code"] == "program_schedule_invalid_input"
+    # Identity is still surfaced (D5-public), so the user knows where to look.
+    assert resp.data["project"]["name"] == "Migration Tooling"
+    assert resp.data["task"]["id"] == str(offending.pk)
+    # The withheld part: the reason (which embeds estimate values) is absent.
+    assert "reason" not in resp.data
+
+
+@pytest.mark.django_db
+def test_gather_background_path_reraises_raw_scheduler_error(calendar: Calendar) -> None:
+    """The persisted background pass (``enforce_max=False``) must let the raw
+    ``SchedulerError`` propagate to its TaskRunTracker (which marks the run FAILED)
+    — it must NOT be converted into the on-read DRF 422, which is meaningless in a
+    Celery context and would corrupt run telemetry (#1981)."""
+    from trueppm_scheduler.engine import InvalidScheduleInput
+
+    from trueppm_api.apps.projects.program_schedule import gather_program_schedule
+
+    program = Program.objects.create(name="Atlas Platform Launch")
+    proj = Project.objects.create(
+        name="Migration Tooling", start_date=START, calendar=calendar, program=program
+    )
+    Task.objects.create(
+        project=proj,
+        name="Something",
+        duration=2,
+        optimistic_duration=1,
+        most_likely_duration=5,
+        pessimistic_duration=0,
+    )
+
+    with pytest.raises(InvalidScheduleInput):
+        gather_program_schedule(program, enforce_max=False)

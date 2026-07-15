@@ -2955,6 +2955,44 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"duration": exc.messages}) from exc
 
+        # Three-point estimate ordering (#1982, mirrors the engine invariant in
+        # trueppm_scheduler.engine, added in #1069). The Monte Carlo sampler only
+        # draws when all three estimates are present, so a complete triple must
+        # satisfy optimistic <= most_likely <= pessimistic. Without this check the
+        # API accepts data the engine later rejects, and the invalid row detonates
+        # at compute time — a hard 500 on the compute-on-read program schedule
+        # (#1981), or a silently-FAILED single-project recompute that keeps serving
+        # stale dates. Validate against the merged instance+attrs state so a
+        # partial PATCH that crosses the invariant against stored values is still
+        # rejected; only run when the write actually touches an estimate field, so
+        # an unrelated PATCH on a task with pre-existing (legacy/imported) invalid
+        # estimates is not blocked — same policy as the project-span guard above.
+        # A partial estimate (not all three present) stays unvalidated, matching
+        # the engine.
+        if _ESTIMATE_FIELDS & set(attrs):
+            _pert = {
+                field: (attrs[field] if field in attrs else getattr(self.instance, field, None))
+                for field in ("optimistic_duration", "most_likely_duration", "pessimistic_duration")
+            }
+            _opt = _pert["optimistic_duration"]
+            _ml = _pert["most_likely_duration"]
+            _pess = _pert["pessimistic_duration"]
+            if (
+                _opt is not None
+                and _ml is not None
+                and _pess is not None
+                and not _opt <= _ml <= _pess
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "most_likely_duration": serializers.ErrorDetail(
+                            "Three-point estimates must satisfy optimistic ≤ most "
+                            f"likely ≤ pessimistic (got {_opt} ≤ {_ml} ≤ {_pess}).",
+                            code="invalid_three_point_estimate",
+                        )
+                    }
+                )
+
         self._validate_product_backlog(attrs)
 
         return attrs

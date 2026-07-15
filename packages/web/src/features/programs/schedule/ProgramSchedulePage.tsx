@@ -15,6 +15,7 @@ import { useProgram } from '@/hooks/useProgram';
 import {
   useProgramSchedule,
   classifyProgramScheduleError,
+  getProgramScheduleInvalidInput,
   type ProgramScheduleExternalTask,
 } from '../hooks/useProgramSchedule';
 import { transformProgramSchedule } from './transformProgramSchedule';
@@ -186,6 +187,41 @@ export function ProgramSchedulePage() {
             >
               Go to Projects
             </Button>
+          }
+        />
+      );
+    } else if (kind === 'invalid-input') {
+      // One member project has a task the CPM engine can't compute (#1981).
+      // Name the offending project and route the user there — a retry can never
+      // succeed until the underlying data is fixed, so no Retry button here.
+      const invalid = getProgramScheduleInvalidInput(error);
+      const projectName = invalid?.project?.name;
+      body = (
+        <EmptyState
+          className="h-full"
+          icon={WarningIcon}
+          title="A project's task data can't be scheduled"
+          description={
+            projectName
+              ? `A task in “${projectName}” has an invalid estimate or dependency, so the program schedule can't be computed. Open that project's schedule to fix it.`
+              : "A task in one of this program's projects has an invalid estimate or dependency, so the program schedule can't be computed. Open the project's schedule to fix it."
+          }
+          action={
+            invalid?.project?.id ? (
+              <Button
+                variant="secondary"
+                onClick={() => void navigate(`/projects/${invalid.project!.id}/schedule`)}
+              >
+                Open {projectName ?? 'project'} schedule
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={() => void navigate(`/programs/${programId}/projects`)}
+              >
+                Go to Projects
+              </Button>
+            )
           }
         />
       );
