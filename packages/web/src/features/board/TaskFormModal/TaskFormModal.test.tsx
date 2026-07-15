@@ -304,6 +304,53 @@ describe('TaskFormModal (issue #305)', () => {
     expect(screen.getByLabelText<HTMLSelectElement>('Delivery mode').value).toBe('waterfall');
   });
 
+  // ----- Duration input (#1974) -------------------------------------------
+  // The controlled number input used to coerce empty → 1 on every keystroke,
+  // so the field could never be cleared: the leading "1" was sticky and every
+  // typed digit only appended to it (12, 13, … but never 5). These lock in the
+  // clear-and-retype behavior.
+
+  it('edit mode: the Duration field can be cleared without snapping back to 1 (#1974)', () => {
+    renderModal({ task: baseTask({ duration: 5 }) });
+    const dur = screen.getByLabelText<HTMLInputElement>(/Duration/);
+    expect(dur.value).toBe('5');
+    fireEvent.change(dur, { target: { value: '' } });
+    // The field stays empty mid-edit — it must NOT re-insert "1".
+    expect(dur.value).toBe('');
+  });
+
+  it('edit mode: a directly-typed Duration lands as-is and submits (#1974)', async () => {
+    renderModal({ task: baseTask({ duration: 5 }) });
+    const dur = screen.getByLabelText<HTMLInputElement>(/Duration/);
+    fireEvent.change(dur, { target: { value: '' } });
+    fireEvent.change(dur, { target: { value: '20' } });
+    // Not appended after a sticky "1" — the value is exactly what was typed.
+    expect(dur.value).toBe('20');
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await Promise.resolve();
+    expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ duration: 20 }));
+  });
+
+  it('edit mode: blurring the Duration field while empty normalizes it to 1 (#1974)', () => {
+    renderModal({ task: baseTask({ duration: 5 }) });
+    const dur = screen.getByLabelText<HTMLInputElement>(/Duration/);
+    fireEvent.change(dur, { target: { value: '' } });
+    fireEvent.blur(dur);
+    expect(dur.value).toBe('1');
+  });
+
+  it('create mode: a directly-typed Duration is used in the create payload (#1974)', async () => {
+    renderModal({ phaseName: 'Alpha', parentId: 'phase-uuid' });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'New task' } });
+    const dur = screen.getByLabelText<HTMLInputElement>(/Duration/);
+    fireEvent.change(dur, { target: { value: '' } });
+    fireEvent.change(dur, { target: { value: '7' } });
+    expect(dur.value).toBe('7');
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({ duration: 7 }));
+  });
+
   it('suppresses the Classification group in milestone-create mode', () => {
     renderModal({ isMilestone: true });
     expect(screen.queryByLabelText('Type')).not.toBeInTheDocument();

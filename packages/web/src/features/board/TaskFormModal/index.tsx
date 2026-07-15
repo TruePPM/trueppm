@@ -246,6 +246,13 @@ export function TaskFormModal({
     if (task === null && defaultSprintId !== undefined) s.sprintId = defaultSprintId ?? null;
     return s;
   });
+  // Raw text backing the Duration input. Kept separate from the numeric
+  // form.duration so the field can hold a transient empty/partial string while
+  // editing — a controlled number input that coerces empty → 1 on every
+  // keystroke can never be cleared, which strands the user with a sticky
+  // leading "1" (#1974). form.duration is the committed value; this is only
+  // the in-flight display. Normalized back to a valid number on blur.
+  const [durationText, setDurationText] = useState<string>(() => String(form.duration));
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // #838: dirty-discard confirmation now uses the ARIA-managed ConfirmDiscardDialog
@@ -493,12 +500,18 @@ export function TaskFormModal({
 
   async function handleSubmit() {
     setSubmitError(null);
+    // Duration is normalized on blur, but a keyboard submit (⌘+S) can fire while
+    // the field still holds a transient sub-1/empty entry that never blurred, so
+    // floor it here too — the committed value must always be a valid working-day
+    // count (#1974). Milestones are always zero-duration.
+    const committedDuration =
+      Number.isFinite(form.duration) && form.duration >= 1 ? form.duration : 1;
     try {
       let savedTaskId: string;
       if (mode === 'create') {
         const created = await createTask.mutateAsync({
           name: form.name.trim(),
-          duration: isMilestoneCreate ? 0 : form.duration,
+          duration: isMilestoneCreate ? 0 : committedDuration,
           parent_id: selectedParentId,
           status: form.status,
           planned_start: form.plannedStart || null,
@@ -523,7 +536,7 @@ export function TaskFormModal({
           // disjoint field the server merges; an overlapping edit 409s with a toast.
           baseVersion: task.serverVersion,
           name: form.name.trim(),
-          duration: form.duration,
+          duration: committedDuration,
           percent_complete: form.progress,
           planned_start: form.plannedStart || null,
           status: form.status,
@@ -912,10 +925,31 @@ export function TaskFormModal({
                     min={isEdit ? 0 : 1}
                     step={1}
                     disabled={isReadOnly}
-                    value={form.duration}
+                    value={durationText}
                     onChange={(e) => {
-                      const n = Number(e.target.value);
-                      setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
+                      // Let the field hold whatever the user is typing (including
+                      // an empty string) so it stays clearable; only push a
+                      // parseable number through to the committed value. An empty
+                      // or partial entry leaves form.duration at its last valid
+                      // value rather than snapping it back to 1 mid-keystroke —
+                      // the sticky-leading-"1" bug (#1974).
+                      const raw = e.target.value;
+                      setDurationText(raw);
+                      const n = Number(raw);
+                      if (raw !== '' && Number.isFinite(n)) {
+                        setForm((f) => ({ ...f, duration: n }));
+                      }
+                    }}
+                    onBlur={() => {
+                      // Normalize on blur: an empty or below-floor entry snaps
+                      // back to the minimum working-day count (1) so the
+                      // committed value is always valid, then re-sync the
+                      // display text to the committed number.
+                      const n = Number(durationText);
+                      const next =
+                        durationText.trim() !== '' && Number.isFinite(n) && n >= 1 ? n : 1;
+                      if (next !== form.duration) setForm((f) => ({ ...f, duration: next }));
+                      setDurationText(String(next));
                     }}
                     className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
                   />
