@@ -36,8 +36,9 @@ The **General** page edits the project's identity:
   scope. See [Sharing & Access Inheritance](/administration/sharing-and-access/).
 
 Changes are staged and committed with a save bar, so you can review edits before
-applying them. (A calendar picker on this page is planned; calendars are managed
-separately for now — see [Calendars](/features/calendars/).)
+applying them. The **General** page also carries the project's **Working calendar**
+override, which inherits the program or workspace default unless you set one — see
+[Working calendars](/administration/working-calendars/).
 
 ## Access
 

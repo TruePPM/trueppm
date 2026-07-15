@@ -246,9 +246,22 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
     )
     def patch(self, request: Request) -> Response:
         workspace = Workspace.load()
+        # The workspace calendar (or its override policy) is the root of the calendar
+        # inheritance chain (ADR-0441): changing either re-points every project that
+        # inherits up to the workspace, so capture the before-values to fan out a CPM
+        # recompute only when they actually change (a no-op PATCH must not recompute).
+        old_calendar_id = workspace.calendar_id
+        old_calendar_policy = workspace.calendar_override_policy
         serializer = WorkspaceSettingsSerializer(workspace, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if (
+            workspace.calendar_id != old_calendar_id
+            or workspace.calendar_override_policy != old_calendar_policy
+        ):
+            from trueppm_api.apps.projects.views import _recalc_projects_for_workspace_calendar
+
+            _recalc_projects_for_workspace_calendar()
         # Audit the change (ADR-0157). Record which settings keys were touched —
         # not their values, which may be large or sensitive (e.g. branding blobs).
         services.record_audit_event(

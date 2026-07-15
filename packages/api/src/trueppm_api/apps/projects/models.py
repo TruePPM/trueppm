@@ -724,6 +724,21 @@ class Program(VersionedModel):
         null=True,
         blank=True,
     )
+    # Program-level working-calendar override (ADR-0441, #1987). NULL = inherit the
+    # workspace calendar; a value overrides it for every project in this program whose
+    # own ``Project.calendar`` is NULL. The effective base calendar CPM schedules
+    # against is resolved computed-on-read in ``apps.projects.calendar_settings``
+    # (project ?? program ?? workspace ?? system default) and exposed via the
+    # serializer's ``effective_calendar``/``inherited_calendar``/``calendar_source``
+    # fields; clients never re-implement the precedence. PROTECT so a Calendar still in
+    # use as a program default cannot be deleted out from under a live schedule.
+    calendar = models.ForeignKey(
+        "projects.Calendar",
+        on_delete=models.PROTECT,
+        related_name="programs",
+        null=True,
+        blank=True,
+    )
     # PM override for the program health chip. Defaults to AUTO so existing rows
     # render via the (future) rollup rather than implying a manual judgment.
     health = models.CharField(

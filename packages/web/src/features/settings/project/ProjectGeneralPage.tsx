@@ -24,6 +24,7 @@ import { InheritableNumberField } from '../components/InheritableNumberField';
 import { InheritableSelectField } from '../components/InheritableSelectField';
 import { MC_ATTRIBUTION_OPTIONS, MC_ATTRIBUTION_HINT, MC_HISTORY_HINT } from '../forecastHistory';
 import { DURATION_CHANGE_POLICY_OPTIONS, DURATION_CHANGE_POLICY_HINT } from '../durationChangePolicy';
+import { calendarSourceCopy } from './calendarDisplay';
 import { DEFAULT_ITERATION_LABEL } from '@/lib/iterationLabel';
 import { HEALTH_OPTIONS, HEALTH_ACTIVE } from '@/features/project/projectHealth';
 
@@ -355,6 +356,17 @@ export function ProjectGeneralPage() {
   });
 
   const calendarInherited = calendarId === null;
+  // The true resolved source of the inherited calendar (ADR-0441, issue #1987) —
+  // may be the program, the workspace, or nothing above the project (system
+  // default). Reads the SAVED project record (not the dirty `calendarId` local
+  // state), so the breadcrumb only appears while the project's own override is
+  // actually null server-side. `calendar_source` is optional (a stale cached
+  // response from before #1987), so its absence yields no breadcrumb rather than
+  // guessing "workspace" the way the pre-#1987 copy assumed.
+  const calendarBreadcrumb =
+    project && project.calendar === null && project.calendar_source
+      ? calendarSourceCopy(project.calendar_source, project.effective_calendar ?? null)
+      : null;
   // The whole General page is editable only at Admin+ (issue 1084). Reads are open;
   // writes are gated server-side (ProjectSerializer.validate / _SCHEDULER_WRITABLE_FIELDS),
   // so this render-gate only spares a sub-Admin the arm-save-bar → 400 round-trip.
@@ -632,7 +644,7 @@ export function ProjectGeneralPage() {
 
           <FieldRow
             label="Working calendar"
-            hint="Override the workspace work-week and holidays for this project. Inherit to follow the workspace default."
+            hint="Override the work-week and holidays for this project. Inherit to follow the program or workspace default."
           >
             {/* Inherit (calendar = null) ↔ override (calendar = chosen id). Both the
                 toggle and the picker are native form controls, so the enclosing
@@ -695,6 +707,11 @@ export function ProjectGeneralPage() {
                 </svg>
               </div>
             </div>
+            {calendarBreadcrumb && (
+              <p className="text-[12px] text-neutral-text-secondary mt-1.5">
+                {calendarBreadcrumb}
+              </p>
+            )}
           </FieldRow>
 
           <FieldRow label="Default view">

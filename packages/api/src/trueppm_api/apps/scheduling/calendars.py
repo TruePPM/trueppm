@@ -46,13 +46,25 @@ def register_calendar_layer_resolver(resolver: CalendarLayerResolver) -> None:
 
 
 def oss_project_layers(project: Project) -> list[Calendar]:
-    """OSS resolver: the base project calendar plus its overlay layers, in order.
+    """OSS resolver: the effective base calendar plus its overlay layers, in order.
 
-    Callers must have prefetched ``calendar__exceptions`` and
-    ``calendar_layers__calendar__exceptions`` to avoid an N+1 query per calendar.
+    The base is resolved through the inheritance chain (ADR-0441): the project's own
+    ``calendar`` if set, else its program's, else the workspace default — computed-on-read
+    in ``apps.projects.calendar_settings`` so CPM and the serializers can never disagree
+    on which calendar a project schedules against. ``None`` up the whole chain means the
+    system default, so ``compose`` falls back to Mon-Fri/8h/UTC exactly as before.
+
+    Overlays (``ProjectCalendarLayer``, ADR-0251) still stack on top of the inherited
+    base — inheritance only decides the base; it does not change overlay composition.
+
+    Callers must have prefetched ``calendar__exceptions``,
+    ``calendar_layers__calendar__exceptions`` and — so the inherited tiers don't N+1 —
+    ``program__calendar__exceptions`` when the project may inherit from its program.
     """
+    from trueppm_api.apps.projects.calendar_settings import resolve_effective_base_calendar
+
     calendars: list[Calendar] = []
-    base = project.calendar
+    base = resolve_effective_base_calendar(project)
     if base is not None:
         calendars.append(base)
     # Ordered by ProjectCalendarLayer.Meta.ordering = ["sort_order"].

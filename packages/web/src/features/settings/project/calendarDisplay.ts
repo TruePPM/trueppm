@@ -5,6 +5,7 @@ import type {
   CalendarRole,
   PreviewDay,
 } from '@/hooks/useProjectCalendars';
+import type { EffectiveCalendar, ProjectCalendarSource } from '@/api/types';
 
 /**
  * Pure presentation helpers for the Working-calendars panel (#906).
@@ -34,6 +35,68 @@ export function describeWorkingDays(mask: number): string {
   const contiguous = indexes.every((v, i) => i === 0 || v === indexes[i - 1] + 1);
   if (contiguous && on.length > 1) return `${on[0].short} – ${on[on.length - 1].short}`;
   return on.map((d) => d.short).join(', ');
+}
+
+/**
+ * The system default working calendar (Mon–Fri, 8h/day) — what CPM uses when no
+ * scope up the chain sets one (ADR-0441). Single source of truth for the
+ * workspace/program calendar pages so the fallback copy never drifts.
+ */
+export const SYSTEM_DEFAULT_CALENDAR = { working_days: 31, hours_per_day: 8 } as const;
+
+/** Human label for inheriting the system default (Mon–Fri, 8h/day). */
+export const SYSTEM_DEFAULT_CALENDAR_LABEL = 'the system default (Mon–Fri, 8h/day)';
+
+/**
+ * One-line summary of a resolved working calendar (ADR-0441, issue #1987):
+ * "Mon – Fri · 8h/day" or, when the calendar has holidays configured,
+ * "Mon – Fri · 8h/day · 3 holidays". Shared by the Workspace/Program/Project
+ * calendar settings pages and the `EffectiveCalendar` payload embedded on
+ * Project/Program reads — `holiday_count` is optional so an org-level
+ * `WorkingCalendar` row (no holiday count on the wire) still summarizes cleanly.
+ */
+export function summarizeWorkingCalendar(cal: {
+  working_days: number;
+  hours_per_day: number;
+  holiday_count?: number;
+}): string {
+  const base = `${describeWorkingDays(cal.working_days)} · ${cal.hours_per_day}h/day`;
+  if (!cal.holiday_count) return base;
+  return `${base} · ${cal.holiday_count} holiday${cal.holiday_count === 1 ? '' : 's'}`;
+}
+
+/**
+ * Breadcrumb copy for the Project General "Working calendar" field when the
+ * project inherits (its own `calendar` is null) (ADR-0441, issue #1987). Names
+ * the TRUE resolved source — which may be the program, the workspace, or
+ * nothing above the project (the system default) — rather than assuming
+ * "workspace" the way the pre-#1987 copy did.
+ *
+ * Returns `null` for the `'project'` source (the project has its own override;
+ * the select already shows the chosen name, so no breadcrumb is needed) and
+ * whenever `effective` is missing for a `program`/`workspace` source — a stale
+ * cached response from before #1987 shipped omits the new field, and a missing
+ * breadcrumb is safer than rendering "Inherited from program (undefined)".
+ */
+export function calendarSourceCopy(
+  source: ProjectCalendarSource,
+  effective: EffectiveCalendar | null,
+): string | null {
+  switch (source) {
+    case 'program':
+      return effective
+        ? `Inherited from program (${effective.name}). ${summarizeWorkingCalendar(effective)}.`
+        : null;
+    case 'workspace':
+      return effective
+        ? `Inherited from workspace (${effective.name}). ${summarizeWorkingCalendar(effective)}.`
+        : null;
+    case 'system_default':
+      return 'Inherited from the system default (Mon–Fri, 8h/day). No org calendar is set above this project.';
+    case 'project':
+    default:
+      return null;
+  }
 }
 
 /**

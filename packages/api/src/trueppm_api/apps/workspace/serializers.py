@@ -150,6 +150,13 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "attachments_enabled",
             "allowed_attachment_types",
             "attachments_override_policy",
+            # Workspace-wide default working calendar (ADR-0441, #1987) — the root of
+            # the Project → Program → Workspace → system-default chain. Nullable: NULL =
+            # fall through to the system default (Mon-Fri/8h/UTC). calendar_override_policy
+            # gates whether programs/projects may override (SUGGEST = yes in OSS; INHERIT
+            # locks the affordance; ENFORCE = Enterprise lock, no-op in OSS).
+            "calendar",
+            "calendar_override_policy",
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",

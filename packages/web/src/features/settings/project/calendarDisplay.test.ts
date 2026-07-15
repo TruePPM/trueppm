@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   describeWorkingDays,
   summarizeCalendar,
+  summarizeWorkingCalendar,
+  calendarSourceCopy,
   classifyDay,
   countLostWorkdays,
   buildMonthGrids,
@@ -10,6 +12,19 @@ import {
   shiftAnchor,
 } from './calendarDisplay';
 import type { Calendar, PreviewDay } from '@/hooks/useProjectCalendars';
+import type { EffectiveCalendar } from '@/api/types';
+
+function eff(over: Partial<EffectiveCalendar> = {}): EffectiveCalendar {
+  return {
+    id: 'ec',
+    name: 'Standard 5-day',
+    working_days: 31,
+    hours_per_day: 8,
+    timezone: 'UTC',
+    holiday_count: 0,
+    ...over,
+  };
+}
 
 function cal(over: Partial<Calendar> = {}): Calendar {
   return {
@@ -34,6 +49,47 @@ describe('describeWorkingDays', () => {
   });
   it('handles the empty mask', () => {
     expect(describeWorkingDays(0)).toBe('No working days');
+  });
+});
+
+describe('summarizeWorkingCalendar', () => {
+  it('summarizes work-week and hours with no holidays', () => {
+    expect(summarizeWorkingCalendar(eff())).toBe('Mon – Fri · 8h/day');
+  });
+  it('appends a pluralized holiday count', () => {
+    expect(summarizeWorkingCalendar(eff({ holiday_count: 3 }))).toBe('Mon – Fri · 8h/day · 3 holidays');
+  });
+  it('uses the singular for one holiday', () => {
+    expect(summarizeWorkingCalendar(eff({ holiday_count: 1 }))).toBe('Mon – Fri · 8h/day · 1 holiday');
+  });
+  it('omits the holiday clause when the count is undefined', () => {
+    expect(summarizeWorkingCalendar({ working_days: 15, hours_per_day: 9 })).toBe('Mon – Thu · 9h/day');
+  });
+});
+
+describe('calendarSourceCopy', () => {
+  it('names the program when inherited from a program', () => {
+    expect(calendarSourceCopy('program', eff({ name: 'Delivery Team', holiday_count: 3 }))).toBe(
+      'Inherited from program (Delivery Team). Mon – Fri · 8h/day · 3 holidays.',
+    );
+  });
+  it('names the workspace when inherited from the workspace', () => {
+    expect(calendarSourceCopy('workspace', eff({ name: 'Standard 5-day (US)' }))).toBe(
+      'Inherited from workspace (Standard 5-day (US)). Mon – Fri · 8h/day.',
+    );
+  });
+  it('describes the system default without a calendar name', () => {
+    expect(calendarSourceCopy('system_default', null)).toBe(
+      'Inherited from the system default (Mon–Fri, 8h/day). No org calendar is set above this project.',
+    );
+  });
+  it('renders no breadcrumb when the project overrides its own calendar', () => {
+    expect(calendarSourceCopy('project', eff())).toBeNull();
+  });
+  it('falls back to no breadcrumb when a stale response omits the effective calendar', () => {
+    // A cached project from before #1987 shipped has calendar_source but no effective_calendar.
+    expect(calendarSourceCopy('program', null)).toBeNull();
+    expect(calendarSourceCopy('workspace', null)).toBeNull();
   });
 });
 

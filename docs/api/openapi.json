@@ -44656,6 +44656,11 @@
                         },
                         "nullable": true
                     },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -45858,6 +45863,14 @@
                     },
                     "attachments_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "calendar_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     }
                 }
             },
@@ -46340,6 +46353,30 @@
                         },
                         "readOnly": true
                     },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "effective_calendar": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "The resolved base calendar this program schedules against (ADR-0441).\n\n``None`` means the system default (program and workspace both unset). Uses the\ncached workspace singleton so a program list resolves it once, not per row.",
+                        "readOnly": true
+                    },
+                    "inherited_calendar": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "The workspace calendar the program inherits when its override is cleared.",
+                        "readOnly": true
+                    },
+                    "calendar_source": {
+                        "type": "string",
+                        "description": "Which scope supplied ``effective_calendar`` (program/workspace/system).",
+                        "readOnly": true
+                    },
                     "risk_slip_propagation": {
                         "allOf": [
                             {
@@ -46438,6 +46475,7 @@
                     }
                 },
                 "required": [
+                    "calendar_source",
                     "closed_at",
                     "closed_by",
                     "created_at",
@@ -46445,6 +46483,7 @@
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
+                    "effective_calendar",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
@@ -46455,6 +46494,7 @@
                     "inherited_allow_guests",
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
+                    "inherited_calendar",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -46752,6 +46792,11 @@
                         },
                         "nullable": true
                     },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -46949,6 +46994,18 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "effective_calendar": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "The resolved base calendar this project schedules against (ADR-0441).\n\n``None`` means the system default (Mon-Fri/8h/UTC) — nothing up the chain sets\na calendar. Uses the cached workspace singleton so a project list resolves it\nonce, not once per row.",
+                        "readOnly": true
+                    },
+                    "calendar_source": {
+                        "type": "string",
+                        "description": "Which scope supplied ``effective_calendar`` (project/program/workspace/system).",
+                        "readOnly": true
                     },
                     "code": {
                         "type": "string",
@@ -47300,10 +47357,12 @@
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
+                    "calendar_source",
                     "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
+                    "effective_calendar",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -47535,6 +47594,18 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "effective_calendar": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "The resolved base calendar this project schedules against (ADR-0441).\n\n``None`` means the system default (Mon-Fri/8h/UTC) — nothing up the chain sets\na calendar. Uses the cached workspace singleton so a project list resolves it\nonce, not once per row.",
+                        "readOnly": true
+                    },
+                    "calendar_source": {
+                        "type": "string",
+                        "description": "Which scope supplied ``effective_calendar`` (project/program/workspace/system).",
+                        "readOnly": true
                     },
                     "code": {
                         "type": "string",
@@ -47921,10 +47992,12 @@
                     "archived_at",
                     "archived_by",
                     "at_risk_count",
+                    "calendar_source",
                     "default_member_role_label",
                     "effective_allow_guests",
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
+                    "effective_calendar",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -54159,6 +54232,14 @@
                         }
                     },
                     "attachments_override_policy": {
+                        "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "calendar_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
                     "logo_url": {

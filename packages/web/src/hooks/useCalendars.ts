@@ -13,7 +13,9 @@ import { apiClient } from '@/api/client';
 export interface WorkingCalendar {
   id: string;
   name: string;
-  working_days: number[];
+  /** Single integer bitmask (Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64) —
+   *  the wire shape `describeWorkingDays` expects, not a per-day array. */
+  working_days: number;
   hours_per_day: number;
 }
 

@@ -22,8 +22,9 @@ function makeWrapper(qc: QueryClient) {
   };
 }
 
-const CAL_A = { id: 'cal-a', name: 'Standard 5-day', working_days: [1, 2, 3, 4, 5], hours_per_day: 8 };
-const CAL_B = { id: 'cal-b', name: 'Six-day site week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 };
+// working_days is a single integer bitmask (Mon=1…Sun=64): 31 = Mon–Fri, 63 = Mon–Sat.
+const CAL_A = { id: 'cal-a', name: 'Standard 5-day', working_days: 31, hours_per_day: 8 };
+const CAL_B = { id: 'cal-b', name: 'Six-day site week', working_days: 63, hours_per_day: 10 };
 
 describe('useCalendars', () => {
   let qc: QueryClient;

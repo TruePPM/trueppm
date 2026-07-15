@@ -42,6 +42,8 @@ const RAW_SETTINGS = {
   attachments_enabled: true,
   allowed_attachment_types: ['application/pdf', 'image/png'],
   attachments_override_policy: 'suggest',
+  calendar: 'cal-1',
+  calendar_override_policy: 'suggest',
   logo_url: '/api/v1/workspace/logo/?v=1700000000',
 };
 
@@ -69,6 +71,8 @@ const EXPECTED: WorkspaceSettings = {
   attachmentsEnabled: true,
   allowedAttachmentTypes: ['application/pdf', 'image/png'],
   attachmentsOverridePolicy: 'suggest',
+  calendar: 'cal-1',
+  calendarOverridePolicy: 'suggest',
   logoUrl: '/api/v1/workspace/logo/?v=1700000000',
 };
 

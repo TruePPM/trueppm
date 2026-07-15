@@ -43,6 +43,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     name: 'Phase 2 Modernization',
     description: 'Q3 platform rebuild',
     code: 'PH2',
+    calendar: null,
     methodology: 'HYBRID',
     effective_methodology: 'HYBRID',
     inherited_methodology: 'HYBRID',

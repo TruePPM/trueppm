@@ -80,6 +80,46 @@ export type ProgramMethodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
 export type MethodologyOverridePolicy = 'inherit' | 'suggest' | 'enforce';
 
 /**
+ * Resolved working-calendar payload embedded on Project/Program reads (ADR-0441,
+ * issue #1987). `working_days` is a single integer bitmask (Mon=1, Tue=2, Wed=4,
+ * Thu=8, Fri=16, Sat=32, Sun=64) — the same shape `describeWorkingDays` expects,
+ * NOT a per-day array. `holiday_count` is the number of exception rows on the
+ * calendar (0 for a plain work-week with no holidays configured).
+ */
+export interface EffectiveCalendar {
+  id: string;
+  name: string;
+  working_days: number;
+  hours_per_day: number;
+  timezone: string;
+  holiday_count: number;
+}
+
+/**
+ * Which scope supplied a project's `effective_calendar` (ADR-0441, issue #1987):
+ * the project's own override, its program, the workspace default, or nothing up
+ * the chain (the hardcoded Mon-Fri/8h/UTC system default).
+ */
+export type ProjectCalendarSource = 'project' | 'program' | 'workspace' | 'system_default';
+
+/**
+ * Which scope supplied a program's `effective_calendar` (ADR-0441, issue #1987).
+ * A program has no calendar of its own to report as the source — it is the top
+ * of the Project → Program chain, so the source is either its own override
+ * (`program`), the workspace default, or the system default.
+ */
+export type ProgramCalendarSource = 'program' | 'workspace' | 'system_default';
+
+/**
+ * Cascade policy for the workspace default working calendar (ADR-0441, issue
+ * #1987). Mirrors `MethodologyOverridePolicy`: `inherit` locks the per-scope
+ * affordance to the workspace default (picker read-only downstream); `suggest`
+ * (OSS default) lets programs/projects override; `enforce` is the Enterprise
+ * hard lock — OSS stores it but degrades it to `suggest` (no provider registered).
+ */
+export type CalendarOverridePolicy = 'inherit' | 'suggest' | 'enforce';
+
+/**
  * Program health override. ``AUTO`` defers to the (future) rollup; the explicit
  * values are PM overrides. Mirrors ``apps.projects.models.Health`` (issue #523).
  */
@@ -225,6 +265,25 @@ export interface Program {
   effective_task_duration_change_percent_policy: DurationChangePercentPolicy;
   /** Read-only policy inherited if the override were cleared (the workspace value). */
   inherited_task_duration_change_percent_policy: DurationChangePercentPolicy;
+  /**
+   * Calendar override (ADR-0441, issue #1987). null = inherit the workspace
+   * calendar (or the system default when the workspace has none set either).
+   */
+  calendar: string | null;
+  /**
+   * Read-only server-resolved calendar (program override ?? workspace default),
+   * or null when nothing up the chain sets one (CPM then uses the hardcoded
+   * Mon-Fri/8h/UTC system default). Optional — absent on a stale cached response
+   * from before #1987 shipped.
+   */
+  effective_calendar?: EffectiveCalendar | null;
+  /**
+   * Read-only calendar this program would show if its own override were cleared
+   * (the workspace value), or null for the system default.
+   */
+  inherited_calendar?: EffectiveCalendar | null;
+  /** Which scope supplied `effective_calendar`. */
+  calendar_source?: ProgramCalendarSource;
   /** Cross-project dependency slip behaviour (issue 529). Direct column (default
    *  `warn`), not inheritable, so it carries no effective/inherited pair.
    *  Bulk-editable from the Workspace → Programs matrix (issue 1283). */
@@ -438,6 +497,14 @@ export interface WorkspaceSettings {
   /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
    *  Enterprise hard lock (stored, never enforced in OSS). */
   taskDurationChangePercentOverridePolicy: 'inherit' | 'suggest' | 'enforce';
+  /** Workspace-wide default working calendar (ADR-0441, issue #1987) — the root of
+   *  the Project → Program → Workspace → system-default chain. null = fall through
+   *  to the system default (Mon–Fri, 8h/day); we do not materialize a system-default
+   *  Calendar row. */
+  calendar: string | null;
+  /** `suggest`/`inherit` (OSS) let programs/projects override; `enforce` is the
+   *  Enterprise hard lock (stored, never enforced in OSS). */
+  calendarOverridePolicy: CalendarOverridePolicy;
   /** Read-only public serve URL for the uploaded workspace logo (#969, ADR-0149),
    *  or null when no logo is set. Carries a `?v=` cache-buster keyed to updated_at. */
   logoUrl: string | null;

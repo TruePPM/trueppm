@@ -42,6 +42,8 @@ const WS: WorkspaceSettings = {
   attachmentsEnabled: true,
   allowedAttachmentTypes: ['application/pdf'],
   attachmentsOverridePolicy: 'suggest',
+  calendar: null,
+  calendarOverridePolicy: 'suggest',
   logoUrl: null,
 };
 
