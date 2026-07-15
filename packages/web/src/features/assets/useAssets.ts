@@ -26,6 +26,18 @@ export interface AssetUser {
   display_name: string;
 }
 
+/** Owning project — cross-project context for the workspace ("My Assets") tier. */
+export interface AssetProjectRef {
+  id: string;
+  name: string;
+}
+
+/** Owning program — null when the project has no program (ADR-0428). */
+export interface AssetProgramRef {
+  id: string;
+  name: string;
+}
+
 /** One unified asset — a file or an external link. Link-only fields
  *  (`provider`/`status`/`preview_type`) are null on files; `labels` is `[]` on
  *  files; `download_url` is the signed-url action target on stored files and null
@@ -41,6 +53,8 @@ export interface AssetItem {
   preview_type: string | null;
   labels: string[];
   task: AssetTaskRef;
+  project: AssetProjectRef;
+  program: AssetProgramRef | null;
   added_by: AssetUser | null;
   added_at: string;
 }
@@ -50,11 +64,14 @@ export interface AssetFeedResponse {
   next_cursor: string | null;
 }
 
-/** Client filter state. `kind` null = both; `label`/`provider` null = unfiltered. */
+/** Client filter state. `kind` null = both; `label`/`provider`/`program` null =
+ *  unfiltered. `program` narrows the workspace ("My Assets") tier to one program;
+ *  it is ignored by the project/program-scoped feeds. */
 export interface AssetFilterState {
   kind: AssetKind | null;
   label: string | null;
   provider: string | null;
+  program: string | null;
   q: string;
 }
 
@@ -62,6 +79,7 @@ export const DEFAULT_ASSET_FILTERS: AssetFilterState = {
   kind: null,
   label: null,
   provider: null,
+  program: null,
   q: '',
 };
 
@@ -73,6 +91,7 @@ export function assetParams(filters: AssetFilterState): Record<string, string> {
   if (filters.kind) params.kind = filters.kind;
   if (filters.label) params.label = filters.label;
   if (filters.provider) params.provider = filters.provider;
+  if (filters.program) params.program = filters.program;
   const q = filters.q.trim();
   if (q) params.q = q;
   return params;
@@ -104,6 +123,36 @@ export function useProjectAssets(projectId: string | undefined, filters: AssetFi
 /** Infinite Assets feed across a program's readable member projects. */
 export function useProgramAssets(programId: string | undefined, filters: AssetFilterState) {
   return useAssetFeed('programs', programId, filters);
+}
+
+/**
+ * Infinite "My Assets" feed — files and links on tasks assigned to the current
+ * user, across every project they can read (`GET /assets/?mine=true`, ADR-0428).
+ * `mine` is baked in, never a filter the user toggles; the workspace endpoint is
+ * always RBAC-narrowed to the caller's readable projects server-side.
+ */
+export function useMyAssets(filters: AssetFilterState, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: [
+      'assets',
+      'me',
+      filters.kind,
+      filters.label,
+      filters.provider,
+      filters.program,
+      filters.q,
+    ],
+    queryFn: async ({ pageParam }) => {
+      const params: Record<string, string> = { ...assetParams(filters), mine: 'true' };
+      if (pageParam) params.cursor = pageParam;
+      const res = await apiClient.get<AssetFeedResponse>('/assets/', { params });
+      return res.data;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    enabled,
+    staleTime: 15 * 1000,
+  });
 }
 
 /** Known link providers offered as provider filter chips (stable, data-independent). */

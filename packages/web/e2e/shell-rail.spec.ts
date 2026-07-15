@@ -111,7 +111,8 @@ test.describe('Left-rail 3-tier restructure (#1642)', () => {
     const rail = railOf(page);
     await expect(rail.getByText('This project')).toBeVisible({ timeout: 10_000 });
 
-    await rail.getByRole('link', { name: 'Assets' }).click();
+    // `exact` to avoid the sidebar "My Assets" personal link (#1980).
+    await rail.getByRole('link', { name: 'Assets', exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/assets$`));
   });
 

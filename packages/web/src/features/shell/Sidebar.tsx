@@ -650,6 +650,28 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 <span className="min-w-0 truncate">Timesheet</span>
               </NavLink>
               <NavLink
+                to="/me/assets"
+                aria-label="My Assets"
+                onClick={closeDrawer}
+                className={({ isActive }) => youRowClass(isActive)}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="shrink-0"
+                >
+                  <path d="M12 6.5 6.9 11.6a2.5 2.5 0 0 1-3.5-3.5l5-5a1.6 1.6 0 0 1 2.3 2.3l-5 5a.7.7 0 0 1-1-1L9.5 5" />
+                </svg>
+                <span className="min-w-0 truncate">My Assets</span>
+              </NavLink>
+              <NavLink
                 to="/me/notifications"
                 aria-label={
                   unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'

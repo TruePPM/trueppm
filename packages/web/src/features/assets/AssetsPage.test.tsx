@@ -1,7 +1,7 @@
 import { fireEvent, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
-import { ProjectAssetsPage, groupItemsByTask } from './AssetsPage';
+import { MyAssetsPage, ProjectAssetsPage, groupItemsByTask } from './AssetsPage';
 import type { AssetFilterState, AssetItem } from './useAssets';
 
 /** Read the filter state the mocked hook was last called with. */
@@ -14,6 +14,7 @@ vi.mock('@/hooks/useProgramId', () => ({ useProgramId: () => undefined }));
 
 const useProjectAssetsMock = vi.hoisted(() => vi.fn());
 const useProgramAssetsMock = vi.hoisted(() => vi.fn());
+const useMyAssetsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./useAssets', async (importActual) => {
   const actual = await importActual<typeof import('./useAssets')>();
@@ -21,6 +22,7 @@ vi.mock('./useAssets', async (importActual) => {
     ...actual,
     useProjectAssets: useProjectAssetsMock,
     useProgramAssets: useProgramAssetsMock,
+    useMyAssets: useMyAssetsMock,
   };
 });
 
@@ -35,6 +37,8 @@ const fileItem: AssetItem = {
   preview_type: null,
   labels: [],
   task: { id: 't1', name: 'Foundation' },
+  project: { id: 'proj-1', name: 'Alpha' },
+  program: { id: 'prog-1', name: 'GA Launch' },
   added_by: { id: 'u1', display_name: 'Alice' },
   added_at: '2026-03-01T12:00:00Z',
 };
@@ -50,6 +54,8 @@ const linkItem: AssetItem = {
   preview_type: null,
   labels: ['spec'],
   task: { id: 't1', name: 'Foundation' },
+  project: { id: 'proj-1', name: 'Alpha' },
+  program: { id: 'prog-1', name: 'GA Launch' },
   added_by: null,
   added_at: '2026-03-01T12:05:00Z',
 };
@@ -75,7 +81,9 @@ function makeQuery(results: AssetItem[] | undefined, opts: QueryOpts = {}) {
 beforeEach(() => {
   useProjectAssetsMock.mockReset();
   useProgramAssetsMock.mockReset();
+  useMyAssetsMock.mockReset();
   useProgramAssetsMock.mockReturnValue(makeQuery([]));
+  useMyAssetsMock.mockReturnValue(makeQuery([]));
 });
 
 describe('AssetsPage (project scope)', () => {
@@ -118,7 +126,51 @@ describe('AssetsPage (project scope)', () => {
   it('shows the error state when the feed fails', () => {
     useProjectAssetsMock.mockReturnValue(makeQuery(undefined, { isError: true }));
     renderWithRouter(<ProjectAssetsPage />, { initialEntries: ['/projects/proj-1/assets'] });
-    expect(screen.getByText("Couldn't load assets")).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load assets.");
+  });
+});
+
+describe('MyAssetsPage (personal / me scope)', () => {
+  it('renders the My Assets heading, subtitle, and each row with its project breadcrumb', () => {
+    const inOtherProject: AssetItem = {
+      ...linkItem,
+      id: 'l2',
+      title: 'PR 9',
+      url: 'https://github.com/acme/pay/pull/9',
+      project: { id: 'proj-2', name: 'Payments' },
+      program: { id: 'prog-2', name: 'Platform' },
+    };
+    useMyAssetsMock.mockReturnValue(makeQuery([linkItem, inOtherProject, fileItem]));
+    renderWithRouter(<MyAssetsPage />, { initialEntries: ['/me/assets'] });
+
+    expect(screen.getByRole('heading', { name: 'My Assets' })).toBeInTheDocument();
+    expect(screen.getByText('Files and links on tasks assigned to you.')).toBeInTheDocument();
+    // Cross-project context: each row shows its own project name.
+    expect(screen.getAllByText('Alpha').length).toBeGreaterThan(0);
+    expect(screen.getByText('Payments')).toBeInTheDocument();
+  });
+
+  it('shows the personal empty state when the user has no assets', () => {
+    useMyAssetsMock.mockReturnValue(makeQuery([]));
+    renderWithRouter(<MyAssetsPage />, { initialEntries: ['/me/assets'] });
+    expect(screen.getByText('No assets on your tasks yet')).toBeInTheDocument();
+  });
+
+  it('bakes mine=true in — filters carry no "mine" toggle, and kind still narrows', () => {
+    useMyAssetsMock.mockReturnValue(makeQuery([linkItem, fileItem]));
+    renderWithRouter(<MyAssetsPage />, { initialEntries: ['/me/assets'] });
+
+    // No "mine" chip is offered — mine is the frame, not a filter (Priya).
+    expect(screen.queryByRole('radio', { name: /mine/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name: 'Files' }));
+    // useMyAssets(filters, enabled) — filters is the first arg.
+    expect(useMyAssetsMock.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'file' });
+  });
+
+  it('surfaces the error state with the personal copy', () => {
+    useMyAssetsMock.mockReturnValue(makeQuery(undefined, { isError: true }));
+    renderWithRouter(<MyAssetsPage />, { initialEntries: ['/me/assets'] });
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load your assets.");
   });
 });
 
