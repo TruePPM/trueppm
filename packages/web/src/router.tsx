@@ -75,6 +75,9 @@ const ProjectAssetsPage = lazy(() =>
 const ProgramAssetsPage = lazy(() =>
   import('@/features/assets/AssetsPage').then((m) => ({ default: m.ProgramAssetsPage })),
 );
+const MyAssetsPage = lazy(() =>
+  import('@/features/assets/AssetsPage').then((m) => ({ default: m.MyAssetsPage })),
+);
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
@@ -738,6 +741,16 @@ export const router = createBrowserRouter([
                   </Suspense>
                 ),
                 handle: { title: 'My Work' } satisfies RouteHandle,
+              },
+              // My Assets — personal cross-project files + links (#1980, ADR-0428).
+              {
+                path: 'me/assets',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <MyAssetsPage />
+                  </Suspense>
+                ),
+                handle: { title: 'My Assets' } satisfies RouteHandle,
               },
               // Timesheet — weekly cross-project entry + submit (#1435, ADR-0224).
               {

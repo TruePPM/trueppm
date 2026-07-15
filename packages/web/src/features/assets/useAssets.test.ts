@@ -6,10 +6,25 @@ describe('assetParams', () => {
     expect(assetParams(DEFAULT_ASSET_FILTERS)).toEqual({ page_size: '30' });
   });
 
-  it('maps kind / label / provider through', () => {
-    const params = assetParams({ kind: 'link', label: 'spec', provider: 'github', q: '' });
-    expect(params).toMatchObject({ kind: 'link', label: 'spec', provider: 'github' });
+  it('maps kind / label / provider / program through', () => {
+    const params = assetParams({
+      kind: 'link',
+      label: 'spec',
+      provider: 'github',
+      program: 'prog-1',
+      q: '',
+    });
+    expect(params).toMatchObject({
+      kind: 'link',
+      label: 'spec',
+      provider: 'github',
+      program: 'prog-1',
+    });
     expect(params.q).toBeUndefined();
+  });
+
+  it('omits program when null', () => {
+    expect(assetParams({ ...DEFAULT_ASSET_FILTERS, program: null }).program).toBeUndefined();
   });
 
   it('trims q and drops it when blank', () => {

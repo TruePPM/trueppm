@@ -13,7 +13,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/components/EmptyState';
-import { InboxIcon, SearchIcon } from '@/components/Icons';
+import { QueryErrorState } from '@/components/QueryErrorState';
+import { InboxIcon, PaperclipIcon, SearchIcon } from '@/components/Icons';
 import { FilterChip } from '@/features/programs/backlog/components/FilterChip';
 import { formatRelative } from '@/lib/formatRelative';
 import { safeExternalHref } from '@/lib/safeExternalHref';
@@ -31,6 +32,7 @@ import {
   ASSET_PROVIDERS,
   DEFAULT_ASSET_FILTERS,
   openAssetDownload,
+  useMyAssets,
   useProgramAssets,
   useProjectAssets,
   type AssetFilterState,
@@ -47,13 +49,15 @@ const KIND_OPTIONS: { value: AssetKind | null; label: string }[] = [
   { value: 'link', label: 'Links' },
 ];
 
-type Scope = 'project' | 'program';
+type Scope = 'project' | 'program' | 'me';
 
-/** Shared Assets view. Both scope hooks are always called (rules of hooks); the
- *  inactive one is disabled by passing `undefined`, so only one fetches. */
+/** Shared Assets view. All scope hooks are always called (rules of hooks); the
+ *  inactive ones are disabled (undefined id / enabled:false), so only one fetches.
+ *  `me` is the personal cross-project tier — `GET /assets/?mine=true` (ADR-0428). */
 function AssetsView({ scope }: { scope: Scope }) {
   const projectId = useProjectId();
   const programId = useProgramId();
+  const isMe = scope === 'me';
 
   const [filters, setFilters] = useState<AssetFilterState>(DEFAULT_ASSET_FILTERS);
   const [groupByTask, setGroupByTask] = useState(false);
@@ -69,9 +73,11 @@ function AssetsView({ scope }: { scope: Scope }) {
 
   const projectQuery = useProjectAssets(scope === 'project' ? projectId : undefined, filters);
   const programQuery = useProgramAssets(scope === 'program' ? programId : undefined, filters);
-  const query = scope === 'project' ? projectQuery : programQuery;
+  const myQuery = useMyAssets(filters, isMe);
+  const query = scope === 'project' ? projectQuery : scope === 'program' ? programQuery : myQuery;
 
-  const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = query;
+  const { data, isLoading, isError, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    query;
   const items = useMemo(() => data?.pages.flatMap((p) => p.results) ?? [], [data]);
 
   const setKind = (kind: AssetKind | null) => setFilters((f) => ({ ...f, kind }));
@@ -81,14 +87,27 @@ function AssetsView({ scope }: { scope: Scope }) {
   return (
     <div className="flex h-full flex-col bg-app-canvas">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <InboxIcon aria-hidden="true" className="h-4 w-4 text-neutral-text-secondary" />
-          <h1 className="text-sm font-semibold text-neutral-text-primary">Assets</h1>
-          {!isLoading && !isError && (
-            <span className="text-xs text-neutral-text-secondary" aria-live="polite">
-              {items.length}
-              {hasNextPage ? '+' : ''} {items.length === 1 ? 'item' : 'items'}
-            </span>
+        <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            {isMe ? (
+              <PaperclipIcon aria-hidden="true" className="h-4 w-4 text-neutral-text-secondary" />
+            ) : (
+              <InboxIcon aria-hidden="true" className="h-4 w-4 text-neutral-text-secondary" />
+            )}
+            <h1 className="text-sm font-semibold text-neutral-text-primary">
+              {isMe ? 'My Assets' : 'Assets'}
+            </h1>
+            {!isLoading && !isError && (
+              <span className="text-xs text-neutral-text-secondary" aria-live="polite">
+                {items.length}
+                {hasNextPage ? '+' : ''} {items.length === 1 ? 'item' : 'items'}
+              </span>
+            )}
+          </div>
+          {isMe && (
+            <p className="text-xs text-neutral-text-secondary">
+              Files and links on tasks assigned to you.
+            </p>
           )}
         </div>
         <label className="flex items-center gap-1.5 text-xs text-neutral-text-secondary">
@@ -154,8 +173,9 @@ function AssetsView({ scope }: { scope: Scope }) {
           items={items}
           isLoading={isLoading}
           isError={isError}
+          onRetry={() => void refetch()}
           groupByTask={groupByTask}
-          scopeIsProgram={scope === 'program'}
+          scope={scope}
         />
         {!isLoading && !isError && hasNextPage && (
           <div className="flex justify-center px-4 py-3">
@@ -178,16 +198,23 @@ interface AssetsBodyProps {
   items: AssetItem[];
   isLoading: boolean;
   isError: boolean;
+  onRetry: () => void;
   groupByTask: boolean;
-  scopeIsProgram: boolean;
+  scope: Scope;
 }
 
-function AssetsBody({ items, isLoading, isError, groupByTask, scopeIsProgram }: AssetsBodyProps) {
+function AssetsBody({ items, isLoading, isError, onRetry, groupByTask, scope }: AssetsBodyProps) {
+  const isMe = scope === 'me';
+  const loadingLabel = isMe ? 'Loading your assets…' : 'Loading assets…';
   if (isLoading) {
     return (
-      <ul className="divide-y divide-neutral-border" aria-hidden="true">
+      <ul
+        className="divide-y divide-neutral-border"
+        role="status"
+        aria-label={loadingLabel}
+      >
         {Array.from({ length: 6 }).map((_, i) => (
-          <li key={i} className="px-4 py-3">
+          <li key={i} className="px-4 py-3" aria-hidden="true">
             <div className="h-4 w-2/3 rounded bg-neutral-surface-raised motion-safe:animate-pulse" />
           </li>
         ))}
@@ -195,27 +222,28 @@ function AssetsBody({ items, isLoading, isError, groupByTask, scopeIsProgram }: 
     );
   }
   if (isError) {
+    // A dead feed on a primary surface is an assertive, retry-able failure —
+    // never an empty state that reads as "nothing here yet" (rule 246, #1764).
     return (
-      <EmptyState
-        icon={InboxIcon}
-        title="Couldn't load assets"
-        description="Something went wrong fetching the feed. Try refreshing."
+      <QueryErrorState
+        message={isMe ? "Couldn't load your assets." : "Couldn't load assets."}
+        onRetry={onRetry}
       />
     );
   }
   if (items.length === 0) {
     return (
       <EmptyState
-        icon={InboxIcon}
-        title="No assets yet"
-        description={
-          scopeIsProgram
-            ? "Files and links attached to tasks across this program's projects will appear here. Adjust the filters to widen the view."
-            : 'Files and links attached to this project’s tasks will appear here. Adjust the filters to widen the view.'
-        }
+        icon={isMe ? PaperclipIcon : InboxIcon}
+        title={isMe ? 'No assets on your tasks yet' : 'No assets yet'}
+        description={emptyDescription(scope)}
       />
     );
   }
+
+  // Cross-project ("me") tier: each row needs its own project context because the
+  // list spans projects; the nested tiers show it implicitly.
+  const showProject = isMe;
 
   if (groupByTask) {
     const groups = groupItemsByTask(items);
@@ -228,7 +256,7 @@ function AssetsBody({ items, isLoading, isError, groupByTask, scopeIsProgram }: 
             </h2>
             <ul className="divide-y divide-neutral-border">
               {group.items.map((item) => (
-                <AssetRow key={item.id} item={item} showTask={false} />
+                <AssetRow key={item.id} item={item} showTask={false} showProject={showProject} />
               ))}
             </ul>
           </section>
@@ -240,10 +268,20 @@ function AssetsBody({ items, isLoading, isError, groupByTask, scopeIsProgram }: 
   return (
     <ul className="divide-y divide-neutral-border" data-testid="assets-list">
       {items.map((item) => (
-        <AssetRow key={item.id} item={item} showTask />
+        <AssetRow key={item.id} item={item} showTask showProject={showProject} />
       ))}
     </ul>
   );
+}
+
+function emptyDescription(scope: Scope): string {
+  if (scope === 'me') {
+    return 'Files and links added to tasks assigned to you will show up here. Adjust the filters to widen the view.';
+  }
+  if (scope === 'program') {
+    return "Files and links attached to tasks across this program's projects will appear here. Adjust the filters to widen the view.";
+  }
+  return 'Files and links attached to this project’s tasks will appear here. Adjust the filters to widen the view.';
 }
 
 interface AssetGroup {
@@ -269,7 +307,15 @@ export function groupItemsByTask(items: AssetItem[]): AssetGroup[] {
 }
 
 /** One asset row — a file or a link, rendered with the shared issue 970 primitives. */
-function AssetRow({ item, showTask }: { item: AssetItem; showTask: boolean }) {
+function AssetRow({
+  item,
+  showTask,
+  showProject = false,
+}: {
+  item: AssetItem;
+  showTask: boolean;
+  showProject?: boolean;
+}) {
   const when = formatRelative(new Date(item.added_at));
   const glyph = item.kind === 'link' ? providerIcon(item.provider ?? 'generic') : '📎';
   const safeHref = item.url ? safeExternalHref(item.url) : null;
@@ -310,6 +356,19 @@ function AssetRow({ item, showTask }: { item: AssetItem; showTask: boolean }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-neutral-text-secondary">
+        {showProject && (
+          <>
+            {item.program && (
+              <span className="hidden truncate text-neutral-text-secondary lg:inline">
+                {item.program.name} /
+              </span>
+            )}
+            <span className="truncate font-medium text-neutral-text-primary">
+              {item.project.name}
+            </span>
+            <span aria-hidden="true">·</span>
+          </>
+        )}
         {showTask && (
           <>
             <span className="truncate">{item.task.name}</span>
@@ -356,4 +415,10 @@ export function ProjectAssetsPage() {
 /** Program scope: `GET /programs/{id}/assets/` across readable member projects. */
 export function ProgramAssetsPage() {
   return <AssetsView scope="program" />;
+}
+
+/** Personal scope: `GET /assets/?mine=true` — files and links on the current
+ *  user's assigned tasks, across every project they can read (ADR-0428). */
+export function MyAssetsPage() {
+  return <AssetsView scope="me" />;
 }
