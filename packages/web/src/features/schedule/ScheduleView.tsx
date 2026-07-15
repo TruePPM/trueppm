@@ -2045,6 +2045,13 @@ export function ScheduleView() {
             // Also clear the engine's selection ring on connected arrows.
             engine?.selectTask(null);
           }}
+          // Keep-editing on a dirty swap: the bar click already moved selection
+          // to the new task; restore selection (and the canvas ring) to the task
+          // the drawer is still showing so the two stay in sync (#1978).
+          onSwapCanceled={(keptId) => {
+            setSelectedTaskId(keptId);
+            engine?.selectTask(keptId);
+          }}
         />
       )}
 

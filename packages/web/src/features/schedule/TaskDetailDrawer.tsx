@@ -24,6 +24,8 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
 import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
@@ -73,6 +75,24 @@ export interface TaskDetailDrawerProps {
    * pass the current user object so Enterprise sections can gate visibility.
    */
   sectionContext?: { user?: unknown };
+  /**
+   * Optional best-effort focus-restore target on close (#1978, web-rule 264d).
+   * The drawer's triggering element is ephemeral on most hosts (a canvas-drawn
+   * Gantt bar has no DOM node; a Board popover / ⌘K palette unmounts before the
+   * drawer opens), so on close the drawer walks a ladder: the captured opener if
+   * it's still connected → this host target → the host container → never
+   * `<body>`. A host returns the most precise still-connected node it has (Board:
+   * the task's card; Schedule: the focusable canvas viewport; ⌘K: `<main>`).
+   */
+  getRestoreTarget?: (taskId: string) => HTMLElement | null;
+  /**
+   * Called when a swap-while-dirty is canceled via "Keep editing" (#1978). The
+   * host already moved its selection to the clicked task before the drawer saw
+   * the swap, so the drawer keeps rendering the current task and asks the host to
+   * restore the prior selection highlight. No-op safe for hosts with no
+   * persistent selection highlight (Schedule/Board pass it; ⌘K needn't).
+   */
+  onSwapCanceled?: (keptTaskId: string) => void;
 }
 
 /**
@@ -97,23 +117,40 @@ export interface TaskDetailDrawerProps {
  * registry section — keeps its immediate mutation (the rule-217 carve-out), so
  * only name/description can ever raise the bar.
  *
- * Container note (#1977): the desktop shell stays a focus-trapped, aria-modal
- * overlay for now; converting it to a true non-modal inspector is tracked
- * separately (#1978).
+ * Container (#1978, web-rule 264): the desktop shell is a TRUE non-modal
+ * inspector — `aria-modal="false"`, no Tab focus-trap, no scrim — so the
+ * Gantt/Board behind it stays live and clickable and clicking another bar/card
+ * swaps the drawer's task (parity with the backlog/risk drawers, rules
+ * 89/164/185). Mobile stays a modal 85vh bottom sheet (`aria-modal="true"` +
+ * focus-trap). A swap or close while the name/notes draft is dirty raises the
+ * shared unsaved-changes guard rather than silently clobbering the draft; focus
+ * moves in on open and restores best-effort to the host trigger on close.
  *
  * Desktop ≥ md: 540px slide-in. Mobile < md: 85vh bottom sheet.
  */
 export function TaskDetailDrawer({
-  task,
+  task: taskProp,
   projectId,
   onClose,
   sectionContext,
+  getRestoreTarget,
+  onSwapCanceled,
 }: TaskDetailDrawerProps) {
+  const isMobile = useBreakpoint() === 'sm';
+
+  // The task actually rendered. Normally tracks the `task` prop, but during a
+  // swap-while-dirty it deliberately LAGS the prop: the host has already moved
+  // its selection to the clicked task, yet the drawer keeps showing the current
+  // task (with its unsaved draft) until the swap guard resolves (#1978).
+  const [renderedTask, setRenderedTask] = useState<Task | null>(taskProp);
+  const task = renderedTask;
+
   const isOpen = task !== null;
   const drawerTitle = task ? `${task.wbs ? task.wbs + ' — ' : ''}${task.name}` : '';
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const drawerRef = useRef<HTMLDivElement>(null);
+  // Captured on open for the focus-restore ladder on close (web-rule 264d).
+  const openerRef = useRef<HTMLElement | null>(null);
 
   const { tasks: allTasks } = useScheduleTasks();
   const { mutate: updateTask, isPending: isSaving, isError: saveFailed } = useUpdateTask();
@@ -132,18 +169,57 @@ export function TaskDetailDrawer({
     task ? toDraft(task) : EMPTY_DRAFT,
   );
 
-  // Re-seed the draft when the *identity* of the rendered task changes (opened
-  // or canvas-swapped to a different task). A server-side update to the SAME
-  // task never reseeds — useDirtyDraft deliberately does not auto-resync, so a
-  // collaborator's WebSocket edit can't clobber an in-progress draft (it
-  // surfaces as the concurrent-edit banner instead). Also resets to Details.
+  // Swap-while-dirty latch (#1978): when the host points the drawer at a
+  // different task while the draft is dirty, park the incoming task here and
+  // raise the swap guard instead of reseeding (which would silently clobber the
+  // draft — the latent bug this feature exposes).
+  const [pendingTask, setPendingTask] = useState<Task | null>(null);
+  const [swapGuardOpen, setSwapGuardOpen] = useState(false);
+
   const taskId = task?.id;
+
+  // Read the latest dirty flag from the identity effect without making it a
+  // dependency (that would re-run the identity logic on every keystroke).
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  // Reconcile the `task` prop into the rendered task on an IDENTITY change
+  // (open / close / swap). A clean swap (or open) adopts the incoming task and
+  // reseeds the draft immediately — the fast cross-reference path. A dirty swap
+  // parks the incoming task and raises the guard, keeping the current task and
+  // its draft on screen. A prop→null (host close) drops everything. A server
+  // update to the SAME task never reseeds (identity unchanged) — the concurrent-
+  // edit banner surfaces it instead of clobbering the draft.
+  const propId = taskProp?.id ?? null;
   useEffect(() => {
-    if (task) commit(toDraft(task));
-    setActiveTab('details');
-    // Only identity changes reseed; `commit` is stable and `task` is read fresh.
+    const currentId = renderedTask?.id ?? null;
+    if (propId === currentId) return; // same identity — freshness handled below
+    if (taskProp === null) {
+      setRenderedTask(null);
+      setPendingTask(null);
+      setSwapGuardOpen(false);
+      return;
+    }
+    if (renderedTask === null || !dirtyRef.current) {
+      setRenderedTask(taskProp);
+      commit(toDraft(taskProp));
+      setActiveTab('details');
+      return;
+    }
+    setPendingTask(taskProp);
+    setSwapGuardOpen(true);
+    // Identity-triggered only; `commit` is stable, dirty is read via ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
+  }, [propId]);
+
+  // Keep the rendered task object fresh while its identity is unchanged, so a
+  // server/WebSocket update to the same task (e.g. the concurrent-edit banner's
+  // live notes) flows through without reseeding the draft.
+  useEffect(() => {
+    if (taskProp && renderedTask && taskProp.id === renderedTask.id && taskProp !== renderedTask) {
+      setRenderedTask(taskProp);
+    }
+  }, [taskProp, renderedTask]);
 
   // Concurrent-edit signal: the live task's notes drifted from the value we
   // opened/last-saved from AND from what the user has typed — someone else saved
@@ -177,14 +253,40 @@ export function TaskDetailDrawer({
   // Escape listener while the expand guard is showing — otherwise Esc there
   // would also fire requestClose and silently swap the expand prompt (whose
   // Discard navigates) for the close prompt (whose Discard just closes).
+  // Focus-restore ladder (web-rule 264d): the captured opener if still usable →
+  // the host-provided target → the app `<main>` region → never `<body>`. Mobile
+  // is handled by the bottom-sheet focus-trap's own restore, so this is a
+  // desktop-only no-op ladder there.
+  const restoreFocus = useCallback(() => {
+    if (isMobile) return;
+    const usable = (el: HTMLElement | null): el is HTMLElement =>
+      !!el && el.isConnected && el.offsetParent !== null;
+    const opener = openerRef.current;
+    if (usable(opener)) {
+      opener.focus();
+      return;
+    }
+    const hostTarget = taskId ? (getRestoreTarget?.(taskId) ?? null) : null;
+    if (usable(hostTarget)) {
+      hostTarget.focus();
+      return;
+    }
+    const main = document.querySelector('main');
+    if (main instanceof HTMLElement) {
+      if (!main.hasAttribute('tabindex')) main.setAttribute('tabindex', '-1');
+      main.focus();
+    }
+  }, [isMobile, taskId, getRestoreTarget]);
+
   const closeAndReset = useCallback(() => {
+    restoreFocus();
     reset();
     onClose();
-  }, [reset, onClose]);
+  }, [restoreFocus, reset, onClose]);
   const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
     dirty,
     onClose: closeAndReset,
-    escapeToClose: isOpen && !expandGuardOpen,
+    escapeToClose: isOpen && !expandGuardOpen && !swapGuardOpen,
   });
 
   const doExpand = useCallback(() => {
@@ -204,6 +306,50 @@ export function TaskDetailDrawer({
     setActiveTab(next);
   }, []);
 
+  // Swap-while-dirty guard verbs (#1978, web-rule 264c). All three resolve the
+  // pending swap: Keep editing stays on the current task (and asks the host to
+  // restore its selection highlight, which already moved to the clicked task);
+  // Discard & open drops the draft and adopts the pending task; Save & open
+  // persists the current task then adopts the pending one (staying on the dialog
+  // with an inline error if the save fails — never dropping the pending task).
+  const reseedTo = useCallback(
+    (next: Task) => {
+      setRenderedTask(next);
+      commit(toDraft(next));
+      setActiveTab('details');
+      setPendingTask(null);
+      setSwapGuardOpen(false);
+    },
+    [commit],
+  );
+  const keepSwapEditing = useCallback(() => {
+    // Ignore a cancel (Escape) while a "Save & open" is in flight: the buttons
+    // and backdrop are already disabled, but Escape isn't — and canceling now
+    // would race the pending onSuccess, which would still reseed to the task the
+    // user just abandoned and desync the host selection (ux-review, #1978).
+    if (isSaving) return;
+    setSwapGuardOpen(false);
+    setPendingTask(null);
+    if (renderedTask) onSwapCanceled?.(renderedTask.id);
+  }, [isSaving, renderedTask, onSwapCanceled]);
+  const discardAndOpen = useCallback(() => {
+    if (!pendingTask) return;
+    reset();
+    reseedTo(pendingTask);
+  }, [pendingTask, reset, reseedTo]);
+  const saveAndOpen = useCallback(() => {
+    if (!renderedTask || !pendingTask) return;
+    const patch: { name?: string; notes?: string } = {};
+    if (draft.name !== baseline.name) patch.name = draft.name;
+    if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+    const next = pendingTask;
+    if (Object.keys(patch).length === 0) {
+      reseedTo(next);
+      return;
+    }
+    updateTask({ id: renderedTask.id, projectId, ...patch }, { onSuccess: () => reseedTo(next) });
+  }, [renderedTask, pendingTask, draft, baseline, projectId, updateTask, reseedTo]);
+
   // Cmd/Ctrl+S saves when dirty (matches the settings shell). Only intercept the
   // browser "save page" shortcut when there is actually something to save.
   useEffect(() => {
@@ -219,45 +365,41 @@ export function TaskDetailDrawer({
     return () => document.removeEventListener('keydown', onKey);
   }, [isOpen, dirty, handleSave]);
 
-  // Move focus to Close on open so keyboard users land somewhere sensible.
+  // Capture the element that had focus when the drawer opened, for the close-
+  // time focus-restore ladder (web-rule 264d). Declared BEFORE the focus-in
+  // effect below so on an open it grabs the real trigger, not the Close button
+  // we are about to focus. Desktop only — mobile restore is the trap's job.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
+      const el = document.activeElement;
+      openerRef.current =
+        !isMobile && el instanceof HTMLElement && el !== document.body ? el : null;
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, isMobile]);
+
+  // Move focus to Close on open so keyboard users land somewhere sensible.
+  // Desktop only: the mobile bottom-sheet focus-trap seats its own initial focus.
+  useEffect(() => {
+    if (isOpen && !isMobile) {
       const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
       return () => clearTimeout(id);
     }
     return undefined;
-  }, [isOpen, taskId]);
+  }, [isOpen, isMobile, taskId]);
 
   // Esc is owned by the unsaved-changes guard (escapeToClose) so a dirty drawer
   // prompts instead of closing — no separate Esc effect here.
 
-  // Focus trap inside drawer when open — preserved from prior drawer. Suspended
-  // while a guard dialog is up so its own trap owns the Tab cycle (the pattern
-  // StoryDetailDrawer uses).
-  useEffect(() => {
-    if (!isOpen || guardOpen || expandGuardOpen) return undefined;
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab' || !drawerRef.current) return;
-      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
-    }
-    document.addEventListener('keydown', trapFocus);
-    return () => document.removeEventListener('keydown', trapFocus);
-  }, [isOpen, guardOpen, expandGuardOpen]);
+  // Focus trap: the desktop drawer is NON-modal (web-rule 264a) — no trap, the
+  // Gantt/Board behind stays keyboard-reachable. Only the mobile bottom sheet is
+  // modal, so the trap engages solely at the `sm` breakpoint (mirroring
+  // StoryDetailDrawer). Suspended while any guard dialog is up so the guard's own
+  // trap owns the Tab cycle.
+  const mobileTrapRef = useFocusTrap<HTMLDivElement>(
+    isMobile && isOpen && !guardOpen && !expandGuardOpen && !swapGuardOpen,
+  );
 
   // Read sections from the registry once per render. The registry sorts by
   // priority on register() so no sort here. Filter by canRender so Enterprise
@@ -349,14 +491,14 @@ export function TaskDetailDrawer({
         />
       )}
 
-      {/* Desktop: 540px right-side slide-in.
-          aria-modal="true" because a Tab focus trap is active while the drawer is
-          open (see the trapFocus effect) — keyboard focus cannot reach the canvas,
-          so the drawer is modal in fact and must announce itself as such. */}
+      {/* Desktop: 540px right-side slide-in — a TRUE non-modal inspector
+          (web-rule 264a). aria-modal="false" and no focus trap: keyboard focus
+          can reach the Gantt/Board behind it, which stays live and clickable
+          (clicking another bar/card swaps the drawer's task). No scrim on desktop
+          (rule 185). */}
       <div
-        ref={drawerRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label={drawerTitle}
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
@@ -372,8 +514,10 @@ export function TaskDetailDrawer({
         {content}
       </div>
 
-      {/* Mobile: 85vh bottom sheet — preserves prior shell */}
+      {/* Mobile: 85vh bottom sheet — stays MODAL (web-rule 264a): aria-modal
+          ="true" + the focus trap (mobileTrapRef) + the backdrop above. */}
       <div
+        ref={mobileTrapRef}
         role="dialog"
         aria-modal="true"
         aria-label={drawerTitle}
@@ -403,6 +547,23 @@ export function TaskDetailDrawer({
             setExpandGuardOpen(false);
             doExpand();
           }}
+        />
+      )}
+      {/* Swap-while-dirty guard (#1978, web-rule 264c) — three verbs, all of
+          which resolve the pending swap: Keep editing (Esc) · Discard & open ·
+          Save & open (primary, autofocus). Fires only on a dirty swap; clean
+          swaps reseed instantly with no dialog. */}
+      {swapGuardOpen && renderedTask && pendingTask && (
+        <UnsavedChangesDialog
+          title="Unsaved changes"
+          body={`You have unsaved edits to “${renderedTask.name}”. Open “${pendingTask.name}” anyway?`}
+          onKeepEditing={keepSwapEditing}
+          onDiscard={discardAndOpen}
+          discardLabel="Discard & open"
+          onSaveAndContinue={saveAndOpen}
+          saveAndContinueLabel="Save & open"
+          saving={isSaving}
+          error={saveFailed ? "Couldn't save — try again" : null}
         />
       )}
     </>
@@ -548,8 +709,21 @@ function DrawerContent({
                 aria-hidden="true"
                 className="shrink-0"
               >
-                <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-                <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                <rect
+                  x="3"
+                  y="7"
+                  width="10"
+                  height="7"
+                  rx="1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                />
+                <path
+                  d="M5 7V5a3 3 0 0 1 6 0v2"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
               </svg>
               View only
             </span>
