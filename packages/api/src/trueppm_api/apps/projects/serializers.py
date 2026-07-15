@@ -180,6 +180,11 @@ class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
         fields = ["id", "name", "working_days", "hours_per_day", "timezone", "holiday_count"]
 
     def get_holiday_count(self, obj: Calendar) -> int:
+        # Read the prefetched "exceptions" cache (callers prefetch
+        # calendar__exceptions / program__calendar__exceptions) rather than issuing a
+        # COUNT per row. len() on the prefetch is deliberate here; .count() would
+        # defeat the prefetch with a per-row query — the exact N+1 perf-check flagged.
+        # nosemgrep: len-all-count
         return len(obj.exceptions.all())
 
 
