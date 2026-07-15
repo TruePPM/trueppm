@@ -16,10 +16,12 @@ engine, and the engine — deterministic, versioned, self-hosted — should answ
 Everything below is in service of that.
 
 :::note[Where this is on the roadmap]
-The AI-native foundation is **unshipped and sequenced across releases**. The
-read-only MCP server and the first provenance work are targeted at the **0.4
-beta** (see the [roadmap](/overview/roadmap/) for shipped-vs-planned status). This
-page describes the design and uses future tense for anything not yet tagged.
+The AI-native foundation is **sequenced across releases**, and the
+[roadmap](/overview/roadmap/) is the shipped-vs-planned source of record. The
+deterministic engine is shipped today; the read-only MCP server, the provenance
+graph, and the Phase-0 agent-action audit foundation all **land with the 0.4 beta**
+and are already merged to `main`; the write path and its guardrails follow at 0.6.
+This page describes the design and uses future tense for anything not yet tagged.
 :::
 
 ## The problem this design avoids
@@ -150,6 +152,7 @@ team's own AI capability is OSS; org-level AI governance is Enterprise.**
 | OpenAPI 3.0.3 contract, API-first surface | Community (OSS) | Shipped |
 | Deterministic engine (`trueppm-scheduler` on PyPI; Rust/WASM conformance reference, not yet browser-wired) | Community (OSS) | Shipped |
 | Read-only MCP server + provenance (query the schedule) | Community (OSS) | Ships in 0.4 |
+| Agent-action audit foundation — hash-chained record + `audit_verify` (the *reproduce* substrate; [ADR-0112](/architecture/decisions/) Accepted) | Community (OSS) | Lands in 0.4 |
 | Natural-language query layer, local-model adapter | Community (OSS) | Planned for 0.5 |
 | MCP write surface (create/update task, move card, log time), engine-as-referee safe writes | Community (OSS) | Planned for 0.6 |
 | Reproducible answers (engine-version + input hash) | Community (OSS) | Planned for 0.9 |
@@ -169,6 +172,24 @@ built-in reactive agent that drafts alerts on its own, and the MCP server is
 documented event and API surface; do not assume autonomous write-back exists before
 then.
 :::
+
+## The refusal generalization — named, not yet proven
+
+Everything above grounds **one** domain: scheduling feasibility. The open architectural
+question is whether the *same* verdict → refusal → audit path can ground a **second**,
+non-scheduling domain — a budget cliff, a DORA control, a data-residency rule — behind a
+domain-agnostic `Invariant → Verdict` registry, without the pipeline knowing anything about
+tasks or baselines.
+
+That registry is a **backlog item to prove**, not a shipped abstraction. It is tracked as the
+instance-#2 experiment on the [roadmap](/overview/roadmap/): express one concrete
+non-scheduling control as an `Invariant`, run it through the existing refusal and agent-action
+audit path, and confirm it refuses-with-derivation and writes a clean audit entry. If it
+factors cleanly, TruePPM grounds more than schedules; until it does, we describe TruePPM as
+grounding *scheduling*, not as a general "grounding engine." The compliance framing that rides
+on this — why a deterministic refusal is an *effective challenge* to probabilistic agent
+behavior (SR 11-7) — lives on the [Computed, not guessed](/overview/computed-not-guessed/)
+page, out of the practitioner's way.
 
 ## Where to go next
 

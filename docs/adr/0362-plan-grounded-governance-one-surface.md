@@ -2,6 +2,7 @@
 
 ## Status
 
+Accepted (2026-07-15 — ratified; see **Ratification amendments** below). Originally
 Proposed (2026-07-11).
 
 This is a **positioning ADR**: it decides product shape, vocabulary, and the
@@ -13,6 +14,43 @@ as inputs, pre-answers that roadmap's **Phase 6 extraction decision gate**, and
 constrains three downstream workstreams: the fleet-oversight dashboard design,
 the Enterprise compliance-evidence SKU, and every artifact that describes
 TruePPM's governance story.
+
+### Ratification amendments (2026-07-15)
+
+Ratified alongside the positioning-update pass (#1997), which applies this ADR's
+frame across the README, GitLab description, milestones, docs, and public site. Three
+points are recorded explicitly so downstream copy cannot drift from them:
+
+1. **Layer, don't invert — the positioning rule.** TruePPM stays a P3M product and the
+   front door people adopt; grounding ("computed, not guessed") is promoted to the named
+   through-line and the moat, but it **never displaces the hero** on any surface. The
+   grounding-engine spec's "engine, not planner" framing (its §2) is an *internal center
+   of gravity*, not public positioning: no surface leads with "grounding engine," and the
+   README/description/landing hero stay adoption-first. The compliance/SR 11-7
+   ("effective challenge," non-probabilistic) framing lives one scroll down, in docs and
+   enterprise/design-partner material — never up-funnel.
+
+2. **The audit/refusal-record foundation is landed — claim it at its correct status.**
+   The agent-action audit substrate is in `main` as of the 0.4 beta: `apps/agents/` carries
+   the `AgentAction` hash chain (`record_hash = sha256(prev_hash ‖ canonical(record))`),
+   `AgentActionChainHead`, `AgentActionCheckpoint`, `audit_verify`, `audit_prune`, a
+   per-instance monotonic sequence, and the `AgentActionRefusalReason = IDENTITY | POLICY`
+   taxonomy; `record_agent_action` is wired into `authentication.py` (identity) and
+   `access/permissions.py` (verdict/policy, refusals included). [ADR-0112](0112-ai-layer-oss-extension-points.md)
+   is **Accepted**. Roadmap and docs therefore frame this as a **0.4-landed foundation**,
+   and 0.6 as the write path built *on top of* it — not a 0.6 build of the foundation.
+
+3. **Instance #2 is the single open falsification — keep it live.** The general claim
+   ("one engine, many faces": grounding engine + compliance-evidence plane + DORA/FSI
+   plays) rests on one unproven hypothesis: that the same verdict → refusal → audit path
+   grounds a **second, non-scheduling** domain. Tracked as #1998 with the definition of
+   done — one concrete DORA or data-residency control expressed as an `Invariant`, run
+   through the existing path, refusing-with-derivation and writing a clean `AgentAction`
+   entry with no knowledge of tasks/schedules. Until it passes, no surface describes
+   TruePPM as a general "grounding engine," and the `Invariant → Verdict` registry is a
+   backlog abstraction to prove, not a shipped capability. This item must not be quietly
+   retired by the softer "layer" framing — it is the one thing here that is *building*
+   rather than naming.
 
 ## Context
 

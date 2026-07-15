@@ -85,27 +85,29 @@ TruePPM — the engine is the answer: "computed, not guessed"
                  to a call)    Carlo computes)  this critical chain" — citable)
 ```
 
-The principle is sequenced across the roadmap as one body of work, not four
-scattered AI bullets — see the [roadmap](/overview/roadmap/):
+The principle is sequenced across the roadmap as one capability with four parts —
+**compute, cite, refuse, reproduce** — not four scattered AI bullets (see the
+[roadmap](/overview/roadmap/)):
 
-- **Provenance graph** (#1058) — every computed date, float, and P80 will carry
-  the derivation an agent can cite, so an answer is explainable, not asserted.
-  This is the first piece and it lands with the 0.4 read-only
-  [MCP server](/features/mcp-server/).
-- **Natural-language query layer** (#1060 #1061, planned for 0.5) — will compile a
+- **Compute / cite — provenance graph** (#1058) — every computed date, float, and
+  P80 carries the derivation an agent can cite, so an answer is explainable, not
+  asserted. It lands with the 0.4 read-only [MCP server](/features/mcp-server/) and
+  is already merged to `main`.
+- **Reproduce — agent-action audit foundation** (#1805, [ADR-0112](/architecture/decisions/)
+  Accepted) — every agent read and every verdict is recorded in a hash-chained,
+  `audit_verify`-checkable log; it also lands with the 0.4 beta and is already in
+  `main`. A signed engine-version + input-hash answer stamp (#1065) follows at 0.9.
+- **Natural-language query layer** (#1060 #1061, planned for 0.5) — compiles a
   question into engine calls, never into an answer; the model translates, the
   engine answers.
-- **Safe agent writes** (#1062–#1064, planned for 0.6) — an engine-as-referee will
-  reject any agent write that would create an impossible schedule; this is the
-  write side of the same principle.
-- **Reproducible answers** (#1065, planned for 0.9) — a computed response will
-  carry an engine-version and input hash so the number can be re-run and audited
-  later.
+- **Refuse — safe agent writes** (#1062–#1064, planned for 0.6) — an engine-as-referee
+  refuses any agent write that would create an impossible schedule, identically to a
+  human write; this is the *refuse* verb reaching the write side.
 
-The AI-native foundation is unshipped; the first piece (provenance) is targeted at
-the 0.4 beta. The dates above are targets, not commitments — the
-[roadmap](/overview/roadmap/) is the source of record for what has shipped versus
-what is planned.
+The deterministic engine behind all four verbs is shipped today; the compute, cite,
+and reproduce foundations land with the 0.4 beta and are already in `main`. The dates
+above are targets, not commitments — the [roadmap](/overview/roadmap/) is the source
+of record for what has shipped versus what is planned.
 
 ### Offline-first sync protocol
 
