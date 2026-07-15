@@ -38512,6 +38512,17 @@
                     "task": {
                         "$ref": "#/components/schemas/AssetTaskRef"
                     },
+                    "project": {
+                        "$ref": "#/components/schemas/AssetProjectRef"
+                    },
+                    "program": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AssetProgramRef"
+                            }
+                        ],
+                        "nullable": true
+                    },
                     "added_by": {
                         "allOf": [
                             {
@@ -38533,11 +38544,45 @@
                     "kind",
                     "labels",
                     "preview_type",
+                    "program",
+                    "project",
                     "provider",
                     "status",
                     "task",
                     "title",
                     "url"
+                ]
+            },
+            "AssetProgramRef": {
+                "type": "object",
+                "description": "The owning program reference — null when the project has no program.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "AssetProjectRef": {
+                "type": "object",
+                "description": "The owning project reference — cross-project context for the workspace tier.",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
                 ]
             },
             "AssetTaskRef": {

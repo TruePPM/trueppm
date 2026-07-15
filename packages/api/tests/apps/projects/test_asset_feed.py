@@ -399,8 +399,34 @@ def test_workspace_feed_aggregates_across_readable_projects_in_different_program
 
     resp = _client(user).get(WORKSPACE_URL)
     assert resp.status_code == 200, resp.data
-    ids = {r["id"] for r in resp.data["results"]}
+    rows = resp.data["results"]
+    ids = {r["id"] for r in rows}
     assert ids == {str(link_1.pk), str(file_2.pk)}, "both programs' readable assets merge"
+
+    # Cross-project context: each row carries its own project + program so a
+    # workspace-spanning list is unambiguous (ADR-0428 / #1980 consumer).
+    by_id = {r["id"]: r for r in rows}
+    assert by_id[str(link_1.pk)]["project"] == {"id": str(proj_1.pk), "name": "One"}
+    assert by_id[str(link_1.pk)]["program"] == {"id": str(prog_1.pk), "name": "P1"}
+    assert by_id[str(file_2.pk)]["project"] == {"id": str(proj_2.pk), "name": "Two"}
+    assert by_id[str(file_2.pk)]["program"] == {"id": str(prog_2.pk), "name": "P2"}
+
+
+def test_workspace_asset_program_is_null_when_project_has_no_program(
+    calendar: Calendar,
+) -> None:
+    """A project with no program yields program=null (Project.program is nullable)."""
+    proj = Project.objects.create(
+        name="Standalone", start_date=datetime.date(2026, 1, 1), calendar=calendar, program=None
+    )
+    task = Task.objects.create(project=proj, name="T", duration=1)
+    user = User.objects.create_user(username="solo", password="pw")
+    ProjectMembership.objects.create(project=proj, user=user, role=Role.MEMBER)
+    _make_link(task, url="https://github.com/x/y/pull/1", when=_at(1))
+
+    row = _client(user).get(WORKSPACE_URL).data["results"][0]
+    assert row["project"] == {"id": str(proj.pk), "name": "Standalone"}
+    assert row["program"] is None
 
 
 def test_workspace_feed_narrows_to_readable_projects(calendar: Calendar) -> None:

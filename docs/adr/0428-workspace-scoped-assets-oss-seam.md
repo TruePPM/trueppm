@@ -59,6 +59,10 @@ personal/RBAC-identical read. Keep the governance overlay in Enterprise, unchang
   ADR-0215 keyset-merge cursor and its `page_size` bound (default 50, max 100) verbatim.
 - `mine` resolves against `Task.assignee` only — the audited `MeWorkView` semantics — with **no
   `?user=` escape hatch**, so it can never widen to another user's assets.
+- The shared `AssetItem` shape gains `project {id, name}` and `program {id, name}|null` (the project
+  tiers show this context implicitly; the workspace tier spans projects, so a bare task name would be
+  ambiguous). Additive and backwards-compatible for the project/program tiers. The `task__project__program`
+  join is added to both source querysets so it stays N+1-safe.
 - Read-only GET, echoing stored rows. Per ADR-0112 it carries **no `_provenance`** (nothing is
   computed/derived) and writes **no `AgentAction`** (reads are not audited actions). Reachable
   by `mcp:read` tokens via `McpReadableViewMixin`, which also applies the per-token read
