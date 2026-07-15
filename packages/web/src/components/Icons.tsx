@@ -1017,3 +1017,45 @@ export function SlidersIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Circled "i" — the "more information about this field" affordance (issue 1975) */
+export function InfoIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="6.25" />
+      <line x1="8" y1="7.25" x2="8" y2="11" />
+      <circle cx="8" cy="4.9" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** Check mark — marks the currently-selected row in a chooser/help list (issue 1975) */
+export function CheckIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <polyline points="3 8.5 6.5 12 13 4.5" />
+    </svg>
+  );
+}

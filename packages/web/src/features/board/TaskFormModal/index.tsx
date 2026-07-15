@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { Button } from '@/components/Button';
+import { FieldHelp } from '@/components/FieldHelp';
 import { toast } from '@/components/Toast';
 import { isSyncConflict } from '@/api/conflict';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -116,6 +117,14 @@ const DELIVERY_OPTIONS: Array<TaxonomyOption<DeliveryMode>> = [
 function taxonomyDesc<V extends string>(options: Array<TaxonomyOption<V>>, value: V): string {
   return options.find((o) => o.value === value)?.desc ?? '';
 }
+
+// Deep-links into the task-classification docs page for the FieldHelp popovers.
+// Anchors match the headings in `docs/features/task-classification` — keep them
+// in sync if those headings are renamed.
+const CLASSIFICATION_DOC = 'features/task-classification/';
+const TYPE_DOC = `${CLASSIFICATION_DOC}#type--what-kind-of-work-this-is`;
+const GOVERNANCE_DOC = `${CLASSIFICATION_DOC}#governance-class--which-overlay-governs-the-subtree`;
+const DELIVERY_DOC = `${CLASSIFICATION_DOC}#delivery-mode--how-the-work-executes-and-rolls-up`;
 
 interface FormState {
   name: string;
@@ -723,9 +732,21 @@ export function TaskFormModal({
             </div>
 
             <div>
-              <label htmlFor="task-type" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                Type
-              </label>
+              <div className="mb-1 flex items-center gap-1">
+                <label htmlFor="task-type" className="text-xs font-medium text-neutral-text-secondary">
+                  Type
+                </label>
+                <FieldHelp
+                  label="Type"
+                  intro="What kind of work this task is."
+                  options={TYPE_OPTIONS.map((o) => ({
+                    label: o.label,
+                    desc: o.desc,
+                    selected: o.value === form.type,
+                  }))}
+                  docHref={TYPE_DOC}
+                />
+              </div>
               <select
                 id="task-type"
                 disabled={isReadOnly}
@@ -744,9 +765,21 @@ export function TaskFormModal({
             </div>
 
             <div>
-              <label htmlFor="task-governance" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                Governance class
-              </label>
+              <div className="mb-1 flex items-center gap-1">
+                <label htmlFor="task-governance" className="text-xs font-medium text-neutral-text-secondary">
+                  Governance class
+                </label>
+                <FieldHelp
+                  label="Governance class"
+                  intro="Which overlay governs this task's subtree."
+                  options={GOVERNANCE_OPTIONS.map((o) => ({
+                    label: o.label,
+                    desc: o.desc,
+                    selected: o.value === form.governanceClass,
+                  }))}
+                  docHref={GOVERNANCE_DOC}
+                />
+              </div>
               <select
                 id="task-governance"
                 disabled={isReadOnly}
@@ -765,9 +798,21 @@ export function TaskFormModal({
             </div>
 
             <div>
-              <label htmlFor="task-delivery" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                Delivery mode
-              </label>
+              <div className="mb-1 flex items-center gap-1">
+                <label htmlFor="task-delivery" className="text-xs font-medium text-neutral-text-secondary">
+                  Delivery mode
+                </label>
+                <FieldHelp
+                  label="Delivery mode"
+                  intro="How this task executes, is estimated, and rolls up."
+                  options={DELIVERY_OPTIONS.map((o) => ({
+                    label: o.label,
+                    desc: o.desc,
+                    selected: o.value === form.deliveryMode,
+                  }))}
+                  docHref={DELIVERY_DOC}
+                />
+              </div>
               <select
                 id="task-delivery"
                 disabled={isReadOnly}
