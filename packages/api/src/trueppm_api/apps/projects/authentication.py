@@ -156,6 +156,7 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
             AgentActionRefusalReason,
             AgentActionVerdict,
             AgentActorKind,
+            RefusalConstraint,
         )
         from trueppm_api.apps.agents.services import (
             hash_request_payload,
@@ -189,6 +190,9 @@ class ProjectApiTokenAuthentication(BaseAuthentication):
                 capability_used="",
                 verdict=AgentActionVerdict.REFUSED,
                 refusal_reason=AgentActionRefusalReason.IDENTITY,
+                # Finer constraint axis (ADR-0421, #1850): a dead/revoked token is a
+                # token_identity refusal; an identity rejection carries no schedule impact.
+                refusal_constraint=RefusalConstraint.TOKEN_IDENTITY,
                 payload_hash=hash_request_payload(request),
                 summary="Rejected a revoked/expired/deleted API token",
                 source_ip=source_ip,

@@ -26,8 +26,9 @@ if TYPE_CHECKING:
 class AgentActionViewSet(viewsets.ReadOnlyModelViewSet):  # type: ignore[type-arg]
     """Read-only, membership-scoped list/retrieve of audited agent actions.
 
-    Ordering is by ``sequence`` (chain order); filtering by ``verdict`` and ``project`` is
-    supported for the common "show me refusals" / "show me this project" queries.
+    Ordering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``, and
+    ``constraint`` is supported for the common "show me refusals" / "show me this project"
+    / "show me every graph_validation refusal" (ADR-0421, #1850) triage queries.
     """
 
     serializer_class = AgentActionSerializer
@@ -46,12 +47,19 @@ class AgentActionViewSet(viewsets.ReadOnlyModelViewSet):  # type: ignore[type-ar
         # A caller sees actions in their projects, plus their own agent's actions (which
         # may target a project they no longer belong to, or none at all). The serializer
         # renders project/principal as their FK ids (already on the row) and only the
-        # token *prefix*, so no select_related join is needed.
-        qs = AgentAction.objects.filter(Q(project_id__in=member_project_ids) | Q(principal=user))
+        # token *prefix*; ``refusal_detail`` is the one reverse OneToOne it reads, so
+        # select_related it to avoid an N+1 across the page (ADR-0421, #1850).
+        qs = AgentAction.objects.filter(
+            Q(project_id__in=member_project_ids) | Q(principal=user)
+        ).select_related("refusal_detail")
 
         verdict = self.request.query_params.get("verdict")
         if verdict:
             qs = qs.filter(verdict=verdict)
+        constraint = self.request.query_params.get("constraint")
+        if constraint:
+            # Filters through the side-car; non-refusals (no detail) drop out naturally.
+            qs = qs.filter(refusal_detail__constraint=constraint)
         project_id = self.request.query_params.get("project")
         if project_id:
             # Validate the UUID here so a malformed ?project= returns an empty list rather

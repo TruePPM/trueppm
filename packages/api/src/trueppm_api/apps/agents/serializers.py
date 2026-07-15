@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from trueppm_api.apps.agents.models import AgentAction
+from trueppm_api.apps.agents.models import AgentAction, AgentActionRefusalDetail
+
+
+class AgentActionRefusalDetailSerializer(serializers.ModelSerializer[AgentActionRefusalDetail]):
+    """The non-hashed refusal telemetry attached to a refused action (ADR-0421, #1850)."""
+
+    class Meta:
+        model = AgentActionRefusalDetail
+        fields = ["constraint", "projected_impact"]
+        read_only_fields = fields
 
 
 class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
@@ -13,8 +22,12 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
     Read-only — ``AgentAction`` rows are append-only and never mutated through the API.
     Exposes the chain fields (``sequence``, ``record_hash``) for transparency; they are
     integrity anchors, not secrets. Never exposes token material — only the 8-char
-    ``actor_token_prefix``.
+    ``actor_token_prefix``. ``refusal_detail`` is the non-hashed side-car telemetry
+    (constraint that fired + projected impact); ``null`` for allowed actions and for
+    refusals recorded before a constraint was wired.
     """
+
+    refusal_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = AgentAction
@@ -33,6 +46,7 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
             "capability_used",
             "verdict",
             "refusal_reason",
+            "refusal_detail",
             "engine_version",
             "payload_hash",
             "record_hash",
@@ -40,3 +54,12 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
             "occurred_at",
         ]
         read_only_fields = fields
+
+    def get_refusal_detail(self, obj: AgentAction) -> dict[str, object] | None:
+        # Reverse OneToOne: absent for allowed actions (and constraint-less refusals).
+        # Accessing a missing reverse o2o raises, so catch rather than getattr-default.
+        try:
+            detail = obj.refusal_detail
+        except AgentActionRefusalDetail.DoesNotExist:
+            return None
+        return AgentActionRefusalDetailSerializer(detail).data

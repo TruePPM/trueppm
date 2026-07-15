@@ -72,6 +72,29 @@ class AgentActionRefusalReason(models.TextChoices):
     POLICY = "policy", "Policy"
 
 
+class RefusalConstraint(models.TextChoices):
+    """Which constraint fired for a refusal (ADR-0421, #1850).
+
+    A **finer** axis than ``AgentActionRefusalReason`` (identity|policy): the coarse
+    reason answers *which layer* refused, this answers *which specific guard*. Recorded
+    on the non-hashed ``AgentActionRefusalDetail`` side-car so it is queryable for
+    engineering triage ("show me every ``graph_validation`` refusal") without touching
+    the hash-chained record. The vocabulary is forward-compatible by addition — the two
+    ``*_scope``/``*_identity`` codes have live producers today; the remaining four are
+    reserved for the 0.6 gated-write producers (ADR-0362 §7) so those slot in with no
+    schema change.
+    """
+
+    CAPABILITY_SCOPE = "capability_scope", "Capability scope"
+    TOKEN_IDENTITY = "token_identity", "Token identity"
+    # Reserved for the 0.6 gated-write surface (ADR-0362 §4 refusal-engine v1); no
+    # producer emits these yet — the enum reserves the codes so they slot in later.
+    GRAPH_VALIDATION = "graph_validation", "Graph validation"
+    SPRINT_SOVEREIGNTY = "sprint_sovereignty", "Sprint sovereignty"
+    ROLLUP_LOCK = "rollup_lock", "Rollup lock"
+    ENGINE_REFEREE = "engine_referee", "Engine referee"
+
+
 class AgentActionChainHead(models.Model):
     """Singleton head of the per-instance hash chain (ADR-0112 RC2).
 
@@ -286,3 +309,55 @@ class AgentActionCheckpoint(models.Model):
             f"AgentActionCheckpoint(through={self.pruned_through_sequence}, "
             f"count={self.pruned_count})"
         )
+
+
+class AgentActionRefusalDetail(models.Model):
+    """Non-hashed 1:1 telemetry side-car for a refused ``AgentAction`` (ADR-0421, #1850).
+
+    Records *which constraint fired* and the *projected impact* of a refusal so the
+    refusal moment (ADR-0362 §4) is queryable for engineering triage and demo capture.
+    It lives **outside** the hash-chained record on purpose: ``canonical_fields`` and
+    ``audit_verify`` never see it, so ``AGENT_ACTION_SCHEMA_VERSION`` stays 1 and the
+    chain is byte-for-byte unchanged. The load-bearing decision (``verdict`` +
+    ``refusal_reason``) remains tamper-evident on the chain; this finer explanation is
+    telemetry, not the audited decision. Making the ``constraint`` code tamper-evident is
+    a deliberate ``schema_version=2`` graduation for *when real producers exist* (0.6),
+    not a speculative bump now (ADR-0421 Consequences).
+
+    ``on_delete=CASCADE`` is intended: a chain-aware prune (ADR-0361) that deletes an
+    ``AgentAction`` takes its explanatory detail with it — the detail is worthless
+    without its row, and being unhashed, cascading it never affects ``audit_verify``.
+    """
+
+    action = models.OneToOneField(
+        AgentAction,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="refusal_detail",
+        help_text="The refused AgentAction this detail explains (1:1, PK).",
+    )
+    constraint = models.CharField(
+        max_length=32,
+        choices=RefusalConstraint.choices,
+        help_text="Which specific guard fired — a finer axis than the chain's "
+        "refusal_reason (identity|policy).",
+    )
+    projected_impact = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Structured projected schedule impact of the refused write. Empty {} "
+        "for the current MCP-scope/identity producers (no schedule impact); the 0.6 "
+        "gated-write producers populate {affected_task_count, slip_days, "
+        "critical_path_delta_days, affected_task_ids}.",
+    )
+
+    class Meta:
+        db_table = "agents_agent_action_refusal_detail"
+        indexes = [
+            # Powers the ?constraint= triage filter ("show me every graph_validation
+            # refusal") without a full scan of the side-car.
+            models.Index(fields=["constraint"], name="agent_refusal_constraint_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"AgentActionRefusalDetail({self.constraint} for {self.action_id})"
