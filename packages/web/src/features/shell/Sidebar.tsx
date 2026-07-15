@@ -298,9 +298,21 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
     };
   }, [switchOpen]);
 
+  // Navigating OUT of the switcher dismisses it: the desktop popover
+  // (`switchOpen`) and, in the drawer, the whole drawer (`onClose` is defined
+  // only there). Selecting a destination is terminal, so the switcher closes on
+  // select like every other menu-class surface. We deliberately do NOT return
+  // focus to the trigger here (that is the Escape/cancel behavior) — the route
+  // change owns focus on a commit. Program expand/collapse (`toggleProgram`) is
+  // disclosure, not navigation, so it never calls this: drilling into a program
+  // to find a project keeps the switcher open.
+  const dismissSwitcher = () => {
+    setSwitchOpen(false);
+    onClose?.();
+  };
   const go = (to: string) => {
     void navigate(to);
-    if (isDrawer) onClose?.();
+    dismissSwitcher();
   };
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -323,7 +335,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       <NavLink
         to="/resources"
         aria-label="Resources catalog"
-        onClick={closeDrawer}
+        onClick={dismissSwitcher}
         className={({ isActive }) => rowClass(isActive)}
       >
         <svg
@@ -341,7 +353,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       {edition === 'enterprise' && (
         <NavLink
           to="/portfolio"
-          onClick={closeDrawer}
+          onClick={dismissSwitcher}
           className={({ isActive }) => rowClass(isActive)}
         >
           <svg
@@ -373,7 +385,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         <h2 className={`flex-1 ${GROUP_LABEL_TEXT}`}>
           <NavLink
             to="/programs"
-            onClick={closeDrawer}
+            onClick={dismissSwitcher}
             className={({ isActive }) =>
               [
                 'group/programs flex min-h-11 items-center gap-1 rounded-control px-3 pt-3 pb-1',

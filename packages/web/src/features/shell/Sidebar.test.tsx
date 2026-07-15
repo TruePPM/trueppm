@@ -274,6 +274,35 @@ describe('Sidebar rail — Tier 3 "Jump"', () => {
     expect(screen.getByRole('button', { name: /Beta Migration, on track/ })).toBeInTheDocument();
   });
 
+  it('closes the switcher when a project is selected — close-on-select (#1964)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    );
+    // Selecting a destination is terminal — the popover dismisses itself.
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
+  });
+
+  it('closes the switcher when an org destination (Programs) is selected (#1964)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Programs' }));
+    expect(screen.queryByRole('link', { name: 'Resources catalog' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the switcher open when a program is expanded — disclosure is not navigation (#1964)', () => {
+    renderRail();
+    fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
+    fireEvent.click(screen.getByRole('button', { name: /Expand Artemis/ }));
+    // Drilling into a program to find a project must NOT dismiss the switcher.
+    expect(screen.getByRole('link', { name: 'Resources catalog' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: /Alpha Platform, at risk, 7 open tasks/ }),
+    ).toBeInTheDocument();
+  });
+
   it('offers a pin toggle on the program header that updates the store (#1682)', () => {
     renderRail();
     fireEvent.click(screen.getByRole('button', { name: 'Browse projects and programs' }));
