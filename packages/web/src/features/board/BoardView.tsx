@@ -36,6 +36,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { ShareViewDialog } from '@/features/share/ShareViewDialog';
 import { useSpaceDragPan, SpaceAwarePointerSensor } from '@/hooks/useSpaceDragPan';
+import { useHasScrollBelow } from '@/hooks/useHasScrollBelow';
 import {
   DndContext,
   KeyboardSensor,
@@ -2063,6 +2064,12 @@ export function BoardView() {
     shouldSuppressDrag,
   } = useSpaceDragPan();
 
+  // Vertical-overflow probe for the bottom edge-fade affordance (#1962). On
+  // macOS/touch the auto-hiding scrollbar is the only "more below" cue, so a
+  // card clipped at the fold reads as truncation; the fade renders only while
+  // content sits below the scroll position.
+  const hasScrollBelow = useHasScrollBelow(boardScrollRef);
+
   const sensors = useSensors(
     useSensor(SpaceAwarePointerSensor, {
       activationConstraint: { distance: 4 },
@@ -3437,12 +3444,15 @@ export function BoardView() {
 
               {/* Board grid — scrollable. `boardScrollRef` + the grab/grabbing
                   cursor classes wire Space-held drag-panning (issue 1265);
-                  `select-none` while panning stops text selection mid-drag. */}
+                  `select-none` while panning stops text selection mid-drag. The
+                  `relative` wrapper hosts the bottom edge-fade overflow cue
+                  (#1962) — the vertical analog of ShellNavScroller (rule 174). */}
+              <div className="relative flex-1 min-h-0 min-w-0 flex flex-col">
               <div
                 ref={boardScrollRef}
                 data-testid="board-scroll"
                 data-space-panning={isBoardPanning ? 'true' : undefined}
-                className={`flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken${
+                className={`flex-1 overflow-auto min-h-0 pb-6 bg-neutral-surface-sunken${
                   isBoardPanArmed
                     ? isBoardPanning
                       ? ' cursor-grabbing select-none'
@@ -3794,6 +3804,18 @@ export function BoardView() {
                     <PhaseLane key={phase.id} {...laneProps(phase)} />
                   ));
                 })()}
+              </div>
+              {/* Bottom edge-fade — the "more below" cue for vertical overflow
+                  (#1962). Decorative (rule 6): the column-header aria-label counts
+                  (rule 101) already announce the true totals to screen readers.
+                  Rendered only while content sits below the fold. */}
+              {hasScrollBelow && (
+                <span
+                  aria-hidden="true"
+                  data-testid="board-scroll-fade"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-8 bg-gradient-to-t from-neutral-surface-sunken to-transparent"
+                />
+              )}
               </div>
             </div>
           )}
