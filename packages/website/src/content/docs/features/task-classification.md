@@ -13,6 +13,8 @@ The **Classification** controls were added in **0.3** (the agile team). The fiel
 
 The task create/edit dialog will gain a **Classification** group with three selects — Type, Governance class, and Delivery mode — each with a one-line description of the selected value. The group is hidden when you create a milestone (a milestone is a zero-duration marker, not typed or governed work — its `is_milestone` flag is what matters there).
 
+In **0.4**, each of the three fields will also carry an info (ⓘ) button next to its label. Clicking it opens a short popover that lists *every* option for that field with its one-line meaning — so you can compare all the choices before you pick, rather than selecting each in turn to read its description — plus a **Learn more** link back to the relevant section of this page. The inline description of the current selection stays put; the popover is additive.
+
 The controls are read-only for Viewers and non-owning Members; the server remains the authority on who may write each field.
 
 ## Type — what kind of work this is

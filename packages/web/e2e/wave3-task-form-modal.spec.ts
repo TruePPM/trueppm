@@ -61,6 +61,45 @@ async function setup(page: import('@playwright/test').Page) {
 
   const tasks = [PHASE_TASK, TASK];
 
+  // Catch-all fallthrough, registered FIRST so every specific route below wins
+  // (Playwright matches last-registered first). Without it, any endpoint this
+  // spec forgets to mock — notably the `/auth/me/` bootstrap — leaks through the
+  // vite-preview proxy to a locally-running dev backend on :8000, which returns
+  // a real 401 for the fake e2e token and raises the session-expired modal that
+  // then intercepts every click. Returns 404 (not 401, and not a 200 list shape
+  // that would break object-shaped endpoints and trip the root error boundary),
+  // matching the repo's `setupCatchAll` and reproducing CI's no-backend
+  // fail-soft behavior where unmocked reads simply error rather than log out.
+  await page.route('**/api/v1/**', (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'unmocked in test' }),
+    }),
+  );
+  // Auth bootstrap — object shapes the catch-all's list shape can't satisfy.
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        username: 'e2euser',
+        display_name: 'E2E User',
+        initials: 'EU',
+        email: 'e2e@example.com',
+        default_landing: 'my_work',
+        landing: { intent: 'my_work', path: '/me/work', resolved_by: 'preference' },
+        hidden_views: [],
+        role_context: 'unified',
+        schedule_in_deliver: false,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
+  );
+
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
@@ -174,12 +213,15 @@ test.describe('Task create/edit modal (#305)', () => {
     await expect(dialog).toBeVisible();
     // The taxonomy editor (previously: stored + seeded but unreachable from the UI).
     await expect(dialog.getByText('Classification', { exact: true })).toBeVisible();
-    await expect(dialog.getByLabel('Type')).toHaveValue('task');
-    await expect(dialog.getByLabel('Governance class')).toHaveValue('flow');
-    await expect(dialog.getByLabel('Delivery mode')).toHaveValue('waterfall');
+    // Exact match: each field now has a sibling FieldHelp button whose aria-label
+    // ("About the <field> options") contains the field name, so a substring
+    // getByLabel would match both the select and the help button (#1975).
+    await expect(dialog.getByLabel('Type', { exact: true })).toHaveValue('task');
+    await expect(dialog.getByLabel('Governance class', { exact: true })).toHaveValue('flow');
+    await expect(dialog.getByLabel('Delivery mode', { exact: true })).toHaveValue('waterfall');
 
     // Switching delivery mode updates the grounded helper caption.
-    await dialog.getByLabel('Delivery mode').selectOption('kanban');
+    await dialog.getByLabel('Delivery mode', { exact: true }).selectOption('kanban');
     await expect(dialog.getByText(/item throughput on a WIP-limited board/)).toBeVisible();
   });
 
@@ -208,6 +250,47 @@ test.describe('Task create/edit modal (#305)', () => {
     await expect(
       dialog.getByText('Adding a task here will turn this task into a phase.'),
     ).toBeVisible();
+  });
+
+  test('Governance class field-help popover lists all options and deep-links to the docs (#1975)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
+    await expect(addButton).toBeVisible({ timeout: 10_000 });
+    await addButton.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+
+    // The "?" info affordance sits in the Governance class label row.
+    await dialog.getByRole('button', { name: 'About the Governance class options' }).click();
+
+    // The popover portals OUT of the modal (role="dialog" is scoped by name to
+    // disambiguate from the modal itself).
+    const help = page.getByRole('dialog', { name: 'Governance class' });
+    await expect(help).toBeVisible();
+    // Every option is visible at once, not just the selected one. Exact match:
+    // "Flow" as a substring also appears in the Hybrid description ("Mixes flow…").
+    await expect(help.getByText('Flow', { exact: true })).toBeVisible();
+    await expect(help.getByText('Gated', { exact: true })).toBeVisible();
+    await expect(help.getByText('Hybrid', { exact: true })).toBeVisible();
+    // The default (Flow) is marked as current.
+    await expect(help.getByText('Current')).toBeVisible();
+
+    // The docs deep-link points at the standalone docs site, opens in a new tab.
+    const learnMore = help.getByRole('link', { name: /Learn more/ });
+    await expect(learnMore).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/features/task-classification/#governance-class--which-overlay-governs-the-subtree',
+    );
+    await expect(learnMore).toHaveAttribute('target', '_blank');
+
+    // Escape peels the popover only — the task modal stays open.
+    await page.keyboard.press('Escape');
+    await expect(help).toBeHidden();
+    await expect(dialog).toBeVisible();
   });
 });
 
