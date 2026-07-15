@@ -408,6 +408,67 @@ describe('HealthCluster', () => {
     expect(chip).toHaveFocus();
   });
 
+  // (i) viewport-clamped portaled popover (rule 253, #1969) -------------------
+
+  it('portals the popover to document.body and positions it fixed', async () => {
+    const user = userEvent.setup();
+    render();
+    const dialog = await openPopover(user);
+    // No longer an in-flow descendant of the chip wrapper — it lives on body so
+    // it can escape any clipping ancestor and clamp to the viewport.
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.style.position).toBe('fixed');
+  });
+
+  it('clamps the popover to the viewport so it never clips off the left edge on a phone', async () => {
+    const user = userEvent.setup();
+    render();
+    const trigger = screen.getByTestId('health-cluster');
+    // Simulate a narrow phone: the chip's right edge sits mid-bar at 240 in a
+    // 375px viewport. Right-anchored, a >=260px panel would run to left:-20 and
+    // clip — the exact bug (#1969). The clamp must pin left to the 8px margin.
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      top: 12,
+      bottom: 46,
+      left: 206,
+      right: 240,
+      width: 34,
+      height: 34,
+      x: 206,
+      y: 12,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true, writable: true });
+
+    await user.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Project health' });
+    const left = parseFloat(dialog.style.left);
+    expect(left).toBeGreaterThanOrEqual(8); // never past the left edge
+    expect(left).toBeLessThanOrEqual(375 - 8); // fully on-screen
+    expect(dialog.style.top).toBe('50px'); // rect.bottom (46) + 4px gap
+
+    Object.defineProperty(window, 'innerWidth', {
+      value: originalWidth,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('click inside the portaled popover keeps it open; outside click closes it', async () => {
+    const user = userEvent.setup();
+    methodology.current = 'WATERFALL';
+    render();
+    const dialog = await openPopover(user);
+    // A click on a non-interactive spot inside the panel must not close it, even
+    // though the panel is no longer a DOM descendant of the chip wrapper.
+    await user.click(within(dialog).getByText('Forecast P50'));
+    expect(screen.getByRole('dialog', { name: 'Project health' })).toBeInTheDocument();
+    // A click outside closes it.
+    await user.click(document.body);
+    expect(screen.queryByRole('dialog', { name: 'Project health' })).not.toBeInTheDocument();
+  });
+
   // (g) project-scoped suppression -------------------------------------------
 
   it('is suppressed on a project settings route (rule 123 / ADR-0128 §C)', () => {
