@@ -151,7 +151,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(dialog.getByRole('radio', { name: 'Letter' })).toBeChecked();
 
     const downloadPromise = page.waitForEvent('download', { timeout: 20_000 });
-    await dialog.getByRole('button', { name: 'Export PDF' }).click();
+    await dialog.getByRole('button', { name: 'Download PDF' }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(
       /^Gantt_Export_Project_Schedule_\d{4}-\d{2}-\d{2}\.pdf$/,
@@ -161,6 +161,48 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(dialog.getByRole('heading', { name: /PDF ready/ })).toBeVisible({
       timeout: 20_000,
     });
+  });
+
+  test('Print destination sends to the print dialog without downloading a file (#1970)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // The print path dispatches through a hidden iframe + contentWindow.print(). The
+    // OS dialog is undrivable and headless print is a no-op; stub print defensively so
+    // a headed local run never blocks, and assert the state machine, not the OS dialog.
+    await page.addInitScript(() => {
+      window.print = () => {};
+    });
+    await setup(page);
+    await page.goto(BASE_URL);
+
+    const toolbar = page.getByRole('toolbar', { name: 'Schedule toolbar' });
+    await expect(toolbar).toBeVisible({ timeout: 10_000 });
+    await toolbar.getByRole('button', { name: 'Project actions' }).click();
+    await page
+      .getByRole('menu', { name: 'Project actions' })
+      .getByRole('menuitem', { name: 'Export schedule as PDF…' })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'Export schedule' });
+    await expect(dialog).toBeVisible();
+
+    // Choose Print → the primary relabels to "Print…" (ellipsis = opens the OS dialog).
+    await dialog.getByRole('radio', { name: 'Print' }).click();
+    const printButton = dialog.getByRole('button', { name: 'Print…' });
+    await expect(printButton).toBeVisible();
+    // The download path's primary is gone — this is the print branch.
+    await expect(dialog.getByRole('button', { name: 'Download PDF' })).toHaveCount(0);
+    await printButton.click();
+
+    // Success = the print dialog was DISPATCHED (never claims "Printed"), and the
+    // print SUCCESS copy is distinct from the download branch's "PDF ready" heading.
+    await expect(dialog.getByRole('heading', { name: /Print dialog opened/ })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(dialog.getByText('Sent to your printer')).toBeVisible();
+    // The blob-backed fallback is present and relabeled for print.
+    await expect(dialog.getByRole('button', { name: 'Open printable PDF' })).toBeVisible();
   });
 
   test('Export is available in the Project-actions ⋯ menu at the md breakpoint', async ({ page }) => {
@@ -258,7 +300,7 @@ test.describe('Schedule export surfaces (issue 1438)', () => {
     await expect(dialog).toBeVisible();
 
     const downloadPromise = page.waitForEvent('download', { timeout: 30_000 });
-    await dialog.getByRole('button', { name: 'Export PDF' }).click();
+    await dialog.getByRole('button', { name: 'Download PDF' }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(
       /^Gantt_Export_Project_Schedule_\d{4}-\d{2}-\d{2}\.pdf$/,

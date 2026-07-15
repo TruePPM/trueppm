@@ -12,12 +12,14 @@
 import { useEffect } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
+import { FilePdfIcon, PrinterIcon } from '@/components/Icons';
 import { Toggle } from '@/features/settings/components/Toggle';
 import { ExportSegmentedField, type SegmentOption } from './ExportSegmentedField';
 import {
   formatBytes,
   formatEstimate,
   formatPageCount,
+  type ExportDestination,
   type ExportLayoutChoice,
   type ExportRangeChoice,
   type ScheduleExportOptions,
@@ -50,13 +52,17 @@ const LAYOUT_B_HINT_ID = 'schedule-export-layout-b-hint';
 
 const REASSURANCE = 'Renders in your browser · nothing leaves the project';
 
-/** Discrete, non-ticking live-region text per phase (web-rule 220). */
-function liveMessage(phase: ExportPhase): string {
+/**
+ * Discrete, non-ticking live-region text per phase (web-rule 220). Success branches
+ * on destination — print announces "Print dialog opened", never "Printed", because we
+ * cannot detect whether the OS dialog was completed or canceled (issue 1970).
+ */
+function liveMessage(phase: ExportPhase, destination: ExportDestination): string {
   switch (phase) {
     case 'generating':
       return 'Generating the PDF';
     case 'success':
-      return 'PDF ready, download started';
+      return destination === 'print' ? 'Print dialog opened' : 'PDF ready, download started';
     case 'error':
       return 'Export failed';
     default:
@@ -132,6 +138,15 @@ export function ScheduleExportDialog({
       title: visibleWindowAvailable ? undefined : 'Available once the timeline is rendered',
     },
   ];
+  const destinationOptions: SegmentOption<ExportDestination>[] = [
+    { value: 'download', label: 'Download' },
+    { value: 'print', label: 'Print' },
+  ];
+
+  const isPrint = options.destination === 'print';
+  // `Print…` — the ellipsis signals a follow-up UI (the OS print dialog); `Download
+  // PDF` is terminal so it has none. The count-gate stays on this single primary.
+  const primaryActionLabel = isPrint ? 'Print…' : 'Download PDF';
 
   return (
     <div
@@ -236,6 +251,14 @@ export function ScheduleExportDialog({
               </div>
             </div>
 
+            <ExportSegmentedField
+              legend="Destination"
+              name="destination"
+              options={destinationOptions}
+              value={options.destination}
+              onChange={(v) => setOption('destination', v)}
+            />
+
             <div className="flex items-center justify-between gap-3 border-t border-neutral-border pt-3">
               <span className="text-xs text-neutral-text-secondary">
                 <span className="tppm-mono text-neutral-text-primary">{filteredCount}</span>{' '}
@@ -252,7 +275,7 @@ export function ScheduleExportDialog({
                   disabled={filteredCount === 0}
                   title={filteredCount === 0 ? 'Nothing to export with these options' : undefined}
                 >
-                  Export PDF
+                  {primaryActionLabel}
                 </Button>
               </div>
             </div>
@@ -305,33 +328,64 @@ export function ScheduleExportDialog({
               <span aria-hidden="true" className="text-semantic-on-track">
                 ✓
               </span>{' '}
-              PDF ready · download started
+              {result.destination === 'print'
+                ? 'Print dialog opened'
+                : 'PDF ready · download started'}
             </h2>
             <div className="flex items-center gap-3 rounded-md border border-neutral-border bg-neutral-surface-sunken p-3">
-              <span aria-hidden="true" className="text-xl">
-                📄
-              </span>
-              <div className="min-w-0">
-                <div
-                  className="tppm-mono truncate text-[13px] text-neutral-text-primary"
-                  title={result.fileName}
-                >
-                  {result.fileName}
-                </div>
-                <div className="tppm-mono text-xs text-neutral-text-secondary">
-                  {formatPageCount(result.pageCount)} · {result.paper === 'a4' ? 'A4' : 'Letter'} ·{' '}
-                  {formatBytes(result.byteSize)}
-                </div>
-              </div>
+              {result.destination === 'print' ? (
+                <>
+                  <PrinterIcon
+                    className="h-5 w-5 shrink-0 text-neutral-text-secondary"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[13px] text-neutral-text-primary">
+                      Sent to your printer
+                    </div>
+                    <div className="tppm-mono text-xs text-neutral-text-secondary">
+                      {formatPageCount(result.pageCount)} ·{' '}
+                      {result.paper === 'a4' ? 'A4' : 'Letter'}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <FilePdfIcon
+                    className="h-5 w-5 shrink-0 text-neutral-text-secondary"
+                    aria-hidden="true"
+                  />
+                  <div className="min-w-0">
+                    <div
+                      className="tppm-mono truncate text-[13px] text-neutral-text-primary"
+                      title={result.fileName}
+                    >
+                      {result.fileName}
+                    </div>
+                    <div className="tppm-mono text-xs text-neutral-text-secondary">
+                      {formatPageCount(result.pageCount)} ·{' '}
+                      {result.paper === 'a4' ? 'A4' : 'Letter'} · {formatBytes(result.byteSize)}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <div className="flex items-center justify-between gap-2">
+            {result.destination === 'print' && result.blobUrl && (
+              // Gated on blobUrl so the sentence and the "Open printable PDF" button
+              // (also blobUrl-gated) always appear together — never point at an absent
+              // control (issue 1970).
+              <p className="text-xs text-neutral-text-secondary">
+                Didn&rsquo;t see the print dialog? Open the printable PDF and print from there.
+              </p>
+            )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Button variant="ghost" onClick={onReset}>
                 Export again…
               </Button>
               <div className="flex gap-2">
                 {result.blobUrl && (
                   <Button variant="ghost" onClick={onOpenInViewer}>
-                    Open in viewer
+                    {result.destination === 'print' ? 'Open printable PDF' : 'Open in viewer'}
                   </Button>
                 )}
                 <Button variant="primary" onClick={onClose}>
@@ -369,7 +423,7 @@ export function ScheduleExportDialog({
         )}
 
         <span className="sr-only" role="status" aria-live="polite">
-          {liveMessage(phase)}
+          {liveMessage(phase, result?.destination ?? options.destination)}
         </span>
       </div>
     </div>

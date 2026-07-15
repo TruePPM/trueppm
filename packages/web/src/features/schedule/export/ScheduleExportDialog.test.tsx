@@ -28,9 +28,17 @@ const SUCCESS_RESULT: ExportResult = {
   fileName: 'Apollo_Schedule_2026-07-05.pdf',
   pageCount: 1,
   paper: 'letter',
+  destination: 'download',
   byteSize: 84_000,
   canceled: false,
   blobUrl: 'blob:mock',
+};
+
+const PRINT_RESULT: ExportResult = {
+  ...SUCCESS_RESULT,
+  destination: 'print',
+  // No file lands on disk when printing — the byte size is meaningless and unshown.
+  byteSize: 0,
 };
 
 describe('ScheduleExportDialog — configuring', () => {
@@ -74,17 +82,56 @@ describe('ScheduleExportDialog — configuring', () => {
     expect(setOption).toHaveBeenCalledWith('includeArrows', false);
   });
 
+  it('offers Download/Print as a segmented radiogroup and commits a change (#1970)', () => {
+    const setOption = vi.fn();
+    render(<ScheduleExportDialog {...makeProps({ setOption })} />);
+    const group = screen.getByRole('radiogroup', { name: 'Destination' });
+    expect(within(group).getByRole('radio', { name: 'Download' })).toBeChecked();
+    fireEvent.click(within(group).getByRole('radio', { name: 'Print' }));
+    expect(setOption).toHaveBeenCalledWith('destination', 'print');
+  });
+
+  it('makes the primary action label track the destination (#1970)', () => {
+    const { rerender } = render(<ScheduleExportDialog {...makeProps()} />);
+    // Default destination is download → the incumbent label.
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    rerender(
+      <ScheduleExportDialog
+        {...makeProps({ options: { ...DEFAULT_EXPORT_OPTIONS, destination: 'print' } })}
+      />,
+    );
+    // Print carries the ellipsis (opens the OS dialog next); Download does not.
+    expect(screen.getByRole('button', { name: 'Print…' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download PDF' })).not.toBeInTheDocument();
+  });
+
+  it('disables the single primary for either destination when count is 0 (#1970)', () => {
+    const { rerender } = render(<ScheduleExportDialog {...makeProps({ filteredCount: 0 })} />);
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
+    rerender(
+      <ScheduleExportDialog
+        {...makeProps({
+          filteredCount: 0,
+          options: { ...DEFAULT_EXPORT_OPTIONS, destination: 'print' },
+        })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Print…' })).toBeDisabled();
+    // The destination control itself stays usable at count 0 — the gate is the button.
+    expect(screen.getByRole('radio', { name: 'Print' })).toBeEnabled();
+  });
+
   it('shows the activity count read-out and calls onExport', () => {
     const onExport = vi.fn();
     render(<ScheduleExportDialog {...makeProps({ onExport, filteredCount: 12 })} />);
     expect(screen.getByText('12')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
     expect(onExport).toHaveBeenCalledTimes(1);
   });
 
   it('disables Export when no activities match the options', () => {
     render(<ScheduleExportDialog {...makeProps({ filteredCount: 0 })} />);
-    expect(screen.getByRole('button', { name: 'Export PDF' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Download PDF' })).toBeDisabled();
   });
 
   it('Cancel and Escape both close the dialog', () => {
@@ -149,6 +196,27 @@ describe('ScheduleExportDialog — success', () => {
       />,
     );
     expect(screen.queryByRole('button', { name: 'Open in viewer' })).not.toBeInTheDocument();
+  });
+
+  it('branches to the print card — "dialog opened", no filename/bytes, printable-PDF link (#1970)', () => {
+    render(<ScheduleExportDialog {...makeProps({ phase: 'success', result: PRINT_RESULT })} />);
+    // Never claims the sheet was printed — we cannot detect the OS dialog outcome.
+    expect(screen.getByRole('heading', { name: /Print dialog opened/ })).toBeInTheDocument();
+    expect(screen.getByText('Sent to your printer')).toBeInTheDocument();
+    // Nothing hit disk: no filename, and the byte size is suppressed.
+    expect(screen.queryByText(PRINT_RESULT.fileName)).not.toBeInTheDocument();
+    expect(screen.getByText(/1 page · Letter/)).toBeInTheDocument();
+    expect(screen.queryByText(/KB|MB|82 KB/)).not.toBeInTheDocument();
+    // The blob-backed fallback is relabeled for the print branch.
+    expect(screen.getByRole('button', { name: 'Open printable PDF' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open in viewer' })).not.toBeInTheDocument();
+  });
+
+  it('announces "Print dialog opened" through the live region, never "Printed" (#1970)', () => {
+    render(<ScheduleExportDialog {...makeProps({ phase: 'success', result: PRINT_RESULT })} />);
+    const status = screen.getByRole('status');
+    expect(status).toHaveTextContent('Print dialog opened');
+    expect(status).not.toHaveTextContent(/Printed|download/i);
   });
 
   it('Export again returns to the options; Done closes', () => {

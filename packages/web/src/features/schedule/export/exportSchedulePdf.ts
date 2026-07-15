@@ -25,10 +25,19 @@ import {
   stampTextLayerForPage,
   type PrintTextRun,
 } from '../../export/pdfTextLayer';
+import { dispatchPrintViaIframe } from '../../export/printPdf';
 import { planSheetColumns, sheetLabel } from './scheduleSheetPlan';
 import { planVerticalPages, pageLabel, type VerticalFlowGeometry } from './scheduleVerticalPlan';
 
 export type SchedulePaper = 'letter' | 'a4';
+
+/**
+ * Terminal action for the finished PDF (issue 1970). `download` saves the file;
+ * `print` dispatches the SAME bytes to the OS/browser print dialog. It selects only
+ * the last step in `finalizePdf` — the rendered artifact is byte-identical either
+ * way — so it never forks the render pipeline.
+ */
+export type ExportDestination = 'download' | 'print';
 
 /** Rasterizer sampling ratio — CSS px × this = source image px (crisp labels). */
 const PIXEL_RATIO = 2;
@@ -66,12 +75,19 @@ export interface ExportSchedulePdfOptions {
    * passes a week-snapped width to split wide timelines across sheets.
    */
   bandWidthPx?: number;
+  /**
+   * Terminal action for the finished PDF (issue 1970). `download` (default) saves the
+   * file; `print` sends the same bytes to the print dialog. Never forks the render.
+   */
+  destination?: ExportDestination;
 }
 
 export interface ExportResult {
   fileName: string;
   pageCount: number;
   paper: SchedulePaper;
+  /** Which terminal action ran — drives the success-dialog copy (issue 1970). */
+  destination: ExportDestination;
   /** Output size in bytes (best-effort; 0 when the jsPDF blob is unavailable). */
   byteSize: number;
   /** True when the export was aborted via the signal before saving. */
@@ -249,7 +265,11 @@ function readVFlowGeometry(node: HTMLElement, imageHeightPx: number): VerticalFl
   return {
     imageHeightPx,
     ganttHeader: { top: ganttTop * R, height: (rowsTop - ganttTop) * R },
-    ganttRows: { top: rowsTop * R, bottom: rowsBottom * R, rowH: ((rowsBottom - rowsTop) / rowCount) * R },
+    ganttRows: {
+      top: rowsTop * R,
+      bottom: rowsBottom * R,
+      rowH: ((rowsBottom - rowsTop) / rowCount) * R,
+    },
     cp,
     unscheduled,
     footerTop: top(footer) * R,
@@ -279,12 +299,13 @@ function paginateVerticalReport(
     pageW: number;
     pageH: number;
     fileName: string;
+    destination: ExportDestination;
     signal?: AbortSignal;
     onProgress?: (p: ExportProgress) => void;
     textRuns: readonly PrintTextRun[];
   },
 ): ExportResult | null {
-  const { paper, pageW, pageH, fileName, signal, onProgress, textRuns } = opts;
+  const { paper, pageW, pageH, fileName, destination, signal, onProgress, textRuns } = opts;
   // Fit the full sheet width to the page; the body-height budget is one page MINUS the
   // reserved footer band (issue 1686), in img px — so content never runs into the
   // hairline/continued/counter furniture at the page bottom.
@@ -307,8 +328,8 @@ function paginateVerticalReport(
       scale,
     });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+    return { fileName, pageCount: 1, paper, destination, byteSize, canceled: false, blobUrl };
   }
 
   const canvas = document.createElement('canvas');
@@ -319,7 +340,7 @@ function paginateVerticalReport(
   let placed = 0;
   for (const page of pages) {
     // Cancel between pages: stop without saving, so nothing reaches disk.
-    if (signal?.aborted) return canceledResult(fileName, paper);
+    if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
     const headerH = page.header?.height ?? 0;
     canvas.width = img.width;
@@ -355,10 +376,10 @@ function paginateVerticalReport(
     onProgress?.({ phase: 'paginate', done: placed, total });
   }
 
-  if (signal?.aborted) return canceledResult(fileName, paper);
+  if (signal?.aborted) return canceledResult(fileName, paper, destination);
   onProgress?.({ phase: 'finalize', done: total, total });
-  const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-  return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
+  const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+  return { fileName, pageCount: placed, paper, destination, byteSize, canceled: false, blobUrl };
 }
 
 /** Load a data-URL into an HTMLImageElement, resolving once decoded. */
@@ -371,25 +392,45 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-function canceledResult(fileName: string, paper: SchedulePaper): ExportResult {
-  return { fileName, pageCount: 0, paper, byteSize: 0, canceled: true, blobUrl: null };
+function canceledResult(
+  fileName: string,
+  paper: SchedulePaper,
+  destination: ExportDestination,
+): ExportResult {
+  return { fileName, pageCount: 0, paper, destination, byteSize: 0, canceled: true, blobUrl: null };
 }
 
 /**
- * Save the PDF and, best-effort, materialize its blob ONCE to derive both the
- * output size and the "Open in viewer" object URL (issue 1438). The blob call is
- * absent in jsdom/mock and `createObjectURL` is unimplemented there, so both are
- * guarded — `byteSize` falls back to 0 and `blobUrl` to null, and the download
- * still fires via `pdf.save` (mock-friendly, unchanged from the issue-1437 path).
+ * Run the finished PDF's terminal action and, best-effort, materialize its blob ONCE
+ * to derive both the output size and the "Open in viewer" object URL (issue 1438).
+ * The blob call is absent in jsdom/mock and `createObjectURL` is unimplemented there,
+ * so both are guarded — `byteSize` falls back to 0 and `blobUrl` to null.
+ *
+ * `destination` (issue 1970) selects ONLY this last step — the rendered bytes are
+ * identical either way: `download` fires `pdf.save` (mock-friendly, unchanged from the
+ * issue-1437 path); `print` embeds `autoPrint()` before the blob is read (so the same
+ * bytes carry the auto-print OpenAction) and dispatches to the print dialog via a
+ * hidden iframe.
  */
 function finalizePdf(
-  pdf: { output: (type: string) => unknown; save: (name: string) => void },
+  pdf: {
+    output: (type: string) => unknown;
+    save: (name: string) => void;
+    autoPrint?: () => void;
+  },
   fileName: string,
+  destination: ExportDestination,
 ): { byteSize: number; blobUrl: string | null } {
+  // Embed the auto-print action BEFORE materializing the blob so the same bytes back
+  // the hidden-iframe dispatch AND the "Open printable PDF" fallback (both auto-print).
+  if (destination === 'print' && typeof pdf.autoPrint === 'function') {
+    pdf.autoPrint();
+  }
   let byteSize = 0;
   let blobUrl: string | null = null;
+  let blob: (Blob & { size?: number }) | null = null;
   try {
-    const blob = pdf.output('blob') as Blob & { size?: number };
+    blob = pdf.output('blob') as Blob & { size?: number };
     if (blob && typeof blob.size === 'number') byteSize = blob.size;
     if (blob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
       blobUrl = URL.createObjectURL(blob);
@@ -397,7 +438,16 @@ function finalizePdf(
   } catch {
     /* jsdom / mock: no real blob or no createObjectURL — leave defaults. */
   }
-  pdf.save(fileName);
+  if (destination === 'print') {
+    // The iframe gets its OWN object URL so its revoke-on-`afterprint` can never
+    // invalidate the `blobUrl` the success dialog keeps for the fallback link (the
+    // caller revokes that one on close). No URL in jsdom → nothing to dispatch.
+    if (blob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      dispatchPrintViaIframe(URL.createObjectURL(blob));
+    }
+  } else {
+    pdf.save(fileName);
+  }
   return { byteSize, blobUrl };
 }
 
@@ -409,9 +459,16 @@ function finalizePdf(
  */
 export async function exportSchedulePdf(
   node: HTMLElement,
-  { fileName, paper = 'letter', onProgress, signal, bandWidthPx }: ExportSchedulePdfOptions,
+  {
+    fileName,
+    paper = 'letter',
+    onProgress,
+    signal,
+    bandWidthPx,
+    destination = 'download',
+  }: ExportSchedulePdfOptions,
 ): Promise<ExportResult> {
-  if (signal?.aborted) return canceledResult(fileName, paper);
+  if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
   const { toPng } = await import('html-to-image');
   const { jsPDF } = await import('jspdf');
@@ -420,9 +477,9 @@ export async function exportSchedulePdf(
   // pixelRatio 2 keeps row labels and the date scale crisp; backgroundColor is
   // left to the node's own `bg-white` so the rasterizer captures a clean page.
   const dataUrl = await toPng(node, { pixelRatio: PIXEL_RATIO });
-  if (signal?.aborted) return canceledResult(fileName, paper);
+  if (signal?.aborted) return canceledResult(fileName, paper, destination);
   const img = await loadImage(dataUrl);
-  if (signal?.aborted) return canceledResult(fileName, paper);
+  if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: paper });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -468,7 +525,7 @@ export async function exportSchedulePdf(
       for (const column of plan.columns) {
         for (let r = 0; r < rowBands; r++) {
           // Cancel between sheets: stop without saving, so nothing reaches disk.
-          if (signal?.aborted) return canceledResult(fileName, paper);
+          if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
           const sy = r * pageImgH;
           const sliceH = Math.min(pageImgH, img.height - sy);
@@ -525,10 +582,18 @@ export async function exportSchedulePdf(
         }
       }
 
-      if (signal?.aborted) return canceledResult(fileName, paper);
+      if (signal?.aborted) return canceledResult(fileName, paper, destination);
       onProgress?.({ phase: 'finalize', done: total, total });
-      const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-      return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
+      const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+      return {
+        fileName,
+        pageCount: placed,
+        paper,
+        destination,
+        byteSize,
+        canceled: false,
+        blobUrl,
+      };
     }
   }
 
@@ -546,6 +611,7 @@ export async function exportSchedulePdf(
       pageW,
       pageH,
       fileName,
+      destination,
       signal,
       onProgress,
       textRuns,
@@ -580,8 +646,8 @@ export async function exportSchedulePdf(
       scale,
     });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+    return { fileName, pageCount: 1, paper, destination, byteSize, canceled: false, blobUrl };
   }
 
   // Multi-band: slice the bitmap into a col × row grid via an offscreen canvas.
@@ -601,8 +667,8 @@ export async function exportSchedulePdf(
       scale: pageW / img.width,
     });
     onProgress?.({ phase: 'finalize', done: 1, total: 1 });
-    const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-    return { fileName, pageCount: 1, paper, byteSize, canceled: false, blobUrl };
+    const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+    return { fileName, pageCount: 1, paper, destination, byteSize, canceled: false, blobUrl };
   }
 
   let placed = 0;
@@ -611,7 +677,7 @@ export async function exportSchedulePdf(
     const sliceW = Math.min(columnWidth, img.width - sx);
     for (let row = 0; row < rows; row++) {
       // Cancel between bands: stop without saving, so nothing reaches disk.
-      if (signal?.aborted) return canceledResult(fileName, paper);
+      if (signal?.aborted) return canceledResult(fileName, paper, destination);
 
       const sy = row * pageImgH;
       const sliceH = Math.min(pageImgH, img.height - sy);
@@ -636,10 +702,10 @@ export async function exportSchedulePdf(
     }
   }
 
-  if (signal?.aborted) return canceledResult(fileName, paper);
+  if (signal?.aborted) return canceledResult(fileName, paper, destination);
   onProgress?.({ phase: 'finalize', done: total, total });
-  const { byteSize, blobUrl } = finalizePdf(pdf, fileName);
-  return { fileName, pageCount: placed, paper, byteSize, canceled: false, blobUrl };
+  const { byteSize, blobUrl } = finalizePdf(pdf, fileName, destination);
+  return { fileName, pageCount: placed, paper, destination, byteSize, canceled: false, blobUrl };
 }
 
 /**

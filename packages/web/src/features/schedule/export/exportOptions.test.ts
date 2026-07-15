@@ -51,11 +51,12 @@ describe('formatPageCount', () => {
 });
 
 describe('DEFAULT_EXPORT_OPTIONS', () => {
-  it('defaults to Layout A, Letter, full schedule, arrows on, non-critical off', () => {
+  it('defaults to Layout A, Letter, full schedule, download, arrows on, non-critical off', () => {
     expect(DEFAULT_EXPORT_OPTIONS).toMatchObject({
       layout: 'gantt',
       paper: 'letter',
       range: 'full',
+      destination: 'download',
       includeArrows: true,
       includeNonCritical: false,
       includeCpSummary: true,
