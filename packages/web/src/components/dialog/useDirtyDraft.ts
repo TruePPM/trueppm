@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from 'react';
+import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 export interface DirtyDraft<T extends object> {
   /** The working copy the form binds its inputs to. */
@@ -26,6 +19,14 @@ export interface DirtyDraft<T extends object> {
    * a round-trip through freshly-fetched props.
    */
   commit: (next?: T) => void;
+  /**
+   * Re-baseline a SINGLE field (draft + baseline) to `value`, leaving every
+   * other pending edit dirty. For an immediate side-write to one field while the
+   * rest of the draft is still being edited (e.g. accepting a velocity
+   * suggestion that PATCHes one column) — `commit()` would drop the other
+   * pending edits, so it can't be used there.
+   */
+  commitField: <K extends keyof T>(key: K, value: T[K]) => void;
 }
 
 /**
@@ -83,5 +84,10 @@ export function useDirtyDraft<T extends object>(initial: T): DirtyDraft<T> {
     setDraft(value);
   }, []);
 
-  return { draft, setDraft, setField, baseline, dirty, reset, commit };
+  const commitField = useCallback(<K extends keyof T>(key: K, value: T[K]) => {
+    setBaseline((b) => ({ ...b, [key]: value }) as T);
+    setDraft((d) => ({ ...d, [key]: value }) as T);
+  }, []);
+
+  return { draft, setDraft, setField, baseline, dirty, reset, commit, commitField };
 }

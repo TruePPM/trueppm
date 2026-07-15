@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import Markdown from 'react-markdown';
+import { UnsavedDot } from '@/components/dialog';
 
 /**
  * Markdown subset the Description renders (issue 1048, MVP scope): paragraphs,
@@ -111,11 +112,7 @@ export function TaskDescriptionField({
       <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
         Description
       </span>
-      {changed && (
-        <span aria-hidden="true" title="Unsaved" className="text-brand-primary leading-none">
-          •
-        </span>
-      )}
+      {changed && <UnsavedDot />}
     </div>
   );
 
@@ -159,8 +156,8 @@ export function TaskDescriptionField({
         />
         <p className="mt-1 text-xs text-neutral-text-secondary">
           Markdown supported: <span className="tppm-mono">**bold**</span>,{' '}
-          <span className="tppm-mono">- lists</span>, <span className="tppm-mono">1. numbered</span>,{' '}
-          <span className="tppm-mono">`code`</span>
+          <span className="tppm-mono">- lists</span>, <span className="tppm-mono">1. numbered</span>
+          , <span className="tppm-mono">`code`</span>
         </p>
         {changedElsewhere && (
           <p role="status" className="mt-1.5 text-xs text-semantic-at-risk">
