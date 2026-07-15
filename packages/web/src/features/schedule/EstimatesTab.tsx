@@ -8,6 +8,7 @@ import {
   useDismissVelocitySuggestion,
   useVelocitySuggestions,
 } from '@/hooks/useVelocitySuggestions';
+import { useTaskDraft } from './TaskDraftContext';
 
 interface EstimatesTabProps {
   task: Task;
@@ -36,37 +37,44 @@ export function EstimatesTab({
   // The list endpoint is gated server-side (membership) and the accept/dismiss
   // endpoints reject non-admin callers, but skipping the fetch entirely keeps
   // the drawer payload minimal for Viewers/Members/Schedulers.
-  const { data: suggestions } = useVelocitySuggestions(
-    userIsAdmin ? task.id : undefined,
-  );
+  const { data: suggestions } = useVelocitySuggestions(userIsAdmin ? task.id : undefined);
   const acceptSuggestion = useAcceptVelocitySuggestion(task.id, projectId);
   const dismissSuggestion = useDismissVelocitySuggestion(task.id);
   // Sprint close generates at most one suggestion per task per sprint, so the
   // surface need only present the most recent pending row.
   const pendingSuggestion = suggestions?.[0];
 
-  // Local controlled state mirrors task props; resets when task changes
-  const [optimistic, setOptimistic] = useState<string>(
-    task.optimisticDuration != null ? String(task.optimisticDuration) : '',
-  );
-  const [mostLikely, setMostLikely] = useState<string>(
-    task.mostLikelyDuration != null ? String(task.mostLikelyDuration) : '',
-  );
-  const [pessimistic, setPessimistic] = useState<string>(
-    task.pessimisticDuration != null ? String(task.pessimisticDuration) : '',
-  );
-  const [remaining, setRemaining] = useState<string>(
-    task.remainingPoints != null ? String(task.remainingPoints) : '',
-  );
+  // #1985 / ADR-0440: inside the task-detail drawer a TaskDraftContext lets the
+  // three-point estimate stage into the drawer's Save/Cancel draft (batched into
+  // one PATCH on Save) instead of committing on blur. Absent — the full-page
+  // TaskDetailPage, which has no Save bar — we keep the immediate 300 ms-debounced
+  // single-field PATCH. The taskId guard ignores a draft seeded for a different
+  // task during a canvas swap.
+  const taskDraft = useTaskDraft();
+  const draftActive = taskDraft != null && taskDraft.taskId === task.id;
+
+  // Local controlled state — the immediate (fallback) O/M/P path plus the sprint
+  // remaining-points field, which always mutates immediately. Resets when the task
+  // changes. In draft mode the O/M/P inputs read from the draft instead (below).
+  const [optimistic, setOptimistic] = useState<string>(numToStr(task.optimisticDuration));
+  const [mostLikely, setMostLikely] = useState<string>(numToStr(task.mostLikelyDuration));
+  const [pessimistic, setPessimistic] = useState<string>(numToStr(task.pessimisticDuration));
+  const [remaining, setRemaining] = useState<string>(numToStr(task.remainingPoints));
 
   useEffect(() => {
-    setOptimistic(task.optimisticDuration != null ? String(task.optimisticDuration) : '');
-    setMostLikely(task.mostLikelyDuration != null ? String(task.mostLikelyDuration) : '');
-    setPessimistic(task.pessimisticDuration != null ? String(task.pessimisticDuration) : '');
-    setRemaining(task.remainingPoints != null ? String(task.remainingPoints) : '');
-  }, [task.id, task.optimisticDuration, task.mostLikelyDuration, task.pessimisticDuration, task.remainingPoints]);
+    setOptimistic(numToStr(task.optimisticDuration));
+    setMostLikely(numToStr(task.mostLikelyDuration));
+    setPessimistic(numToStr(task.pessimisticDuration));
+    setRemaining(numToStr(task.remainingPoints));
+  }, [
+    task.id,
+    task.optimisticDuration,
+    task.mostLikelyDuration,
+    task.pessimisticDuration,
+    task.remainingPoints,
+  ]);
 
-  // Save on blur using the current input value
+  // Immediate (fallback) path: debounce a single-field PATCH on blur.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function scheduleUpdate(patch: {
@@ -80,34 +88,60 @@ export function EstimatesTab({
     }, 300);
   }
 
-  function handleOptimisticBlur(value: string) {
-    const n = value === '' ? null : Number(value);
-    scheduleUpdate({ optimistic_duration: n });
-  }
-  function handleMostLikelyBlur(value: string) {
-    const n = value === '' ? null : Number(value);
-    scheduleUpdate({ most_likely_duration: n });
-  }
-  function handlePessimisticBlur(value: string) {
-    const n = value === '' ? null : Number(value);
-    scheduleUpdate({ pessimistic_duration: n });
-  }
+  const isReadonly = estimationMode === 'pm_only' && !userIsScheduler;
 
-  const isReadonly =
-    estimationMode === 'pm_only' && !userIsScheduler;
+  // Per-field descriptors that switch between the drawer draft and the immediate
+  // fallback: value, change handler, blur handler, and the unsaved • marker.
+  const estimateFields = [
+    {
+      key: 'optimistic_duration',
+      label: 'Optimistic (O)',
+      idPrefix: 'opt',
+      local: optimistic,
+      setLocal: setOptimistic,
+    },
+    {
+      key: 'most_likely_duration',
+      label: 'Most Likely (M)',
+      idPrefix: 'ml',
+      local: mostLikely,
+      setLocal: setMostLikely,
+    },
+    {
+      key: 'pessimistic_duration',
+      label: 'Pessimistic (P)',
+      idPrefix: 'pes',
+      local: pessimistic,
+      setLocal: setPessimistic,
+    },
+  ] as const;
 
-  const o = task.optimisticDuration;
-  const m = task.mostLikelyDuration;
-  const p = task.pessimisticDuration;
+  // Effective O/M/P for the PERT preview: the live draft values in the drawer so
+  // the preview tracks what the user is typing (fixing the prior read of the
+  // last-saved task.* value), or the saved task values on the immediate path.
+  const o = draftActive ? taskDraft.estimates.optimistic_duration : task.optimisticDuration;
+  const m = draftActive ? taskDraft.estimates.most_likely_duration : task.mostLikelyDuration;
+  const p = draftActive ? taskDraft.estimates.pessimistic_duration : task.pessimisticDuration;
   const allThreeSet = o != null && m != null && p != null;
   const pertExpected = allThreeSet ? (o + 4 * m + p) / 6 : null;
-  const pertStdDev = allThreeSet ? (p - o) / 6 : null;
+  // Clamp σ at 0: the preview now reads the live draft, so a mid-edit p < o would
+  // otherwise flash a negative std-dev before the user finishes typing.
+  const pertStdDev = allThreeSet ? Math.max(0, (p - o) / 6) : null;
+
+  // Accept/Dismiss of a velocity suggestion writes most_likely_duration
+  // server-side (ADR-0065); disable it while an estimate edit is staged so the two
+  // ways of setting the estimate can't race and clobber each other.
+  const estimatesDirty =
+    draftActive &&
+    (taskDraft.changed.optimistic_duration ||
+      taskDraft.changed.most_likely_duration ||
+      taskDraft.changed.pessimistic_duration);
+  const velocityBusy = acceptSuggestion.isPending || dismissSuggestion.isPending;
 
   // In suggest_approve, accepted estimates are shown in the PERT panel.
   // Pending estimates show the pending banner instead.
   const showPertPanel =
-    allThreeSet &&
-    (estimationMode !== 'suggest_approve' || task.estimateStatus === 'accepted');
+    allThreeSet && (estimationMode !== 'suggest_approve' || task.estimateStatus === 'accepted');
 
   const showPendingBanner =
     estimationMode === 'suggest_approve' && task.estimateStatus === 'pending';
@@ -124,10 +158,7 @@ export function EstimatesTab({
           aria-label="Velocity calibration suggestion"
           className="flex items-start gap-3 rounded-card border border-brand-primary/40 bg-brand-primary/5 px-3 py-2.5"
         >
-          <span
-            className="text-brand-primary text-lg leading-none mt-0.5"
-            aria-hidden="true"
-          >
+          <span className="text-brand-primary text-lg leading-none mt-0.5" aria-hidden="true">
             📈
           </span>
           <div className="flex-1 min-w-0">
@@ -143,18 +174,19 @@ export function EstimatesTab({
               {task.mostLikelyDuration != null && (
                 <>
                   {' '}
-                  (currently{' '}
-                  <span className="tppm-mono">{task.mostLikelyDuration}d</span>)
+                  (currently <span className="tppm-mono">{task.mostLikelyDuration}d</span>)
                 </>
               )}
               .
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* Dismiss discards the suggestion and touches no estimate field, so
+                it stays enabled even while an estimate edit is staged. */}
             <button
               type="button"
               onClick={() => dismissSuggestion.mutate(pendingSuggestion.id)}
-              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending}
+              disabled={velocityBusy}
               className="h-8 px-3 rounded-control text-xs font-medium border border-neutral-border
                 text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
                 disabled:opacity-50 disabled:cursor-not-allowed
@@ -162,17 +194,48 @@ export function EstimatesTab({
             >
               {dismissSuggestion.isPending ? 'Dismissing…' : 'Dismiss'}
             </button>
+            {/* Accept writes most_likely_duration server-side, so it must not run
+                while a manual estimate edit is staged (the two write paths would
+                race). Use accessible-disabled — aria-disabled + focusable + an
+                sr-only reason — so a keyboard/AT admin can reach it and hear why,
+                rather than a real `disabled` that drops it from the tab order with
+                a mouse-only `title`. */}
             <button
               type="button"
-              onClick={() => acceptSuggestion.mutate(pendingSuggestion.id)}
-              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
+              aria-disabled={estimatesDirty || undefined}
+              aria-describedby={estimatesDirty ? `est-accept-blocked-${task.id}` : undefined}
+              onClick={() => {
+                if (estimatesDirty || velocityBusy) return;
+                acceptSuggestion.mutate(pendingSuggestion.id, {
+                  // Accept wrote most_likely_duration server-side. If the drawer
+                  // draft is open, re-baseline its estimate slice to the accepted
+                  // value so a later Save can't re-PATCH the stale baseline over
+                  // it. Safe to spread the current estimates: Accept is blocked
+                  // while any estimate field is dirty, so draft === baseline here.
+                  onSuccess: () => {
+                    if (draftActive) {
+                      taskDraft.commitEstimatesFromServer({
+                        ...taskDraft.estimates,
+                        most_likely_duration: pendingSuggestion.suggested_duration ?? null,
+                      });
+                    }
+                  },
+                });
+              }}
+              disabled={velocityBusy}
               className="h-8 px-3 rounded-control text-xs font-semibold border border-sage-600
                 text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
                 disabled:opacity-50 disabled:cursor-not-allowed
+                aria-disabled:opacity-50 aria-disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {acceptSuggestion.isPending ? 'Accepting…' : 'Accept'}
             </button>
+            {estimatesDirty && (
+              <span id={`est-accept-blocked-${task.id}`} className="sr-only">
+                Save or cancel your estimate changes first
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -187,9 +250,7 @@ export function EstimatesTab({
             ⏳
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-brand-accent-dark">
-              Pending approval
-            </p>
+            <p className="text-sm font-medium text-brand-accent-dark">Pending approval</p>
             <p className="text-xs text-brand-accent-dark/80 mt-0.5">
               These estimates are awaiting scheduler review before being used in Monte Carlo.
             </p>
@@ -223,30 +284,27 @@ export function EstimatesTab({
           Three-Point Estimates (working days)
         </legend>
 
-        <EstimateField
-          label="Optimistic (O)"
-          value={optimistic}
-          onChange={setOptimistic}
-          onBlur={handleOptimisticBlur}
-          disabled={isReadonly}
-          id={`opt-${task.id}`}
-        />
-        <EstimateField
-          label="Most Likely (M)"
-          value={mostLikely}
-          onChange={setMostLikely}
-          onBlur={handleMostLikelyBlur}
-          disabled={isReadonly}
-          id={`ml-${task.id}`}
-        />
-        <EstimateField
-          label="Pessimistic (P)"
-          value={pessimistic}
-          onChange={setPessimistic}
-          onBlur={handlePessimisticBlur}
-          disabled={isReadonly}
-          id={`pes-${task.id}`}
-        />
+        {estimateFields.map(({ key, label, idPrefix, local, setLocal }) => (
+          <EstimateField
+            key={key}
+            label={label}
+            // Draft mode reads the staged value; fallback reads local input state.
+            value={draftActive ? numToStr(taskDraft.estimates[key]) : local}
+            onChange={(v) => {
+              if (draftActive) taskDraft.setEstimate(key, strToNum(v));
+              else setLocal(v);
+            }}
+            // Draft mode stages on change — nothing to flush on blur. Fallback
+            // commits the debounced single-field PATCH on blur.
+            onBlur={(v) => {
+              if (!draftActive) scheduleUpdate({ [key]: strToNum(v) });
+            }}
+            // Unsaved marker only in draft mode (the immediate path has no draft).
+            changed={draftActive && taskDraft.changed[key]}
+            disabled={isReadonly}
+            id={`${idPrefix}-${task.id}`}
+          />
+        ))}
       </fieldset>
 
       {/* PERT summary panel */}
@@ -346,15 +404,22 @@ interface EstimateFieldProps {
   onBlur: (v: string) => void;
   disabled: boolean;
   id: string;
+  /** Staged-but-unsaved marker — shown only in the drawer's deferred-Save mode. */
+  changed?: boolean;
 }
 
-function EstimateField({ label, value, onChange, onBlur, disabled, id }: EstimateFieldProps) {
+function EstimateField({
+  label,
+  value,
+  onChange,
+  onBlur,
+  disabled,
+  id,
+  changed = false,
+}: EstimateFieldProps) {
   return (
     <div className="flex items-center gap-3">
-      <label
-        htmlFor={id}
-        className="w-36 shrink-0 text-xs text-neutral-text-secondary"
-      >
+      <label htmlFor={id} className="w-36 shrink-0 text-xs text-neutral-text-secondary">
         {label}
       </label>
       <input
@@ -373,6 +438,28 @@ function EstimateField({ label, value, onChange, onBlur, disabled, id }: Estimat
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       />
       <span className="text-xs text-neutral-text-disabled">days</span>
+      {/* Unsaved marker — decorative; the drawer's sr-only status region carries
+          the accessible "unsaved changes in Estimates" announcement (matches the
+          name field's • in TaskDetailDrawer). */}
+      {changed && (
+        <span
+          aria-hidden="true"
+          title="Unsaved"
+          className="shrink-0 text-lg leading-none text-brand-primary"
+        >
+          •
+        </span>
+      )}
     </div>
   );
+}
+
+/** Number → input string, empty for null/undefined. */
+function numToStr(value: number | null | undefined): string {
+  return value != null ? String(value) : '';
+}
+
+/** Input string → number, null for empty. `Number('')` is 0, so guard empty first. */
+function strToNum(value: string): number | null {
+  return value === '' ? null : Number(value);
 }

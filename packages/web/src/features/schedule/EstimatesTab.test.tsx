@@ -2,17 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesTab } from './EstimatesTab';
+import { TaskDraftContext, type TaskDraftContextValue } from './TaskDraftContext';
+import type { ReactElement } from 'react';
 import type { Task } from '@/types';
 
-const patchMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: {} }),
-);
+const patchMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }));
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { estimate_status: 'accepted' } }),
 );
-const getMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }),
-);
+const getMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }));
 
 vi.mock('@/api/client', () => ({
   apiClient: { patch: patchMock, post: postMock, get: getMock },
@@ -45,12 +43,7 @@ beforeEach(() => vi.clearAllMocks());
 describe('EstimatesTab — open mode', () => {
   it('renders three input fields', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.getByLabelText(/Optimistic/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Most Likely/i)).toBeInTheDocument();
@@ -59,12 +52,7 @@ describe('EstimatesTab — open mode', () => {
 
   it('inputs are enabled for non-schedulers in open mode', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.getByLabelText(/Optimistic/i)).not.toBeDisabled();
   });
@@ -214,7 +202,9 @@ describe('EstimatesTab — suggest_approve mode', () => {
         userIsScheduler={false}
       />,
     );
-    expect(screen.getByText(/awaiting scheduler review|submitted for scheduler approval/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/awaiting scheduler review|submitted for scheduler approval/i),
+    ).toBeInTheDocument();
   });
 });
 
@@ -234,12 +224,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for optimistic duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Optimistic/i);
     fireEvent.change(input, { target: { value: '5' } });
@@ -253,12 +238,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for most-likely duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Most Likely/i);
     fireEvent.change(input, { target: { value: '8' } });
@@ -272,12 +252,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for pessimistic duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Pessimistic/i);
     fireEvent.change(input, { target: { value: '15' } });
@@ -324,12 +299,7 @@ const sprintTask: Task = {
 describe('EstimatesTab — sprint effort section', () => {
   it('does not show sprint effort section when task has no sprint', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.queryByText(/Sprint Effort/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Committed.*pts/i)).not.toBeInTheDocument();
@@ -501,14 +471,10 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // useVelocitySuggestions stays disabled when userIsAdmin is false, so the
     // banner never renders even if the API would have returned a row.
-    expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
     // The project read may fire (label resolution), but the suggestions
     // endpoint must never be hit for a non-admin.
-    expect(getMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('/velocity-suggestions/'),
-    );
+    expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('/velocity-suggestions/'));
   });
 
   it('renders the banner when a pending suggestion exists and user is admin', async () => {
@@ -523,9 +489,7 @@ describe('EstimatesTab — velocity suggestion banner', () => {
       />,
     );
     await waitFor(() =>
-      expect(
-        screen.getByLabelText(/Velocity calibration suggestion/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByLabelText(/Velocity calibration suggestion/i)).toBeInTheDocument(),
     );
     expect(screen.getByText(/Sprint 12/)).toBeInTheDocument();
     expect(screen.getByText(/4d/)).toBeInTheDocument();
@@ -549,13 +513,9 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // The suggestions query fires (admin), but the banner stays absent.
     await waitFor(() =>
-      expect(getMock).toHaveBeenCalledWith(
-        expect.stringContaining('/velocity-suggestions/'),
-      ),
+      expect(getMock).toHaveBeenCalledWith(expect.stringContaining('/velocity-suggestions/')),
     );
-    expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
   });
 
   it('shows current vs suggested duration when most_likely_duration is set', async () => {
@@ -635,8 +595,187 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // Wait for the query to settle; banner remains absent.
     await waitFor(() => expect(getMock).toHaveBeenCalled());
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drawer draft mode (#1985, ADR-0440) — O/M/P batch behind the Save bar via
+// TaskDraftContext instead of committing on blur. Absent (the tests above), the
+// immediate debounced-PATCH fallback still runs — that backward-compat is proven
+// by every test above rendering EstimatesTab with no provider.
+// ---------------------------------------------------------------------------
+
+function makeDraft(overrides: Partial<TaskDraftContextValue> = {}): TaskDraftContextValue {
+  return {
+    taskId: 't1',
+    estimates: {
+      optimistic_duration: null,
+      most_likely_duration: null,
+      pessimistic_duration: null,
+    },
+    setEstimate: vi.fn(),
+    changed: {
+      optimistic_duration: false,
+      most_likely_duration: false,
+      pessimistic_duration: false,
+    },
+    commitEstimatesFromServer: vi.fn(),
+    ...overrides,
+  };
+}
+
+function renderWithDraft(ui: ReactElement, draft: TaskDraftContextValue) {
+  return renderWithProviders(
+    <TaskDraftContext.Provider value={draft}>{ui}</TaskDraftContext.Provider>,
+  );
+}
+
+describe('EstimatesTab — drawer draft mode (#1985, ADR-0440)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('stages an estimate edit into the draft instead of firing a PATCH', async () => {
+    vi.useFakeTimers();
+    const draft = makeDraft();
+    renderWithDraft(
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
+      draft,
+    );
+    const input = screen.getByLabelText(/Optimistic/i);
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(draft.setEstimate).toHaveBeenCalledWith('optimistic_duration', 5);
+    // No debounced single-field PATCH in draft mode — persistence is the drawer's Save.
+    expect(patchMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('stages null when a field is cleared', () => {
+    const draft = makeDraft({
+      estimates: { optimistic_duration: 5, most_likely_duration: null, pessimistic_duration: null },
+    });
+    renderWithDraft(
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
+      draft,
+    );
+    fireEvent.change(screen.getByLabelText(/Optimistic/i), { target: { value: '' } });
+    expect(draft.setEstimate).toHaveBeenCalledWith('optimistic_duration', null);
+  });
+
+  it('PERT preview reflects the live draft values, not the last-saved task', () => {
+    // task.* are all null — if PERT read the task the panel would be hidden. It
+    // shows because it reads the draft: E = (3 + 4*5 + 9) / 6 = 5.3.
+    const draft = makeDraft({
+      estimates: { optimistic_duration: 3, most_likely_duration: 5, pessimistic_duration: 9 },
+    });
+    renderWithDraft(
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
+      draft,
+    );
+    expect(screen.getByRole('region', { name: /PERT/i })).toBeInTheDocument();
+    expect(screen.getByText(/5\.3 days/)).toBeInTheDocument();
+  });
+
+  it('shows the value staged in the draft, overriding the saved task value', () => {
+    const draft = makeDraft({
+      estimates: {
+        optimistic_duration: 12,
+        most_likely_duration: null,
+        pessimistic_duration: null,
+      },
+    });
+    renderWithDraft(
+      <EstimatesTab
+        task={{ ...baseTask, optimisticDuration: 3 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+      draft,
+    );
+    expect(screen.getByLabelText(/Optimistic/i)).toHaveValue(12);
+  });
+
+  it('renders the unsaved • marker only on a changed estimate field', () => {
+    const draft = makeDraft({
+      estimates: { optimistic_duration: null, most_likely_duration: 5, pessimistic_duration: null },
+      changed: {
+        optimistic_duration: false,
+        most_likely_duration: true,
+        pessimistic_duration: false,
+      },
+    });
+    renderWithDraft(
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
+      draft,
+    );
+    expect(screen.getAllByTitle('Unsaved')).toHaveLength(1);
+  });
+
+  it('blocks Accept (aria-disabled, no POST) while an estimate edit is staged, but leaves Dismiss enabled', async () => {
+    getMock.mockResolvedValue({ data: { count: 1, results: [suggestionFixture] } });
+    const draft = makeDraft({
+      changed: {
+        optimistic_duration: false,
+        most_likely_duration: true,
+        pessimistic_duration: false,
+      },
+    });
+    renderWithDraft(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+      draft,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Accept/i })).toBeInTheDocument(),
+    );
+    const accept = screen.getByRole('button', { name: /Accept/i });
+    // Accessible-disabled: still in the tree/tab order, marked aria-disabled, with
+    // an sr-only reason wired via aria-describedby.
+    expect(accept).toHaveAttribute('aria-disabled', 'true');
+    expect(accept).not.toBeDisabled();
     expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+      document.getElementById(accept.getAttribute('aria-describedby') ?? ''),
+    ).toHaveTextContent(/Save or cancel your estimate changes first/i);
+    // Clicking it is a no-op — no accept POST fires while staged.
+    fireEvent.click(accept);
+    expect(postMock).not.toHaveBeenCalled();
+    // Dismiss discards the suggestion (no estimate write) so it stays enabled.
+    expect(screen.getByRole('button', { name: /Dismiss/i })).toBeEnabled();
+  });
+
+  it('re-baselines the estimate slice after a successful Accept', async () => {
+    getMock.mockResolvedValue({ data: { count: 1, results: [suggestionFixture] } });
+    postMock.mockResolvedValueOnce({
+      data: { ...suggestionFixture, accepted_at: '2026-05-02T00:00:00Z' },
+    });
+    const draft = makeDraft(); // clean — Accept is enabled
+    renderWithDraft(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+      draft,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Accept/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Accept/i }));
+    // Accept wrote most_likely server-side (4); the draft baseline must move to it
+    // so a later Save can't clobber the accepted value.
+    await waitFor(() =>
+      expect(draft.commitEstimatesFromServer).toHaveBeenCalledWith(
+        expect.objectContaining({ most_likely_duration: 4 }),
+      ),
+    );
   });
 });

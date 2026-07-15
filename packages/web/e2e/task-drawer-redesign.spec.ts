@@ -640,7 +640,9 @@ test.describe('TaskDetailDrawer redesign — Save/Cancel (#1977)', () => {
     await expect(drawer).not.toBeVisible();
   });
 
-  test('close button while dirty prompts the guard instead of silently saving', async ({ page }) => {
+  test('close button while dirty prompts the guard instead of silently saving', async ({
+    page,
+  }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('textbox', { name: 'Task name' }).fill('Dirty name');
     await drawer.getByRole('button', { name: 'Close task detail' }).click();
@@ -688,6 +690,90 @@ test.describe('TaskDetailDrawer redesign — Save/Cancel (#1977)', () => {
     await expect(readBlock.locator('code', { hasText: 'token' })).toBeVisible();
     // The raw Markdown source is not shown verbatim in read mode.
     await expect(readBlock).not.toContainText('**Bold AC**');
+  });
+});
+
+test.describe('TaskDetailDrawer — three-point estimate batching (#1985, ADR-0440)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
+
+  // t1 fixture ships O/M/P = 7 / 10 / 15. Expanding the Estimates accordion
+  // exposes the three inputs; edits stage into the drawer draft instead of
+  // PATCHing on blur, and persist as one PATCH on Save.
+  async function openEstimates(page: Page) {
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await drawer.getByRole('button', { name: 'Estimates' }).click();
+    await expect(drawer.getByLabel('Optimistic (O)')).toBeVisible();
+    return drawer;
+  }
+
+  test('editing an estimate reveals the shared Save bar and batches into one PATCH', async ({
+    page,
+  }) => {
+    // Capture every task PATCH so we can prove two field edits collapse into a
+    // single request (the point of #1985) rather than one PATCH per field.
+    const patches: Array<Record<string, unknown>> = [];
+    page.on('request', (req) => {
+      if (req.method() === 'PATCH' && /\/api\/v1\/tasks\//.test(req.url())) {
+        patches.push((req.postDataJSON() as Record<string, unknown>) ?? {});
+      }
+    });
+
+    const drawer = await openEstimates(page);
+    // No bar while clean.
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0);
+
+    // Stage two edits — blur between them would previously have fired two PATCHes.
+    await drawer.getByLabel('Optimistic (O)').fill('8');
+    await drawer.getByLabel('Pessimistic (P)').fill('16');
+    await expect(drawer.getByRole('button', { name: 'Save' })).toBeVisible();
+    await expect(drawer.getByText('Unsaved changes: Estimates').first()).toBeVisible();
+    // Nothing persisted yet — staging is client-only until Save.
+    expect(patches).toHaveLength(0);
+
+    await drawer.getByRole('button', { name: 'Save' }).click();
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0, { timeout: 5_000 });
+
+    // Exactly one PATCH carrying both changed fields (name/notes untouched → absent).
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({ optimistic_duration: 8, pessimistic_duration: 16 });
+    expect(patches[0]).not.toHaveProperty('most_likely_duration');
+    // The saved value round-trips through the refetch.
+    await expect(drawer.getByLabel('Optimistic (O)')).toHaveValue('8');
+  });
+
+  test('Cancel reverts a staged estimate edit without PATCHing', async ({ page }) => {
+    const patches: Array<Record<string, unknown>> = [];
+    page.on('request', (req) => {
+      if (req.method() === 'PATCH' && /\/api\/v1\/tasks\//.test(req.url())) {
+        patches.push((req.postDataJSON() as Record<string, unknown>) ?? {});
+      }
+    });
+
+    const drawer = await openEstimates(page);
+    await drawer.getByLabel('Optimistic (O)').fill('9');
+    await expect(drawer.getByRole('button', { name: 'Save' })).toBeVisible();
+
+    await drawer.getByRole('button', { name: 'Cancel' }).click();
+    // Reverted to the saved value; bar gone; nothing was persisted.
+    await expect(drawer.getByRole('button', { name: 'Save' })).toHaveCount(0);
+    await expect(drawer.getByLabel('Optimistic (O)')).toHaveValue('7');
+    expect(patches).toHaveLength(0);
+  });
+
+  test('the PERT preview tracks the draft live, before Save', async ({ page }) => {
+    const drawer = await openEstimates(page);
+    const pert = drawer.getByRole('region', { name: /PERT/i });
+    // Saved: E = (7 + 4*10 + 15) / 6 = 62/6 = 10.3.
+    await expect(pert.getByText(/10\.3 days/)).toBeVisible();
+
+    // Typing a new Most Likely updates the preview immediately (reads the draft,
+    // not the last-saved task): E = (7 + 4*13 + 15) / 6 = 74/6 = 12.3.
+    await drawer.getByLabel('Most Likely (M)').fill('13');
+    await expect(pert.getByText(/12\.3 days/)).toBeVisible();
+    // And it has not been persisted — the Save bar is still up.
+    await expect(drawer.getByRole('button', { name: 'Save' })).toBeVisible();
   });
 });
 

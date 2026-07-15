@@ -31,6 +31,11 @@ import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
 import { TaskScheduleStrip } from './TaskScheduleStrip';
 import { TaskDescriptionField } from './TaskDescriptionField';
 import { registerOssDrawerSections } from './sections';
+import {
+  TaskDraftContext,
+  type EstimateDraftValue,
+  type TaskDraftContextValue,
+} from './TaskDraftContext';
 
 // Register OSS sections at module init — Enterprise registers in its own
 // init module. Both must run before the first drawer render; both are
@@ -61,6 +66,34 @@ const EMPTY_DRAFT: ScalarDraft = { name: '', notes: '' };
 
 function toDraft(task: Task): ScalarDraft {
   return { name: task.name, notes: task.notes ?? '' };
+}
+
+/**
+ * The three-point estimate columns that batch behind the same Save/Cancel bar
+ * (#1985, ADR-0440). Held in a *separate* `useDirtyDraft` from name/description so
+ * the velocity-Accept path can re-baseline this slice independently (ADR-0065)
+ * without disturbing an in-progress name/description edit. `handleSave` merges the
+ * changed keys of both drafts into one atomic task PATCH.
+ */
+const EMPTY_ESTIMATE_DRAFT: EstimateDraftValue = {
+  optimistic_duration: null,
+  most_likely_duration: null,
+  pessimistic_duration: null,
+};
+
+/** The estimate keys, in display order — shared by seed, save, and change detection. */
+const ESTIMATE_KEYS = [
+  'optimistic_duration',
+  'most_likely_duration',
+  'pessimistic_duration',
+] as const;
+
+function toEstimateDraft(task: Task): EstimateDraftValue {
+  return {
+    optimistic_duration: task.optimisticDuration ?? null,
+    most_likely_duration: task.mostLikelyDuration ?? null,
+    pessimistic_duration: task.pessimisticDuration ?? null,
+  };
 }
 
 export interface TaskDetailDrawerProps {
@@ -128,20 +161,47 @@ export function TaskDetailDrawer({
   // Deferred scalar form (name + description) on the shared editable-surface
   // contract (web-rule 217). draft/baseline/dirty + revert + post-save
   // re-snapshot come from the hook; only these two columns batch behind Save.
-  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<ScalarDraft>(
-    task ? toDraft(task) : EMPTY_DRAFT,
-  );
+  const {
+    draft,
+    setField,
+    baseline,
+    dirty: scalarDirty,
+    reset: resetScalar,
+    commit: commitScalar,
+  } = useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
 
-  // Re-seed the draft when the *identity* of the rendered task changes (opened
+  // Deferred estimate form (O/M/P) on the same Save bar (#1985, ADR-0440). A
+  // separate draft so the velocity-Accept path can re-baseline it independently.
+  const {
+    draft: estDraft,
+    setField: setEstimateField,
+    baseline: estBaseline,
+    dirty: estimatesDirty,
+    reset: resetEstimates,
+    commit: commitEstimates,
+  } = useDirtyDraft<EstimateDraftValue>(task ? toEstimateDraft(task) : EMPTY_ESTIMATE_DRAFT);
+
+  // The bar raises when *either* staged form is dirty; Save merges both into one
+  // PATCH, Cancel reverts both.
+  const dirty = scalarDirty || estimatesDirty;
+  const reset = useCallback(() => {
+    resetScalar();
+    resetEstimates();
+  }, [resetScalar, resetEstimates]);
+
+  // Re-seed both drafts when the *identity* of the rendered task changes (opened
   // or canvas-swapped to a different task). A server-side update to the SAME
   // task never reseeds — useDirtyDraft deliberately does not auto-resync, so a
   // collaborator's WebSocket edit can't clobber an in-progress draft (it
   // surfaces as the concurrent-edit banner instead). Also resets to Details.
   const taskId = task?.id;
   useEffect(() => {
-    if (task) commit(toDraft(task));
+    if (task) {
+      commitScalar(toDraft(task));
+      commitEstimates(toEstimateDraft(task));
+    }
     setActiveTab('details');
-    // Only identity changes reseed; `commit` is stable and `task` is read fresh.
+    // Only identity changes reseed; commit fns are stable and `task` is read fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
@@ -154,16 +214,46 @@ export function TaskDetailDrawer({
     (task.notes ?? '') !== baseline.notes &&
     (task.notes ?? '') !== draft.notes;
 
-  // Save = one PATCH carrying only the changed scalar keys, then re-snapshot the
-  // baseline on success so the bar clears without waiting on a refetch.
+  // Save = one PATCH carrying only the changed keys across *both* drafts (name,
+  // description, and the three estimate columns), then re-snapshot both baselines
+  // on success so the bar clears without waiting on a refetch. Batching all three
+  // estimate fields into the same request is the point of #1985 — one atomic
+  // task write / one server_version bump instead of three debounced PATCHes.
   const handleSave = useCallback(() => {
     if (!task) return;
-    const patch: { name?: string; notes?: string } = {};
+    const patch: {
+      name?: string;
+      notes?: string;
+      optimistic_duration?: number | null;
+      most_likely_duration?: number | null;
+      pessimistic_duration?: number | null;
+    } = {};
     if (draft.name !== baseline.name) patch.name = draft.name;
     if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+    for (const k of ESTIMATE_KEYS) {
+      if (estDraft[k] !== estBaseline[k]) patch[k] = estDraft[k];
+    }
     if (Object.keys(patch).length === 0) return;
-    updateTask({ id: task.id, projectId, ...patch }, { onSuccess: () => commit() });
-  }, [task, projectId, draft, baseline, updateTask, commit]);
+    updateTask(
+      { id: task.id, projectId, ...patch },
+      {
+        onSuccess: () => {
+          commitScalar();
+          commitEstimates();
+        },
+      },
+    );
+  }, [
+    task,
+    projectId,
+    draft,
+    baseline,
+    estDraft,
+    estBaseline,
+    updateTask,
+    commitScalar,
+    commitEstimates,
+  ]);
 
   // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
   // own path so Discard navigates to a fresh editable load (Keep editing stays).
@@ -309,33 +399,75 @@ export function TaskDetailDrawer({
   // (it carries the schedule strip + description).
   const visibleTabs = TAB_DEFS.filter((t) => t.id === 'details' || sectionsByTab[t.id].length > 0);
 
+  // Which estimate fields differ from their last-saved baseline — drives the
+  // per-field • markers inside EstimatesTab and the Save-bar scope label.
+  const estimatesChanged = useMemo(
+    () => ({
+      optimistic_duration: estDraft.optimistic_duration !== estBaseline.optimistic_duration,
+      most_likely_duration: estDraft.most_likely_duration !== estBaseline.most_likely_duration,
+      pessimistic_duration: estDraft.pessimistic_duration !== estBaseline.pessimistic_duration,
+    }),
+    [estDraft, estBaseline],
+  );
+  const changedEstimate =
+    estimatesChanged.optimistic_duration ||
+    estimatesChanged.most_likely_duration ||
+    estimatesChanged.pessimistic_duration;
+
+  // Re-baseline the estimate slice to a server-applied value (velocity Accept,
+  // ADR-0065) without touching the name/description staging. commit(next) moves
+  // both draft and baseline of the estimate-only draft to `estimates`.
+  const commitEstimatesFromServer = useCallback(
+    (estimates: EstimateDraftValue) => {
+      commitEstimates(estimates);
+    },
+    [commitEstimates],
+  );
+
+  // Drawer-scoped draft exposed to registry sections (EstimatesTab) via context.
+  // Null when there is no task; absent entirely on the full-page TaskDetailPage,
+  // where EstimatesTab falls back to immediate mutation.
+  const draftCtx = useMemo<TaskDraftContextValue | null>(() => {
+    if (!task) return null;
+    return {
+      taskId: task.id,
+      estimates: estDraft,
+      setEstimate: setEstimateField,
+      changed: estimatesChanged,
+      commitEstimatesFromServer,
+    };
+  }, [task, estDraft, setEstimateField, estimatesChanged, commitEstimatesFromServer]);
+
   const content = task && (
-    <DrawerContent
-      task={task}
-      projectId={projectId}
-      userRole={userRole}
-      drawerTitle={drawerTitle}
-      closeButtonRef={closeButtonRef}
-      onRequestClose={requestClose}
-      onExpand={handleExpand}
-      tabs={visibleTabs}
-      activeTab={activeTab}
-      onTabChange={changeTab}
-      sectionsByTab={sectionsByTab}
-      subtaskStats={subtaskStats}
-      draftName={draft.name}
-      onNameChange={(v) => setField('name', v)}
-      changedName={draft.name !== baseline.name}
-      draftNotes={draft.notes}
-      onNotesChange={(v) => setField('notes', v)}
-      changedNotes={draft.notes !== baseline.notes}
-      notesChangedElsewhere={notesChangedElsewhere}
-      dirty={dirty}
-      isSaving={isSaving}
-      saveFailed={saveFailed}
-      onSave={handleSave}
-      onCancel={reset}
-    />
+    <TaskDraftContext.Provider value={draftCtx}>
+      <DrawerContent
+        task={task}
+        projectId={projectId}
+        userRole={userRole}
+        drawerTitle={drawerTitle}
+        closeButtonRef={closeButtonRef}
+        onRequestClose={requestClose}
+        onExpand={handleExpand}
+        tabs={visibleTabs}
+        activeTab={activeTab}
+        onTabChange={changeTab}
+        sectionsByTab={sectionsByTab}
+        subtaskStats={subtaskStats}
+        draftName={draft.name}
+        onNameChange={(v) => setField('name', v)}
+        changedName={draft.name !== baseline.name}
+        draftNotes={draft.notes}
+        onNotesChange={(v) => setField('notes', v)}
+        changedNotes={draft.notes !== baseline.notes}
+        changedEstimate={changedEstimate}
+        notesChangedElsewhere={notesChangedElsewhere}
+        dirty={dirty}
+        isSaving={isSaving}
+        saveFailed={saveFailed}
+        onSave={handleSave}
+        onCancel={reset}
+      />
+    </TaskDraftContext.Provider>
   );
 
   return (
@@ -428,6 +560,8 @@ interface DrawerContentProps {
   draftNotes: string;
   onNotesChange: (value: string) => void;
   changedNotes: boolean;
+  /** Any of the three estimate fields staged-dirty — for the Save-bar scope label. */
+  changedEstimate: boolean;
   notesChangedElsewhere: boolean;
   dirty: boolean;
   isSaving: boolean;
@@ -459,6 +593,7 @@ function DrawerContent({
   draftNotes,
   onNotesChange,
   changedNotes,
+  changedEstimate,
   notesChangedElsewhere,
   dirty,
   isSaving,
@@ -468,9 +603,11 @@ function DrawerContent({
 }: DrawerContentProps) {
   // Which staged fields changed — names the bar's scope for sighted users (the
   // per-field • markers) and for AT (the sr-only live region below).
-  const changedLabels = [changedName ? 'Name' : null, changedNotes ? 'Description' : null].filter(
-    Boolean,
-  ) as string[];
+  const changedLabels = [
+    changedName ? 'Name' : null,
+    changedNotes ? 'Description' : null,
+    changedEstimate ? 'Estimates' : null,
+  ].filter(Boolean) as string[];
   const statusText = changedLabels.length
     ? `Unsaved changes: ${changedLabels.join(', ')}`
     : 'Unsaved changes';
@@ -548,8 +685,21 @@ function DrawerContent({
                 aria-hidden="true"
                 className="shrink-0"
               >
-                <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-                <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                <rect
+                  x="3"
+                  y="7"
+                  width="10"
+                  height="7"
+                  rx="1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                />
+                <path
+                  d="M5 7V5a3 3 0 0 1 6 0v2"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
               </svg>
               View only
             </span>
