@@ -1,7 +1,15 @@
 # ADR-0215: Unified Assets surface (project + program)
 
 ## Status
-Accepted
+Accepted — **amended by ADR-0428** (workspace tier).
+
+> **Amendment (ADR-0428).** This ADR deferred *all* workspace/cross-program asset
+> rollups to Enterprise. ADR-0428 narrows that deferral: a **personal, RBAC-identical
+> workspace read** (`GET /api/v1/assets/`, narrowed to the caller's own readable
+> projects, `mine`-filterable, returning no new reach) is **OSS**. Only the
+> **governance overlay** — cross-program comparison/health analytics, a "who
+> touched what" actor dimension, audit trail, and residency/retention — remains
+> Enterprise. The two-tier "project + program" design below is unchanged.
 
 ## Context
 

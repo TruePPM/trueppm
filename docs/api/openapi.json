@@ -979,6 +979,121 @@
                 "summary": "Retrieve agent action"
             }
         },
+        "/api/v1/assets/": {
+            "get": {
+                "operationId": "v1_assets_retrieve",
+                "description": "Unified Assets feed across every project the caller can read (ADR-0428).\n\n``GET /api/v1/assets/?mine=&program=&kind=&label=&provider=&q=&cursor=&page_size=``\n\nThe workspace tier of the Assets surface. Any authenticated user reaches the\nendpoint; results are narrowed to the caller's **readable** projects via the\nsame ``ProjectMembership`` pattern the program view uses, extended from a single\nprogram to the whole instance. A user with no readable projects gets an empty\nlist, never a 403 — and the feed can never surface an asset from a project the\ncaller cannot already open, so it grants **no new reach** (this is what keeps it\nOSS rather than portfolio governance; ADR-0428).\n\n**RBAC contract (mirrors ``MeWorkView``)**: with ``mine=true`` the feed is\nhard-scoped to ``task.assignee = request.user``; there is no ``?user=`` escape\nhatch, so it can never be used as a cross-team surveillance surface (Morgan's\nboundary). ``McpReadableViewMixin`` additionally exposes the read to ``mcp:read``\ntokens with a per-token throttle (the agent asset-index use case) while leaving\nhuman traffic on the default ``user`` throttle.",
+                "summary": "Unified Assets feed across all readable projects (workspace scope)",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "cursor",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Opaque keyset cursor from a prior response's next_cursor. Stable across concurrent writes; persistable; 400 if malformed."
+                    },
+                    {
+                        "in": "query",
+                        "name": "kind",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to a single kind: 'file' or 'link'. Default: both."
+                    },
+                    {
+                        "in": "query",
+                        "name": "label",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links carrying this exact label (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "mine",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When true, restrict to assets on tasks assigned to the requesting user (the 'My Assets' view). Scoped to the caller only — there is no way to query another user's assets. Default: false (all readable assets)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page_size",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Page size (1..100, default 50)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "program",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to assets in one program's projects (UUID). Still narrowed to the caller's readable projects, so an unknown or unreadable program yields an empty page, never a 403."
+                    },
+                    {
+                        "in": "query",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Restrict to links from this provider (link-only)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring matched against title/url on both sources."
+                    }
+                ],
+                "tags": [
+                    "assets"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AssetFeedResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/auth/logout/": {
             "post": {
                 "operationId": "v1_auth_logout_create",
