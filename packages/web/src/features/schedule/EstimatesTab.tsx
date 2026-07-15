@@ -8,6 +8,16 @@ import {
   useDismissVelocitySuggestion,
   useVelocitySuggestions,
 } from '@/hooks/useVelocitySuggestions';
+import { useTaskDraft } from './TaskDraftContext';
+import { UnsavedDot } from '@/components/dialog';
+
+/** Parse a numeric-input string to a number, or null for empty/non-finite. */
+function parseEstimate(s: string): number | null {
+  const t = s.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
 
 interface EstimatesTabProps {
   task: Task;
@@ -36,16 +46,25 @@ export function EstimatesTab({
   // The list endpoint is gated server-side (membership) and the accept/dismiss
   // endpoints reject non-admin callers, but skipping the fetch entirely keeps
   // the drawer payload minimal for Viewers/Members/Schedulers.
-  const { data: suggestions } = useVelocitySuggestions(
-    userIsAdmin ? task.id : undefined,
-  );
+  const { data: suggestions } = useVelocitySuggestions(userIsAdmin ? task.id : undefined);
   const acceptSuggestion = useAcceptVelocitySuggestion(task.id, projectId);
   const dismissSuggestion = useDismissVelocitySuggestion(task.id);
   // Sprint close generates at most one suggestion per task per sprint, so the
   // surface need only present the most recent pending row.
   const pendingSuggestion = suggestions?.[0];
 
-  // Local controlled state mirrors task props; resets when task changes
+  // #1985: in the drawer this section binds O/M/P to the drawer's deferred Save
+  // draft via TaskDraftContext (staged behind the Save bar); on the full page
+  // (no provider), or before the binding matches this task, it falls back to the
+  // immediate blur-PATCH path below.
+  // `boundBinding` is the draft binding narrowed to non-null when it is present
+  // AND for this task (during a dirty swap the drawer's renderedTask leads the
+  // host selection, so the id guard stops binding to the wrong task).
+  const draftBinding = useTaskDraft();
+  const boundBinding = draftBinding && draftBinding.taskId === task.id ? draftBinding : null;
+
+  // Local controlled state — the immediate (unbound / full-page) path. When
+  // bound, the inputs read the draft binding instead of this state.
   const [optimistic, setOptimistic] = useState<string>(
     task.optimisticDuration != null ? String(task.optimisticDuration) : '',
   );
@@ -64,9 +83,15 @@ export function EstimatesTab({
     setMostLikely(task.mostLikelyDuration != null ? String(task.mostLikelyDuration) : '');
     setPessimistic(task.pessimisticDuration != null ? String(task.pessimisticDuration) : '');
     setRemaining(task.remainingPoints != null ? String(task.remainingPoints) : '');
-  }, [task.id, task.optimisticDuration, task.mostLikelyDuration, task.pessimisticDuration, task.remainingPoints]);
+  }, [
+    task.id,
+    task.optimisticDuration,
+    task.mostLikelyDuration,
+    task.pessimisticDuration,
+    task.remainingPoints,
+  ]);
 
-  // Save on blur using the current input value
+  // Save on blur using the current input value — the UNBOUND (full-page) path.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function scheduleUpdate(patch: {
@@ -93,21 +118,61 @@ export function EstimatesTab({
     scheduleUpdate({ pessimistic_duration: n });
   }
 
-  const isReadonly =
-    estimationMode === 'pm_only' && !userIsScheduler;
+  // Effective values + handlers: the draft when bound, local state otherwise.
+  const noBlur = () => {};
+  const optValue = boundBinding ? boundBinding.values.optimistic : optimistic;
+  const mlValue = boundBinding ? boundBinding.values.mostLikely : mostLikely;
+  const pesValue = boundBinding ? boundBinding.values.pessimistic : pessimistic;
+  const setOpt = (v: string) =>
+    boundBinding ? boundBinding.setField('optimistic', v) : setOptimistic(v);
+  const setMl = (v: string) =>
+    boundBinding ? boundBinding.setField('mostLikely', v) : setMostLikely(v);
+  const setPes = (v: string) =>
+    boundBinding ? boundBinding.setField('pessimistic', v) : setPessimistic(v);
+  const optBlur = boundBinding ? noBlur : handleOptimisticBlur;
+  const mlBlur = boundBinding ? noBlur : handleMostLikelyBlur;
+  const pesBlur = boundBinding ? noBlur : handlePessimisticBlur;
 
-  const o = task.optimisticDuration;
-  const m = task.mostLikelyDuration;
-  const p = task.pessimisticDuration;
-  const allThreeSet = o != null && m != null && p != null;
-  const pertExpected = allThreeSet ? (o + 4 * m + p) / 6 : null;
-  const pertStdDev = allThreeSet ? (p - o) / 6 : null;
+  // Per-field unsaved markers + aggregate dirtiness (drawer only).
+  const changedO = boundBinding?.changed.optimistic ?? false;
+  const changedM = boundBinding?.changed.mostLikely ?? false;
+  const changedP = boundBinding?.changed.pessimistic ?? false;
+  const estimatesDirty = changedO || changedM || changedP;
 
-  // In suggest_approve, accepted estimates are shown in the PERT panel.
-  // Pending estimates show the pending banner instead.
+  const isReadonly = estimationMode === 'pm_only' && !userIsScheduler;
+
+  // PERT reads the EFFECTIVE values so the preview reflects unsaved edits live
+  // when bound (#1985). An out-of-order triple (transient while mid-type)
+  // suppresses σ — a negative σ is nonsense — and shows a non-blocking hint; the
+  // drawer's Save bar owns the actual save-gating (would 400, #1982).
+  const oN = boundBinding ? parseEstimate(optValue) : (task.optimisticDuration ?? null);
+  const mN = boundBinding ? parseEstimate(mlValue) : (task.mostLikelyDuration ?? null);
+  const pN = boundBinding ? parseEstimate(pesValue) : (task.pessimisticDuration ?? null);
+  const allThreeSet = oN != null && mN != null && pN != null;
+  const outOfOrder = allThreeSet && !(oN <= mN && mN <= pN);
+  const pertExpected = allThreeSet ? (oN + 4 * mN + pN) / 6 : null;
+  const pertStdDev = allThreeSet && !outOfOrder ? (pN - oN) / 6 : null;
+
+  // Accepting a velocity suggestion PATCHes most_likely immediately; disable it
+  // while the estimate draft is dirty to avoid a draft-vs-suggestion-vs-server
+  // three-way conflict. On a clean accept, re-baseline Most Likely into the draft
+  // so the bound input reflects the accepted value without going spuriously dirty.
+  const velocityLocked = estimatesDirty;
+  const onAcceptSuggestion = (suggestionId: string, suggested: number) => {
+    acceptSuggestion.mutate(suggestionId, {
+      onSuccess: () => {
+        if (boundBinding) boundBinding.commitField('mostLikely', String(suggested));
+      },
+    });
+  };
+
+  // In suggest_approve, accepted estimates are shown in the PERT panel; when
+  // bound (drawer, mode 'open') the live draft preview always shows.
   const showPertPanel =
     allThreeSet &&
-    (estimationMode !== 'suggest_approve' || task.estimateStatus === 'accepted');
+    (boundBinding != null ||
+      estimationMode !== 'suggest_approve' ||
+      task.estimateStatus === 'accepted');
 
   const showPendingBanner =
     estimationMode === 'suggest_approve' && task.estimateStatus === 'pending';
@@ -124,10 +189,7 @@ export function EstimatesTab({
           aria-label="Velocity calibration suggestion"
           className="flex items-start gap-3 rounded-card border border-brand-primary/40 bg-brand-primary/5 px-3 py-2.5"
         >
-          <span
-            className="text-brand-primary text-lg leading-none mt-0.5"
-            aria-hidden="true"
-          >
+          <span className="text-brand-primary text-lg leading-none mt-0.5" aria-hidden="true">
             📈
           </span>
           <div className="flex-1 min-w-0">
@@ -143,8 +205,7 @@ export function EstimatesTab({
               {task.mostLikelyDuration != null && (
                 <>
                   {' '}
-                  (currently{' '}
-                  <span className="tppm-mono">{task.mostLikelyDuration}d</span>)
+                  (currently <span className="tppm-mono">{task.mostLikelyDuration}d</span>)
                 </>
               )}
               .
@@ -154,7 +215,8 @@ export function EstimatesTab({
             <button
               type="button"
               onClick={() => dismissSuggestion.mutate(pendingSuggestion.id)}
-              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending}
+              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending || velocityLocked}
+              title={velocityLocked ? 'Save or discard your estimate edits first.' : undefined}
               className="h-8 px-3 rounded-control text-xs font-medium border border-neutral-border
                 text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
                 disabled:opacity-50 disabled:cursor-not-allowed
@@ -164,8 +226,11 @@ export function EstimatesTab({
             </button>
             <button
               type="button"
-              onClick={() => acceptSuggestion.mutate(pendingSuggestion.id)}
-              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
+              onClick={() =>
+                onAcceptSuggestion(pendingSuggestion.id, pendingSuggestion.suggested_duration!)
+              }
+              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending || velocityLocked}
+              title={velocityLocked ? 'Save or discard your estimate edits first.' : undefined}
               className="h-8 px-3 rounded-control text-xs font-semibold border border-sage-600
                 text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
                 disabled:opacity-50 disabled:cursor-not-allowed
@@ -187,9 +252,7 @@ export function EstimatesTab({
             ⏳
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-brand-accent-dark">
-              Pending approval
-            </p>
+            <p className="text-sm font-medium text-brand-accent-dark">Pending approval</p>
             <p className="text-xs text-brand-accent-dark/80 mt-0.5">
               These estimates are awaiting scheduler review before being used in Monte Carlo.
             </p>
@@ -225,32 +288,37 @@ export function EstimatesTab({
 
         <EstimateField
           label="Optimistic (O)"
-          value={optimistic}
-          onChange={setOptimistic}
-          onBlur={handleOptimisticBlur}
+          value={optValue}
+          onChange={setOpt}
+          onBlur={optBlur}
           disabled={isReadonly}
+          changed={changedO}
           id={`opt-${task.id}`}
         />
         <EstimateField
           label="Most Likely (M)"
-          value={mostLikely}
-          onChange={setMostLikely}
-          onBlur={handleMostLikelyBlur}
+          value={mlValue}
+          onChange={setMl}
+          onBlur={mlBlur}
           disabled={isReadonly}
+          changed={changedM}
           id={`ml-${task.id}`}
         />
         <EstimateField
           label="Pessimistic (P)"
-          value={pessimistic}
-          onChange={setPessimistic}
-          onBlur={handlePessimisticBlur}
+          value={pesValue}
+          onChange={setPes}
+          onBlur={pesBlur}
           disabled={isReadonly}
+          changed={changedP}
           id={`pes-${task.id}`}
         />
       </fieldset>
 
-      {/* PERT summary panel */}
-      {showPertPanel && pertExpected != null && pertStdDev != null && (
+      {/* PERT summary panel — computed from the draft live when bound (#1985).
+          E is always meaningful; σ is suppressed to ±— while the triple is out
+          of order (a negative σ is nonsense). */}
+      {showPertPanel && pertExpected != null && (
         <div
           className="rounded-card border border-neutral-border bg-neutral-surface-raised px-4 py-3 flex gap-6"
           role="region"
@@ -265,10 +333,18 @@ export function EstimatesTab({
           <div className="flex flex-col gap-0.5">
             <span className="text-xs text-neutral-text-secondary">Std Dev (σ)</span>
             <span className="text-sm font-semibold text-neutral-text-primary tabular-nums">
-              ±{pertStdDev.toFixed(1)} days
+              {pertStdDev != null ? `±${pertStdDev.toFixed(1)} days` : '±—'}
             </span>
           </div>
         </div>
+      )}
+
+      {/* Non-blocking ordering hint (#1985/#1982) — the drawer Save bar owns the
+          hard gate; here we just tell the user what's wrong while they type. */}
+      {outOfOrder && (
+        <p role="alert" className="text-xs text-semantic-at-risk">
+          Estimates must satisfy Optimistic ≤ Most Likely ≤ Pessimistic.
+        </p>
       )}
 
       {/* Incomplete hint */}
@@ -346,16 +422,27 @@ interface EstimateFieldProps {
   onBlur: (v: string) => void;
   disabled: boolean;
   id: string;
+  /** Staged-but-unsaved — renders the per-field "•" marker (#1985). */
+  changed?: boolean;
 }
 
-function EstimateField({ label, value, onChange, onBlur, disabled, id }: EstimateFieldProps) {
+function EstimateField({
+  label,
+  value,
+  onChange,
+  onBlur,
+  disabled,
+  id,
+  changed = false,
+}: EstimateFieldProps) {
   return (
     <div className="flex items-center gap-3">
       <label
         htmlFor={id}
-        className="w-36 shrink-0 text-xs text-neutral-text-secondary"
+        className="w-36 shrink-0 text-xs text-neutral-text-secondary inline-flex items-center gap-1"
       >
         {label}
+        {changed && <UnsavedDot />}
       </label>
       <input
         id={id}

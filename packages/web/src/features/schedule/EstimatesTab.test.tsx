@@ -2,17 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesTab } from './EstimatesTab';
+import { TaskDraftProvider, type TaskDraftBinding } from './TaskDraftContext';
 import type { Task } from '@/types';
 
-const patchMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: {} }),
-);
+const patchMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: {} }));
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { estimate_status: 'accepted' } }),
 );
-const getMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }),
-);
+const getMock = vi.hoisted(() => vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }));
 
 vi.mock('@/api/client', () => ({
   apiClient: { patch: patchMock, post: postMock, get: getMock },
@@ -45,12 +42,7 @@ beforeEach(() => vi.clearAllMocks());
 describe('EstimatesTab — open mode', () => {
   it('renders three input fields', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.getByLabelText(/Optimistic/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Most Likely/i)).toBeInTheDocument();
@@ -59,12 +51,7 @@ describe('EstimatesTab — open mode', () => {
 
   it('inputs are enabled for non-schedulers in open mode', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.getByLabelText(/Optimistic/i)).not.toBeDisabled();
   });
@@ -214,7 +201,9 @@ describe('EstimatesTab — suggest_approve mode', () => {
         userIsScheduler={false}
       />,
     );
-    expect(screen.getByText(/awaiting scheduler review|submitted for scheduler approval/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/awaiting scheduler review|submitted for scheduler approval/i),
+    ).toBeInTheDocument();
   });
 });
 
@@ -234,12 +223,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for optimistic duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Optimistic/i);
     fireEvent.change(input, { target: { value: '5' } });
@@ -253,12 +237,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for most-likely duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Most Likely/i);
     fireEvent.change(input, { target: { value: '8' } });
@@ -272,12 +251,7 @@ describe('EstimatesTab — blur handlers', () => {
 
   it('fires a PATCH for pessimistic duration after blur + debounce', async () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     const input = screen.getByLabelText(/Pessimistic/i);
     fireEvent.change(input, { target: { value: '15' } });
@@ -324,12 +298,7 @@ const sprintTask: Task = {
 describe('EstimatesTab — sprint effort section', () => {
   it('does not show sprint effort section when task has no sprint', () => {
     renderWithProviders(
-      <EstimatesTab
-        task={baseTask}
-        projectId="p1"
-        estimationMode="open"
-        userIsScheduler={false}
-      />,
+      <EstimatesTab task={baseTask} projectId="p1" estimationMode="open" userIsScheduler={false} />,
     );
     expect(screen.queryByText(/Sprint Effort/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Committed.*pts/i)).not.toBeInTheDocument();
@@ -501,14 +470,10 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // useVelocitySuggestions stays disabled when userIsAdmin is false, so the
     // banner never renders even if the API would have returned a row.
-    expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
     // The project read may fire (label resolution), but the suggestions
     // endpoint must never be hit for a non-admin.
-    expect(getMock).not.toHaveBeenCalledWith(
-      expect.stringContaining('/velocity-suggestions/'),
-    );
+    expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('/velocity-suggestions/'));
   });
 
   it('renders the banner when a pending suggestion exists and user is admin', async () => {
@@ -523,9 +488,7 @@ describe('EstimatesTab — velocity suggestion banner', () => {
       />,
     );
     await waitFor(() =>
-      expect(
-        screen.getByLabelText(/Velocity calibration suggestion/i),
-      ).toBeInTheDocument(),
+      expect(screen.getByLabelText(/Velocity calibration suggestion/i)).toBeInTheDocument(),
     );
     expect(screen.getByText(/Sprint 12/)).toBeInTheDocument();
     expect(screen.getByText(/4d/)).toBeInTheDocument();
@@ -549,13 +512,9 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // The suggestions query fires (admin), but the banner stays absent.
     await waitFor(() =>
-      expect(getMock).toHaveBeenCalledWith(
-        expect.stringContaining('/velocity-suggestions/'),
-      ),
+      expect(getMock).toHaveBeenCalledWith(expect.stringContaining('/velocity-suggestions/')),
     );
-    expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
   });
 
   it('shows current vs suggested duration when most_likely_duration is set', async () => {
@@ -635,8 +594,68 @@ describe('EstimatesTab — velocity suggestion banner', () => {
     );
     // Wait for the query to settle; banner remains absent.
     await waitFor(() => expect(getMock).toHaveBeenCalled());
-    expect(
-      screen.queryByLabelText(/Velocity calibration suggestion/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Velocity calibration suggestion/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('EstimatesTab — bound to the drawer draft (#1985)', () => {
+  function makeBinding(over: Partial<TaskDraftBinding> = {}): TaskDraftBinding {
+    return {
+      taskId: 't1',
+      values: { optimistic: '', mostLikely: '', pessimistic: '' },
+      changed: { optimistic: false, mostLikely: false, pessimistic: false },
+      setField: vi.fn(),
+      commitField: vi.fn(),
+      ...over,
+    };
+  }
+
+  function renderBound(binding: TaskDraftBinding) {
+    return renderWithProviders(
+      <TaskDraftProvider value={binding}>
+        <EstimatesTab
+          task={baseTask}
+          projectId="p1"
+          estimationMode="open"
+          userIsScheduler={false}
+        />
+      </TaskDraftProvider>,
+    );
+  }
+
+  it('typing stages into the draft (setField) and blur does NOT PATCH immediately', () => {
+    const setField = vi.fn();
+    renderBound(makeBinding({ setField }));
+
+    const opt = screen.getByLabelText(/Optimistic/i);
+    fireEvent.change(opt, { target: { value: '2' } });
+    expect(setField).toHaveBeenCalledWith('optimistic', '2');
+
+    fireEvent.blur(opt);
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('PERT preview computes from the draft values live', () => {
+    renderBound(makeBinding({ values: { optimistic: '2', mostLikely: '4', pessimistic: '6' } }));
+    // E = (2 + 4*4 + 6) / 6 = 4.0 ; σ = (6 - 2) / 6 = 0.7
+    expect(screen.getByText('4.0 days')).toBeInTheDocument();
+    expect(screen.getByText('±0.7 days')).toBeInTheDocument();
+  });
+
+  it('a changed field shows its unsaved • marker', () => {
+    renderBound(
+      makeBinding({
+        values: { optimistic: '3', mostLikely: '', pessimistic: '' },
+        changed: { optimistic: true, mostLikely: false, pessimistic: false },
+      }),
+    );
+    expect(screen.getByTitle('Unsaved')).toBeInTheDocument();
+  });
+
+  it('an out-of-order triple shows the ordering hint and suppresses σ', () => {
+    renderBound(makeBinding({ values: { optimistic: '6', mostLikely: '4', pessimistic: '2' } }));
+    expect(screen.getByText(/Optimistic ≤ Most Likely ≤ Pessimistic/i)).toBeInTheDocument();
+    // E is still meaningful ((6 + 16 + 2)/6 = 4.0); σ is suppressed.
+    expect(screen.getByText('±—')).toBeInTheDocument();
   });
 });

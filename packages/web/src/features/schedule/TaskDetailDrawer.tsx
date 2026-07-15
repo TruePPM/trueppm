@@ -20,6 +20,7 @@ import {
   useDirtyDraft,
   useUnsavedChangesGuard,
 } from '@/components/dialog';
+import { TaskDraftProvider, type TaskDraftBinding } from './TaskDraftContext';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -57,12 +58,76 @@ const TAB_DEFS: ReadonlyArray<{ id: DrawerSectionTab; label: string }> = [
 interface ScalarDraft {
   name: string;
   notes: string;
+  // Three-point (PERT) estimate columns, staged as strings (the `<input
+  // type="number">` empty state is '' → null on save) and bound into
+  // EstimatesTab via TaskDraftContext (#1985).
+  optimistic: string;
+  mostLikely: string;
+  pessimistic: string;
 }
 
-const EMPTY_DRAFT: ScalarDraft = { name: '', notes: '' };
+const EMPTY_DRAFT: ScalarDraft = {
+  name: '',
+  notes: '',
+  optimistic: '',
+  mostLikely: '',
+  pessimistic: '',
+};
+
+const numOrEmpty = (v: number | null | undefined): string => (v != null ? String(v) : '');
 
 function toDraft(task: Task): ScalarDraft {
-  return { name: task.name, notes: task.notes ?? '' };
+  return {
+    name: task.name,
+    notes: task.notes ?? '',
+    optimistic: numOrEmpty(task.optimisticDuration),
+    mostLikely: numOrEmpty(task.mostLikelyDuration),
+    pessimistic: numOrEmpty(task.pessimisticDuration),
+  };
+}
+
+/** Parse a staged estimate string to a number, or null for empty/non-finite. */
+function parseEstimate(s: string): number | null {
+  const t = s.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The changed keys of the batched PATCH, diffing draft against baseline. Shared
+ * by handleSave, saveAndOpen (Save & open), and Cmd/Ctrl+S so all three persist
+ * the SAME set — the #1985 estimate keys can't be dropped on one path.
+ */
+function buildScalarPatch(
+  draft: ScalarDraft,
+  baseline: ScalarDraft,
+): {
+  name?: string;
+  notes?: string;
+  optimistic_duration?: number | null;
+  most_likely_duration?: number | null;
+  pessimistic_duration?: number | null;
+} {
+  const patch: ReturnType<typeof buildScalarPatch> = {};
+  if (draft.name !== baseline.name) patch.name = draft.name;
+  if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+  if (draft.optimistic !== baseline.optimistic)
+    patch.optimistic_duration = parseEstimate(draft.optimistic);
+  if (draft.mostLikely !== baseline.mostLikely)
+    patch.most_likely_duration = parseEstimate(draft.mostLikely);
+  if (draft.pessimistic !== baseline.pessimistic)
+    patch.pessimistic_duration = parseEstimate(draft.pessimistic);
+  return patch;
+}
+
+/** True when the staged estimate triple is complete AND out of order — the
+ *  server 400s this (#1982), so Save is gated on it. A partial triple is fine. */
+function estimateTripleInvalid(draft: ScalarDraft): boolean {
+  const o = parseEstimate(draft.optimistic);
+  const m = parseEstimate(draft.mostLikely);
+  const p = parseEstimate(draft.pessimistic);
+  return o != null && m != null && p != null && !(o <= m && m <= p);
 }
 
 export interface TaskDetailDrawerProps {
@@ -162,12 +227,12 @@ export function TaskDetailDrawer({
 
   const [activeTab, setActiveTab] = useState<DrawerSectionTab>('details');
 
-  // Deferred scalar form (name + description) on the shared editable-surface
-  // contract (web-rule 217). draft/baseline/dirty + revert + post-save
-  // re-snapshot come from the hook; only these two columns batch behind Save.
-  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<ScalarDraft>(
-    task ? toDraft(task) : EMPTY_DRAFT,
-  );
+  // Deferred scalar form (name + description + the three-point estimate) on the
+  // shared editable-surface contract (web-rule 217). draft/baseline/dirty +
+  // revert + post-save re-snapshot come from the hook; these columns batch
+  // behind Save. Estimates reach EstimatesTab via TaskDraftContext (#1985).
+  const { draft, setField, baseline, dirty, reset, commit, commitField } =
+    useDirtyDraft<ScalarDraft>(task ? toDraft(task) : EMPTY_DRAFT);
 
   // Swap-while-dirty latch (#1978): when the host points the drawer at a
   // different task while the draft is dirty, park the incoming task here and
@@ -230,16 +295,56 @@ export function TaskDetailDrawer({
     (task.notes ?? '') !== baseline.notes &&
     (task.notes ?? '') !== draft.notes;
 
-  // Save = one PATCH carrying only the changed scalar keys, then re-snapshot the
-  // baseline on success so the bar clears without waiting on a refetch.
+  // An out-of-order complete estimate triple would 400 server-side (#1982), so
+  // Save is gated on it everywhere (bar button, Cmd+S, Save & open).
+  const estimateInvalid = estimateTripleInvalid(draft);
+
+  const changedEstimates =
+    draft.optimistic !== baseline.optimistic ||
+    draft.mostLikely !== baseline.mostLikely ||
+    draft.pessimistic !== baseline.pessimistic;
+
+  // The estimate slice of the draft, handed to EstimatesTab via context (#1985).
+  // A section binds only when `taskId` matches its own task (the swap latch keeps
+  // renderedTask ahead of the host selection during a dirty swap).
+  const estimateBinding = useMemo<TaskDraftBinding | null>(() => {
+    if (!task) return null;
+    return {
+      taskId: task.id,
+      values: {
+        optimistic: draft.optimistic,
+        mostLikely: draft.mostLikely,
+        pessimistic: draft.pessimistic,
+      },
+      changed: {
+        optimistic: draft.optimistic !== baseline.optimistic,
+        mostLikely: draft.mostLikely !== baseline.mostLikely,
+        pessimistic: draft.pessimistic !== baseline.pessimistic,
+      },
+      setField: (k, v) => setField(k, v),
+      commitField: (k, v) => commitField(k, v),
+    };
+  }, [
+    task,
+    draft.optimistic,
+    draft.mostLikely,
+    draft.pessimistic,
+    baseline.optimistic,
+    baseline.mostLikely,
+    baseline.pessimistic,
+    setField,
+    commitField,
+  ]);
+
+  // Save = one PATCH carrying only the changed scalar keys (name/notes + the
+  // #1985 estimate columns), then re-snapshot the baseline on success so the bar
+  // clears without waiting on a refetch.
   const handleSave = useCallback(() => {
-    if (!task) return;
-    const patch: { name?: string; notes?: string } = {};
-    if (draft.name !== baseline.name) patch.name = draft.name;
-    if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+    if (!task || estimateInvalid) return;
+    const patch = buildScalarPatch(draft, baseline);
     if (Object.keys(patch).length === 0) return;
     updateTask({ id: task.id, projectId, ...patch }, { onSuccess: () => commit() });
-  }, [task, projectId, draft, baseline, updateTask, commit]);
+  }, [task, estimateInvalid, projectId, draft, baseline, updateTask, commit]);
 
   // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
   // own path so Discard navigates to a fresh editable load (Keep editing stays).
@@ -338,17 +443,27 @@ export function TaskDetailDrawer({
     reseedTo(pendingTask);
   }, [pendingTask, reset, reseedTo]);
   const saveAndOpen = useCallback(() => {
-    if (!renderedTask || !pendingTask) return;
-    const patch: { name?: string; notes?: string } = {};
-    if (draft.name !== baseline.name) patch.name = draft.name;
-    if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+    // An out-of-order estimate would 400 — keep the guard open (no-op) so the
+    // user returns to the drawer and the validation message; never drop the
+    // pending task.
+    if (!renderedTask || !pendingTask || estimateInvalid) return;
+    const patch = buildScalarPatch(draft, baseline);
     const next = pendingTask;
     if (Object.keys(patch).length === 0) {
       reseedTo(next);
       return;
     }
     updateTask({ id: renderedTask.id, projectId, ...patch }, { onSuccess: () => reseedTo(next) });
-  }, [renderedTask, pendingTask, draft, baseline, projectId, updateTask, reseedTo]);
+  }, [
+    renderedTask,
+    pendingTask,
+    estimateInvalid,
+    draft,
+    baseline,
+    projectId,
+    updateTask,
+    reseedTo,
+  ]);
 
   // Cmd/Ctrl+S saves when dirty (matches the settings shell). Only intercept the
   // browser "save page" shortcut when there is actually something to save.
@@ -452,32 +567,39 @@ export function TaskDetailDrawer({
   const visibleTabs = TAB_DEFS.filter((t) => t.id === 'details' || sectionsByTab[t.id].length > 0);
 
   const content = task && (
-    <DrawerContent
-      task={task}
-      projectId={projectId}
-      userRole={userRole}
-      drawerTitle={drawerTitle}
-      closeButtonRef={closeButtonRef}
-      onRequestClose={requestClose}
-      onExpand={handleExpand}
-      tabs={visibleTabs}
-      activeTab={activeTab}
-      onTabChange={changeTab}
-      sectionsByTab={sectionsByTab}
-      subtaskStats={subtaskStats}
-      draftName={draft.name}
-      onNameChange={(v) => setField('name', v)}
-      changedName={draft.name !== baseline.name}
-      draftNotes={draft.notes}
-      onNotesChange={(v) => setField('notes', v)}
-      changedNotes={draft.notes !== baseline.notes}
-      notesChangedElsewhere={notesChangedElsewhere}
-      dirty={dirty}
-      isSaving={isSaving}
-      saveFailed={saveFailed}
-      onSave={handleSave}
-      onCancel={reset}
-    />
+    // Provide the estimate draft to the registry sections (EstimatesTab opts in
+    // via useTaskDraft); a section that ignores it keeps its immediate mutation
+    // — the DrawerSectionProps contract is unchanged (#1985, ADR-0439).
+    <TaskDraftProvider value={estimateBinding}>
+      <DrawerContent
+        task={task}
+        projectId={projectId}
+        userRole={userRole}
+        drawerTitle={drawerTitle}
+        closeButtonRef={closeButtonRef}
+        onRequestClose={requestClose}
+        onExpand={handleExpand}
+        tabs={visibleTabs}
+        activeTab={activeTab}
+        onTabChange={changeTab}
+        sectionsByTab={sectionsByTab}
+        subtaskStats={subtaskStats}
+        draftName={draft.name}
+        onNameChange={(v) => setField('name', v)}
+        changedName={draft.name !== baseline.name}
+        draftNotes={draft.notes}
+        onNotesChange={(v) => setField('notes', v)}
+        changedNotes={draft.notes !== baseline.notes}
+        changedEstimates={changedEstimates}
+        estimateInvalid={estimateInvalid}
+        notesChangedElsewhere={notesChangedElsewhere}
+        dirty={dirty}
+        isSaving={isSaving}
+        saveFailed={saveFailed}
+        onSave={handleSave}
+        onCancel={reset}
+      />
+    </TaskDraftProvider>
   );
 
   return (
@@ -589,6 +711,10 @@ interface DrawerContentProps {
   draftNotes: string;
   onNotesChange: (value: string) => void;
   changedNotes: boolean;
+  /** Any of the three-point estimate fields is staged-dirty (#1985). */
+  changedEstimates: boolean;
+  /** The staged estimate triple is complete but out of order — blocks Save (#1982). */
+  estimateInvalid: boolean;
   notesChangedElsewhere: boolean;
   dirty: boolean;
   isSaving: boolean;
@@ -620,6 +746,8 @@ function DrawerContent({
   draftNotes,
   onNotesChange,
   changedNotes,
+  changedEstimates,
+  estimateInvalid,
   notesChangedElsewhere,
   dirty,
   isSaving,
@@ -628,10 +756,14 @@ function DrawerContent({
   onCancel,
 }: DrawerContentProps) {
   // Which staged fields changed — names the bar's scope for sighted users (the
-  // per-field • markers) and for AT (the sr-only live region below).
-  const changedLabels = [changedName ? 'Name' : null, changedNotes ? 'Description' : null].filter(
-    Boolean,
-  ) as string[];
+  // per-field • markers) and for AT (the sr-only live region below). The three
+  // estimate fields collapse to one "Estimates" token (the per-field • carries
+  // the precise locality, #1985).
+  const changedLabels = [
+    changedName ? 'Name' : null,
+    changedNotes ? 'Description' : null,
+    changedEstimates ? 'Estimates' : null,
+  ].filter(Boolean) as string[];
   const statusText = changedLabels.length
     ? `Unsaved changes: ${changedLabels.join(', ')}`
     : 'Unsaved changes';
@@ -913,14 +1045,21 @@ function DrawerContent({
 
       {/* Save bar (dirty) or Esc hint (clean) — the shared DialogFooter (web-rule
           217) so the task drawer reads the same as every other editable surface.
-          Name/description are the only fields that stage; the immediate controls
-          above never raise it. `statusText` names which fields changed. */}
+          Name/description + the three-point estimate stage here (#1985); the
+          immediate controls never raise it. `statusText` names which fields
+          changed. An out-of-order estimate triple blocks Save (would 400, #1982). */}
       {dirty ? (
         <div className="shrink-0 motion-safe:animate-save-bar-slide">
           <DialogFooter
             onSave={onSave}
             onCancel={onCancel}
             saving={isSaving}
+            saveDisabled={estimateInvalid}
+            validationMessage={
+              estimateInvalid
+                ? 'Estimates must satisfy Optimistic ≤ Most Likely ≤ Pessimistic'
+                : null
+            }
             statusText={statusText}
             error={saveFailed ? "Couldn't save — try again" : null}
           />

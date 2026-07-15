@@ -17,3 +17,4 @@ export {
   type UseUnsavedChangesGuardOptions,
 } from './useUnsavedChangesGuard';
 export { UnsavedChangesDialog, type UnsavedChangesDialogProps } from './UnsavedChangesDialog';
+export { UnsavedDot } from './UnsavedDot';

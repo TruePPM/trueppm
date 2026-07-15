@@ -72,4 +72,29 @@ describe('useDirtyDraft', () => {
     expect(result.current.draft.name).toBe('Editing…');
     expect(result.current.dirty).toBe(true);
   });
+
+  it('commitField re-baselines ONE field, leaving other pending edits dirty (#1985)', () => {
+    const { result } = renderHook(() => useDirtyDraft<Draft>({ name: 'Alpha', points: 3 }));
+
+    // Two pending edits.
+    act(() => result.current.setField('name', 'Editing…'));
+    act(() => result.current.setField('points', 8));
+    expect(result.current.dirty).toBe(true);
+
+    // A side-write re-baselines only `points` to the server-applied value.
+    act(() => result.current.commitField('points', 13));
+    expect(result.current.draft.points).toBe(13);
+    expect(result.current.baseline.points).toBe(13);
+    // The other pending edit survives and the form is still dirty for it.
+    expect(result.current.draft.name).toBe('Editing…');
+    expect(result.current.baseline.name).toBe('Alpha');
+    expect(result.current.dirty).toBe(true);
+  });
+
+  it('commitField on the last pending field clears the dirty flag', () => {
+    const { result } = renderHook(() => useDirtyDraft<Draft>({ name: 'Alpha', points: 3 }));
+    act(() => result.current.setField('points', 8));
+    act(() => result.current.commitField('points', 8));
+    expect(result.current.dirty).toBe(false);
+  });
 });

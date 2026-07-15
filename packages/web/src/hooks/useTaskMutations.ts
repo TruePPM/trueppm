@@ -69,7 +69,9 @@ export function useCreateTask(projectId: string | null) {
         ...(payload.is_milestone ? { is_milestone: true } : {}),
         ...(payload.is_subtask ? { is_subtask: true } : {}),
         ...(payload.type !== undefined ? { type: payload.type } : {}),
-        ...(payload.governance_class !== undefined ? { governance_class: payload.governance_class } : {}),
+        ...(payload.governance_class !== undefined
+          ? { governance_class: payload.governance_class }
+          : {}),
         ...(payload.delivery_mode !== undefined ? { delivery_mode: payload.delivery_mode } : {}),
       });
       return res.data;
@@ -105,6 +107,12 @@ export interface UpdateTaskPayload {
   story_points?: number | null;
   /** Live remaining-effort for burndown (issue #366). Auto-zeroed on COMPLETE by the API. */
   remaining_points?: number | null;
+  /** Three-point (PERT) estimate columns in working days (#1985). Batched behind
+   *  the drawer Save bar; the server enforces optimistic ≤ most_likely ≤
+   *  pessimistic when the triple is complete (#1982). */
+  optimistic_duration?: number | null;
+  most_likely_duration?: number | null;
+  pessimistic_duration?: number | null;
   /** Work-item type (ADR-0105). Changing to/from 'epic' is structural — the
    *  server gates it (PO/Admin) and 400s otherwise; surfaced as a submit error. */
   type?: TaskType;
@@ -173,12 +181,7 @@ export function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      projectId: _projectId,
-      baseVersion,
-      ...data
-    }: UpdateTaskPayload) => {
+    mutationFn: async ({ id, projectId: _projectId, baseVersion, ...data }: UpdateTaskPayload) => {
       // Opt into field-level merge (ADR-0217) by declaring the version this edit was
       // based on; the server merges a disjoint concurrent edit or 409s an overlap.
       // Only pass a config arg when opting in, so the default LWW call shape is unchanged.
