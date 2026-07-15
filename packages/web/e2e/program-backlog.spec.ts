@@ -85,7 +85,7 @@ const BACKLOG_ITEMS = [
 
 type Page = import('@playwright/test').Page;
 
-async function setup(page: Page) {
+async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -114,9 +114,41 @@ async function setup(page: Page) {
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECTS) }),
   );
-  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(BACKLOG_ITEMS) }),
-  );
+  // Method-aware: GET lists `items`; POST (create) echoes the posted item back
+  // so the create flow can resolve and select the new item.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) => {
+    if (r.request().method() === 'POST') {
+      const posted = (r.request().postDataJSON() ?? {}) as {
+        title?: string;
+        item_type?: string;
+        description?: string;
+        tags?: string[];
+      };
+      return r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: pj({
+          id: 'item-new-001',
+          server_version: 1,
+          program: PROGRAM_ID,
+          title: posted.title ?? 'Untitled',
+          description: posted.description ?? '',
+          item_type: posted.item_type ?? 'story',
+          status: 'proposed',
+          tags: posted.tags ?? [],
+          priority_rank: 1,
+          story_points: null,
+          pulled_task: null,
+          pulled_at: null,
+          pulled_by: null,
+          created_by: ME_ID,
+          created_at: '2026-05-24T00:00:00Z',
+          updated_at: '2026-05-24T00:00:00Z',
+        }),
+      });
+    }
+    return r.fulfill({ status: 200, contentType: 'application/json', body: pj(items) });
+  });
   // Pull action (registered last so it wins over the list route for this path).
   await page.route('**/api/v1/programs/*/backlog-items/*/pull/', (r) =>
     r.fulfill({
@@ -170,5 +202,35 @@ test.describe('Program backlog', () => {
     // recovery button). Target the recovery button by its visible text — the
     // icon button has none — to avoid a strict-mode match on both.
     await expect(page.getByText('Clear search')).toBeVisible();
+  });
+
+  // Regression for #1990: on an EMPTY backlog the desktop layout rendered the
+  // full-page empty state instead of the pane that hosts the create form, so
+  // clicking either create button set ?new=1 with nothing mounted to show it.
+  test('empty state — "Create your first item" opens the create form and creates', async ({
+    page,
+  }) => {
+    await setup(page, []);
+
+    await expect(page.getByText('The program backlog is empty')).toBeVisible();
+    await page.getByRole('button', { name: 'Create your first item' }).click();
+
+    // The create form now has a home (the bug: it never appeared).
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
+
+    await page.getByLabel('Title').fill('First epic');
+    await page.getByRole('button', { name: 'Create item' }).click();
+
+    // On success the new item is selected and its detail view renders.
+    await expect(page.getByRole('heading', { name: 'First epic' })).toBeVisible();
+  });
+
+  test('empty state — header "New item" opens the create form', async ({ page }) => {
+    await setup(page, []);
+
+    await expect(page.getByText('The program backlog is empty')).toBeVisible();
+    await page.getByRole('button', { name: 'New item' }).click();
+
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
   });
 });

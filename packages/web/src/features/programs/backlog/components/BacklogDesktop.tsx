@@ -66,8 +66,20 @@ export function BacklogDesktop({ controller }: BacklogDesktopProps) {
         onCreate={url.openCreate}
       />
 
-      {isEmpty ? (
+      {isEmpty && !url.isNew ? (
+        // Full-page empty state, but only while NOT creating. On an empty
+        // backlog the create form still needs a home: when ?new=1 is set we
+        // fall through to mount <DetailPane> (below), which hosts <DetailCreate>.
+        // Without this, "New item" / "Create your first item" set ?new=1 with
+        // no pane mounted to consume it, so the click appears to do nothing.
         <EmptyBacklog canEdit={canEdit} onCreate={url.openCreate} />
+      ) : isEmpty ? (
+        // Empty + creating: host just the create pane (no list/toolbar to show
+        // for zero items). On create success the item lands in the cache and
+        // the layout re-renders into the two-pane view below with it selected.
+        <div className="min-h-0 flex-1">
+          <DetailPane controller={controller} />
+        </div>
       ) : (
         <>
           <BacklogToolbar controller={controller} searchInputRef={searchInputRef} />
