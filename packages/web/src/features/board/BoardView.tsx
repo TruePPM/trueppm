@@ -2860,6 +2860,20 @@ export function BoardView() {
     });
   }, []);
 
+  // Quick capture from the backlog rail (#1973): the intake inbox's primary
+  // affordance is fast, no-modal capture — create a BACKLOG idea directly from
+  // the typed title so the user can fire off successive ideas without a dialog.
+  // The richer path (assignee, description) stays on the "Add with details…"
+  // button, which opens the full modal via handleAddTask above.
+  const handleQuickCaptureBacklog = useCallback(
+    (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || !projectId) return;
+      createTask.mutate({ name: trimmed, duration: 0, status: 'BACKLOG', parent_id: null });
+    },
+    [createTask, projectId],
+  );
+
   // Mobile FAB (issue 605): open the create modal targeting the group in view.
   // Queue is a flat, backlog-first list so intake lands in BACKLOG; the snap
   // board creates into whichever status column is currently swiped into view.
@@ -3538,6 +3552,8 @@ export function BoardView() {
                   onCardFocus={handleCardFocus}
                   onCardClick={handleCardClick}
                   onSchedule={projectId ? handleScheduleRequest : undefined}
+                  onQuickCapture={projectId ? handleQuickCaptureBacklog : undefined}
+                  isQuickCapturePending={createTask.isPending}
                   onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
                   isCaptureIdeaPending={false}
                   onOpenCommandPalette={() => openCommandPalette(true)}

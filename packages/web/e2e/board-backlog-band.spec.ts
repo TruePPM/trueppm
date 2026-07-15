@@ -79,6 +79,21 @@ const BACKLOG_TASK_B = {
   status_changed_at: new Date(Date.now() - 7 * 86_400_000).toISOString(),
 };
 
+/** Search is demoted below BACKLOG_SEARCH_MIN_IDEAS (8) — pad the backlog past
+ *  the threshold so the filter field renders (#1973). Padding names never match
+ *  a search term under test. */
+function padBacklog(n: number): object[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `backlog-pad-${i}`,
+    wbs_path: `1.${10 + i}`,
+    name: `Padding idea ${i}`,
+    parent_id: 'phase-1',
+    status: 'BACKLOG',
+    ...commonTaskShape(),
+    status_changed_at: new Date(Date.now() - 1 * 86_400_000).toISOString(),
+  }));
+}
+
 async function setup(page: import('@playwright/test').Page, tasks: object[]) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -215,8 +230,34 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(page.getByRole('heading', { name: /^Done,/ })).toBeVisible();
   });
 
-  test('filters the rail to matching cards as the user types, then clears (issue 1609)', async ({ page }) => {
+  test('captures a backlog idea inline from the top field, clearing for the next (#1973)', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+
+    const capture = rail.getByRole('textbox', { name: /Capture a backlog idea/i });
+    await expect(capture).toBeVisible();
+    await capture.fill('Spike the new onboarding');
+    await capture.press('Enter');
+    // The field clears for the next idea (rapid intake).
+    await expect(capture).toHaveValue('');
+  });
+
+  test('hides the search field below the threshold, capture field stays (#1973)', async ({ page }) => {
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, BACKLOG_TASK_B]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Tone-of-voice study')).toBeVisible({ timeout: 10_000 });
+    // 2 ideas → below threshold → no filter field, but the capture field is present.
+    await expect(rail.getByRole('textbox', { name: /Filter backlog ideas/i })).toHaveCount(0);
+    await expect(rail.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeVisible();
+  });
+
+  test('filters the rail to matching cards as the user types, then clears (issue 1609)', async ({ page }) => {
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, BACKLOG_TASK_B, ...padBacklog(6)]);
     await page.goto(`${BASE_URL}/board`);
 
     const rail = page.getByTestId('backlog-band');
@@ -236,7 +277,7 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
   });
 
   test('shows a distinct no-match empty state when the query matches nothing (issue 1609)', async ({ page }) => {
-    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, ...padBacklog(7)]);
     await page.goto(`${BASE_URL}/board`);
 
     const rail = page.getByTestId('backlog-band');
@@ -250,7 +291,7 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
   });
 
   test('⌘K handoff opens the global command palette (issue 1609)', async ({ page }) => {
-    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
+    await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, ...padBacklog(7)]);
     await page.goto(`${BASE_URL}/board`);
 
     const rail = page.getByTestId('backlog-band');

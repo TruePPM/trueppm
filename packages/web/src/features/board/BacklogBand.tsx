@@ -16,7 +16,7 @@
  * Sibling layouts (drawer, queue) are filed as #383 / #384 and consume the
  * same `BACKLOG_BAND_DROPPABLE_ID`.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
 
@@ -376,6 +376,11 @@ export function BacklogCard({
 
 export const BACKLOG_BAND_DROPPABLE_ID = 'backlog-band';
 
+/** Search only earns its slot once there is a pile to sift (#1973). Below this
+ *  many ideas the inbox is capture-first: the top field captures, and the filter
+ *  field is suppressed (⌘K still searches globally). */
+export const BACKLOG_SEARCH_MIN_IDEAS = 8;
+
 export interface BacklogBandProps {
   tasks: Task[];
   /** Density preference for backlog cards. Comes from the toolbar (#382 will
@@ -393,7 +398,16 @@ export interface BacklogBandProps {
    *  ScheduleTaskDialog (mounted once in BoardView). Passed straight to each
    *  BacklogCard's `···` "Schedule…" action. */
   onSchedule?: (task: Task, trigger: HTMLElement) => void;
-  /** Called when the user clicks "+ Capture idea". Creates a new BACKLOG task. */
+  /** Quick capture (#1973) — type a title in the top field and press Enter to
+   *  create a BACKLOG idea inline, no modal. The rail clears the field and keeps
+   *  focus for rapid successive intake. When omitted, the capture field is not
+   *  rendered (the rail falls back to the "Add with details…" button only). */
+  onQuickCapture?: (name: string) => void;
+  /** True while a quick-capture create is in flight — disables the field. */
+  isQuickCapturePending?: boolean;
+  /** Called when the user clicks "Add with details…" — opens the full add-task
+   *  modal (assignee, description, dates) with a BACKLOG default. The richer
+   *  path alongside the top field's fast inline capture. */
   onCaptureIdea?: () => void;
   /** True while the create mutation is in flight — disables the button. */
   isCaptureIdeaPending?: boolean;
@@ -438,12 +452,16 @@ export function BacklogBand({
   onCardFocus,
   onCardClick,
   onSchedule,
+  onQuickCapture,
+  isQuickCapturePending = false,
   onCaptureIdea,
   isCaptureIdeaPending = false,
   onOpenCommandPalette,
 }: BacklogBandProps) {
   const [collapsed, setCollapsed] = useBacklogRailCollapsed();
   const [query, setQuery] = useState('');
+  const [captureDraft, setCaptureDraft] = useState('');
+  const captureInputRef = useRef<HTMLInputElement>(null);
   const { setNodeRef } = useDroppable({ id: BACKLOG_BAND_DROPPABLE_ID });
 
   // Drag mid-flight auto-expands the rail so the user can drop into it without
@@ -466,11 +484,29 @@ export function BacklogBand({
     return at < bt ? 1 : -1;
   });
 
+  // Capture-first (#1973): the top field captures instead of searches. Search is
+  // demoted to appear only once there is a pile to sift; below the threshold the
+  // filter field is suppressed (⌘K still searches globally) and `query` stays ''.
+  const canQuickCapture = typeof onQuickCapture === 'function';
+  const showSearch = tasks.length >= BACKLOG_SEARCH_MIN_IDEAS;
+
+  const submitCapture = useCallback(() => {
+    if (!onQuickCapture || isQuickCapturePending) return;
+    const name = captureDraft.trim();
+    if (name === '') return;
+    onQuickCapture(name);
+    // Clear and keep focus so successive ideas can be captured without reaching
+    // for the mouse — the whole point of an intake field.
+    setCaptureDraft('');
+    captureInputRef.current?.focus();
+  }, [onQuickCapture, isQuickCapturePending, captureDraft]);
+
   // Live client-side filter (issue 1609). The rail owns the query string; the
   // header count stays the total inbox size so filtering never hides how much
-  // backlog exists, while the list shows only matches.
-  const isFiltering = query.trim() !== '';
-  const visibleTasks = filterBacklogTasks(sortedTasks, query);
+  // backlog exists, while the list shows only matches. Search never engages
+  // below the threshold, so `query` is forced empty there.
+  const isFiltering = showSearch && query.trim() !== '';
+  const visibleTasks = isFiltering ? filterBacklogTasks(sortedTasks, query) : sortedTasks;
 
   // Collapsed: 44px vertical strip with rotated count.
   if (!isExpanded) {
@@ -549,56 +585,97 @@ export function BacklogBand({
         </button>
       </div>
 
-      {/* Search row (issue 1609) — live client-side filter over the loaded
-          backlog; the ⌘K badge hands off to the global command palette. */}
-      <div className="px-4 pb-2.5">
-        <form
-          role="search"
-          aria-label="Search backlog"
-          onSubmit={(e) => e.preventDefault()}
-          className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs
-            focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary"
-          style={{ height: 30 }}
-        >
-          <span aria-hidden="true" className="text-neutral-text-disabled">
-            ⌕
-          </span>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search or capture an idea…"
-            aria-label="Filter backlog ideas"
-            className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
-              focus:outline-none"
-          />
-          {isFiltering && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              aria-label="Clear backlog search"
-              title="Clear search"
-              className="inline-flex items-center justify-center rounded-control text-neutral-text-disabled
-                hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              style={{ width: 16, height: 16, lineHeight: 0 }}
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          )}
-          {onOpenCommandPalette && (
-            <button
-              type="button"
-              onClick={onOpenCommandPalette}
-              aria-label="Open command palette to capture an idea"
-              title="Open command palette (⌘K)"
-              className="tppm-mono text-xs text-neutral-text-disabled hover:text-neutral-text-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-0.5"
-            >
-              ⌘K
-            </button>
-          )}
-        </form>
-      </div>
+      {/* Capture row (#1973) — the primary affordance in an intake inbox is fast
+          capture, not search: type a title, press Enter to create a BACKLOG idea
+          inline, the field clears and keeps focus for the next one. */}
+      {canQuickCapture && (
+        <div className="px-4 pb-2.5">
+          <form
+            aria-label="Capture a backlog idea"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submitCapture();
+            }}
+            className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs
+              focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary"
+            style={{ height: 30 }}
+          >
+            <span aria-hidden="true" className="text-neutral-text-disabled" style={{ fontSize: 14, lineHeight: 0 }}>
+              +
+            </span>
+            <input
+              ref={captureInputRef}
+              type="text"
+              value={captureDraft}
+              onChange={(e) => setCaptureDraft(e.target.value)}
+              disabled={isQuickCapturePending}
+              placeholder="Capture an idea…"
+              aria-label="Capture a backlog idea"
+              aria-keyshortcuts="Enter"
+              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
+                focus:outline-none disabled:cursor-not-allowed"
+            />
+            {captureDraft.trim() !== '' && (
+              <span aria-hidden="true" className="tppm-mono text-[11px] text-neutral-text-disabled">
+                {isQuickCapturePending ? '…' : '⏎'}
+              </span>
+            )}
+          </form>
+        </div>
+      )}
+
+      {/* Search row (issue 1609) — demoted (#1973) to appear only once there is a
+          pile to sift; below the threshold ⌘K still searches globally. */}
+      {showSearch && (
+        <div className="px-4 pb-2.5">
+          <form
+            role="search"
+            aria-label="Search backlog"
+            onSubmit={(e) => e.preventDefault()}
+            className="flex items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-xs
+              focus-within:border-brand-primary focus-within:ring-1 focus-within:ring-brand-primary"
+            style={{ height: 30 }}
+          >
+            <span aria-hidden="true" className="text-neutral-text-disabled">
+              ⌕
+            </span>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search ideas…"
+              aria-label="Filter backlog ideas"
+              className="flex-1 min-w-0 bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-disabled
+                focus:outline-none"
+            />
+            {isFiltering && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear backlog search"
+                title="Clear search"
+                className="inline-flex items-center justify-center rounded-control text-neutral-text-disabled
+                  hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                style={{ width: 16, height: 16, lineHeight: 0 }}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
+            {onOpenCommandPalette && (
+              <button
+                type="button"
+                onClick={onOpenCommandPalette}
+                aria-label="Open command palette to search everything"
+                title="Open command palette (⌘K)"
+                className="tppm-mono text-xs text-neutral-text-disabled hover:text-neutral-text-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-0.5"
+              >
+                ⌘K
+              </button>
+            )}
+          </form>
+        </div>
+      )}
 
       {/* Hint — orientation copy for first-time users. */}
       <div className="px-4 pb-2.5 text-xs leading-snug text-neutral-text-secondary">
@@ -619,7 +696,9 @@ export function BacklogBand({
             role="status"
             style={{ minHeight: 88 }}
           >
-            No backlog yet — drag a card here to defer it.
+            {canQuickCapture
+              ? 'No backlog yet — capture an idea above, or drag a card here to defer it.'
+              : 'No backlog yet — drag a card here to defer it.'}
           </div>
         ) : visibleTasks.length === 0 ? (
           <div
@@ -669,7 +748,7 @@ export function BacklogBand({
           style={{ height: 36 }}
         >
           <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>
-          {isCaptureIdeaPending ? 'Adding…' : 'Capture idea'}
+          {isCaptureIdeaPending ? 'Adding…' : 'Add with details…'}
         </button>
       </div>
     </aside>
