@@ -763,6 +763,16 @@ def _run_schedule(
         if tracker is not None:
             tracker.update(pct, msg)  # type: ignore[attr-defined]
 
+    def _settle_empty() -> None:
+        """Record a dateless-but-settled result on paths that return before the
+        CPM write. Without this the tracker emits task_run_completed with
+        result_summary=None, which the web client cannot distinguish from an
+        in-flight run, so the "Recalculating…" badge spins forever (#1976). The
+        frontend also clears on any completed scheduling run; this keeps the
+        result_summary a non-null object for audit and other API consumers."""
+        if tracker is not None:
+            tracker.set_result({"project_finish": None, "critical_path": []})  # type: ignore[attr-defined]
+
     _update(10, "Loading project data…")
 
     try:
@@ -785,6 +795,7 @@ def _run_schedule(
         )
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
+        _settle_empty()
         return
 
     # ADR-0120 D3: if this project belongs to a program that has ≥1 accepted
@@ -795,6 +806,7 @@ def _run_schedule(
     # stale single-project dates are ever persisted. The DISPATCHED outbox row is
     # left for the program run to mark done.
     if _escalate_to_program(project_id, db_project.program_id):
+        _settle_empty()
         return
 
     # Exclude recurrence templates and their generated occurrences from the CPM feed.
@@ -823,6 +835,7 @@ def _run_schedule(
     ]
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
+        _settle_empty()
         return
 
     _update(25, "Building schedule model…")
@@ -1013,6 +1026,7 @@ def _run_schedule(
     # discard this (now program-FALSE) single-project result and hand off to the
     # program pass rather than persisting stale single-project dates. Cheap EXISTS.
     if _escalate_to_program(project_id, db_project.program_id):
+        _settle_empty()
         return
 
     # Per-task schedule-shift activity events (ADR-0207, #1604), built from the

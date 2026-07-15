@@ -231,11 +231,23 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       } else if (event_type === 'task_run_completed') {
         const taskRunId = payload.task_run_id as string;
         const resultSummary = (payload.result_summary as Record<string, unknown> | null) ?? null;
+        // Capture the run's identity before completeRun mutates the store.
+        const wasScheduling =
+          useTaskRunStore.getState().runs[taskRunId]?.taskName === 'scheduling.recalculate';
         completeRun(taskRunId, resultSummary);
         // task_run_completed from the scheduler carries result_summary with project_finish.
         // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
-        if (resultSummary && typeof resultSummary.project_finish === 'string') {
-          setCpmComplete(resultSummary.project_finish);
+        if (wasScheduling) {
+          if (resultSummary && typeof resultSummary.project_finish === 'string') {
+            setCpmComplete(resultSummary.project_finish);
+          } else {
+            // A recalc can complete successfully without producing a finish date —
+            // e.g. a project with no schedulable tasks, or a run that escalates to
+            // the program. Those paths never emit the compat cpm_complete event, so
+            // clear the spinner here regardless, or the "Recalculating…" badge
+            // spins forever (#1976).
+            setRecalculating(false);
+          }
           // Task-date freshness is owned by the task_dates_updated delta event
           // (ADR-0091) — we no longer invalidate the tasks query here. We still
           // refresh the project-finish pill and the shell health stats.

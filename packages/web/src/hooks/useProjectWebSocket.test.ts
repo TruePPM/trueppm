@@ -13,6 +13,8 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useProjectWebSocket } from './useProjectWebSocket';
 import { useAuthStore } from '@/stores/authStore';
+import { useSchedulerStore } from '@/stores/schedulerStore';
+import { useTaskRunStore } from '@/stores/taskRunStore';
 import type { Task } from '@/types';
 
 // The hook now mints a single-use ticket (ADR-0141) before opening the socket.
@@ -1271,5 +1273,110 @@ describe('useProjectWebSocket — event replay sequence handling (ADR-0236, #321
       vi.advanceTimersByTime(1000);
     });
     expect(MockWebSocket.instances[1].url).toContain('&since=42');
+  });
+});
+
+// Recalculating-badge lifecycle (#1976) — the shell "Recalculating…" badge is
+// driven by schedulerStore.isRecalculating. It must clear on ANY completed
+// scheduling.recalculate run, even one that produced no finish date (empty
+// project, program escalation), or the badge spins forever.
+describe('useProjectWebSocket — recalculating badge lifecycle (#1976)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  function dispatch(eventType: string, payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', isAuthenticated: true });
+      useSchedulerStore.setState({ isRecalculating: false, cpmError: null, recalculatedAt: null });
+      useTaskRunStore.setState({ runs: {} });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+      useSchedulerStore.setState({ isRecalculating: false, cpmError: null, recalculatedAt: null });
+      useTaskRunStore.setState({ runs: {} });
+    });
+  });
+
+  it('sets isRecalculating on a scheduling.recalculate task_run_started', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_run_started', {
+      task_run_id: 'run-1',
+      task_name: 'scheduling.recalculate',
+      project_id: 'proj-1',
+    });
+
+    expect(useSchedulerStore.getState().isRecalculating).toBe(true);
+  });
+
+  it('clears isRecalculating and updates the finish pill when the run yields a date', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_run_started', {
+      task_run_id: 'run-1',
+      task_name: 'scheduling.recalculate',
+      project_id: 'proj-1',
+    });
+    dispatch('task_run_completed', {
+      task_run_id: 'run-1',
+      result_summary: { project_finish: '2026-09-29T00:00:00Z' },
+    });
+
+    expect(useSchedulerStore.getState().isRecalculating).toBe(false);
+    expect(useSchedulerStore.getState().recalculatedAt).toBe('2026-09-29T00:00:00Z');
+  });
+
+  it('clears isRecalculating when a scheduling run completes with no finish date (#1976)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('task_run_started', {
+      task_run_id: 'run-1',
+      task_name: 'scheduling.recalculate',
+      project_id: 'proj-1',
+    });
+    // Successful recalc that produced no dates (empty project / program escalation):
+    // result_summary is null. Previously this left the badge spinning forever.
+    dispatch('task_run_completed', { task_run_id: 'run-1', result_summary: null });
+
+    expect(useSchedulerStore.getState().isRecalculating).toBe(false);
+  });
+
+  it('leaves isRecalculating untouched for a non-scheduling run completing with no result', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    // A scheduling run is in flight…
+    dispatch('task_run_started', {
+      task_run_id: 'sched-1',
+      task_name: 'scheduling.recalculate',
+      project_id: 'proj-1',
+    });
+    // …an unrelated background run completes with a null summary. It must NOT
+    // clear the scheduling spinner.
+    dispatch('task_run_started', {
+      task_run_id: 'other-1',
+      task_name: 'export.pdf',
+      project_id: 'proj-1',
+    });
+    dispatch('task_run_completed', { task_run_id: 'other-1', result_summary: null });
+
+    expect(useSchedulerStore.getState().isRecalculating).toBe(true);
   });
 });
