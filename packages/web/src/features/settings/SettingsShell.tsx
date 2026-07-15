@@ -657,8 +657,13 @@ export function SettingsSection({ id, children }: SettingsSectionProps) {
       <section
         data-settings-section={id}
         aria-label={id}
-        // Anchor offset so a scrolled-to heading isn't flush against the top edge.
-        className="scroll-mt-4"
+        // Section-level break so adjacent sections are visually separable at a
+        // glance (issue 1986): a warm-canvas gap + a full-strength hairline rule
+        // above each section's title strip. The full-strength `neutral-border`
+        // reads as a higher-level boundary than the `/55` intra-section field-row
+        // borders. Suppressed on the first section (flush under the header).
+        // scroll-mt matches the gap so a scrolled-to heading clears the divider.
+        className="scroll-mt-4 mt-4 border-t border-neutral-border first:mt-0 first:border-t-0"
       >
         {/* Contain a section render failure to this region — on the consolidated
             page (ADR-0146) an unguarded throw would reach the root boundary and

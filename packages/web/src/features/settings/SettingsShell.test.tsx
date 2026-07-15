@@ -98,6 +98,22 @@ describe('<SettingsShell>', () => {
     expect(screen.getByText('ACCESS_SECTION')).toBeInTheDocument();
   });
 
+  it('separates adjacent sections with a hairline divider, suppressed on the first (issue 1986)', () => {
+    renderShell();
+    const sections = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-settings-section]'),
+    );
+    expect(sections.length).toBeGreaterThanOrEqual(2);
+    // Every section carries the divider utilities; `first:` suppresses it on the
+    // leading section (flush under the header) via CSS — assert the classes are
+    // present so the boundary treatment can't silently regress.
+    for (const s of sections) {
+      expect(s.className).toContain('border-t');
+      expect(s.className).toContain('border-neutral-border');
+      expect(s.className).toContain('first:border-t-0');
+    }
+  });
+
   it('reserves the scrollbar gutter on the content panel to prevent layout shift (#776)', () => {
     renderShell();
     const scroll = screen.getByTestId('settings-content-scroll');

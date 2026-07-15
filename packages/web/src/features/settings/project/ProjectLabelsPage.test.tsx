@@ -129,6 +129,16 @@ describe('ProjectLabelsPage', () => {
     expect(screen.getByRole('button', { name: 'Add label' })).toBeInTheDocument();
   });
 
+  it('wraps its body in the padded content container so nothing is clipped (issue 1988)', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER });
+    renderPage();
+    // The create row must sit inside the standard px-6 body wrapper — without it the
+    // list + "New label" row render flush to the scroll-container edges (clipped right
+    // behind the scrollbar gutter, misaligned left with the title strip).
+    const body = screen.getByTestId('label-create-name').closest('.px-6');
+    expect(body).not.toBeNull();
+  });
+
   it('hides the create form and shows the cap message at the soft limit', () => {
     useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
     useLabels.mockReturnValue({

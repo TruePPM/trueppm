@@ -58,46 +58,52 @@ export function ProjectLabelsPage() {
         subtitle="Colored labels categorize tasks across the board and schedule, independent of status, sprint, or WBS."
       />
 
-      {isLoading && <p className="text-sm text-neutral-text-disabled">Loading labels…</p>}
+      {/* Padded body wrapper (px-6) matching every other settings section — without
+          it the list and the "New label" create row render flush to the scroll
+          container edges: misaligned left with the title strip and clipped right
+          behind the scrollbar gutter (issue 1988). */}
+      <div className="px-6 pb-8 max-w-[720px]">
+        {isLoading && <p className="text-sm text-neutral-text-disabled">Loading labels…</p>}
 
-      {!isLoading && sorted.length === 0 && (
-        <p className="text-sm text-neutral-text-secondary">
-          No labels yet.{' '}
-          {canCreate ? 'Create one below or from any task’s Labels section.' : 'An admin or team member can create one.'}
-        </p>
-      )}
+        {!isLoading && sorted.length === 0 && (
+          <p className="text-sm text-neutral-text-secondary">
+            No labels yet.{' '}
+            {canCreate ? 'Create one below or from any task’s Labels section.' : 'An admin or team member can create one.'}
+          </p>
+        )}
 
-      {sorted.length > 0 && (
-        <ul className="flex flex-col gap-1.5" data-testid="labels-manager-list">
-          {sorted.map((label, idx) => (
-            <LabelRow
-              key={label.id}
-              label={label}
-              canManage={canManage}
-              isFirst={idx === 0}
-              isLast={idx === sorted.length - 1}
-              onMoveUp={() => move(label, -1)}
-              onMoveDown={() => move(label, 1)}
-              onRename={(name) =>
-                updateLabel.mutate({ labelId: label.id, name, color: label.color, position: label.position })
-              }
-              onRecolor={(color) =>
-                updateLabel.mutate({ labelId: label.id, name: label.name, color, position: label.position })
-              }
-              onDelete={() => deleteLabel.mutate(label.id)}
-            />
-          ))}
-        </ul>
-      )}
+        {sorted.length > 0 && (
+          <ul className="flex flex-col gap-1.5" data-testid="labels-manager-list">
+            {sorted.map((label, idx) => (
+              <LabelRow
+                key={label.id}
+                label={label}
+                canManage={canManage}
+                isFirst={idx === 0}
+                isLast={idx === sorted.length - 1}
+                onMoveUp={() => move(label, -1)}
+                onMoveDown={() => move(label, 1)}
+                onRename={(name) =>
+                  updateLabel.mutate({ labelId: label.id, name, color: label.color, position: label.position })
+                }
+                onRecolor={(color) =>
+                  updateLabel.mutate({ labelId: label.id, name: label.name, color, position: label.position })
+                }
+                onDelete={() => deleteLabel.mutate(label.id)}
+              />
+            ))}
+          </ul>
+        )}
 
-      {canCreate && (
-        <CreateLabelRow
-          disabled={atCap}
-          atCapMessage={atCap ? `Label limit reached (${LABEL_SOFT_CAP}).` : null}
-          pending={createLabel.isPending}
-          onCreate={(name, color) => createLabel.mutate({ name, color })}
-        />
-      )}
+        {canCreate && (
+          <CreateLabelRow
+            disabled={atCap}
+            atCapMessage={atCap ? `Label limit reached (${LABEL_SOFT_CAP}).` : null}
+            pending={createLabel.isPending}
+            onCreate={(name, color) => createLabel.mutate({ name, color })}
+          />
+        )}
+      </div>
     </div>
   );
 }
