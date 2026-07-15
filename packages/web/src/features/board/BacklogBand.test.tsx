@@ -53,6 +53,15 @@ function renderBand(props: Partial<BacklogBandProps> & { tasks: Task[] }) {
   );
 }
 
+/** Search is demoted (#1973): it renders only once the backlog crosses
+ *  BACKLOG_SEARCH_MIN_IDEAS (8). Helper to generate enough padding ideas to
+ *  cross the threshold without them matching a search term under test. */
+function padIdeas(n: number): Task[] {
+  return Array.from({ length: n }, (_, i) =>
+    makeTask({ id: `pad-${i}`, name: `Padding idea ${i}` }),
+  );
+}
+
 beforeEach(() => {
   // Each test starts from an expanded rail — clear the persistence flag.
   localStorage.removeItem('trueppm.board.backlogBand.collapsed');
@@ -150,12 +159,64 @@ describe('BacklogBand (rail)', () => {
     expect(cards[1]).toHaveTextContent('Old idea');
   });
 
-  it('exposes the search row as a search landmark with a real filter input', () => {
+  // --- Capture-first affordance (#1973) ---
+
+  it('renders the capture field with a "+" affordance, captures on Enter, and clears the field', () => {
+    const onQuickCapture = vi.fn();
+    renderBand({ tasks: [], onQuickCapture });
+    const input = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    expect(input).toHaveAttribute('placeholder', expect.stringMatching(/Capture an idea/i));
+    fireEvent.change(input, { target: { value: 'Refresh the logo' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onQuickCapture).toHaveBeenCalledWith('Refresh the logo');
+    expect((input as HTMLInputElement).value).toBe('');
+  });
+
+  it('does not capture a blank or whitespace-only title', () => {
+    const onQuickCapture = vi.fn();
+    renderBand({ tasks: [], onQuickCapture });
+    const input = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onQuickCapture).not.toHaveBeenCalled();
+  });
+
+  it('does not render the capture field when no onQuickCapture handler is provided', () => {
     renderBand({ tasks: [makeTask()] });
+    expect(
+      screen.queryByRole('textbox', { name: /Capture a backlog idea/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('disables the capture field while a capture is pending', () => {
+    renderBand({ tasks: [], onQuickCapture: vi.fn(), isQuickCapturePending: true });
+    expect(screen.getByRole('textbox', { name: /Capture a backlog idea/i })).toBeDisabled();
+  });
+
+  it('points the empty state at the capture field when quick-capture is available', () => {
+    renderBand({ tasks: [], onQuickCapture: vi.fn() });
+    expect(screen.getByText(/capture an idea above/i)).toBeInTheDocument();
+  });
+
+  // --- Search, now demoted below the threshold (#1973) ---
+
+  it('hides the search row below the threshold and shows it at/above it', () => {
+    const { rerender } = renderBand({ tasks: padIdeas(7) });
+    expect(screen.queryByRole('search', { name: /Search backlog/i })).not.toBeInTheDocument();
+    rerender(
+      <DndContext>
+        <BacklogBand {...BASE_PROPS} tasks={padIdeas(8)} />
+      </DndContext>,
+    );
+    expect(screen.getByRole('search', { name: /Search backlog/i })).toBeInTheDocument();
+  });
+
+  it('exposes the search row (≥8 ideas) as a search landmark with a real filter input', () => {
+    renderBand({ tasks: padIdeas(8) });
     const search = screen.getByRole('search', { name: /Search backlog/i });
     expect(search).toBeInTheDocument();
     const input = screen.getByRole('textbox', { name: /Filter backlog ideas/i });
-    expect(input).toHaveAttribute('placeholder', expect.stringMatching(/Search or capture an idea/i));
+    expect(input).toHaveAttribute('placeholder', expect.stringMatching(/Search ideas/i));
   });
 
   it('filters the rail to matching cards as the user types (name match)', () => {
@@ -163,6 +224,7 @@ describe('BacklogBand (rail)', () => {
       tasks: [
         makeTask({ id: 'a', name: 'Login rework' }),
         makeTask({ id: 'b', name: 'Export CSV' }),
+        ...padIdeas(6),
       ],
     });
     expect(screen.getByText('Login rework')).toBeInTheDocument();
@@ -185,6 +247,7 @@ describe('BacklogBand (rail)', () => {
           assignees: [{ resourceId: 'r1', name: 'Sarah Lee', units: 1 }],
         }),
         makeTask({ id: 'b', name: 'Other idea', assignees: [] }),
+        ...padIdeas(6),
       ],
     });
     fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
@@ -195,7 +258,7 @@ describe('BacklogBand (rail)', () => {
   });
 
   it('shows a distinct no-match empty state and clears the query on "Clear search"', () => {
-    renderBand({ tasks: [makeTask({ name: 'Login rework' })] });
+    renderBand({ tasks: [makeTask({ name: 'Login rework' }), ...padIdeas(7)] });
     fireEvent.change(screen.getByRole('textbox', { name: /Filter backlog ideas/i }), {
       target: { value: 'zzz-no-match' },
     });
@@ -210,30 +273,30 @@ describe('BacklogBand (rail)', () => {
 
   it('renders a ⌘K handoff button that opens the command palette', () => {
     const onOpenCommandPalette = vi.fn();
-    renderBand({ tasks: [makeTask()], onOpenCommandPalette });
+    renderBand({ tasks: padIdeas(8), onOpenCommandPalette });
     const cmdk = screen.getByRole('button', { name: /command palette/i });
     fireEvent.click(cmdk);
     expect(onOpenCommandPalette).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onCaptureIdea when "+ Capture idea" is clicked', () => {
+  it('calls onCaptureIdea when "Add with details…" is clicked', () => {
     const onCaptureIdea = vi.fn();
     renderBand({ tasks: [makeTask()], onCaptureIdea });
-    const cta = screen.getByRole('button', { name: /Capture idea/i });
+    const cta = screen.getByRole('button', { name: /Add with details/i });
     expect(cta).not.toBeDisabled();
     fireEvent.click(cta);
     expect(onCaptureIdea).toHaveBeenCalledTimes(1);
   });
 
-  it('disables "+ Capture idea" while pending and shows "Adding…"', () => {
+  it('disables "Add with details…" while pending and shows "Adding…"', () => {
     renderBand({ tasks: [makeTask()], onCaptureIdea: vi.fn(), isCaptureIdeaPending: true });
     const cta = screen.getByRole('button', { name: /Adding/i });
     expect(cta).toBeDisabled();
   });
 
-  it('disables "+ Capture idea" when no onCaptureIdea handler provided', () => {
+  it('disables "Add with details…" when no onCaptureIdea handler provided', () => {
     renderBand({ tasks: [makeTask()] });
-    const cta = screen.getByRole('button', { name: /Capture idea/i });
+    const cta = screen.getByRole('button', { name: /Add with details/i });
     expect(cta).toBeDisabled();
   });
 
