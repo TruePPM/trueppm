@@ -1335,6 +1335,11 @@ SPECTACULAR_SETTINGS = {
             "name": "integrations",
             "description": "External task sources, Git automation and personal credentials.",
         },
+        {
+            "name": "assets",
+            "description": "Workspace-scoped Assets feed: file/URL attachments and task links "
+            "aggregated across every project the caller can read.",
+        },
         {"name": "import-export", "description": "MS Project import/export and data exports."},
         {"name": "webhooks", "description": "Outbound webhook subscriptions."},
         {
