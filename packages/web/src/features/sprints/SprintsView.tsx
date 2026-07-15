@@ -136,17 +136,13 @@ export function SprintsView() {
   // Sprint number is 1-based chronological index across all sprints (any state).
   // Derived once per data update so every child can read the same answer.
   const sprintNumberByID = useMemo(() => {
-    const sorted = [...sprints].sort((a, b) =>
-      a.start_date.localeCompare(b.start_date),
-    );
+    const sorted = [...sprints].sort((a, b) => a.start_date.localeCompare(b.start_date));
     return new Map(sorted.map((s, i) => [s.id, i + 1]));
   }, [sprints]);
 
   const iterationWeeks = useMemo(() => {
     if (sprints.length === 0) return undefined;
-    const widths = sprints.map((s) =>
-      Math.max(1, daysBetween(s.start_date, s.finish_date) + 1),
-    );
+    const widths = sprints.map((s) => Math.max(1, daysBetween(s.start_date, s.finish_date) + 1));
     widths.sort((a, b) => a - b);
     const median = widths[Math.floor(widths.length / 2)];
     return median !== undefined ? Math.round(median / 7) : undefined;
@@ -311,10 +307,7 @@ export function SprintsView() {
     [plannedBacklogTasks],
   );
   // Task ids committed to the planned sprint, for the bridge's predecessor count.
-  const plannedTaskIds = useMemo(
-    () => plannedBacklogTasks.map((t) => t.id),
-    [plannedBacklogTasks],
-  );
+  const plannedTaskIds = useMemo(() => plannedBacklogTasks.map((t) => t.id), [plannedBacklogTasks]);
 
   function handlePlanNext() {
     if (hasPlannedSprint) return;
@@ -326,10 +319,7 @@ export function SprintsView() {
     setCloseDialogOpen(true);
   }
 
-  function handleConfirmClose(
-    carryOverTo: string,
-    pendingDisposition?: 'carry' | 'reject',
-  ) {
+  function handleConfirmClose(carryOverTo: string, pendingDisposition?: 'carry' | 'reject') {
     if (!activeSprint) return;
     // Capture the sprint being closed before the mutation invalidates the list
     // and it leaves the active bucket — the retro handoff must reference this
@@ -343,9 +333,7 @@ export function SprintsView() {
     // closer's immediate confirmation. carryOverTo is 'backlog', 'none', or a
     // destination sprint UUID (the dialog resolves the "next planned" choice to
     // the sprint id before calling us), so a non-literal value is a real sprint.
-    const carriedCount = backlogTasks.filter((t) =>
-      CARRY_OVER_STATUSES.has(t.status),
-    ).length;
+    const carriedCount = backlogTasks.filter((t) => CARRY_OVER_STATUSES.has(t.status)).length;
     const advanceTo = carryoverAdvanceTarget(carryOverTo);
     const destName = advanceTo ? (buckets.planned[0]?.name ?? null) : null;
     closeSprint.mutate(
@@ -431,23 +419,25 @@ export function SprintsView() {
 
   function handleRemoveFromSprint(taskId: string) {
     if (!projectId) return;
-    updateTask.mutate({ id: taskId, projectId, sprint: null }, {
-      onSuccess: () => {
-        // Invalidate both active and planned sprint backlog caches.
-        void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectId] });
+    updateTask.mutate(
+      { id: taskId, projectId, sprint: null },
+      {
+        onSuccess: () => {
+          // Invalidate both active and planned sprint backlog caches.
+          void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectId] });
+        },
       },
-    });
+    );
   }
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-app-canvas">
-      <nav
-        aria-label="Breadcrumb"
-        className="px-6 pt-5 flex items-center justify-between gap-3"
-      >
+      <nav aria-label="Breadcrumb" className="px-6 pt-5 flex items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
           <span className="truncate">{projectName ?? 'Project'}</span>
-          <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
+          <span aria-hidden="true" className="text-neutral-text-disabled">
+            /
+          </span>
           <span>{itl.plural}</span>
         </div>
         {showLensToggle && (
@@ -486,349 +476,356 @@ export function SprintsView() {
         </main>
       ) : (
         <>
-      <SprintHeader
-        sprint={activeSprint}
-        sprintNumber={
-          activeSprint ? (sprintNumberByID.get(activeSprint.id) ?? 1) : 0
-        }
-        hasPlannedSprint={hasPlannedSprint}
-        onPlanNext={handlePlanNext}
-        onCloseSprint={handleCloseSprint}
-        onFilter={handleFilter}
-        filterButtonRef={filterAnchorRef}
-      />
-      {/* Popover places itself in fixed coords from the Filter button so it
+          <SprintHeader
+            sprint={activeSprint}
+            sprintNumber={activeSprint ? (sprintNumberByID.get(activeSprint.id) ?? 1) : 0}
+            hasPlannedSprint={hasPlannedSprint}
+            onPlanNext={handlePlanNext}
+            onCloseSprint={handleCloseSprint}
+            onFilter={handleFilter}
+            filterButtonRef={filterAnchorRef}
+          />
+          {/* Popover places itself in fixed coords from the Filter button so it
           stays anchored regardless of horizontal layout overflow. */}
-      {activeSprint && (
-        <SprintFilterPopover
-          open={filterOpen}
-          anchorRef={filterAnchorRef}
-          value={filter}
-          onChange={handleFilterChange}
-          tasks={backlogTasks}
-          onClose={() => setFilterOpen(false)}
-        />
-      )}
+          {activeSprint && (
+            <SprintFilterPopover
+              open={filterOpen}
+              anchorRef={filterAnchorRef}
+              value={filter}
+              onChange={handleFilterChange}
+              tasks={backlogTasks}
+              onClose={() => setFilterOpen(false)}
+            />
+          )}
 
-      {/* Tier-3 health badges (ADR-0101 §4, #988) — read-only signals owned by
+          {/* Tier-3 health badges (ADR-0101 §4, #988) — read-only signals owned by
           the server (count, verdict, tone, and copy); renders nothing when the
           endpoint returns no signals so the surface fades away on healthy
           projects. */}
-      <div className="mx-6 mt-2 flex items-center justify-between gap-2 flex-wrap">
-        <GuardrailHealthBadges projectId={projectId} />
-        {/* Alt entry to the scope-injection review (ADR-0102 §5) — mirrors the
+          <div className="mx-6 mt-2 flex items-center justify-between gap-2 flex-wrap">
+            <GuardrailHealthBadges projectId={projectId} />
+            {/* Alt entry to the scope-injection review (ADR-0102 §5) — mirrors the
             board banner's Review button. Render-gated by canManageScope; the
             server is the real gate. */}
-        {activeSprint && (activeSprint.pending_count ?? 0) > 0 && canManageScope && (
-          <button
-            type="button"
-            onClick={() => setScopeReviewOpen(true)}
-            className="shrink-0 h-7 px-2 rounded text-xs font-medium
+            {activeSprint && (activeSprint.pending_count ?? 0) > 0 && canManageScope && (
+              <button
+                type="button"
+                onClick={() => setScopeReviewOpen(true)}
+                className="shrink-0 h-7 px-2 rounded text-xs font-medium
               border border-neutral-border bg-neutral-surface text-neutral-text-primary
               hover:bg-neutral-surface-raised
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            <span aria-hidden="true">○</span> Review pending ({activeSprint.pending_count})
-          </button>
-        )}
-      </div>
-
-      {capacityWarnings.length > 0 && (
-        <div
-          role="alert"
-          className="mx-6 mt-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg
-            text-semantic-at-risk px-3 py-2 text-xs flex items-start justify-between gap-3"
-        >
-          <div className="flex flex-col gap-1">
-            <p className="font-medium">
-              {itl.singular} activated with {capacityWarnings.length} capacity warning
-              {capacityWarnings.length === 1 ? '' : 's'}
-            </p>
-            <ul className="list-disc list-inside space-y-0.5">
-              {capacityWarnings.slice(0, 3).map((w) => (
-                <li key={w.resource_id}>{w.message}</li>
-              ))}
-              {capacityWarnings.length > 3 && (
-                <li className="italic">
-                  and {capacityWarnings.length - 3} more…
-                </li>
-              )}
-            </ul>
+              >
+                <span aria-hidden="true">○</span> Review pending ({activeSprint.pending_count})
+              </button>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={() => setCapacityWarnings([])}
-            className="shrink-0 text-xs underline hover:no-underline
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
-      {/* Post-close retro handoff (issue 1471) — appears on close success,
+          {capacityWarnings.length > 0 && (
+            <div
+              role="alert"
+              className="mx-6 mt-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg
+            text-semantic-at-risk px-3 py-2 text-xs flex items-start justify-between gap-3"
+            >
+              <div className="flex flex-col gap-1">
+                <p className="font-medium">
+                  {itl.singular} activated with {capacityWarnings.length} capacity warning
+                  {capacityWarnings.length === 1 ? '' : 's'}
+                </p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {capacityWarnings.slice(0, 3).map((w) => (
+                    <li key={w.resource_id}>{w.message}</li>
+                  ))}
+                  {capacityWarnings.length > 3 && (
+                    <li className="italic">and {capacityWarnings.length - 3} more…</li>
+                  )}
+                </ul>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCapacityWarnings([])}
+                className="shrink-0 text-xs underline hover:no-underline
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:ring-offset-1 rounded"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Post-close retro handoff (issue 1471) — appears on close success,
           hands the team one tap into the just-closed sprint's retro. Sits above
           the scroll region so it stays visible regardless of scroll position. */}
-      {retroHandoff && (
-        <RetroHandoffBanner
-          sprintName={retroHandoff.sprintName}
-          iterationLabel={itl.lower}
-          onRun={handleRunRetro}
-          onDismiss={() => setRetroHandoff(null)}
-        />
-      )}
+          {retroHandoff && (
+            <RetroHandoffBanner
+              sprintName={retroHandoff.sprintName}
+              iterationLabel={itl.lower}
+              onRun={handleRunRetro}
+              onDismiss={() => setRetroHandoff(null)}
+            />
+          )}
 
-      <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
-        <div className="px-6 flex flex-col gap-4">
-        {isLoading && (
-          <div
-            role="status"
-            aria-label={`Loading ${itl.lowerPlural}…`}
-            className="flex flex-col gap-4"
-          >
-            {[0, 1].map((i) => (
-              <div
-                key={i}
-                aria-hidden="true"
-                className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
-              >
-                <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
-                <div className="mt-3 h-24 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken" />
-              </div>
-            ))}
-          </div>
-        )}
+          <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
+            <div className="px-6 flex flex-col gap-4">
+              {isLoading && (
+                <div
+                  role="status"
+                  aria-label={`Loading ${itl.lowerPlural}…`}
+                  className="flex flex-col gap-4"
+                >
+                  {[0, 1].map((i) => (
+                    <div
+                      key={i}
+                      aria-hidden="true"
+                      className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
+                    >
+                      <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-sunken" />
+                      <div className="mt-3 h-24 motion-safe:animate-pulse rounded-card bg-neutral-surface-sunken" />
+                    </div>
+                  ))}
+                </div>
+              )}
 
-        {!isLoading && error && (
-          <QueryErrorState
-            variant="inline"
-            message={`Couldn't load ${itl.lowerPlural}.`}
-            onRetry={() => refetch?.()}
-          />
-        )}
+              {!isLoading && error && (
+                <QueryErrorState
+                  variant="inline"
+                  message={`Couldn't load ${itl.lowerPlural}.`}
+                  onRetry={() => refetch?.()}
+                />
+              )}
 
-        {!isLoading && !error && sprints.length === 0 && (
-          <EmptyState
-            className="rounded-card border border-neutral-border bg-neutral-surface-raised"
-            icon={SprintIcon}
-            title={`No ${itl.lowerPlural} yet`}
-            // The CTA below carries a distinct label ("Plan a sprint") so this
-            // orientation copy stays the single "Plan your first {sprint}" match
-            // and never render-depends on the viewer's permission to plan.
-            description={`Plan your first ${itl.lower} to start tracking velocity and burn.`}
-            action={
-              canManageScope ? (
-                <Button onClick={handlePlanNext}>Plan a {itl.lower}</Button>
-              ) : undefined
-            }
-          />
-        )}
+              {!isLoading && !error && sprints.length === 0 && (
+                <EmptyState
+                  className="rounded-card border border-neutral-border bg-neutral-surface-raised"
+                  icon={SprintIcon}
+                  title={`No ${itl.lowerPlural} yet`}
+                  // The CTA below carries a distinct label ("Plan a sprint") so this
+                  // orientation copy stays the single "Plan your first {sprint}" match
+                  // and never render-depends on the viewer's permission to plan.
+                  description={`Plan your first ${itl.lower} to start tracking velocity and burn.`}
+                  action={
+                    canManageScope ? (
+                      <Button onClick={handlePlanNext}>Plan a {itl.lower}</Button>
+                    ) : undefined
+                  }
+                />
+              )}
 
-        {!isLoading && !error && selectedSprint && (
-          <>
-            {/* PLANNED (#495/#866) — the planning bridge banner (draft goal ↔
+              {!isLoading && !error && selectedSprint && (
+                <>
+                  {/* PLANNED (#495/#866) — the planning bridge banner (draft goal ↔
                 advancing milestone) replaces the generic two-card header so the
                 agile→waterfall link is explicit at planning time. ACTIVE/CLOSED
                 keep the standard goal + milestone grid. */}
-            {selectedSprint.state === 'PLANNED' ? (
-              <>
-                <SprintPlanningBridge
-                  sprint={selectedSprint}
-                  projectId={projectId ?? ''}
-                  canEdit={canEditGoal}
-                  sprintTaskIds={
-                    selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
-                  }
-                />
-                {/* Estimation poker (ADR-0179, issue 863) — size unestimated candidates in-place. */}
-                <EstimationPokerCard
-                  sprintId={selectedSprint.id}
-                  candidates={
-                    selectedSprint.id === plannedSprint?.id ? plannedBacklogTasks : []
-                  }
-                  canFacilitate={canManageScope}
-                />
-              </>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="md:col-span-3">
-                  <SprintGoalCard
+                  {selectedSprint.state === 'PLANNED' ? (
+                    <>
+                      <SprintPlanningBridge
+                        sprint={selectedSprint}
+                        projectId={projectId ?? ''}
+                        canEdit={canEditGoal}
+                        sprintTaskIds={
+                          selectedSprint.id === plannedSprint?.id ? plannedTaskIds : []
+                        }
+                      />
+                      {/* Estimation poker (ADR-0179, issue 863) — size unestimated candidates in-place. */}
+                      <EstimationPokerCard
+                        sprintId={selectedSprint.id}
+                        candidates={
+                          selectedSprint.id === plannedSprint?.id ? plannedBacklogTasks : []
+                        }
+                        canFacilitate={canManageScope}
+                      />
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <div className="md:col-span-3">
+                        <SprintGoalCard
+                          sprint={selectedSprint}
+                          projectId={projectId ?? ''}
+                          canEdit={canEditGoal && selectedSprint.state !== 'COMPLETED'}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <AdvancingToMilestoneCard
+                          sprint={selectedSprint}
+                          projectId={projectId ?? ''}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ADR-0113: team-owned "Sprint 0" escape hatch. Available in every
+                state (settable post-close); SCHEDULER+ writes, others read-only. */}
+                  <ExcludeFromVelocityToggle
                     sprint={selectedSprint}
                     projectId={projectId ?? ''}
-                    canEdit={canEditGoal && selectedSprint.state !== 'COMPLETED'}
+                    canEdit={(currentRole ?? -1) >= ROLE_SCHEDULER}
                   />
-                </div>
-                <div className="md:col-span-2">
-                  <AdvancingToMilestoneCard sprint={selectedSprint} projectId={projectId ?? ''} />
-                </div>
-              </div>
-            )}
 
-            {/* ADR-0113: team-owned "Sprint 0" escape hatch. Available in every
-                state (settable post-close); SCHEDULER+ writes, others read-only. */}
-            <ExcludeFromVelocityToggle
-              sprint={selectedSprint}
-              projectId={projectId ?? ''}
-              canEdit={(currentRole ?? -1) >= ROLE_SCHEDULER}
-            />
-
-            {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
+                  {/* ACTIVE — burndown + capacity + velocity (unchanged this MR; the
                 ADR-0094 "launcher" dedup is a follow-up). */}
-            {selectedSprint.state === 'ACTIVE' && (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  <div className="md:col-span-3">
-                    <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
-                  </div>
-                  <div className="md:col-span-2 flex flex-col gap-4">
-                    {capacity.data ? (
-                      <CapacityPreflight capacity={capacity.data} />
-                    ) : (
-                      <ChartSkeleton label="Capacity Preflight" />
-                    )}
-                    {velocity.data ? (
-                      <VelocityPanel velocity={velocity.data} currentSprint={activeSprint} />
-                    ) : (
-                      <ChartSkeleton label="Velocity" />
-                    )}
-                  </div>
-                </div>
-                {/* Team daily standup — "what changed since yesterday" (#925). */}
-                <SprintDailyDeltaPanel sprintId={selectedSprint.id} />
-                {/* Impediment roll-up — the SM's blocked-task triage list (ADR-0124). */}
-                <BlockedRollupPanel scope="sprint" sprintId={selectedSprint.id} />
-              </>
-            )}
+                  {selectedSprint.state === 'ACTIVE' && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div className="md:col-span-3">
+                          <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
+                        </div>
+                        <div className="md:col-span-2 flex flex-col gap-4">
+                          {capacity.data ? (
+                            <CapacityPreflight capacity={capacity.data} />
+                          ) : (
+                            <ChartSkeleton label="Capacity Preflight" />
+                          )}
+                          {velocity.data ? (
+                            <VelocityPanel velocity={velocity.data} currentSprint={activeSprint} />
+                          ) : (
+                            <ChartSkeleton label="Velocity" />
+                          )}
+                        </div>
+                      </div>
+                      {/* Team daily standup — "what changed since yesterday" (#925). */}
+                      <SprintDailyDeltaPanel sprintId={selectedSprint.id} />
+                      {/* Impediment roll-up — the SM's blocked-task triage list (ADR-0124). */}
+                      <BlockedRollupPanel scope="sprint" sprintId={selectedSprint.id} />
+                    </>
+                  )}
 
-            {/* CLOSED — read-only outcome (5-card row + "what didn't ship") bound
+                  {/* CLOSED — read-only outcome (5-card row + "what didn't ship") bound
                 to /outcome/, plus the frozen historical burndown. */}
-            {selectedSprint.state === 'COMPLETED' && (
-              <div className="flex flex-col gap-4">
-                {outcomeQuery.data ? (
-                  <SprintClosedOutcome
-                    outcome={outcomeQuery.data}
-                    canCurateDemo={(currentRole ?? -1) >= ROLE_MEMBER}
-                  />
-                ) : (
-                  <ChartSkeleton label="Sprint outcome" />
-                )}
-                {projectId && (
-                  <SprintReforecastCard
-                    projectId={projectId}
-                    sprintId={selectedSprint.id}
-                    sprintName={selectedSprint.name}
-                    tasks={projectTasks ?? []}
-                    canManage={(currentRole ?? -1) >= ROLE_ADMIN}
-                  />
-                )}
-                <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
-              </div>
+                  {selectedSprint.state === 'COMPLETED' && (
+                    <div className="flex flex-col gap-4">
+                      {outcomeQuery.data ? (
+                        <SprintClosedOutcome
+                          outcome={outcomeQuery.data}
+                          canCurateDemo={(currentRole ?? -1) >= ROLE_MEMBER}
+                        />
+                      ) : (
+                        <ChartSkeleton label="Sprint outcome" />
+                      )}
+                      {projectId && (
+                        <SprintReforecastCard
+                          projectId={projectId}
+                          sprintId={selectedSprint.id}
+                          sprintName={selectedSprint.name}
+                          tasks={projectTasks ?? []}
+                          canManage={(currentRole ?? -1) >= ROLE_ADMIN}
+                        />
+                      )}
+                      <BurnChart sprintId={selectedSprint.id} defaultVariant="burndown" />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {!isLoading && !error && sprints.length > 0 && (
+              <SprintTimelineStrip
+                closed={buckets.closed}
+                active={buckets.active}
+                planned={buckets.planned}
+                selectedSprintId={selectedSprint?.id ?? null}
+                onSelect={setSelectedSprintId}
+                onPlanNext={handlePlanNext}
+                onActivate={handleActivateSprint}
+                onEditPlanned={handleEditPlanned}
+                iterationWeeks={iterationWeeks}
+                milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
+              />
             )}
-          </>
-        )}
-        </div>
 
-        {!isLoading && !error && sprints.length > 0 && (
-          <SprintTimelineStrip
-            closed={buckets.closed}
-            active={buckets.active}
-            planned={buckets.planned}
-            selectedSprintId={selectedSprint?.id ?? null}
-            onSelect={setSelectedSprintId}
-            onPlanNext={handlePlanNext}
-            onActivate={handleActivateSprint}
-            onEditPlanned={handleEditPlanned}
-            iterationWeeks={iterationWeeks}
-            milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
-          />
-        )}
+            {/* Editable backlog only for the active sprint when it is selected. */}
+            {!isLoading &&
+              !error &&
+              selectedSprint?.id === activeSprint?.id &&
+              activeSprint &&
+              projectId && (
+                <SprintBacklogTable
+                  projectId={projectId}
+                  sprintId={activeSprint.id}
+                  tasks={filteredBacklog}
+                  onAddTask={() => setAddTaskForSprintId(activeSprint.id)}
+                  onRemoveTask={handleRemoveFromSprint}
+                  onOpenTask={setSelectedTaskId}
+                />
+              )}
 
-        {/* Editable backlog only for the active sprint when it is selected. */}
-        {!isLoading && !error && selectedSprint?.id === activeSprint?.id && activeSprint && projectId && (
-          <SprintBacklogTable
-            projectId={projectId}
-            sprintId={activeSprint.id}
-            tasks={filteredBacklog}
-            onAddTask={() => setAddTaskForSprintId(activeSprint.id)}
-            onRemoveTask={handleRemoveFromSprint}
-            onOpenTask={setSelectedTaskId}
-          />
-        )}
-
-        {/* PLANNED unified surface (#495, ADR-0094 §1): priority-ordered backlog
+            {/* PLANNED unified surface (#495, ADR-0094 §1): priority-ordered backlog
             on the left; capacity gauge (#864 points chip + footer), incoming
             carryover preview (#865), and a collapsed velocity panel on the right
             — the whole sprint-commitment conversation on one surface. */}
-        {!isLoading && !error && selectedSprint?.id === plannedSprint?.id && plannedSprint && projectId && (
-          <div className="px-6 grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
-            <div className="lg:col-span-3 rounded-card border border-neutral-border overflow-hidden">
-              <SprintBacklogTable
-                projectId={projectId}
-                sprintId={plannedSprint.id}
-                tasks={plannedBacklogTasks}
-                onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
-                onRemoveTask={handleRemoveFromSprint}
-                onOpenTask={setSelectedTaskId}
-                showCarryoverLane
-                canPullCarryover={canPullCarryover}
-                showBacklogLink
-              />
-            </div>
-            <div className="lg:col-span-2 flex flex-col gap-4">
-              {plannedCapacity.data ? (
-                <CapacityPreflight
-                  capacity={plannedCapacity.data}
-                  points={{
-                    committed: plannedDraftPoints,
-                    capacity: plannedSprint.capacity_points,
-                  }}
-                />
-              ) : (
-                <ChartSkeleton label="Capacity Preflight" />
-              )}
-              <IncomingCarryoverCard
-                sprintId={plannedSprint.id}
-                currentSprintShortId={plannedSprint.short_id_display}
-              />
-              {velocity.data && (
-                <details className="rounded-card border border-neutral-border bg-neutral-surface">
-                  <summary
-                    className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
-                  >
-                    Velocity
-                  </summary>
-                  <div className="px-4 pb-4">
-                    <VelocityPanel velocity={velocity.data} />
+            {!isLoading &&
+              !error &&
+              selectedSprint?.id === plannedSprint?.id &&
+              plannedSprint &&
+              projectId && (
+                <div className="px-6 grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+                  <div className="lg:col-span-3 rounded-card border border-neutral-border overflow-hidden">
+                    <SprintBacklogTable
+                      projectId={projectId}
+                      sprintId={plannedSprint.id}
+                      tasks={plannedBacklogTasks}
+                      onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
+                      onRemoveTask={handleRemoveFromSprint}
+                      onOpenTask={setSelectedTaskId}
+                      showCarryoverLane
+                      canPullCarryover={canPullCarryover}
+                      showBacklogLink
+                    />
                   </div>
-                </details>
+                  <div className="lg:col-span-2 flex flex-col gap-4">
+                    {plannedCapacity.data ? (
+                      <CapacityPreflight
+                        capacity={plannedCapacity.data}
+                        points={{
+                          committed: plannedDraftPoints,
+                          capacity: plannedSprint.capacity_points,
+                        }}
+                      />
+                    ) : (
+                      <ChartSkeleton label="Capacity Preflight" />
+                    )}
+                    <IncomingCarryoverCard
+                      sprintId={plannedSprint.id}
+                      currentSprintShortId={plannedSprint.short_id_display}
+                    />
+                    {velocity.data && (
+                      <details className="rounded-card border border-neutral-border bg-neutral-surface">
+                        <summary
+                          className="cursor-pointer px-4 py-2 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+                        >
+                          Velocity
+                        </summary>
+                        <div className="px-4 pb-4">
+                          <VelocityPanel velocity={velocity.data} />
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
               )}
-            </div>
-          </div>
-        )}
 
-        {/* Retro follows the selected sprint when it is active or closed (the
+            {/* Retro follows the selected sprint when it is active or closed (the
             two states a retro belongs to); hidden for a planned selection. */}
-        {!isLoading &&
-          !error &&
-          selectedSprint &&
-          (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'COMPLETED') && (
-            // Focusable scroll target for the issue 1471 retro deep-link; tabIndex=-1
-            // so "Run the retro" can move focus here for keyboard/SR users.
-            <div
-              ref={retroSectionRef}
-              tabIndex={-1}
-              data-testid="retro-handoff-target"
-              className="focus:outline-none"
-            >
-              <RetroPanel
-                sprintId={selectedSprint.id}
-                isClosed={selectedSprint.state === 'COMPLETED'}
-                sprintState={selectedSprint.state}
-              />
-            </div>
-          )}
-      </main>
+            {!isLoading &&
+              !error &&
+              selectedSprint &&
+              (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'COMPLETED') && (
+                // Focusable scroll target for the issue 1471 retro deep-link; tabIndex=-1
+                // so "Run the retro" can move focus here for keyboard/SR users.
+                <div
+                  ref={retroSectionRef}
+                  tabIndex={-1}
+                  data-testid="retro-handoff-target"
+                  className="focus:outline-none"
+                >
+                  <RetroPanel
+                    sprintId={selectedSprint.id}
+                    isClosed={selectedSprint.state === 'COMPLETED'}
+                    sprintState={selectedSprint.state}
+                  />
+                </div>
+              )}
+          </main>
         </>
       )}
 
@@ -836,8 +833,7 @@ export function SprintsView() {
         <PlanSprintModal
           projectId={projectId}
           defaultStart={
-            buckets.planned[buckets.planned.length - 1]?.finish_date ??
-            activeSprint?.finish_date
+            buckets.planned[buckets.planned.length - 1]?.finish_date ?? activeSprint?.finish_date
           }
           onClose={() => setPlanOpen(false)}
         />
@@ -898,6 +894,8 @@ export function SprintsView() {
           task={taskIndex.get(selectedTaskId) ?? null}
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
+          // Restore selection to the still-shown task when a dirty swap is kept (#1978).
+          onSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
         />
       )}
     </div>

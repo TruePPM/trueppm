@@ -43,4 +43,79 @@ describe('UnsavedChangesDialog', () => {
     );
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Custom warning.');
   });
+
+  describe('three-verb swap form (#1978)', () => {
+    it('renders the Save & continue verb and custom title/labels when onSaveAndContinue is given', () => {
+      render(
+        <UnsavedChangesDialog
+          title="Unsaved changes"
+          body='Open "Steel erection" anyway?'
+          onKeepEditing={vi.fn()}
+          onDiscard={vi.fn()}
+          discardLabel="Discard & open"
+          onSaveAndContinue={vi.fn()}
+          saveAndContinueLabel="Save & open"
+        />,
+      );
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toHaveTextContent('Unsaved changes');
+      expect(screen.getByRole('button', { name: 'Keep editing' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Discard & open' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save & open' })).toBeInTheDocument();
+    });
+
+    it('focuses the primary Save & continue verb (intent-preserving default), not Keep editing', () => {
+      render(
+        <UnsavedChangesDialog
+          onKeepEditing={vi.fn()}
+          onDiscard={vi.fn()}
+          onSaveAndContinue={vi.fn()}
+          saveAndContinueLabel="Save & open"
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Save & open' })).toHaveFocus();
+    });
+
+    it('invokes onSaveAndContinue from the primary button', async () => {
+      const onSaveAndContinue = vi.fn();
+      const user = userEvent.setup();
+      render(
+        <UnsavedChangesDialog
+          onKeepEditing={vi.fn()}
+          onDiscard={vi.fn()}
+          onSaveAndContinue={onSaveAndContinue}
+          saveAndContinueLabel="Save & open"
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Save & open' }));
+      expect(onSaveAndContinue).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables the verbs and shows a saving label while saving', () => {
+      render(
+        <UnsavedChangesDialog
+          onKeepEditing={vi.fn()}
+          onDiscard={vi.fn()}
+          onSaveAndContinue={vi.fn()}
+          saveAndContinueLabel="Save & open"
+          saving
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Keep editing' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Saving/ })).toBeDisabled();
+    });
+
+    it('announces a save error via role=alert and keeps the dialog open', () => {
+      render(
+        <UnsavedChangesDialog
+          onKeepEditing={vi.fn()}
+          onDiscard={vi.fn()}
+          onSaveAndContinue={vi.fn()}
+          error="Couldn't save — try again"
+        />,
+      );
+      expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save — try again");
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    });
+  });
 });
