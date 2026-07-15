@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 
 export type ContextHealth = 'onTrack' | 'atRisk' | 'critical';
 
@@ -43,8 +53,21 @@ function HealthDot({ health }: { health?: ContextHealth | null }) {
 
 function CheckIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 16 16" className="shrink-0 text-semantic-on-track" aria-hidden="true">
-      <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 16 16"
+      className="shrink-0 text-semantic-on-track"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 8l3.5 3.5L13 5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
     </svg>
   );
 }
@@ -86,10 +109,25 @@ export function SettingsContextSwitcher({
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  // Portal + flip/clamp so the switcher panel escapes the desktop rail's
+  // `overflow-hidden` and never spills off a narrow viewport (web-rule 253,
+  // #1966). `width: 'trigger'` keeps the panel the full width of the pill (the
+  // trigger button is `w-full`), replacing the old `left-0 right-0`.
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({
+    open,
+    width: 'trigger',
+    estimatedHeight: 260,
+    onDismiss: () => {
+      setOpen(false);
+      setQuery('');
+    },
+  });
 
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
@@ -101,24 +139,17 @@ export function SettingsContextSwitcher({
     return options.filter((o) => o.name.toLowerCase().includes(q));
   }, [options, query]);
 
-  const close = useCallback((returnFocus: boolean) => {
-    setOpen(false);
-    setQuery('');
-    if (returnFocus) triggerRef.current?.focus();
-  }, []);
-
-  // Click-outside dismiss (does not return focus — the user clicked elsewhere).
-  useEffect(() => {
-    if (!open) return;
-    function onDocPointerDown(e: PointerEvent) {
-      const t = e.target as Node;
-      if (popoverRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+  const close = useCallback(
+    (returnFocus: boolean) => {
       setOpen(false);
       setQuery('');
-    }
-    document.addEventListener('pointerdown', onDocPointerDown);
-    return () => document.removeEventListener('pointerdown', onDocPointerDown);
-  }, [open]);
+      if (returnFocus) triggerRef.current?.focus();
+    },
+    [triggerRef],
+  );
+
+  // Click-outside dismissal is owned by useAnchoredPopover (its check spans the
+  // trigger + the portaled panel, which are no longer DOM-nested).
 
   // On open: focus the search input and seed the highlight to the active entity
   // (else the first option).
@@ -149,19 +180,29 @@ export function SettingsContextSwitcher({
 
   const handleInputKeyDown = (e: KeyboardEvent) => {
     const n = filtered.length;
-    if (e.key === 'ArrowDown') { e.preventDefault(); if (n) setActiveIndex((i) => (i + 1) % n); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); if (n) setActiveIndex((i) => (i - 1 + n) % n); }
-    else if (e.key === 'Home') { e.preventDefault(); setActiveIndex(0); }
-    else if (e.key === 'End') { e.preventDefault(); setActiveIndex(Math.max(0, n - 1)); }
-    else if (e.key === 'Enter') {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (n) setActiveIndex((i) => (i + 1) % n);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (n) setActiveIndex((i) => (i - 1 + n) % n);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setActiveIndex(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      setActiveIndex(Math.max(0, n - 1));
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       const opt = filtered[activeIndex];
       if (opt) handleSelect(opt);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       // Two-stage: clear a query first; only close when already empty.
-      if (query) { setQuery(''); setActiveIndex(0); }
-      else close(true);
+      if (query) {
+        setQuery('');
+        setActiveIndex(0);
+      } else close(true);
     }
   };
 
@@ -186,79 +227,112 @@ export function SettingsContextSwitcher({
           className={`shrink-0 text-neutral-text-disabled transition-transform ${open ? 'rotate-90' : ''}`}
           aria-hidden="true"
         >
-          <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          <path
+            d="M6 4l4 4-4 4"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
         </svg>
       </button>
 
-      {open && (
-        <div
-          ref={popoverRef}
-          className="absolute left-0 right-0 top-full mt-1 z-20 rounded border border-neutral-border bg-neutral-surface"
-        >
-          {/* Search box — always present, pinned above the scrolling list.
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            className="z-50 rounded border border-neutral-border bg-neutral-surface"
+          >
+            {/* Search box — always present, pinned above the scrolling list.
               focus-within (not focus-visible) so the programmatic open-focus
               shows a ring too. */}
-          <div className="flex items-center gap-1.5 px-2 h-7 border-b border-neutral-border
-            focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
-            <svg width="12" height="12" viewBox="0 0 16 16" className="shrink-0 text-neutral-text-disabled" aria-hidden="true">
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.6" fill="none" />
-              <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-            <input
-              ref={inputRef}
-              type="text"
-              role="combobox"
-              aria-expanded
-              aria-controls={listboxId}
-              aria-autocomplete="list"
-              aria-activedescendant={filtered[activeIndex] ? optionId(activeIndex) : undefined}
-              aria-label={`Find a ${entityLabel}`}
-              placeholder={`Find a ${entityLabel}…`}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setActiveIndex(0);
-              }}
-              onKeyDown={handleInputKeyDown}
-              className="flex-1 min-w-0 bg-transparent text-[11px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
-            />
-          </div>
+            <div
+              className="flex items-center gap-1.5 px-2 h-7 border-b border-neutral-border
+            focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                className="shrink-0 text-neutral-text-disabled"
+                aria-hidden="true"
+              >
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.6" fill="none" />
+                <path
+                  d="M11 11l3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                ref={inputRef}
+                type="text"
+                role="combobox"
+                aria-expanded
+                aria-controls={listboxId}
+                aria-autocomplete="list"
+                aria-activedescendant={filtered[activeIndex] ? optionId(activeIndex) : undefined}
+                aria-label={`Find a ${entityLabel}`}
+                placeholder={`Find a ${entityLabel}…`}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={handleInputKeyDown}
+                className="flex-1 min-w-0 bg-transparent text-[11px] text-neutral-text-primary placeholder:text-neutral-text-disabled focus:outline-none"
+              />
+            </div>
 
-          <div id={listboxId} role="listbox" aria-label={`Switch ${entityLabel}`} className="max-h-56 overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <div role="status" aria-live="polite" className="flex items-center px-2 h-7 text-[11px] text-neutral-text-secondary">
-                No {entityLabel}s match
-              </div>
-            ) : (
-              filtered.map((opt, i) => {
-                const isActive = opt.id === activeId;
-                const isHighlighted = i === activeIndex;
-                return (
-                  <button
-                    key={opt.id}
-                    id={optionId(i)}
-                    ref={(el) => {
-                      optionRefs.current[i] = el;
-                    }}
-                    type="button"
-                    role="option"
-                    aria-selected={isActive}
-                    aria-label={withHealth(opt.name, opt.health)}
-                    tabIndex={-1}
-                    onMouseEnter={() => setActiveIndex(i)}
-                    onClick={() => handleSelect(opt)}
-                    className={`w-full flex items-center gap-1.5 px-2 h-7 text-[11px] text-left text-neutral-text-primary ${isHighlighted ? 'bg-neutral-surface-sunken' : ''}`}
-                  >
-                    <HealthDot health={opt.health} />
-                    <span className="flex-1 truncate">{opt.name}</span>
-                    {isActive && <CheckIcon />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-label={`Switch ${entityLabel}`}
+              className="max-h-56 overflow-y-auto py-1"
+            >
+              {filtered.length === 0 ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center px-2 h-7 text-[11px] text-neutral-text-secondary"
+                >
+                  No {entityLabel}s match
+                </div>
+              ) : (
+                filtered.map((opt, i) => {
+                  const isActive = opt.id === activeId;
+                  const isHighlighted = i === activeIndex;
+                  return (
+                    <button
+                      key={opt.id}
+                      id={optionId(i)}
+                      ref={(el) => {
+                        optionRefs.current[i] = el;
+                      }}
+                      type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      aria-label={withHealth(opt.name, opt.health)}
+                      tabIndex={-1}
+                      onMouseEnter={() => setActiveIndex(i)}
+                      onClick={() => handleSelect(opt)}
+                      className={`w-full flex items-center gap-1.5 px-2 h-7 text-[11px] text-left text-neutral-text-primary ${isHighlighted ? 'bg-neutral-surface-sunken' : ''}`}
+                    >
+                      <HealthDot health={opt.health} />
+                      <span className="flex-1 truncate">{opt.name}</span>
+                      {isActive && <CheckIcon />}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

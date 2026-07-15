@@ -17,6 +17,8 @@
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 
 export interface EntityOption {
   id: string;
@@ -68,9 +70,26 @@ export function EntitySelectCombobox({
 
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
-  const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  // Portal + flip/clamp the panel so the fixed 260px dropdown never overflows the
+  // right edge on a phone (or inside the narrow TransferOwnershipDialog modal) and
+  // escapes the settings scroll panel (web-rule 253, #1966). Anchored to the row
+  // container so it keeps dropping from the left of the identity row.
+  const {
+    triggerRef: anchorRef,
+    popoverRef,
+    popoverStyle,
+  } = useAnchoredPopover<HTMLDivElement, HTMLDivElement>({
+    open,
+    width: 260,
+    estimatedHeight: 260,
+    onDismiss: () => {
+      setOpen(false);
+      setQuery('');
+    },
+  });
 
   const selected = useMemo(() => options.find((o) => o.id === value) ?? null, [options, value]);
 
@@ -98,18 +117,8 @@ export function EntitySelectCombobox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Click-outside closes without returning focus (the user chose to look away).
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: PointerEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-      }
-    }
-    document.addEventListener('pointerdown', onPointerDown);
-    return () => document.removeEventListener('pointerdown', onPointerDown);
-  }, [open]);
+  // Click-outside dismissal is owned by useAnchoredPopover (its check spans the
+  // anchor row + the portaled panel, which are no longer DOM-nested).
 
   function commit(index: number) {
     const row = rows[index];
@@ -175,7 +184,7 @@ export function EntitySelectCombobox({
   }
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center gap-2">
+    <div ref={anchorRef} className="relative inline-flex items-center gap-2">
       {selected ? (
         <>
           <Avatar initials={selected.initials} />
@@ -198,139 +207,151 @@ export function EntitySelectCombobox({
         {value ? triggerLabel.set : triggerLabel.unset}
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 w-[260px] max-w-[calc(100vw-2rem)] rounded-card border border-neutral-border bg-neutral-surface">
-          {/* Icon-prefixed search box — ring on the wrapper (rule 157). */}
-          <div className="flex h-7 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
-            <svg
-              aria-hidden="true"
-              width="12"
-              height="12"
-              viewBox="0 0 16 16"
-              fill="none"
-              className="shrink-0 text-neutral-text-secondary"
-            >
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              ref={inputRef}
-              role="combobox"
-              aria-controls={listboxId}
-              aria-expanded={open}
-              aria-autocomplete="list"
-              aria-activedescendant={rows.length ? `${baseId}-opt-${activeIndex}` : undefined}
-              aria-label={`Find a ${label}`}
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setActiveIndex(0);
-              }}
-              onKeyDown={onKeyDown}
-              placeholder={`Find a ${label}…`}
-              className="w-full bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none"
-            />
-          </div>
-
+      {open &&
+        popoverStyle &&
+        createPortal(
           <div
-            role="listbox"
-            aria-label={`Select ${label}`}
-            id={listboxId}
-            className="max-h-56 overflow-y-auto py-0.5"
+            ref={popoverRef}
+            style={popoverStyle}
+            // z-[70] (above the z-[60] modal tier): this combobox is embedded in
+            // the z-[60] transfer dialogs, so the portaled panel must sit above the
+            // modal scrim to stay clickable.
+            className="z-[70] rounded-card border border-neutral-border bg-neutral-surface"
           >
-            {isLoading ? (
-              <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
-                Loading…
-              </div>
-            ) : rows.length === 0 ? (
-              <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
-                {query ? `No ${label}s match` : `No ${label}s available`}
-              </div>
-            ) : (
-              <>
-                {rows.map((row, index) => {
-                  const isSelected = row.id === value;
-                  const isActive = index === activeIndex;
-                  const isUnassign = row.id === null;
-                  return (
-                    <button
-                      key={row.id ?? '__unassign__'}
-                      type="button"
-                      id={`${baseId}-opt-${index}`}
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={isSelected}
-                      aria-label={isUnassign ? `Unassign` : row.option!.primaryText}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => commit(index)}
-                      className={[
-                        'flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs',
-                        isUnassign ? 'border-b border-neutral-border/60' : '',
-                        isActive ? 'bg-neutral-surface-sunken' : '',
-                      ].join(' ')}
-                    >
-                      {isUnassign ? (
-                        <>
-                          <span
-                            aria-hidden="true"
-                            className="w-6 text-center text-neutral-text-secondary"
-                          >
-                            ⊘
-                          </span>
-                          <span className="flex-1 text-neutral-text-secondary">
-                            {unassignLabel}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Avatar initials={row.option!.initials} />
-                          <span className="flex-1 truncate text-neutral-text-primary">
-                            {row.option!.primaryText}
-                          </span>
-                          {row.option!.secondaryText && (
-                            <span className="hidden truncate text-neutral-text-secondary sm:block">
-                              {row.option!.secondaryText}
+            {/* Icon-prefixed search box — ring on the wrapper (rule 157). */}
+            <div className="flex h-7 items-center gap-1.5 border-b border-neutral-border px-2 focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="none"
+                className="shrink-0 text-neutral-text-secondary"
+              >
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+                <path
+                  d="M11 11l3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                ref={inputRef}
+                role="combobox"
+                aria-controls={listboxId}
+                aria-expanded={open}
+                aria-autocomplete="list"
+                aria-activedescendant={rows.length ? `${baseId}-opt-${activeIndex}` : undefined}
+                aria-label={`Find a ${label}`}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIndex(0);
+                }}
+                onKeyDown={onKeyDown}
+                placeholder={`Find a ${label}…`}
+                className="w-full bg-transparent text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none"
+              />
+            </div>
+
+            <div
+              role="listbox"
+              aria-label={`Select ${label}`}
+              id={listboxId}
+              className="max-h-56 overflow-y-auto py-0.5"
+            >
+              {isLoading ? (
+                <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
+                  Loading…
+                </div>
+              ) : rows.length === 0 ? (
+                <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
+                  {query ? `No ${label}s match` : `No ${label}s available`}
+                </div>
+              ) : (
+                <>
+                  {rows.map((row, index) => {
+                    const isSelected = row.id === value;
+                    const isActive = index === activeIndex;
+                    const isUnassign = row.id === null;
+                    return (
+                      <button
+                        key={row.id ?? '__unassign__'}
+                        type="button"
+                        id={`${baseId}-opt-${index}`}
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={isSelected}
+                        aria-label={isUnassign ? `Unassign` : row.option!.primaryText}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        onClick={() => commit(index)}
+                        className={[
+                          'flex h-7 w-full items-center gap-1.5 px-2 text-left text-xs',
+                          isUnassign ? 'border-b border-neutral-border/60' : '',
+                          isActive ? 'bg-neutral-surface-sunken' : '',
+                        ].join(' ')}
+                      >
+                        {isUnassign ? (
+                          <>
+                            <span
+                              aria-hidden="true"
+                              className="w-6 text-center text-neutral-text-secondary"
+                            >
+                              ⊘
                             </span>
-                          )}
-                        </>
-                      )}
-                      {isSelected && (
-                        <svg
-                          aria-hidden="true"
-                          width="12"
-                          height="12"
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          className="shrink-0 text-semantic-on-track"
-                        >
-                          <path
-                            d="M3 8l3.5 3.5L13 5"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  );
-                })}
-                {/* When a query filters every member out but the pinned Unassign
+                            <span className="flex-1 text-neutral-text-secondary">
+                              {unassignLabel}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Avatar initials={row.option!.initials} />
+                            <span className="flex-1 truncate text-neutral-text-primary">
+                              {row.option!.primaryText}
+                            </span>
+                            {row.option!.secondaryText && (
+                              <span className="hidden truncate text-neutral-text-secondary sm:block">
+                                {row.option!.secondaryText}
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {isSelected && (
+                          <svg
+                            aria-hidden="true"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            className="shrink-0 text-semantic-on-track"
+                          >
+                            <path
+                              d="M3 8l3.5 3.5L13 5"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {/* When a query filters every member out but the pinned Unassign
                     row keeps the list non-empty, still tell the user nothing
                     matched (the ux-design spec for #966). */}
-                {query.trim() !== '' && rows.every((r) => r.id === null) && (
-                  <div
-                    role="status"
-                    className="px-2 py-1.5 text-xs text-neutral-text-secondary"
-                  >
-                    No {label}s match
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
+                  {query.trim() !== '' && rows.every((r) => r.id === null) && (
+                    <div role="status" className="px-2 py-1.5 text-xs text-neutral-text-secondary">
+                      No {label}s match
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

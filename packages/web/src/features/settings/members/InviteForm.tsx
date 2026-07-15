@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { Button } from '@/components/Button';
 import { useUserSearch } from '../hooks/useUserSearch';
@@ -22,7 +24,6 @@ export function InviteForm({ projectId }: InviteFormProps) {
   const [roleOverride, setRoleOverride] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
 
   // Debounce search input 300 ms
   useEffect(() => {
@@ -72,6 +73,21 @@ export function InviteForm({ projectId }: InviteFormProps) {
 
   const showDropdown = open && debouncedQ.trim().length >= 2 && !selectedUser;
 
+  // Portal + flip/clamp the results list so it escapes the settings scroll panel
+  // and flips above rather than spilling below the fold near the viewport bottom
+  // (web-rule 253, #1966). Anchored to the search field wrapper; `width: 'trigger'`
+  // reproduces the old `w-full`. Dismissal stays the input's own `onBlur`.
+  // `popoverRef` doubles as the results-list ref used by the ArrowDown handler.
+  const {
+    triggerRef: fieldRef,
+    popoverRef: listRef,
+    popoverStyle,
+  } = useAnchoredPopover<HTMLDivElement, HTMLUListElement>({
+    open: showDropdown,
+    width: 'trigger',
+    estimatedHeight: 220,
+  });
+
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
       <p className="text-xs text-neutral-text-secondary">
@@ -80,7 +96,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
 
       <div className="flex flex-col sm:flex-row gap-2">
         {/* Search combobox */}
-        <div className="relative flex-1">
+        <div ref={fieldRef} className="relative flex-1">
           <label htmlFor="invite-search" className="sr-only">
             Search by username or email
           </label>
@@ -121,66 +137,71 @@ export function InviteForm({ projectId }: InviteFormProps) {
             ].join(' ')}
           />
 
-          {/* Dropdown */}
-          {showDropdown && (
-            <ul
-              id="invite-search-listbox"
-              ref={listRef}
-              role="listbox"
-              aria-label="Search results"
-              className={[
-                'absolute z-20 mt-1 w-full rounded border border-neutral-border',
-                'bg-neutral-surface shadow-none divide-y divide-neutral-border',
-                'max-h-52 overflow-y-auto',
-              ].join(' ')}
-            >
-              {isFetching && (
-                <li className="px-3 py-2 text-xs text-neutral-text-disabled" aria-live="polite">
-                  Searching…
-                </li>
-              )}
-              {!isFetching && results.length === 0 && (
-                <li className="px-3 py-2 text-xs text-neutral-text-disabled">
-                  No users found. Check the username or email.
-                </li>
-              )}
-              {results.map((u) => (
-                <li
-                  key={u.id}
-                  role="option"
-                  aria-selected={false}
-                  tabIndex={0}
-                  onClick={() => selectUser(u)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') selectUser(u);
-                    if (e.key === 'ArrowDown')
-                      (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'ArrowUp')
-                      (e.currentTarget.previousElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'Escape') {
-                      setOpen(false);
-                      inputRef.current?.focus();
-                    }
-                  }}
-                  className={[
-                    'flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors',
-                    'hover:bg-neutral-surface-raised',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised',
-                  ].join(' ')}
-                >
-                  <AvatarInitials initials={u.initials} size="md" />
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm font-medium text-neutral-text-primary truncate">
-                      {u.display_name}
+          {/* Dropdown — portaled to body (web-rule 253) so it escapes the
+              settings scroll panel and flips above near the viewport bottom. */}
+          {showDropdown &&
+            popoverStyle &&
+            createPortal(
+              <ul
+                id="invite-search-listbox"
+                ref={listRef}
+                role="listbox"
+                aria-label="Search results"
+                style={popoverStyle}
+                className={[
+                  'z-50 rounded border border-neutral-border',
+                  'bg-neutral-surface shadow-none divide-y divide-neutral-border',
+                  'max-h-52 overflow-y-auto',
+                ].join(' ')}
+              >
+                {isFetching && (
+                  <li className="px-3 py-2 text-xs text-neutral-text-disabled" aria-live="polite">
+                    Searching…
+                  </li>
+                )}
+                {!isFetching && results.length === 0 && (
+                  <li className="px-3 py-2 text-xs text-neutral-text-disabled">
+                    No users found. Check the username or email.
+                  </li>
+                )}
+                {results.map((u) => (
+                  <li
+                    key={u.id}
+                    role="option"
+                    aria-selected={false}
+                    tabIndex={0}
+                    onClick={() => selectUser(u)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') selectUser(u);
+                      if (e.key === 'ArrowDown')
+                        (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
+                      if (e.key === 'ArrowUp')
+                        (e.currentTarget.previousElementSibling as HTMLElement | null)?.focus();
+                      if (e.key === 'Escape') {
+                        setOpen(false);
+                        inputRef.current?.focus();
+                      }
+                    }}
+                    className={[
+                      'flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors',
+                      'hover:bg-neutral-surface-raised',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised',
+                    ].join(' ')}
+                  >
+                    <AvatarInitials initials={u.initials} size="md" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium text-neutral-text-primary truncate">
+                        {u.display_name}
+                      </span>
+                      <span className="block text-xs text-neutral-text-secondary truncate">
+                        @{u.username}
+                      </span>
                     </span>
-                    <span className="block text-xs text-neutral-text-secondary truncate">
-                      @{u.username}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+                  </li>
+                ))}
+              </ul>,
+              document.body,
+            )}
         </div>
 
         {/* Role picker */}
@@ -188,7 +209,12 @@ export function InviteForm({ projectId }: InviteFormProps) {
           <label htmlFor="invite-role" className="sr-only">
             Role
           </label>
-          <RolePicker id="invite-role" value={role} onChange={setRoleOverride} disabled={isPending} />
+          <RolePicker
+            id="invite-role"
+            value={role}
+            onChange={setRoleOverride}
+            disabled={isPending}
+          />
         </div>
 
         {/* Submit */}
