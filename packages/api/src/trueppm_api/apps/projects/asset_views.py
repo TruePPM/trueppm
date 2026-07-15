@@ -1,4 +1,4 @@
-"""Unified Assets endpoints — project and program scope (ADR-0215, #971).
+"""Unified Assets endpoints — project, program, and workspace scope (ADR-0215; ADR-0428).
 
 Read-only aggregation of every task's files (``TaskAttachment``) and external
 links (``TaskLink``) into one paginated, filterable ``AssetItem`` feed:
@@ -8,17 +8,28 @@ links (``TaskLink``) into one paginated, filterable ``AssetItem`` feed:
   the caller's *readable* member projects (the audited ``task_search`` pattern),
   so a program member with no readable child projects gets an empty list, never a
   403 leak.
+- ``GET /api/v1/assets/`` — the workspace tier (ADR-0428): the caller's *own*
+  visible-assets collection across **every** project they can read, narrowed by
+  the same ``ProjectMembership`` pattern extended from program- to instance-scope.
+  Adds a ``mine`` filter (assets on the caller's assigned tasks) and a ``program``
+  filter. Strictly RBAC-identical — it returns nothing the caller cannot already
+  read per-project, so it is OSS convenience aggregation, **not** portfolio
+  governance (no health/comparison analytics, no actor dimension, no audit trail —
+  those remain the Enterprise asset register; see ADR-0428).
 
-Dedicated ``APIView``\\s (not ``@action``\\s) — matching the closest precedent, the
-unified changelog (``history/views.py``): both are read-only cross-table keyset
-merges wired under a ``{scope}_pk`` nested path. The nested-path kwarg lets
-``IsProjectMember`` / ``IsProgramMember`` gate membership at ``has_permission``
-(a non-member gets 403 before the query runs), and ``check_object_permissions``
-re-enforces it on the resolved object for defense in depth.
+The two nested views are dedicated ``APIView``\\s (not ``@action``\\s) — matching the
+closest precedent, the unified changelog (``history/views.py``): both are read-only
+cross-table keyset merges wired under a ``{scope}_pk`` nested path. The nested-path
+kwarg lets ``IsProjectMember`` / ``IsProgramMember`` gate membership at
+``has_permission`` (a non-member gets 403 before the query runs), and
+``check_object_permissions`` re-enforces it on the resolved object for defense in
+depth. The workspace view has no path pk, so RBAC lives entirely in the readable-
+projects narrowing rather than an object permission.
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from django.shortcuts import get_object_or_404
@@ -30,7 +41,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
-from trueppm_api.apps.access.permissions import IsProgramMember, IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsProgramMember,
+    IsProjectMember,
+    McpReadableViewMixin,
+)
 from trueppm_api.apps.projects import asset_feed
 from trueppm_api.apps.projects.asset_feed import AssetFeedResponseSerializer, build_asset_feed
 from trueppm_api.apps.projects.models import Program, Project
@@ -164,5 +179,108 @@ class ProgramAssetsView(APIView):
             ).values_list("project_id", flat=True)
         )
         params = _parse_asset_params(request)
+        entries, next_cursor = build_asset_feed(readable_ids, **params)
+        return _asset_response(entries, next_cursor)
+
+
+_TRUE_VALUES = frozenset({"true", "1", "yes"})
+_FALSE_VALUES = frozenset({"false", "0", "no", ""})
+
+_WORKSPACE_ASSET_PARAMS = [
+    *_ASSET_PARAMS,
+    OpenApiParameter(
+        "mine",
+        bool,
+        description=(
+            "When true, restrict to assets on tasks assigned to the requesting user "
+            "(the 'My Assets' view). Scoped to the caller only — there is no way to "
+            "query another user's assets. Default: false (all readable assets)."
+        ),
+    ),
+    OpenApiParameter(
+        "program",
+        str,
+        description=(
+            "Restrict to assets in one program's projects (UUID). Still narrowed to "
+            "the caller's readable projects, so an unknown or unreadable program "
+            "yields an empty page, never a 403."
+        ),
+    ),
+]
+
+
+def _parse_mine(request: Request) -> bool:
+    """Parse the ``mine`` flag; reject anything that is not an explicit boolean."""
+    raw = request.query_params.get("mine")
+    if raw is None:
+        return False
+    lowered = raw.strip().lower()
+    if lowered in _TRUE_VALUES:
+        return True
+    if lowered in _FALSE_VALUES:
+        return False
+    raise DRFValidationError({"mine": "Must be a boolean ('true' or 'false')."})
+
+
+def _parse_program(request: Request) -> uuid.UUID | None:
+    """Parse the optional ``program`` UUID filter; 400 on a malformed value."""
+    raw = request.query_params.get("program")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except (TypeError, ValueError) as err:
+        raise DRFValidationError({"program": "Must be a valid UUID."}) from err
+
+
+class WorkspaceAssetsView(McpReadableViewMixin, APIView):
+    """Unified Assets feed across every project the caller can read (ADR-0428).
+
+    ``GET /api/v1/assets/?mine=&program=&kind=&label=&provider=&q=&cursor=&page_size=``
+
+    The workspace tier of the Assets surface. Any authenticated user reaches the
+    endpoint; results are narrowed to the caller's **readable** projects via the
+    same ``ProjectMembership`` pattern the program view uses, extended from a single
+    program to the whole instance. A user with no readable projects gets an empty
+    list, never a 403 — and the feed can never surface an asset from a project the
+    caller cannot already open, so it grants **no new reach** (this is what keeps it
+    OSS rather than portfolio governance; ADR-0428).
+
+    **RBAC contract (mirrors ``MeWorkView``)**: with ``mine=true`` the feed is
+    hard-scoped to ``task.assignee = request.user``; there is no ``?user=`` escape
+    hatch, so it can never be used as a cross-team surveillance surface (Morgan's
+    boundary). ``McpReadableViewMixin`` additionally exposes the read to ``mcp:read``
+    tokens with a per-token throttle (the agent asset-index use case) while leaving
+    human traffic on the default ``user`` throttle.
+    """
+
+    permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    @extend_schema(
+        summary="Unified Assets feed across all readable projects (workspace scope)",
+        parameters=_WORKSPACE_ASSET_PARAMS,
+        responses={200: OpenApiResponse(AssetFeedResponseSerializer)},
+    )
+    def get(self, request: Request) -> Response:
+        mine = _parse_mine(request)
+        program_id = _parse_program(request)
+
+        # Readable projects across the whole instance (the program view's narrowing
+        # with the ``project__program=`` clause dropped). ``program`` re-applies a
+        # single-program narrowing on top when present. IsAuthenticated guarantees a
+        # concrete user; filter on ``user.pk`` so mypy sees a concrete id.
+        user_pk = request.user.pk or -1
+        memberships = ProjectMembership.objects.filter(
+            user_id=user_pk,
+            is_deleted=False,
+            project__is_deleted=False,
+        )
+        if program_id is not None:
+            memberships = memberships.filter(project__program_id=program_id)
+        readable_ids = list(memberships.values_list("project_id", flat=True))
+
+        params = _parse_asset_params(request)
+        if mine:
+            params["assignee_id"] = user_pk
         entries, next_cursor = build_asset_feed(readable_ids, **params)
         return _asset_response(entries, next_cursor)

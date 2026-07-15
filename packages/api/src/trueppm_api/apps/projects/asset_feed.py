@@ -139,13 +139,20 @@ def _sources_for_kind(kind: str | None) -> list[str]:
     return [KIND_FILE, KIND_LINK]
 
 
-def _file_queryset(project_ids: Iterable[Any], *, q: str | None) -> QuerySet[Any]:
+def _file_queryset(
+    project_ids: Iterable[Any], *, q: str | None, assignee_id: Any | None = None
+) -> QuerySet[Any]:
     """DB-filtered, N+1-safe ``TaskAttachment`` source queryset (ADR-0215 §2)."""
     from trueppm_api.apps.projects.models import TaskAttachment
 
     qs = TaskAttachment.objects.filter(
         is_deleted=False, task__project_id__in=list(project_ids)
-    ).select_related("task", "task__project", "uploaded_by")
+    ).select_related("task", "task__project", "task__project__program", "uploaded_by")
+    if assignee_id is not None:
+        # The ``mine`` filter (ADR-0428) — assets on tasks assigned to the caller.
+        # Scoped to ``Task.assignee`` only, matching ``MeWorkView`` semantics; there
+        # is no ``?user=`` escape hatch, so it can never widen to another user.
+        qs = qs.filter(task__assignee_id=assignee_id)
     if q:
         # ``q`` is a shared filter — applied to BOTH sources so it never silently
         # drops matches from one side (ADR-0215 risk). A file's searchable text is
@@ -159,14 +166,23 @@ def _file_queryset(project_ids: Iterable[Any], *, q: str | None) -> QuerySet[Any
 
 
 def _link_queryset(
-    project_ids: Iterable[Any], *, q: str | None, label: str | None, provider: str | None
+    project_ids: Iterable[Any],
+    *,
+    q: str | None,
+    label: str | None,
+    provider: str | None,
+    assignee_id: Any | None = None,
 ) -> QuerySet[Any]:
     """DB-filtered, N+1-safe ``TaskLink`` source queryset (ADR-0215 §2)."""
     from trueppm_api.apps.integrations.models import TaskLink
 
     qs = TaskLink.objects.filter(
         is_deleted=False, task__project_id__in=list(project_ids)
-    ).select_related("task", "task__project")
+    ).select_related("task", "task__project", "task__project__program")
+    if assignee_id is not None:
+        # The ``mine`` filter (ADR-0428) — see ``_file_queryset``. Same assignee-only
+        # scoping applied to the link source so ``mine`` never drops one side.
+        qs = qs.filter(task__assignee_id=assignee_id)
     if q:
         # Same shared ``q`` filter, mapped to a link's searchable text: its display
         # title candidates (custom_title / title) plus the URL.
@@ -182,6 +198,22 @@ def _link_queryset(
 def _display_name(user: Any) -> str:
     full = f"{getattr(user, 'first_name', '')} {getattr(user, 'last_name', '')}".strip()
     return full or getattr(user, "username", "") or ""
+
+
+def _project_ref(task: Any) -> dict[str, Any]:
+    """Owning project + (nullable) program context for an asset row.
+
+    The project/program tiers show this implicitly (you are already inside that
+    scope); the workspace/"My Assets" tier (ADR-0428) spans projects and programs,
+    so a row must carry its own project — otherwise a bare task name is ambiguous.
+    Harmless to the nested tiers, which simply ignore it.
+    """
+    project = task.project
+    program = project.program  # nullable (Project.program is SET_NULL)
+    return {
+        "project": {"id": str(project.pk), "name": project.name},
+        "program": ({"id": str(program.pk), "name": program.name} if program is not None else None),
+    }
 
 
 def _file_item(row: Any) -> dict[str, Any]:
@@ -212,6 +244,7 @@ def _file_item(row: Any) -> dict[str, Any]:
         "preview_type": None,
         "labels": [],
         "task": {"id": str(row.task_id), "name": row.task.name},
+        **_project_ref(row.task),
         "added_by": (
             {"id": str(uploaded_by.pk), "display_name": _display_name(uploaded_by)}
             if uploaded_by is not None
@@ -235,6 +268,7 @@ def _link_item(row: Any) -> dict[str, Any]:
         "preview_type": row.preview_type or None,
         "labels": list(row.labels or []),
         "task": {"id": str(row.task_id), "name": row.task.name},
+        **_project_ref(row.task),
         # TaskLink has no uploader column — accountability is deferred to the
         # Enterprise audit trail (unlike TaskAttachment.uploaded_by).
         "added_by": None,
@@ -249,6 +283,7 @@ def build_asset_feed(
     label: str | None = None,
     provider: str | None = None,
     q: str | None = None,
+    assignee_id: Any | None = None,
     cursor: AssetCursor | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> tuple[list[dict[str, Any]], AssetCursor | None]:
@@ -256,14 +291,17 @@ def build_asset_feed(
 
     Args:
         project_ids: the readable project ids to aggregate over. An empty
-            iterable yields an empty page (the program endpoint passes the
-            caller's readable member projects — none means an empty list, never
-            a leak).
+            iterable yields an empty page (the program and workspace endpoints
+            pass the caller's readable projects — none means an empty list,
+            never a leak).
         kind: restrict to ``"file"`` or ``"link"`` (default: both).
         label: restrict links to those carrying this exact label (link-only).
         provider: restrict links to this provider (link-only).
         q: case-insensitive substring matched against each source's title/url.
             Applied to **both** sources so a match is never dropped from one side.
+        assignee_id: the ``mine`` filter (ADR-0428) — restrict to assets on tasks
+            assigned to this user id. Applied to **both** sources. ``None`` means
+            no assignee restriction.
         cursor: keyset position; ``None`` starts at the newest row.
         page_size: rows per page (clamped to ``[1, MAX_PAGE_SIZE]``).
 
@@ -290,11 +328,13 @@ def build_asset_feed(
             continue
 
         if source == KIND_FILE:
-            qs = _file_queryset(project_ids, q=q)
+            qs = _file_queryset(project_ids, q=q, assignee_id=assignee_id)
             rank = _RANK_FILE
             to_item = _file_item
         else:
-            qs = _link_queryset(project_ids, q=q, label=label, provider=provider)
+            qs = _link_queryset(
+                project_ids, q=q, label=label, provider=provider, assignee_id=assignee_id
+            )
             rank = _RANK_LINK
             to_item = _link_item
 
@@ -339,6 +379,20 @@ class AssetUserSerializer(serializers.Serializer[Any]):
     display_name = serializers.CharField()
 
 
+class AssetProjectRefSerializer(serializers.Serializer[Any]):
+    """The owning project reference — cross-project context for the workspace tier."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+
+
+class AssetProgramRefSerializer(serializers.Serializer[Any]):
+    """The owning program reference — null when the project has no program."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+
+
 class AssetItemSerializer(serializers.Serializer[Any]):
     """One unified asset — a file (``TaskAttachment``) or a link (``TaskLink``).
 
@@ -359,6 +413,8 @@ class AssetItemSerializer(serializers.Serializer[Any]):
     preview_type = serializers.CharField(allow_null=True)
     labels = serializers.ListField(child=serializers.CharField())
     task = AssetTaskRefSerializer()
+    project = AssetProjectRefSerializer()
+    program = AssetProgramRefSerializer(allow_null=True)
     added_by = AssetUserSerializer(allow_null=True)
     added_at = serializers.DateTimeField()
 
