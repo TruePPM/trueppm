@@ -31,6 +31,7 @@ from trueppm_api.apps.agents.models import (
     AgentAction,
     AgentActionChainHead,
     AgentActionCheckpoint,
+    AgentActionRefusalDetail,
     AgentActionVerdict,
     AgentActorKind,
 )
@@ -107,6 +108,8 @@ def record_agent_action(
     verdict: str,
     payload_hash: str,
     refusal_reason: str = "",
+    refusal_constraint: str = "",
+    projected_impact: dict[str, Any] | None = None,
     object_type: str = "",
     object_id: str = "",
     project_id: Any | None = None,
@@ -121,11 +124,21 @@ def record_agent_action(
     links to the true predecessor. Must be called inside a DB transaction (the request's
     ATOMIC_REQUESTS block, or an explicit ``transaction.atomic``); the ``on_commit``
     signal fires on the outermost commit.
+
+    When ``verdict`` is a refusal and ``refusal_constraint`` is given, a non-hashed
+    :class:`AgentActionRefusalDetail` side-car is created **in the same atomic block**
+    (ADR-0421, #1850) so the constraint that fired and the projected impact commit
+    together with the chain row — the two can never diverge. ``projected_impact`` is
+    ``{}`` for the current MCP-scope/identity producers (no schedule impact); the 0.6
+    gated-write producers populate it. The side-car is telemetry only; it is not part of
+    the hashed record, so it never affects ``audit_verify``.
     """
 
     if verdict != AgentActionVerdict.REFUSED:
-        # refusal_reason is meaningful only for a refusal; never persist a dangling one.
+        # refusal_reason/constraint are meaningful only for a refusal; never persist a
+        # dangling one (a non-refusal must not carry a refusal side-car either).
         refusal_reason = ""
+        refusal_constraint = ""
 
     occurred = occurred_at or timezone.now()
     token_prefix = actor_token.token_prefix if actor_token is not None else ""
@@ -169,6 +182,16 @@ def record_agent_action(
         head.last_sequence = sequence
         head.last_record_hash = entry.record_hash
         head.save(update_fields=["last_sequence", "last_record_hash", "updated_at"])
+
+        # Non-hashed telemetry side-car (ADR-0421): same atomic block as the chain
+        # append so the detail and its row commit or roll back together. Only for a
+        # refusal that names a constraint — an allowed read never carries one.
+        if verdict == AgentActionVerdict.REFUSED and refusal_constraint:
+            AgentActionRefusalDetail.objects.create(
+                action=entry,
+                constraint=refusal_constraint,
+                projected_impact=projected_impact or {},
+            )
 
     transaction.on_commit(lambda: agent_action_recorded.send(sender=AgentAction, action=entry))
     return entry

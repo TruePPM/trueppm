@@ -1329,6 +1329,7 @@ class McpReadableViewMixin(_McpViewBase):
             AgentActionRefusalReason,
             AgentActionVerdict,
             AgentActorKind,
+            RefusalConstraint,
         )
         from trueppm_api.apps.agents.services import (
             hash_request_payload,
@@ -1340,8 +1341,11 @@ class McpReadableViewMixin(_McpViewBase):
         allowed = status < 400
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED
         # An authenticated token rejected by an MCP guard is a *policy* refusal (the
-        # actor is known; a capability/scope check denied it).
+        # actor is known; a capability/scope check denied it). The finer constraint
+        # (ADR-0421, #1850) is capability_scope — an MCP-scope denial carries no schedule
+        # projected impact, so its side-car impact stays empty.
         refusal_reason = "" if allowed else AgentActionRefusalReason.POLICY
+        refusal_constraint = "" if allowed else RefusalConstraint.CAPABILITY_SCOPE
 
         action, object_type, object_id, project_id = self._mcp_audit_target(request)
         summary = f"MCP {request.method} {action}"
@@ -1358,6 +1362,7 @@ class McpReadableViewMixin(_McpViewBase):
                 capability_used=SCOPE_MCP_READ,
                 verdict=verdict,
                 refusal_reason=refusal_reason,
+                refusal_constraint=refusal_constraint,
                 object_type=object_type,
                 object_id=object_id,
                 project_id=project_id,

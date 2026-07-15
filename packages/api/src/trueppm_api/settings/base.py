@@ -1492,5 +1492,9 @@ SPECTACULAR_SETTINGS = {
         "AgentActionVerdictEnum": "trueppm_api.apps.agents.models.AgentActionVerdict",
         "AgentActionRefusalReasonEnum": "trueppm_api.apps.agents.models.AgentActionRefusalReason",
         "AgentActorKindEnum": "trueppm_api.apps.agents.models.AgentActorKind",
+        # ADR-0421 (#1850): the refusal side-car exposes a "constraint" choice set;
+        # "constraint" is a generic field name, so pin it to a stable model-prefixed
+        # component name (same rationale as the verdict/refusal_reason enums above).
+        "RefusalConstraintEnum": "trueppm_api.apps.agents.models.RefusalConstraint",
     },
 }

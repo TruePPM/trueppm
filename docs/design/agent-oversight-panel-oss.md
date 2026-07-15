@@ -36,8 +36,8 @@ see the honest-tense box below).
 | `get_schedule_derivation` (the "why this constraint fired") | **Real** (ADR-0218, `ScheduleDerivationView`) | present |
 | Monte Carlo P50/P80/P95 fan (`MonteCarloHistogram`, `MonteCarloTimeline`) | **Real** (persisted run, ADR-0175) | present |
 | **View 1 — agent-action table**, projecting the chain over read verdicts | Buildable now on real data; **populated only by reads** until 0.6 | present, with a forward note on write verdicts |
-| **View 2 — refusal log**: `identity` / `policy` refusals on **reads** | **Real** vocabulary, recorded from day one (ADR-0112 RC1) | present |
-| **View 2 — commitment refusals** (a write rejected as schedule-infeasible, with the constraint + projected impact) | **Forward-looking — the 0.6 gated-write surface** (#505/#604) | **future** ("will show", "lands in 0.6") |
+| **View 2 — refusal log**: `identity` / `policy` refusals on **reads** | **Real** vocabulary, recorded from day one (ADR-0112 RC1). Each refusal now carries a durable `refusal_detail` (`constraint` + `projected_impact`) on the API row itself (ADR-0421, #1850) — `token_identity` / `capability_scope` today, and the scheduling-guard codes reserved for 0.6 — so the panel reads the constraint straight off the row and can filter `?constraint=` | present |
+| **View 2 — commitment refusals** (a write rejected as schedule-infeasible, with the constraint + projected impact) | **Forward-looking — the 0.6 gated-write surface** (#505/#604). `refusal_detail.projected_impact` is the durable slot it will populate (ADR-0421); until then it is an honest `{}` | **future** ("will show", "lands in 0.6") |
 | **View 3 — agent-actuals-vs-forecast** fan | The **fan chart itself is shipped**; **agent actuals accrue only once agents do measured work** (0.6+) | mixed: chart present, actuals **future** |
 
 The wedge ADR-0362 §4 names — *"write rejected: schedule-infeasible, here is the
