@@ -178,10 +178,14 @@ test('warn: assigning an out-of-window task surfaces the override notice and kee
   await setup(page, { patch: 'warn' });
   const drawer = await openSprintSection(page);
 
+  // The drawer also carries its own sr-only save-status live region (#1977), so
+  // scope the guardrail notice lookup to the Sprint section region to stay unique.
+  const sprint = drawer.getByRole('region', { name: 'Sprint' });
+
   await drawer.getByLabel('Sprint assignment').selectOption(SPRINT_ID);
 
   // Non-blocking notice (role="status"), in outcome language, with a one-tap override.
-  const notice = drawer.getByRole('status');
+  const notice = sprint.getByRole('status');
   await expect(notice).toBeVisible();
   await expect(notice).toContainText(WARN_DETAIL);
   await expect(notice.getByRole('button', { name: 'Keep it here' })).toBeVisible();
@@ -189,7 +193,7 @@ test('warn: assigning an out-of-window task surfaces the override notice and kee
 
   // "Keep it here" dismisses the notice; the assignment (already succeeded) stays.
   await notice.getByRole('button', { name: 'Keep it here' }).click();
-  await expect(drawer.getByRole('status')).toHaveCount(0);
+  await expect(sprint.getByRole('status')).toHaveCount(0);
 });
 
 test('undo: the override notice reverts the assignment to its prior value', async ({ page }) => {
@@ -204,12 +208,16 @@ test('undo: the override notice reverts the assignment to its prior value', asyn
     }
   });
 
+  // Scope to the Sprint region — the drawer's own save-status live region (#1977)
+  // also has role="status".
+  const sprint = drawer.getByRole('region', { name: 'Sprint' });
+
   await drawer.getByLabel('Sprint assignment').selectOption(SPRINT_ID);
-  const notice = drawer.getByRole('status');
+  const notice = sprint.getByRole('status');
   await expect(notice).toBeVisible();
 
   await notice.getByRole('button', { name: 'Undo' }).click();
-  await expect(drawer.getByRole('status')).toHaveCount(0);
+  await expect(sprint.getByRole('status')).toHaveCount(0);
 
   // Undo re-PATCHes the prior (null) sprint — the revert hit the server.
   await expect.poll(() => patches.at(-1)).toBeNull();
@@ -289,7 +297,9 @@ for (const scenario of ['warn', 'block'] as const) {
     await drawer.getByLabel('Sprint assignment').selectOption(SPRINT_ID);
 
     if (scenario === 'warn') {
-      const notice = drawer.getByRole('status');
+      // Scope to the Sprint region — the drawer's save-status live region (#1977)
+      // also has role="status".
+      const notice = drawer.getByRole('region', { name: 'Sprint' }).getByRole('status');
       await expect(notice).toBeVisible();
       for (const name of ['Keep it here', 'Undo']) {
         const box = await notice.getByRole('button', { name }).boundingBox();

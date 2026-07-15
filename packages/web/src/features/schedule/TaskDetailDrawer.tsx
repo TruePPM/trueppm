@@ -14,6 +14,12 @@ import {
   type DrawerSectionTab,
 } from '@/lib/widget-registry';
 import { useNavigate } from 'react-router';
+import {
+  DialogFooter,
+  UnsavedChangesDialog,
+  useDirtyDraft,
+  useUnsavedChangesGuard,
+} from '@/components/dialog';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -39,6 +45,24 @@ const TAB_DEFS: ReadonlyArray<{ id: DrawerSectionTab; label: string }> = [
   { id: 'files', label: 'Files' },
 ];
 
+/**
+ * The task's own scalar columns that batch behind the Save/Cancel bar (#1977).
+ * Everything else — status, progress, assignees, labels, and every registry
+ * section (estimates, dependencies, sprint, …) — mutates immediately through
+ * its own endpoint (the web-rule 217 carve-out for instant-toggle / relational
+ * controls), so only these two live in the deferred draft.
+ */
+interface ScalarDraft {
+  name: string;
+  notes: string;
+}
+
+const EMPTY_DRAFT: ScalarDraft = { name: '', notes: '' };
+
+function toDraft(task: Task): ScalarDraft {
+  return { name: task.name, notes: task.notes ?? '' };
+}
+
 export interface TaskDetailDrawerProps {
   task: Task | null;
   projectId: string;
@@ -63,10 +87,19 @@ export interface TaskDetailDrawerProps {
  * lazy-load (a section's TanStack Query hooks fire only when its tab is active
  * and it is expanded).
  *
- * Edit model (#962, VoC-tuned "B-lite"): every section autosaves immediately as
- * before; only the free-text Description stages behind a Settings-style save
- * bar, and even that flushes on blur, tab-switch, and close so an edit is never
- * silently stranded.
+ * Edit model (#1977): the task's own scalar columns — name and description —
+ * batch behind an explicit Save/Cancel bar built on the shared `@/components/
+ * dialog` primitives (`useDirtyDraft` + `useUnsavedChangesGuard` + `DialogFooter`
+ * + `UnsavedChangesDialog`), the same contract StoryDetailDrawer uses (web-rule
+ * 217). There is no auto-flush: Esc / close / expand while dirty raise the
+ * unsaved-changes guard instead of silently saving, and switching tabs keeps the
+ * draft intact. Everything else — status, progress, assignees, labels, and every
+ * registry section — keeps its immediate mutation (the rule-217 carve-out), so
+ * only name/description can ever raise the bar.
+ *
+ * Container note (#1977): the desktop shell stays a focus-trapped, aria-modal
+ * overlay for now; converting it to a true non-modal inspector is tracked
+ * separately (#1978).
  *
  * Desktop ≥ md: 540px slide-in. Mobile < md: 85vh bottom sheet.
  */
@@ -83,88 +116,108 @@ export function TaskDetailDrawer({
   const drawerRef = useRef<HTMLDivElement>(null);
 
   const { tasks: allTasks } = useScheduleTasks();
-  const { mutate: updateTask, isPending: isSaving } = useUpdateTask();
+  const { mutate: updateTask, isPending: isSaving, isError: saveFailed } = useUpdateTask();
   // 1046: thread the viewer's project role into the sections so write controls
   // (add link, add attachment, edit description) are hidden from Viewers instead
   // of surfacing affordances that 403 on submit. `role` is null while it loads.
   const { role: userRole } = useCurrentUserRole(projectId);
+  const navigate = useNavigate();
 
-  // Deferred-edit form (Description + name). State lives here, not in the inner
-  // content, so Esc / close / tab-switch can flush before tearing down — and so
-  // the desktop and mobile shells stay in sync.
   const [activeTab, setActiveTab] = useState<DrawerSectionTab>('details');
-  const [nameDraft, setNameDraft] = useState('');
-  const [notesDraft, setNotesDraft] = useState('');
 
-  // Reset drafts + tab when the *identity* of the rendered task changes (the
-  // user opened a different task). A server-side update to the same task does
-  // not reset — that would clobber an in-progress edit.
+  // Deferred scalar form (name + description) on the shared editable-surface
+  // contract (web-rule 217). draft/baseline/dirty + revert + post-save
+  // re-snapshot come from the hook; only these two columns batch behind Save.
+  const { draft, setField, baseline, dirty, reset, commit } = useDirtyDraft<ScalarDraft>(
+    task ? toDraft(task) : EMPTY_DRAFT,
+  );
+
+  // Re-seed the draft when the *identity* of the rendered task changes (opened
+  // or canvas-swapped to a different task). A server-side update to the SAME
+  // task never reseeds — useDirtyDraft deliberately does not auto-resync, so a
+  // collaborator's WebSocket edit can't clobber an in-progress draft (it
+  // surfaces as the concurrent-edit banner instead). Also resets to Details.
   const taskId = task?.id;
   useEffect(() => {
-    if (task) {
-      setNameDraft(task.name);
-      setNotesDraft(task.notes ?? '');
-      setActiveTab('details');
-    }
-    // Only react to identity changes, not to every field mutation.
+    if (task) commit(toDraft(task));
+    setActiveTab('details');
+    // Only identity changes reseed; `commit` is stable and `task` is read fresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId]);
 
-  const dirty = task !== null && (nameDraft !== task.name || notesDraft !== (task.notes ?? ''));
-
-  // Last server value we synced the drafts from — used to detect a concurrent
-  // edit (another collaborator's WebSocket update) while the user has unsaved
-  // changes. Re-syncs whenever the form is clean.
-  const syncedNotesRef = useRef('');
-  useEffect(() => {
-    if (task && !dirty) syncedNotesRef.current = task.notes ?? '';
-  }, [task, dirty]);
+  // Concurrent-edit signal: the live task's notes drifted from the value we
+  // opened/last-saved from AND from what the user has typed — someone else saved
+  // while this draft was open. Warn rather than clobber.
   const notesChangedElsewhere =
     task !== null &&
     dirty &&
-    (task.notes ?? '') !== syncedNotesRef.current &&
-    (task.notes ?? '') !== notesDraft;
+    (task.notes ?? '') !== baseline.notes &&
+    (task.notes ?? '') !== draft.notes;
 
-  const flush = useCallback(() => {
-    if (!task || !dirty) return;
-    updateTask({
-      id: task.id,
-      projectId,
-      ...(nameDraft !== task.name ? { name: nameDraft } : {}),
-      ...(notesDraft !== (task.notes ?? '') ? { notes: notesDraft } : {}),
-    });
-  }, [task, projectId, dirty, nameDraft, notesDraft, updateTask]);
-
-  const discard = useCallback(() => {
-    if (task) {
-      setNameDraft(task.name);
-      setNotesDraft(task.notes ?? '');
-    }
-  }, [task]);
-
-  // Closing flushes any pending edit so a half-typed description survives.
-  const handleClose = useCallback(() => {
-    flush();
-    onClose();
-  }, [flush, onClose]);
-
-  // Expand → the full-page focus view of this task (ADR-0124 / handoff #13).
-  // Flush the deferred edit first, navigate, then close the drawer.
-  const navigate = useNavigate();
-  const handleExpand = useCallback(() => {
+  // Save = one PATCH carrying only the changed scalar keys, then re-snapshot the
+  // baseline on success so the bar clears without waiting on a refetch.
+  const handleSave = useCallback(() => {
     if (!task) return;
-    flush();
-    void navigate(`/projects/${projectId}/tasks/${task.id}`);
-    onClose();
-  }, [task, projectId, flush, navigate, onClose]);
+    const patch: { name?: string; notes?: string } = {};
+    if (draft.name !== baseline.name) patch.name = draft.name;
+    if (draft.notes !== baseline.notes) patch.notes = draft.notes;
+    if (Object.keys(patch).length === 0) return;
+    updateTask({ id: task.id, projectId, ...patch }, { onSuccess: () => commit() });
+  }, [task, projectId, draft, baseline, updateTask, commit]);
 
-  const changeTab = useCallback(
-    (next: DrawerSectionTab) => {
-      flush();
-      setActiveTab(next);
-    },
-    [flush],
-  );
+  // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
+  // own path so Discard navigates to a fresh editable load (Keep editing stays).
+  // Declared before the close guard so its Escape listener can stand down while
+  // this guard is up (see escapeToClose below).
+  const [expandGuardOpen, setExpandGuardOpen] = useState(false);
+
+  // Close / Esc: prompt the unsaved-changes guard when dirty, else close. Revert
+  // the draft on close so reopening the same task (identity unchanged → no
+  // reseed) never flashes a stale dirty draft. Suspend the guard's document
+  // Escape listener while the expand guard is showing — otherwise Esc there
+  // would also fire requestClose and silently swap the expand prompt (whose
+  // Discard navigates) for the close prompt (whose Discard just closes).
+  const closeAndReset = useCallback(() => {
+    reset();
+    onClose();
+  }, [reset, onClose]);
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose: closeAndReset,
+    escapeToClose: isOpen && !expandGuardOpen,
+  });
+
+  const doExpand = useCallback(() => {
+    if (!task) return;
+    reset();
+    onClose();
+    void navigate(`/projects/${projectId}/tasks/${task.id}`);
+  }, [task, projectId, reset, onClose, navigate]);
+  const handleExpand = useCallback(() => {
+    if (dirty) setExpandGuardOpen(true);
+    else doExpand();
+  }, [dirty, doExpand]);
+
+  // Tab-switch keeps the dirty draft intact — the bar docks below the tabpanel,
+  // so nothing is lost or silently saved when moving between tabs.
+  const changeTab = useCallback((next: DrawerSectionTab) => {
+    setActiveTab(next);
+  }, []);
+
+  // Cmd/Ctrl+S saves when dirty (matches the settings shell). Only intercept the
+  // browser "save page" shortcut when there is actually something to save.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
+        if (!dirty) return;
+        e.preventDefault();
+        handleSave();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isOpen, dirty, handleSave]);
 
   // Move focus to Close on open so keyboard users land somewhere sensible.
   useEffect(() => {
@@ -175,21 +228,14 @@ export function TaskDetailDrawer({
     return undefined;
   }, [isOpen, taskId]);
 
-  // Esc closes (flushing first) — preserved from prior drawer.
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && isOpen) {
-        e.stopPropagation();
-        handleClose();
-      }
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, handleClose]);
+  // Esc is owned by the unsaved-changes guard (escapeToClose) so a dirty drawer
+  // prompts instead of closing — no separate Esc effect here.
 
-  // Focus trap inside drawer when open — preserved from prior drawer.
+  // Focus trap inside drawer when open — preserved from prior drawer. Suspended
+  // while a guard dialog is up so its own trap owns the Tab cycle (the pattern
+  // StoryDetailDrawer uses).
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || guardOpen || expandGuardOpen) return undefined;
     function trapFocus(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !drawerRef.current) return;
       const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
@@ -211,7 +257,7 @@ export function TaskDetailDrawer({
     }
     document.addEventListener('keydown', trapFocus);
     return () => document.removeEventListener('keydown', trapFocus);
-  }, [isOpen]);
+  }, [isOpen, guardOpen, expandGuardOpen]);
 
   // Read sections from the registry once per render. The registry sorts by
   // priority on register() so no sort here. Filter by canRender so Enterprise
@@ -270,34 +316,36 @@ export function TaskDetailDrawer({
       userRole={userRole}
       drawerTitle={drawerTitle}
       closeButtonRef={closeButtonRef}
-      onClose={handleClose}
+      onRequestClose={requestClose}
       onExpand={handleExpand}
       tabs={visibleTabs}
       activeTab={activeTab}
       onTabChange={changeTab}
       sectionsByTab={sectionsByTab}
       subtaskStats={subtaskStats}
-      nameDraft={nameDraft}
-      onNameChange={setNameDraft}
-      notesDraft={notesDraft}
-      onNotesChange={setNotesDraft}
+      draftName={draft.name}
+      onNameChange={(v) => setField('name', v)}
+      changedName={draft.name !== baseline.name}
+      draftNotes={draft.notes}
+      onNotesChange={(v) => setField('notes', v)}
+      changedNotes={draft.notes !== baseline.notes}
       notesChangedElsewhere={notesChangedElsewhere}
       dirty={dirty}
       isSaving={isSaving}
-      onFlush={flush}
-      onSave={flush}
-      onDiscard={discard}
+      saveFailed={saveFailed}
+      onSave={handleSave}
+      onCancel={reset}
     />
   );
 
   return (
     <>
-      {/* Mobile backdrop — closes on click; desktop has no backdrop (drawer is non-modal-feeling) */}
+      {/* Mobile backdrop — requests close (guarded when dirty); desktop has no backdrop */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/30 md:hidden z-30"
           aria-hidden="true"
-          onClick={handleClose}
+          onClick={requestClose}
         />
       )}
 
@@ -343,6 +391,20 @@ export function TaskDetailDrawer({
         />
         {content}
       </div>
+
+      {/* Unsaved-changes guard — shared prompt (web-rule 217). One instance for
+          the close/Esc/backdrop path, a second for expand so Discard navigates
+          to the full page rather than merely closing. */}
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
+      {expandGuardOpen && (
+        <UnsavedChangesDialog
+          onKeepEditing={() => setExpandGuardOpen(false)}
+          onDiscard={() => {
+            setExpandGuardOpen(false);
+            doExpand();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -353,23 +415,25 @@ interface DrawerContentProps {
   userRole?: number | null;
   drawerTitle: string;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
-  onClose: () => void;
+  onRequestClose: () => void;
   onExpand: () => void;
   tabs: ReadonlyArray<{ id: DrawerSectionTab; label: string }>;
   activeTab: DrawerSectionTab;
   onTabChange: (tab: DrawerSectionTab) => void;
   sectionsByTab: Record<DrawerSectionTab, DrawerSectionRegistration[]>;
   subtaskStats: { total: number; done: number };
-  nameDraft: string;
+  draftName: string;
   onNameChange: (value: string) => void;
-  notesDraft: string;
+  changedName: boolean;
+  draftNotes: string;
   onNotesChange: (value: string) => void;
+  changedNotes: boolean;
   notesChangedElsewhere: boolean;
   dirty: boolean;
   isSaving: boolean;
-  onFlush: () => void;
+  saveFailed: boolean;
   onSave: () => void;
-  onDiscard: () => void;
+  onCancel: () => void;
 }
 
 /**
@@ -382,24 +446,34 @@ function DrawerContent({
   userRole,
   drawerTitle,
   closeButtonRef,
-  onClose,
+  onRequestClose,
   onExpand,
   tabs,
   activeTab,
   onTabChange,
   sectionsByTab,
   subtaskStats,
-  nameDraft,
+  draftName,
   onNameChange,
-  notesDraft,
+  changedName,
+  draftNotes,
   onNotesChange,
+  changedNotes,
   notesChangedElsewhere,
   dirty,
   isSaving,
-  onFlush,
+  saveFailed,
   onSave,
-  onDiscard,
+  onCancel,
 }: DrawerContentProps) {
+  // Which staged fields changed — names the bar's scope for sighted users (the
+  // per-field • markers) and for AT (the sr-only live region below).
+  const changedLabels = [changedName ? 'Name' : null, changedNotes ? 'Description' : null].filter(
+    Boolean,
+  ) as string[];
+  const statusText = changedLabels.length
+    ? `Unsaved changes: ${changedLabels.join(', ')}`
+    : 'Unsaved changes';
   // WAI-ARIA tab pattern (#1022): ArrowLeft/Right move selection+focus across
   // the tablist so a keyboard user reaches a sibling tab without Tab-cycling
   // through the active panel's content. Focus follows selection (automatic
@@ -503,7 +577,7 @@ function DrawerContent({
           <button
             ref={closeButtonRef}
             type="button"
-            onClick={onClose}
+            onClick={onRequestClose}
             aria-label="Close task detail"
             className="w-11 h-11 -mr-1.5 flex items-center justify-center rounded-control text-neutral-text-secondary
               hover:text-neutral-text-primary hover:bg-neutral-surface-raised
@@ -516,26 +590,38 @@ function DrawerContent({
         {/* Hidden heading keeps the dialog's accessible structure + gives tests
             a stable title node; the visible title is an inline editable input. */}
         <h2 className="sr-only">{drawerTitle}</h2>
-        <input
-          aria-label="Task name"
-          value={nameDraft}
-          onChange={(e) => onNameChange(e.target.value)}
-          onBlur={onFlush}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur();
-          }}
-          // ADR-0133/1142: the title is read-only for non-editors. A readOnly
-          // input renders as plain text (bg-transparent, no border) and drops the
-          // edit focus ring + caret so it never invites an edit that would 403.
-          readOnly={!canEdit}
-          className={[
-            'w-full bg-transparent border-none outline-none px-0 mb-2',
-            'text-xl font-semibold tracking-tight text-neutral-text-primary rounded-control',
-            canEdit
-              ? 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
-              : 'cursor-default focus:outline-none',
-          ].join(' ')}
-        />
+        <div className="flex items-baseline gap-1.5 mb-2">
+          <input
+            aria-label="Task name"
+            value={draftName}
+            onChange={(e) => onNameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+            // ADR-0133/1142: the title is read-only for non-editors. A readOnly
+            // input renders as plain text (bg-transparent, no border) and drops the
+            // edit focus ring + caret so it never invites an edit that would 403.
+            readOnly={!canEdit}
+            className={[
+              'min-w-0 flex-1 bg-transparent border-none outline-none px-0',
+              'text-xl font-semibold tracking-tight text-neutral-text-primary rounded-control',
+              canEdit
+                ? 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
+                : 'cursor-default focus:outline-none',
+            ].join(' ')}
+          />
+          {/* Unsaved marker — decorative; the sr-only status region carries the
+              accessible "unsaved changes in Name" announcement. */}
+          {changedName && (
+            <span
+              aria-hidden="true"
+              title="Unsaved"
+              className="shrink-0 text-lg leading-none text-brand-primary"
+            >
+              •
+            </span>
+          )}
+        </div>
 
         {/* Tabs — arrow-key handling lives on each focusable tab button rather
             than the tablist (the tablist itself is not a tab stop). */}
@@ -614,9 +700,9 @@ function DrawerContent({
                     </SectionErrorBoundary>
                   )}
                   <TaskDescriptionField
-                    value={notesDraft}
+                    value={draftNotes}
                     onChange={onNotesChange}
-                    onBlur={onFlush}
+                    changed={changedNotes}
                     changedElsewhere={notesChangedElsewhere}
                     readOnly={!canEdit}
                     scrollTopRef={descScrollRef}
@@ -645,38 +731,25 @@ function DrawerContent({
         )}
       </div>
 
-      {/* Save bar (dirty) or Esc hint (clean) — mirrors the Settings save contract */}
+      {/* AT announcement of the bar's scope — which staged fields are unsaved.
+          A polite live region so it never interrupts the user mid-type. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {dirty ? statusText : ''}
+      </div>
+
+      {/* Save bar (dirty) or Esc hint (clean) — the shared DialogFooter (web-rule
+          217) so the task drawer reads the same as every other editable surface.
+          Name/description are the only fields that stage; the immediate controls
+          above never raise it. `statusText` names which fields changed. */}
       {dirty ? (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-brand-primary border-t border-brand-primary-dark motion-safe:animate-save-bar-slide">
-          <span className="text-[13px] font-medium text-white" role="status">
-            You have unsaved changes
-          </span>
-          <div className="flex-1" />
-          {/* preventDefault on mousedown keeps focus on the Description textarea
-              so its onBlur={onFlush} does NOT fire when a save-bar button is the
-              click target. Without this, clicking Discard blurs the textarea
-              first, flush() optimistically persists the edit, and the subsequent
-              discard() reverts the draft to a now-stale value — leaving the form
-              dirty and the edit silently saved (#972). It also prevents a
-              redundant double-PATCH on Save (blur-flush + click-flush). */}
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onDiscard}
-            disabled={isSaving}
-            className="text-[13px] text-white/85 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
-          >
-            Discard
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onSave}
-            disabled={isSaving}
-            className="px-3.5 py-1.5 rounded-control bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
-          >
-            {isSaving ? 'Saving…' : 'Save changes'}
-          </button>
+        <div className="shrink-0 motion-safe:animate-save-bar-slide">
+          <DialogFooter
+            onSave={onSave}
+            onCancel={onCancel}
+            saving={isSaving}
+            statusText={statusText}
+            error={saveFailed ? "Couldn't save — try again" : null}
+          />
         </div>
       ) : (
         <div className="px-4 py-2 border-t border-neutral-border bg-neutral-surface-raised text-xs text-neutral-text-secondary shrink-0 hidden md:block">

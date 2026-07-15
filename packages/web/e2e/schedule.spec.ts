@@ -593,7 +593,9 @@ test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
     const title = drawer.getByRole('textbox', { name: 'Task name' });
     await expect(title).toHaveValue('Discovery & Design');
     await title.fill('Renamed — will fail to save');
-    await title.press('Enter'); // blur → flush → PATCH
+    // #1977: the name stages behind the Save bar — clicking Save fires the PATCH
+    // (blur no longer auto-saves).
+    await drawer.getByRole('button', { name: 'Save' }).click();
 
     // The PATCH fired and failed. useUpdateTask rolled the optimistic cache patch
     // back, so the grid row is once again the original name (the phantom rename
