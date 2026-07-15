@@ -82,6 +82,15 @@ def task(project: Project) -> Task:
     return Task.objects.create(project=project, name="T", duration=5)
 
 
+@pytest.fixture
+def admin(project: Project) -> object:
+    # ADMIN (project manager) can edit any task without being the assignee —
+    # the role used by the write-serializer validation tests below.
+    u = _make_user("admin")
+    _make_membership(project, u, Role.ADMIN)
+    return u
+
+
 # ---------------------------------------------------------------------------
 # Model defaults
 # ---------------------------------------------------------------------------
@@ -170,6 +179,101 @@ def test_open_mode_partial_save_allowed(project: Project, task: Task) -> None:
     task.refresh_from_db()
     assert task.optimistic_duration == 3
     assert task.most_likely_duration is None
+
+
+# ---------------------------------------------------------------------------
+# Three-point ordering invariant (#1982): the write serializer rejects a complete
+# triple that violates optimistic <= most_likely <= pessimistic, mirroring the
+# engine's #1069 guard so invalid data can never persist and detonate at compute
+# time (the #1981 program-schedule 500 / stale single-project dates).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("opt", "ml", "pess"),
+    [
+        (5, 3, 8),  # optimistic > most_likely
+        (3, 8, 5),  # most_likely > pessimistic
+        (8, 5, 3),  # optimistic > pessimistic (fully reversed)
+    ],
+)
+def test_out_of_order_triple_rejected(
+    project: Project, task: Task, admin: object, opt: int, ml: int, pess: int
+) -> None:
+    c = _client(admin)
+    resp = c.patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"optimistic_duration": opt, "most_likely_duration": ml, "pessimistic_duration": pess},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    assert "most_likely_duration" in resp.data
+    task.refresh_from_db()
+    # Rejected write must not persist any of the estimates.
+    assert task.optimistic_duration is None
+
+
+@pytest.mark.django_db
+def test_valid_ordered_triple_accepted(project: Project, task: Task, admin: object) -> None:
+    c = _client(admin)
+    resp = c.patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"optimistic_duration": 2, "most_likely_duration": 2, "pessimistic_duration": 4},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    task.refresh_from_db()
+    assert (task.optimistic_duration, task.most_likely_duration, task.pessimistic_duration) == (
+        2,
+        2,
+        4,
+    )
+
+
+@pytest.mark.django_db
+def test_partial_estimate_out_of_order_not_validated(project: Project, admin: object) -> None:
+    """Only two of three estimates present — the engine never samples a partial
+    triple, so the serializer leaves it unvalidated even if the two cross."""
+    partial = Task.objects.create(project=project, name="Partial", duration=3)
+    c = _client(admin)
+    resp = c.patch(
+        f"/api/v1/tasks/{partial.pk}/",
+        {"optimistic_duration": 9, "most_likely_duration": 2},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    partial.refresh_from_db()
+    assert partial.optimistic_duration == 9
+    assert partial.pessimistic_duration is None
+
+
+@pytest.mark.django_db
+def test_single_field_patch_crossing_stored_values_rejected(
+    project: Project, admin: object
+) -> None:
+    """A PATCH that sends only one estimate is validated against the task's stored
+    values — the invariant is checked on the merged instance+attrs state, not on
+    the payload alone."""
+    stored = Task.objects.create(
+        project=project,
+        name="Stored",
+        duration=5,
+        optimistic_duration=2,
+        most_likely_duration=5,
+        pessimistic_duration=8,
+    )
+    c = _client(admin)
+    # Drop pessimistic below most_likely — crosses the invariant against stored ml=5.
+    resp = c.patch(
+        f"/api/v1/tasks/{stored.pk}/",
+        {"pessimistic_duration": 1},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.data
+    assert "most_likely_duration" in resp.data
+    stored.refresh_from_db()
+    assert stored.pessimistic_duration == 8
 
 
 # ---------------------------------------------------------------------------

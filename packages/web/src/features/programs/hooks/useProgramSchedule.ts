@@ -83,8 +83,14 @@ export interface ProgramSchedule {
  * Classification of a failed program-schedule fetch, so the page can render the
  * right state without re-parsing the axios error in the component.
  *
- * - `too-large` (422): exceeds `MAX_PROGRAM_TASKS` — render the informational
- *   too-large panel (an expected limit, not a failure).
+ * - `too-large` (422, `program_schedule_too_large`): exceeds `MAX_PROGRAM_TASKS`
+ *   — render the informational too-large panel (an expected limit, not a failure).
+ * - `invalid-input` (422, `program_schedule_invalid_input`): a task in one member
+ *   project has data the CPM engine cannot compute (e.g. an out-of-order
+ *   three-point estimate). Compute-on-read means one bad task would otherwise 500
+ *   the whole view (#1981); the endpoint now returns a structured 422 naming the
+ *   offending project so the page can point the user at it instead of a dead
+ *   retry loop. Discriminated from `too-large` by the response body `code`.
  * - `forbidden` (403): the requester is not a program member.
  * - `not-computed` (409): handled defensively only. The endpoint does NOT emit a
  *   409 — when nothing is scheduled yet it returns `200` with an empty payload,
@@ -93,7 +99,26 @@ export interface ProgramSchedule {
  *   state rather than a hard error.
  * - `unknown`: network / 5xx — render a retryable inline error.
  */
-export type ProgramScheduleErrorKind = 'not-computed' | 'too-large' | 'forbidden' | 'unknown';
+export type ProgramScheduleErrorKind =
+  | 'not-computed'
+  | 'too-large'
+  | 'invalid-input'
+  | 'forbidden'
+  | 'unknown';
+
+/** Machine-readable body shape of a `program_schedule_invalid_input` 422 (#1981). */
+export interface ProgramScheduleInvalidInputDetail {
+  code: 'program_schedule_invalid_input';
+  detail: string;
+  /**
+   * Raw engine reason. Absent when the offending task sits in a member project the
+   * requester cannot read — it embeds estimate values ADR-0120 D5 withholds. Also
+   * absent (with `project`/`task`) when the failure can't be attributed to a task.
+   */
+  reason?: string;
+  project?: { id: string; name: string };
+  task?: { id: string; name: string };
+}
 
 /** Map a TanStack Query error from {@link useProgramSchedule} to its kind. */
 export function classifyProgramScheduleError(error: unknown): ProgramScheduleErrorKind {
@@ -102,7 +127,13 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
       case 409:
         return 'not-computed';
       case 422:
-        return 'too-large';
+        // Both the too-large and invalid-input states are 422; discriminate by
+        // the response body `code` (#1981). An unrecognized/absent code keeps the
+        // historical mapping to too-large, so older servers still degrade sanely.
+        return (error.response?.data as { code?: string } | undefined)?.code ===
+          'program_schedule_invalid_input'
+          ? 'invalid-input'
+          : 'too-large';
       case 403:
         return 'forbidden';
       default:
@@ -110,6 +141,22 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
     }
   }
   return 'unknown';
+}
+
+/**
+ * Extract the structured invalid-input body (offending project/task) from an
+ * axios error, or `null` if it is not a `program_schedule_invalid_input` 422.
+ */
+export function getProgramScheduleInvalidInput(
+  error: unknown,
+): ProgramScheduleInvalidInputDetail | null {
+  if (isAxiosError(error) && error.response?.status === 422) {
+    const data = error.response.data as ProgramScheduleInvalidInputDetail | undefined;
+    if (data?.code === 'program_schedule_invalid_input') {
+      return data;
+    }
+  }
+  return null;
 }
 
 /**

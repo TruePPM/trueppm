@@ -28,8 +28,8 @@ vi.mock('@/features/schedule/ZoomControl', () => ({
   ZoomControl: () => <div data-testid="zoom-control" />,
 }));
 
-function axiosError(status: number): unknown {
-  return { isAxiosError: true, response: { status } };
+function axiosError(status: number, data?: unknown): unknown {
+  return { isAxiosError: true, response: { status, data } };
 }
 
 function queryResult(over: Record<string, unknown>) {
@@ -143,6 +143,30 @@ describe('ProgramSchedulePage', () => {
     useProgramSchedule.mockReturnValue(queryResult({ error: axiosError(422) }));
     renderPage();
     expect(screen.getByText('This program is too large to chart live')).toBeInTheDocument();
+  });
+
+  it('shows the invalid-input panel naming the offending project for a structured 422 (#1981)', () => {
+    useProgramSchedule.mockReturnValue(
+      queryResult({
+        error: axiosError(422, {
+          code: 'program_schedule_invalid_input',
+          detail: 'A task in “Migration Tooling” has data the schedule engine cannot compute.',
+          reason: 'three-point estimates must satisfy optimistic <= most_likely <= pessimistic',
+          project: { id: 'proj-mig', name: 'Migration Tooling' },
+          task: { id: 't-bad', name: 'Something' },
+        }),
+      }),
+    );
+    renderPage();
+    expect(screen.getByText("A project's task data can't be scheduled")).toBeInTheDocument();
+    expect(
+      screen.getByText(/A task in “Migration Tooling” has an invalid estimate or dependency/),
+    ).toBeInTheDocument();
+    // Routes to the offending project's schedule, not a dead retry.
+    expect(
+      screen.getByRole('button', { name: /Open Migration Tooling schedule/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('shows a forbidden message for a 403', () => {

@@ -187,4 +187,32 @@ test.describe('Program schedule view', () => {
     await expect(page.getByText('No program schedule yet')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Go to Projects' })).toBeVisible();
   });
+
+  test('invalid-input state: a bad task in one project names it instead of 500ing the view (#1981)', async ({
+    page,
+  }) => {
+    // One member project holds a task the CPM engine rejects. The endpoint returns
+    // a structured 422 (not a 500), so the page names the offending project and
+    // routes there — no dead retry loop.
+    await setup(page, {
+      status: 422,
+      body: {
+        code: 'program_schedule_invalid_input',
+        detail: 'A task in “Migration Tooling” has data the schedule engine cannot compute.',
+        reason:
+          "Task 'd33fddc2' three-point estimates must satisfy optimistic <= most_likely <= pessimistic (got 1 <= 5 <= 0 days).",
+        project: { id: 'proj-mig', name: 'Migration Tooling' },
+        task: { id: 't-bad', name: 'Something' },
+      },
+    });
+    await page.goto(`/programs/${PROGRAM_ID}/schedule`);
+
+    await expect(page.getByText("A project's task data can't be scheduled")).toBeVisible();
+    await expect(page.getByText(/A task in “Migration Tooling”/)).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Open Migration Tooling schedule/i }),
+    ).toBeVisible();
+    // Not a retryable failure — the generic Retry button must be absent.
+    await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+  });
 });

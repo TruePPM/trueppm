@@ -24,6 +24,7 @@ status) for member projects they cannot read — never a bare "blocked by
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -33,6 +34,15 @@ from rest_framework.exceptions import APIException
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program
+
+# Engine ``SchedulerError`` messages embed the offending task as ``Task '<uuid>'``
+# (e.g. the #1069 three-point-ordering check). Extract the id to attribute the
+# failure back to its member project for the #1981 structured 422; unmatched
+# messages fall back to a project-less "some task" response.
+_TASK_ID_RE = re.compile(
+    r"Task '([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})'"
+)
 
 # Soft upper bound on the merged leaf-task count for an on-read CPM. A
 # compute-on-read pass is O(tasks + edges); for a pathologically large program
@@ -51,6 +61,59 @@ class ProgramScheduleTooLarge(APIException):
         "the persisted program-schedule pass is required for programs this large."
     )
     default_code = "program_schedule_too_large"
+
+
+class ProgramScheduleInvalidInput(APIException):
+    """Raised when a member project's task data makes the merged CPM unschedulable.
+
+    The program schedule is compute-on-read, so a single degenerate task in *any*
+    member project (invalid three-point estimate #1069, unknown-task dependency,
+    unresolvable calendar, cycle) would otherwise surface as an unhandled 500 that
+    blanks the whole cross-project view for every member (#1981). We instead map
+    the engine's ``SchedulerError`` to a structured, non-500 response that names
+    the offending project (and task where identifiable), so the frontend can point
+    the user at the project to fix rather than dead-ending on a retry that can
+    never succeed. The body carries ``code`` so the client distinguishes this from
+    the sibling 422 (``program_schedule_too_large``).
+    """
+
+    status_code = 422
+    default_code = "program_schedule_invalid_input"
+
+    def __init__(
+        self,
+        *,
+        reason: str | None = None,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        task_id: str | None = None,
+        task_name: str | None = None,
+    ) -> None:
+        if project_name:
+            detail_msg = (
+                f"A task in “{project_name}” has data the schedule engine "
+                "cannot compute. Open that project's schedule to fix it."
+            )
+        else:
+            detail_msg = (
+                "A task in one of this program's projects has data the schedule "
+                "engine cannot compute. Open the offending project's schedule to "
+                "fix it."
+            )
+        # Only non-null keys are included: DRF coerces every scalar leaf of an
+        # APIException detail into an ``ErrorDetail`` string, so a literal ``None``
+        # would serialize as the string ``"None"`` rather than JSON ``null``.
+        # Omitting the key instead gives the client a clean "absent" (undefined).
+        body: dict[str, Any] = {"code": self.default_code, "detail": detail_msg}
+        if reason is not None:
+            # Carries the offending task's estimate values; present only for an
+            # accessible offending project (ADR-0120 D5 — see the raise site).
+            body["reason"] = reason
+        if project_id:
+            body["project"] = {"id": project_id, "name": project_name}
+        if task_id:
+            body["task"] = {"id": task_id, "name": task_name}
+        super().__init__(body)
 
 
 @dataclass
@@ -89,7 +152,12 @@ class ProgramScheduleGraph:
         return set(self.children_map.keys())
 
 
-def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> ProgramScheduleGraph:
+def gather_program_schedule(
+    program: Program,
+    *,
+    enforce_max: bool = True,
+    can_access_project: Callable[[Any], bool] | None = None,
+) -> ProgramScheduleGraph:
     """Merge every member project's tasks + accepted cross edges and run CPM once.
 
     The shared substrate of ADR-0120 D3: every member project's committed tasks
@@ -105,12 +173,26 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
             above ``MAX_PROGRAM_TASKS`` rather than serving a slow request. The
             persisted background pass passes False — it is allowed to be slow and a
             422 has no caller there.
+        can_access_project: Optional ``project_id -> bool`` predicate used only when
+            attributing a ``ProgramScheduleInvalidInput`` (#1981). The raw engine
+            ``reason`` string embeds the offending task's estimate day-values, which
+            ADR-0120 D5 withholds for member projects the requester cannot read; the
+            ``reason`` is therefore included only when the offending project is
+            accessible. Absent (the background path never raises the 422), the
+            reason is omitted.
 
     Raises:
         ProgramScheduleTooLarge: When ``enforce_max`` and the merged leaf-task
             count exceeds ``MAX_PROGRAM_TASKS``.
+        ProgramScheduleInvalidInput: When ``enforce_max`` and a member project's
+            task data makes the merged CPM unschedulable.
     """
-    from trueppm_scheduler.engine import expand_summary_dependencies, schedule
+    from trueppm_scheduler.engine import (
+        CyclicDependencyError,
+        SchedulerError,
+        expand_summary_dependencies,
+        schedule,
+    )
     from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
@@ -268,7 +350,48 @@ def gather_program_schedule(program: Program, *, enforce_max: bool = True) -> Pr
         status_date=None,
     )
 
-    result = schedule(merged)
+    try:
+        result = schedule(merged)
+    except SchedulerError as exc:
+        # Only the on-read HTTP path (``enforce_max``) converts a degenerate-data
+        # failure into a structured response. The persisted background pass
+        # (``enforce_max=False``) must let the original ``SchedulerError``
+        # propagate to its ``TaskRunTracker``, which marks the run FAILED — a DRF
+        # ``APIException`` has no meaning in a Celery context and would corrupt
+        # that telemetry.
+        if not enforce_max:
+            raise
+        # Compute-on-read means a single degenerate task in any member project
+        # would otherwise become an unhandled 500 that blanks the whole program
+        # view (#1981). Map it to a structured 422 that names the offending
+        # project/task so the client can render an actionable state instead of a
+        # dead retry loop. Best-effort attribution: a cycle carries its task ids
+        # directly; other inputs embed the offending id in the message.
+        offending_ids: list[str] = []
+        if isinstance(exc, CyclicDependencyError):
+            offending_ids = [tid for tid in exc.cycle if tid in db_task_by_id]
+        else:
+            offending_ids = [tid for tid in _TASK_ID_RE.findall(str(exc)) if tid in db_task_by_id]
+        db_task = db_task_by_id.get(offending_ids[0]) if offending_ids else None
+        project = project_by_id.get(db_task.project_id) if db_task is not None else None
+        # The raw ``reason`` embeds the offending task's estimate day-values, which
+        # ADR-0120 D5 withholds for member projects the requester cannot fully read
+        # (the redacted ExternalTaskCard ships title + CPM dates only). Include it
+        # only when the offending project is attributable AND accessible; otherwise
+        # the client still gets the project/task identity (already public via lane
+        # metadata + ExternalTaskCard) but not the withheld estimate values.
+        reason_visible = (
+            project is not None
+            and can_access_project is not None
+            and can_access_project(project.id)
+        )
+        raise ProgramScheduleInvalidInput(
+            reason=str(exc) if reason_visible else None,
+            project_id=str(project.id) if project is not None else None,
+            project_name=project.name if project is not None else None,
+            task_id=str(db_task.id) if db_task is not None else None,
+            task_name=db_task.name if db_task is not None else None,
+        ) from exc
     result_map = {st.id: st for st in result.tasks}
     leaf_ids = set(result_map.keys())
 
@@ -335,8 +458,13 @@ def compute_program_schedule(
 
     Raises:
         ProgramScheduleTooLarge: When the merged leaf-task count exceeds the guard.
+        ProgramScheduleInvalidInput: When a member project's task data makes the
+            merged CPM unschedulable (#1981); the engine ``reason`` is included only
+            for an accessible offending project (ADR-0120 D5).
     """
-    graph = gather_program_schedule(program, enforce_max=True)
+    graph = gather_program_schedule(
+        program, enforce_max=True, can_access_project=can_access_project
+    )
 
     # Lane metadata is independent of whether the program has any schedulable
     # work, so build it from the member set and return it even on the empty path.
