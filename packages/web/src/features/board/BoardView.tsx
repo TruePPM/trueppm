@@ -3552,6 +3552,10 @@ export function BoardView() {
                 ref={boardScrollRef}
                 data-testid="board-scroll"
                 data-space-panning={isBoardPanning ? 'true' : undefined}
+                // pb-6 keeps the final lane's tallest card off the scroll fold
+                // (#1963): a card sheared flush at the viewport edge reads as
+                // truncated, not scrollable. The bottom gap — paired with the
+                // #1962 edge-fade — is the "keep scrolling" signal.
                 className={`flex-1 overflow-auto min-h-0 pb-6 bg-neutral-surface-sunken${
                   isBoardPanArmed
                     ? isBoardPanning
