@@ -195,8 +195,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   // (#1793), which every role can reach. It deliberately does not target the
   // workspace `/settings` hub: `RequireAdminSettings` redirects non-admins away
   // from it, so the gear would silently lead nowhere for them. Workspace settings
-  // stay reachable from the admin nav. One deterministic destination for all
-  // roles (#1738) — the gear never branches where it lands.
+  // are reachable via the admin-gated "Workspace settings" row in the UserMenu
+  // (#2033). One deterministic destination for all roles (#1738) — the gear
+  // never branches where it lands.
   const settingsTo = '/me/settings/general';
   const settingsLabel = 'Personal settings';
 

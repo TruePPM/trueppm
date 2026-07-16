@@ -22,7 +22,14 @@ const { mockClearTokens, mockQueryClientClear, mockSetTheme, mockUserResult } = 
         initials: 'SC',
         email: 'sarah@example.com',
       } as
-        | { id: string; username: string; display_name: string; initials: string; email: string }
+        | {
+            id: string;
+            username: string;
+            display_name: string;
+            initials: string;
+            email: string;
+            can_access_admin_settings?: boolean;
+          }
         | undefined,
       isLoading: false,
     },
@@ -150,6 +157,43 @@ describe('UserMenu', () => {
     const items = screen.getAllByRole('menuitem', { name: /^General$/i });
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].getAttribute('href')).toBe('/me/settings/general');
+  });
+
+  it('admin user → renders "Workspace settings" linking to /settings#members (#2033)', () => {
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: 'sarah',
+        display_name: 'Sarah Chen',
+        initials: 'SC',
+        email: 'sarah@example.com',
+        can_access_admin_settings: true,
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    // Both desktop + mobile variants render in JSDOM.
+    const items = screen.getAllByRole('menuitem', { name: /workspace settings/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/settings#members');
+  });
+
+  it('non-admin user → no "Workspace settings" row (RequireAdminSettings would bounce them, #2033)', () => {
+    mockUserResult.value = {
+      user: {
+        id: '1',
+        username: 'sarah',
+        display_name: 'Sarah Chen',
+        initials: 'SC',
+        email: 'sarah@example.com',
+        can_access_admin_settings: false,
+      },
+      isLoading: false,
+    };
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    expect(screen.queryByRole('menuitem', { name: /workspace settings/i })).toBeNull();
   });
 
   it('groups personal settings under a "Personal" header (design §10, #1804)', () => {
