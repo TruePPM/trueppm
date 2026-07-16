@@ -123,6 +123,7 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
         item_type?: string;
         description?: string;
         tags?: string[];
+        story_points?: number | null;
       };
       return r.fulfill({
         status: 201,
@@ -137,7 +138,7 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS) {
           status: 'proposed',
           tags: posted.tags ?? [],
           priority_rank: 1,
-          story_points: null,
+          story_points: posted.story_points ?? null,
           pulled_task: null,
           pulled_at: null,
           pulled_by: null,
@@ -219,10 +220,15 @@ test.describe('Program backlog', () => {
     await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
 
     await page.getByLabel('Title').fill('First epic');
+    // Story points are groomable at create time (#1991) — the pull dialog's
+    // "story points … copied over" promise is now real.
+    await page.getByLabel('Story points').fill('5');
     await page.getByRole('button', { name: 'Create item' }).click();
 
-    // On success the new item is selected and its detail view renders.
+    // On success the new item is selected and its detail view renders, carrying
+    // the estimate through the create round-trip.
     await expect(page.getByRole('heading', { name: 'First epic' })).toBeVisible();
+    await expect(page.getByRole('spinbutton', { name: 'Story points' })).toHaveValue('5');
   });
 
   test('empty state — header "New item" opens the create form', async ({ page }) => {

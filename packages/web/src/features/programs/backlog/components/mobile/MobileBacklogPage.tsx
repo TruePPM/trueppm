@@ -28,6 +28,8 @@ import { MobilePullSheet } from './MobilePullSheet';
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
   epic: 'Epic',
+  feature: 'Feature',
+  task: 'Task',
   spike: 'Spike',
   chore: 'Chore',
   bug: 'Bug',

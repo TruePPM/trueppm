@@ -15,6 +15,8 @@ import { SearchInput } from './SearchInput';
 const TYPE_LABELS: Record<(typeof BACKLOG_ITEM_TYPES)[number], string> = {
   story: 'Story',
   epic: 'Epic',
+  feature: 'Feature',
+  task: 'Task',
   spike: 'Spike',
   chore: 'Chore',
   bug: 'Bug',

@@ -136,13 +136,15 @@ project to a program.
   program's projects.
 - **Backlog** — a shared pool of cross-project **program backlog items** that
   any project in the program can pull from. Each backlog item carries a type tag
-  that bridges PM and product-owner framings — `task`, `story`, `feature`, or
-  `epic` — but the container is always a program backlog item; the type is
-  metadata only and the Board and Schedule views still show plain task
-  vocabulary. Each item moves through a lifecycle: **proposed → pulled →
-  archived**. Pulling an item creates a linked project task in the chosen
-  project and marks the backlog item as pulled. Requires at least Team Member
-  role on both the program and the target project.
+  that bridges PM and product-owner framings — `epic`, `feature`, `story`,
+  `task`, `bug`, `spike`, or `chore` — and an optional story-points estimate for
+  grooming. Each item moves through a lifecycle: **proposed → pulled →
+  archived**. Pulling an item creates a linked project task in the chosen project
+  and marks the backlog item as pulled; the task carries over the item's title,
+  description, story points, tags (as project labels), and type (each type maps
+  to its Task equivalent — `chore` becomes tech debt, `feature` becomes a plain
+  task). Requires at least Team Member role on both the program and the target
+  project.
 - **Projects** — the projects currently in this program. Click a project name
   to navigate to it. The `Remove` action detaches the project (it becomes
   standalone, untouched). When the program has a **target date** set, it shows at

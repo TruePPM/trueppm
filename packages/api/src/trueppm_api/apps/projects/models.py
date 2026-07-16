@@ -5905,14 +5905,23 @@ class BacklogItemType(models.TextChoices):
     The same intake pool serves a waterfall PM (who thinks in WBS-style tasks)
     and a product owner (who thinks in epics/stories). ``item_type`` lets each
     framing coexist without forcing either onto the other; on pull it is carried
-    into the Task only as metadata, so the Board and Schedule views still show
-    plain Task vocabulary.
+    into the Task via ``_ITEM_TYPE_TO_TASK_TYPE`` so a pulled story/bug/spike
+    keeps its kind on the Board and Schedule.
+
+    This set mirrors ``TaskType`` (#1995): every value except ``FEATURE`` maps
+    1:1 onto a Task type, so the web create dropdown, this enum, and the pull map
+    stay one reconciled taxonomy. ``FEATURE`` is retained for existing data and
+    has no dedicated Task analogue — it maps to ``TASK`` on pull. ``CHORE`` maps
+    to ``TaskType.TECH_DEBT`` (the project-side name for the same maintenance work).
     """
 
     EPIC = "epic", "Epic"
     FEATURE = "feature", "Feature"
     STORY = "story", "Story"
     TASK = "task", "Task"
+    BUG = "bug", "Bug"
+    SPIKE = "spike", "Spike"
+    CHORE = "chore", "Chore"
 
 
 class BacklogItemStatus(models.TextChoices):

@@ -15,6 +15,8 @@ import { BTN_GHOST, BTN_PRIMARY, FOCUS_RING, INPUT_BASE } from './styles';
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
   epic: 'Epic',
+  feature: 'Feature',
+  task: 'Task',
   spike: 'Spike',
   chore: 'Chore',
   bug: 'Bug',
@@ -29,6 +31,7 @@ interface DetailCreateProps {
 export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
   const [title, setTitle] = useState('');
   const [itemType, setItemType] = useState<BacklogItemType>('story');
+  const [storyPoints, setStoryPoints] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +56,9 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         itemType,
         description: description || undefined,
         tags,
+        // Empty field → null (unestimated); otherwise the parsed points. The input
+        // is number-typed with a 0 floor, so a non-empty value is a valid integer.
+        storyPoints: storyPoints.trim() === '' ? null : Number(storyPoints),
       });
     } catch {
       setError('Could not create the item. Try again.');
@@ -118,6 +124,26 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label
+            htmlFor="backlog-create-points"
+            className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+          >
+            Story points
+          </label>
+          <input
+            id="backlog-create-points"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            value={storyPoints}
+            onChange={(e) => setStoryPoints(e.target.value)}
+            placeholder="Optional estimate"
+            className={`mt-1 h-8 w-32 ${INPUT_BASE}`}
+          />
         </div>
 
         <div>

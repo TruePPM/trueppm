@@ -10,7 +10,9 @@ import type { BacklogItemType } from '../types';
 
 const TYPE_STYLES: Record<BacklogItemType, { label: string; className: string }> = {
   epic: { label: 'Epic', className: 'border-brand-primary text-brand-primary' },
+  feature: { label: 'Feature', className: 'border-brand-primary text-brand-primary' },
   story: { label: 'Story', className: 'border-neutral-border text-neutral-text-secondary' },
+  task: { label: 'Task', className: 'border-neutral-border text-neutral-text-secondary' },
   spike: { label: 'Spike', className: 'border-brand-accent-dark text-brand-accent-dark' },
   chore: { label: 'Chore', className: 'border-neutral-border text-neutral-text-disabled' },
   bug: { label: 'Bug', className: 'border-semantic-critical text-semantic-critical' },

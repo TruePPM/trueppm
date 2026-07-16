@@ -8,15 +8,22 @@
 
 export type BacklogItemStatus = 'PROPOSED' | 'PULLED' | 'ARCHIVED';
 
-export type BacklogItemType = 'epic' | 'story' | 'spike' | 'chore' | 'bug';
+export type BacklogItemType = 'epic' | 'feature' | 'story' | 'task' | 'spike' | 'chore' | 'bug';
 
-/** The five item types, in the order they appear in dropdowns. */
+/**
+ * The item types, in the order they appear in dropdowns and facet filters.
+ * Reconciled with the backend `BacklogItemType` enum (#1995) so a created type
+ * always round-trips and pull carries its true kind (`chore`→tech debt,
+ * `feature`→task) instead of silently collapsing to a plain task.
+ */
 export const BACKLOG_ITEM_TYPES: readonly BacklogItemType[] = [
   'story',
   'epic',
+  'feature',
+  'task',
+  'bug',
   'spike',
   'chore',
-  'bug',
 ] as const;
 
 /**
