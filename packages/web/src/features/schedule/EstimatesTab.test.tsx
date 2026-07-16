@@ -659,3 +659,85 @@ describe('EstimatesTab — bound to the drawer draft (#1985)', () => {
     expect(screen.getByText('±—')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Velocity Accept/Dismiss accessibility while the estimate draft is dirty (#1999)
+// ---------------------------------------------------------------------------
+
+describe('EstimatesTab — velocity Accept/Dismiss a11y while draft is dirty (#1999)', () => {
+  function routeGet(suggestionResults: unknown[]) {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/velocity-suggestions/')) {
+        return Promise.resolve({
+          data: { count: suggestionResults.length, results: suggestionResults },
+        });
+      }
+      return Promise.resolve({ data: { id: 'p1', name: 'P1' } });
+    });
+  }
+
+  // A binding for task t1 with a staged (dirty) Optimistic edit.
+  const dirtyBinding: TaskDraftBinding = {
+    taskId: 't1',
+    values: { optimistic: '9', mostLikely: '', pessimistic: '' },
+    changed: { optimistic: true, mostLikely: false, pessimistic: false },
+    setField: vi.fn(),
+    commitField: vi.fn(),
+  };
+
+  function renderDirtyAdmin() {
+    return renderWithProviders(
+      <TaskDraftProvider value={dirtyBinding}>
+        <EstimatesTab
+          task={baseTask}
+          projectId="p1"
+          estimationMode="open"
+          userIsScheduler={true}
+          userIsAdmin={true}
+        />
+      </TaskDraftProvider>,
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    routeGet([suggestionFixture]);
+  });
+
+  it('keeps Accept in the tab order (not real-disabled) but marks it aria-disabled with a reason', async () => {
+    renderDirtyAdmin();
+    const accept = await screen.findByRole('button', { name: /Accept/i });
+    // Real `disabled` is reserved for in-flight mutations — while dirty the
+    // button stays focusable, so it must NOT be disabled.
+    expect(accept).not.toBeDisabled();
+    expect(accept).toHaveAttribute('aria-disabled', 'true');
+    // The accessible reason is exposed via aria-describedby → sr-only node.
+    const describedBy = accept.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const reason = document.getElementById(describedBy!);
+    expect(reason).toHaveTextContent(/Save or discard your estimate edits first\./i);
+  });
+
+  it('Accept onClick is a no-op while dirty (does not post to the accept endpoint)', async () => {
+    renderDirtyAdmin();
+    const accept = await screen.findByRole('button', { name: /Accept/i });
+    fireEvent.click(accept);
+    // Give any async mutation a chance to fire, then assert it did not.
+    await waitFor(() => expect(getMock).toHaveBeenCalled());
+    expect(postMock).not.toHaveBeenCalledWith('/velocity-suggestions/sugg-1/accept/');
+  });
+
+  it('Dismiss stays actionable while dirty and posts to the dismiss endpoint', async () => {
+    postMock.mockResolvedValueOnce({
+      data: { ...suggestionFixture, dismissed_at: '2026-05-02T00:00:00Z' },
+    });
+    renderDirtyAdmin();
+    const dismiss = await screen.findByRole('button', { name: /Dismiss/i });
+    expect(dismiss).not.toBeDisabled();
+    expect(dismiss).not.toHaveAttribute('aria-disabled', 'true');
+    fireEvent.click(dismiss);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/velocity-suggestions/sugg-1/dismiss/'),
+    );
+  });
+});
