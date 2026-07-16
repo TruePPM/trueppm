@@ -97,6 +97,26 @@ def test_default_role_owner_rejected(admin: Any) -> None:
 
 
 @pytest.mark.django_db
+def test_allow_password_signin_rejected_in_oss(admin: Any) -> None:
+    """OSS never enforces password-login policy, so accepting the field would be a
+    set-but-ignored no-op. The write serializer rejects it outright (#2025) rather
+    than silently persisting it — an honest 400 instead of a lie."""
+    resp = api_client(admin).put(URL, {"allow_password_signin": False}, format="json")
+    assert resp.status_code == 400
+    assert "allow_password_signin" in resp.data
+    # The stored value is untouched (default True) — nothing was persisted.
+    assert OIDCProvider.load().allow_password_signin is True
+
+
+@pytest.mark.django_db
+def test_write_without_allow_password_signin_is_unaffected(admin: Any) -> None:
+    """The rejection is field-scoped: a normal config write that omits the field
+    must still succeed (the validator only fires when the client sends it)."""
+    resp = api_client(admin).put(URL, _full_config(), format="json")
+    assert resp.status_code == 200, resp.data
+
+
+@pytest.mark.django_db
 def test_issuer_wellknown_url_rejected(admin: Any) -> None:
     resp = api_client(admin).put(
         URL,

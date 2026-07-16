@@ -28,6 +28,7 @@ def create_program(
     description: str,
     methodology: str | Methodology,
     created_by: Any,
+    lead: Any | None = None,
 ) -> Program:
     """Create a ``Program`` and the creator's OWNER membership in one transaction.
 
@@ -44,6 +45,11 @@ def create_program(
         methodology: One of ``Methodology`` values; default ``HYBRID``.
         created_by: The user creating the program — recorded on the Program row
             and inserted as the OWNER ``ProgramMembership``.
+        lead: Optional program lead (#2025). At create time the only member that
+            will exist is ``created_by`` (the OWNER row inserted below), so the
+            serializer only admits ``lead == created_by`` — the "lead must be a
+            member" invariant holds because the OWNER membership is written in the
+            same atomic transaction. Defaults to ``None`` (no lead).
 
     Returns:
         The persisted ``Program``. The OWNER membership exists by the time the
@@ -54,6 +60,7 @@ def create_program(
         description=description,
         methodology=methodology,
         created_by=created_by,
+        lead=lead,
     )
     ProgramMembership.objects.create(
         program=program,

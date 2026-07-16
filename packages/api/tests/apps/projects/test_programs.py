@@ -624,6 +624,76 @@ def test_patch_lead_to_null_is_always_allowed(owner: object, other_user: object)
 
 
 @pytest.mark.django_db
+def test_create_program_sets_lead_to_creator_in_one_save(owner: object) -> None:
+    """A PM can start a program with themselves as lead in a single create (#2025).
+
+    The creator becomes OWNER in the same atomic transaction, so the "lead must be a
+    member" invariant holds without a second save.
+    """
+    resp = _client(owner).post(
+        "/api/v1/programs/",
+        {"name": "Phase 2", "methodology": "HYBRID", "lead": str(owner.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    program = Program.objects.get(pk=resp.data["id"])
+    assert program.lead_id == owner.pk
+    assert resp.data["lead"] == owner.pk
+    assert resp.data["lead_detail"]["id"] == owner.pk
+
+
+@pytest.mark.django_db
+def test_create_program_rejects_non_creator_lead(owner: object, other_user: object) -> None:
+    """At create the only member-to-be is the creator, so any other lead is a
+    non-member and must be rejected (#2025) — even though the user exists."""
+    resp = _client(owner).post(
+        "/api/v1/programs/",
+        {"name": "Phase 2", "methodology": "HYBRID", "lead": str(other_user.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert "lead" in resp.data
+    assert not Program.objects.filter(name="Phase 2").exists()
+
+
+# ---------------------------------------------------------------------------
+# Rollup config visibility on the program serializer (#2025)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_serializer_exposes_rollup_config_fields(owner: object) -> None:
+    """Rollup config is visible on generic GET so program-list / MCP readers see
+    which KPIs a program surfaces and how it aggregates health, without a second
+    call to /rollup-config/ (#2025)."""
+    program = _create_program(_client(owner))
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 200, resp.content
+    assert "rollup_enabled_kpis" in resp.data
+    assert "rollup_aggregation_policy" in resp.data
+    program.refresh_from_db()
+    assert resp.data["rollup_enabled_kpis"] == program.rollup_enabled_kpis
+    assert resp.data["rollup_aggregation_policy"] == program.rollup_aggregation_policy
+
+
+@pytest.mark.django_db
+def test_rollup_config_fields_read_only_on_program_serializer(owner: object) -> None:
+    """Rollup config is display-only on the main serializer — writes stay on the
+    dedicated /rollup-config/ action, so a plain PATCH must not mutate them (#2025)."""
+    program = _create_program(_client(owner))
+    before_policy = program.rollup_aggregation_policy
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"rollup_enabled_kpis": ["schedule"], "rollup_aggregation_policy": "AVERAGE"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    # read_only_fields swallow the write silently — stored values are unchanged.
+    assert program.rollup_aggregation_policy == before_policy
+
+
+@pytest.mark.django_db
 def test_patch_health_rejects_invalid_choice(owner: object) -> None:
     program = _create_program(_client(owner))
     resp = _client(owner).patch(

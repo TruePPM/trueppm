@@ -305,22 +305,21 @@ class Command(BaseCommand):
     def _build_projects(self, program: Any, calendar: Any, users: dict[str, Any]) -> dict[str, Any]:
         from trueppm_api.apps.projects.models import Methodology, Project
 
-        # (key, name, methodology, agile_features, lead-username)
+        # (key, name, methodology, lead-username)
         specs = [
-            ("A", "Platform Hardening & Scale", Methodology.WATERFALL, False, "malcolm"),
-            ("B", "SOC 2 Type II Readiness", Methodology.WATERFALL, False, "bob"),
-            ("C", "Security Pen-Test & Remediation", Methodology.HYBRID, True, "janus"),
-            ("D", "GA Marketing & Launch", Methodology.AGILE, True, "jane"),
+            ("A", "Platform Hardening & Scale", Methodology.WATERFALL, "malcolm"),
+            ("B", "SOC 2 Type II Readiness", Methodology.WATERFALL, "bob"),
+            ("C", "Security Pen-Test & Remediation", Methodology.HYBRID, "janus"),
+            ("D", "GA Marketing & Launch", Methodology.AGILE, "jane"),
         ]
         out: dict[str, Any] = {}
-        for key, name, methodology, agile, lead in specs:
+        for key, name, methodology, lead in specs:
             out[key] = Project.objects.create(
                 program=program,
                 name=name,
                 start_date=PROGRAM_START,
                 calendar=calendar,
                 methodology=methodology,
-                agile_features=agile,
                 lead=users[lead],
                 is_sample=True,
             )

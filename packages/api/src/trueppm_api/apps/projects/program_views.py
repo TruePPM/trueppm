@@ -270,7 +270,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
     # -----------------------------------------------------------------------
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        write = ProgramSerializer(data=request.data)
+        # Pass serializer context so ``validate_lead`` can read ``request.user``:
+        # on create the only member-to-be is the creator, so a lead supplied at
+        # create must equal the creator (#2025).
+        write = ProgramSerializer(data=request.data, context=self.get_serializer_context())
         write.is_valid(raise_exception=True)
 
         # Service-layer call wraps the Program + OWNER membership in a single
@@ -280,6 +283,7 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             description=write.validated_data.get("description", ""),
             methodology=write.validated_data.get("methodology", Methodology.HYBRID),
             created_by=request.user,
+            lead=write.validated_data.get("lead"),
         )
 
         # Re-fetch through the get_queryset so the response includes my_role

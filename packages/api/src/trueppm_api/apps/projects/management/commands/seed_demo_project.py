@@ -308,7 +308,6 @@ class Command(BaseCommand):
             start_date=date.today() - timedelta(days=120),
             calendar=cal,
             methodology=Methodology.HYBRID,
-            agile_features=True,
         )
 
     def _build_secondary_project(self, name: str, owner: Any) -> Any:
@@ -321,7 +320,6 @@ class Command(BaseCommand):
             start_date=date.today() - timedelta(days=60),
             calendar=cal,
             methodology=Methodology.AGILE,
-            agile_features=True,
         )
 
     # ------------------------------------------------------------------

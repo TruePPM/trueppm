@@ -689,7 +689,18 @@ class Program(VersionedModel):
     description = models.TextField(blank=True, default="")
     # Short identifier used in exports, breadcrumbs, and as a future task-ID prefix.
     # Optional — programs created before #523 have no code and the UI shows an empty
-    # field. Not unique at the DB level; uniqueness is a workspace-policy concern.
+    # field.
+    #
+    # Intentionally NOT unique — no DB constraint and no ``validate_code`` (#2025).
+    # A DB uniqueness constraint was considered and rejected: (a) ``code`` is
+    # workspace-agnostic on the model (there is no workspace FK to scope a partial
+    # unique index against), so the only constraint expressible here is global,
+    # which is wrong — two workspaces may legitimately both run a program coded
+    # "PLAT"; and (b) a retroactive unique constraint would fail to apply on any
+    # existing install that already has duplicate codes. Uniqueness, if a given
+    # organization wants it, is a workspace-*policy* concern enforced above the
+    # model, not a hard invariant. ``Project.code`` (below) is non-unique for the
+    # same reason.
     code = models.CharField(max_length=40, blank=True, default="")
     methodology = models.CharField(
         max_length=16,
@@ -1079,8 +1090,10 @@ class Project(VersionedModel):
     # Short identifier used as a task-ID prefix and on exports (issue #520).
     # Uppercase alphanumeric + hyphen, max 12 chars; format validated by the
     # serializer. Optional — projects created before this field have an empty
-    # code and the UI shows a blank input. Not unique at the DB level;
-    # uniqueness is a workspace-policy concern, matching Program.code (#523).
+    # code and the UI shows a blank input. Intentionally NOT unique at the DB
+    # level (format-validated only) — uniqueness is a workspace-policy concern,
+    # not a hard invariant, for the same reasons documented on Program.code
+    # above (#523, #2025).
     code = models.CharField(max_length=12, blank=True, default="")
     # PM override for the project health chip (issue #520). Defaults to AUTO so
     # existing rows render via the (future) rollup rather than implying a
@@ -1159,12 +1172,6 @@ class Project(VersionedModel):
         choices=_member_role_choices,
         default=_DEFAULT_MEMBER_ROLE,
     )
-    # Sprint UI gate (ADR-0037 amendment).  When False, the frontend hides
-    # sprint-related affordances (Sprints route, board sprint filter,
-    # story_points columns).  API endpoints remain active regardless — this is
-    # a UI/UX preference, not an access-control gate.  Auto-set to True for
-    # projects created from the Software Delivery template.
-    agile_features = models.BooleanField(default=False)
     # Project planning methodology preset (ADR-0041). Drives default tab
     # visibility; does not gate API access. HYBRID shows all tabs (preserves
     # existing behavior for projects created before this field landed).
@@ -1188,7 +1195,7 @@ class Project(VersionedModel):
     # Stale-task nudge threshold in whole days (ADR-0200, #646). The daily
     # detect_stale_tasks scan notifies a task's assignee once the task has sat in a
     # non-terminal status longer than this many days. Board-level config lives as a
-    # discrete Project column (matching board_cadence/agile_features) rather than a
+    # discrete Project column (matching board_cadence) rather than a
     # settings side-table — there is no Board model; a board is a view over this
     # project's tasks. Default 7. Distinct from the 3-day is_stalled board-card chip
     # (ADR-0115), which is a synchronous visual verdict, not an opt-in notification.

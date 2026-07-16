@@ -5437,7 +5437,6 @@ SETTINGS_TEMPLATE_FIELDS: tuple[str, ...] = (
     "timezone",
     "default_view",
     "estimation_mode",
-    "agile_features",
     "board_cadence",
     "stale_task_threshold_days",
     "prioritization_model",

@@ -68,7 +68,6 @@ def source(calendar: Calendar) -> Project:
         board_cadence=BoardCadence.CONTINUOUS,
         timezone="Pacific/Auckland",
         stale_task_threshold_days=14,
-        agile_features=True,
         methodology=Methodology.AGILE,
         # Default new-member role off its MEMBER default (ADR-0363) so the copy
         # assertion below proves real transfer, not both-at-default.
