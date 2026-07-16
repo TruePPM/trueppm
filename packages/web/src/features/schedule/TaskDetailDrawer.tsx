@@ -338,12 +338,18 @@ export function TaskDetailDrawer({
 
   // Save = one PATCH carrying only the changed scalar keys (name/notes + the
   // #1985 estimate columns), then re-snapshot the baseline on success so the bar
-  // clears without waiting on a refetch.
+  // clears without waiting on a refetch. `baseVersion` opts this drawer save into
+  // ADR-0217 field-level merge so a concurrent overlapping edit 409s (surfacing
+  // the conflict toast via useUpdateTask.onError) instead of silently last-writer-
+  // wins — matching the board TaskFormModal (#2038).
   const handleSave = useCallback(() => {
     if (!task || estimateInvalid) return;
     const patch = buildScalarPatch(draft, baseline);
     if (Object.keys(patch).length === 0) return;
-    updateTask({ id: task.id, projectId, ...patch }, { onSuccess: () => commit() });
+    updateTask(
+      { id: task.id, projectId, baseVersion: task.serverVersion, ...patch },
+      { onSuccess: () => commit() },
+    );
   }, [task, estimateInvalid, projectId, draft, baseline, updateTask, commit]);
 
   // Expand → full-page focus view (ADR-0124). A dirty draft is guarded on its
@@ -453,7 +459,11 @@ export function TaskDetailDrawer({
       reseedTo(next);
       return;
     }
-    updateTask({ id: renderedTask.id, projectId, ...patch }, { onSuccess: () => reseedTo(next) });
+    // baseVersion → ADR-0217 field-merge/409 on the save-and-swap path too (#2038).
+    updateTask(
+      { id: renderedTask.id, projectId, baseVersion: renderedTask.serverVersion, ...patch },
+      { onSuccess: () => reseedTo(next) },
+    );
   }, [
     renderedTask,
     pendingTask,
