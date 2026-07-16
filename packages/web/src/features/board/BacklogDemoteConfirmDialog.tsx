@@ -51,7 +51,7 @@ export function BacklogDemoteConfirmDialog({
     >
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-black/30"
+        className="absolute inset-0 bg-neutral-overlay"
         onClick={onCancel}
       />
       <div className="relative bg-neutral-surface border border-neutral-border rounded-card max-w-md w-full p-5">

@@ -39,7 +39,7 @@ export function DeleteConfirmDialog({
       aria-labelledby="delete-task-confirm-title"
       aria-describedby="delete-task-confirm-body"
       tabIndex={-1}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 focus:outline-none motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

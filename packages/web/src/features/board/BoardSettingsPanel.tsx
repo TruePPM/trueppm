@@ -129,7 +129,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
       aria-labelledby="board-settings-title"
       className="fixed inset-0 z-50 flex"
     >
-      <div className="flex-1 bg-black/30" aria-hidden="true" onClick={onClose} />
+      <div className="flex-1 bg-neutral-overlay" aria-hidden="true" onClick={onClose} />
 
       <div className="w-full max-w-[480px] bg-neutral-surface border-l border-neutral-border flex flex-col overflow-y-auto">
         <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-3 border-b border-neutral-border">

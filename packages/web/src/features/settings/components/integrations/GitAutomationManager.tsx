@@ -274,7 +274,7 @@ function RotateSecretModal({
       role="dialog"
       aria-modal="true"
       aria-label={revealed ? 'Secret generated' : 'Generate webhook secret'}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !rotate.isPending) onClose();
       }}

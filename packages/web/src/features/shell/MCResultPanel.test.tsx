@@ -51,6 +51,7 @@ describe('MCResultPanel', () => {
     // dimming scrim, so the schedule behind it stays visible and interactive.
     const { container } = render(<MCResultPanel result={FIXTURE_MC_RESULT} onClose={() => {}} />);
     expect(container.querySelector('.bg-black\\/30')).toBeNull();
+    expect(container.querySelector('.bg-neutral-overlay')).toBeNull();
   });
 
   it('is a non-modal drawer (aria-modal=false) and does not trap focus', () => {

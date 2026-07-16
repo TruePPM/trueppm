@@ -235,7 +235,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
       role="dialog"
       aria-modal="true"
       aria-label={created ? 'Token created' : 'Create API token'}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !create.isPending) onClose();
       }}

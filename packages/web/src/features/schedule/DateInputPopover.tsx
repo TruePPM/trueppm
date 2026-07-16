@@ -86,7 +86,7 @@ export function DateInputPopover({ task, onConfirm, onClose }: Props) {
         type="button"
         aria-label="Close dialog"
         tabIndex={-1}
-        className="absolute inset-0 bg-black/30 cursor-default"
+        className="absolute inset-0 bg-neutral-overlay cursor-default"
         onClick={onClose}
       />
 
