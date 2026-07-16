@@ -2275,6 +2275,29 @@ class Task(VersionedModel):
                 fields=["recurrence_rule", "recurrence_occurrence_date"],
                 name="unique_recurrence_occurrence_per_date",
             ),
+            # A complete three-point PERT triple must be ordered
+            # (optimistic <= most_likely <= pessimistic) — the exact invariant the
+            # scheduler engine enforces at compute time (_validate_project). Enforced
+            # here at the DB level so NO ingress — REST serializer, velocity accept,
+            # MS Project / seed import, a raw bulk_create, or the admin/shell — can
+            # persist a mis-ordered triple that would later detonate the next CPM /
+            # program-schedule recompute and blank the whole cross-project view for
+            # every member (#2005; the failure #2002 fixed only at the code paths).
+            # A partial triple (any of the three NULL) is unconstrained — the engine
+            # ignores an incomplete estimate under its all-or-none rule — matching
+            # three_point_estimates_ordered().
+            models.CheckConstraint(
+                name="task_three_point_estimate_ordered",
+                condition=(
+                    models.Q(optimistic_duration__isnull=True)
+                    | models.Q(most_likely_duration__isnull=True)
+                    | models.Q(pessimistic_duration__isnull=True)
+                    | (
+                        models.Q(optimistic_duration__lte=models.F("most_likely_duration"))
+                        & models.Q(most_likely_duration__lte=models.F("pessimistic_duration"))
+                    )
+                ),
+            ),
         ]
 
     def __str__(self) -> str:

@@ -187,6 +187,17 @@ def _event_errors(payload: dict[str, Any]) -> list[str]:
         _check_event_target(
             kind, ref, base, project_slugs, task_index, sprint_index, risk_slugs, errors
         )
+        # A task.estimate event re-points a triple mid-timeline; it must stay
+        # ordered, or replay persists a triple the DB CheckConstraint rejects (#2005).
+        if action == "task.estimate":
+            est = event.get("estimate")
+            if isinstance(est, dict):
+                o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
+                if o is not None and m is not None and p is not None and not (o <= m <= p):
+                    errors.append(
+                        f"{base}.estimate: three-point estimate must satisfy "
+                        f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
+                    )
 
     return errors
 
@@ -307,6 +318,19 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
                 errors.append(f"{tpath}.parent_epic: no task {parent!r} in this project")
             for k, label_ref in enumerate(task.get("labels", [])):
                 _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
+            # A complete three-point estimate must be ordered — the same invariant
+            # the engine, the REST serializer, and the DB CheckConstraint enforce
+            # (#2005). Caught here so a mis-authored seed fails loudly at build/CI
+            # time (test_sample_content runs validate_seed) rather than as a runtime
+            # IntegrityError on import.
+            est = task.get("estimate")
+            if isinstance(est, dict):
+                o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
+                if o is not None and m is not None and p is not None and not (o <= m <= p):
+                    errors.append(
+                        f"{tpath}.estimate: three-point estimate must satisfy "
+                        f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
+                    )
             for k, assignment in enumerate(task.get("assignments", [])):
                 _check_ref(
                     assignment.get("resource"),
