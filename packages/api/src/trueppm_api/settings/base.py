@@ -1317,6 +1317,11 @@ SPECTACULAR_SETTINGS = {
             "description": "Tasks, dependencies, milestones, acceptance criteria and task runs.",
         },
         {
+            "name": "task-relations",
+            "description": "Informational task-to-task relations (relates to, blocks, "
+            "duplicates) — cross-references with no scheduling effect.",
+        },
+        {
             "name": "scheduling",
             "description": "CPM scheduling, baselines, Monte Carlo forecasts and slip analysis.",
         },
