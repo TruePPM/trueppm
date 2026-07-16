@@ -26,6 +26,16 @@ describe('OfflineBanner', () => {
     expect(banner).toHaveTextContent(/offline/i);
   });
 
+  it('gives honest guidance: keep the tab open and name the scheduling exception (#2028)', () => {
+    setOnline(false);
+    render(<OfflineBanner />);
+    const banner = screen.getByRole('status');
+    // The old copy over-promised durability; the queue is memory-only.
+    expect(banner).not.toHaveTextContent(/changes will be saved when you reconnect/i);
+    expect(banner).toHaveTextContent(/keep this tab open/i);
+    expect(banner).toHaveTextContent(/scheduling changes need a connection/i);
+  });
+
   it('appears on the offline event and clears on the online event', () => {
     setOnline(true);
     render(<OfflineBanner />);

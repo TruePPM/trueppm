@@ -39,7 +39,11 @@ export function OfflineBanner() {
       className="flex items-center justify-center gap-2 border-b border-semantic-at-risk bg-semantic-at-risk-bg px-4 py-1.5 text-xs font-medium text-semantic-at-risk"
     >
       <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-      You&rsquo;re offline — changes will be saved when you reconnect.
+      {/* #2028: honest copy. Most offline edits live in an in-memory queue that a
+          reload discards, so tell the user to keep the tab open, and name the
+          refuse-class (scheduling drags aren't queued at all). */}
+      You&rsquo;re offline — edits sync when you reconnect. Keep this tab open; scheduling changes need a
+      connection.
     </div>
   );
 }
