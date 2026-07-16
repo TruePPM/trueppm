@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canEditRisk } from '@/lib/roles';
 import { EmptyState } from '@/components/EmptyState';
+import { QueryErrorState } from '@/components/QueryErrorState';
 import { RiskImportModal } from './RiskImportModal';
 import { Button } from '@/components/Button';
 import { RiskIcon } from '@/components/Icons';
@@ -519,24 +520,7 @@ export function RiskRegisterView() {
           )}
 
           {/* Error */}
-          {!isLoading && error && (
-            <div
-              role="alert"
-              className="flex flex-col items-center justify-center gap-3 py-16 text-center"
-            >
-              <p className="text-sm text-semantic-critical">Failed to load risks.</p>
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="h-8 px-3 rounded-control text-sm font-medium border border-neutral-border
-                  text-neutral-text-secondary hover:text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                  focus-visible:ring-offset-1"
-              >
-                Retry
-              </button>
-            </div>
-          )}
+          {!isLoading && error && <QueryErrorState message="Failed to load risks." />}
 
           {/* Empty — no risks at all */}
           {!isLoading && !error && risks.length === 0 && (
