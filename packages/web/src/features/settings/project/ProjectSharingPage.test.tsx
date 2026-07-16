@@ -19,6 +19,18 @@ vi.mock('@/components/Toast', () => ({
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p-1' }));
 
+// Distinctive sentinel so a spec can prove the reveal's "Expires …" string is
+// rendered through the user date-format preference (rule 257 / #2059) and not a
+// bare `toLocaleDateString()`.
+vi.mock('@/hooks/useUserDateFormat', () => ({
+  useUserDateFormat: () => ({
+    format: (iso: string) => `PREF[${iso}]`,
+    formatInstant: (iso: string) => `PREF[${iso}]`,
+    formatInstantDate: (iso: string) => `PREF[${iso}]`,
+    formatInstantTime: (iso: string) => `PREF[${iso}]`,
+  }),
+}));
+
 const createMutate = vi.fn();
 let createMutation: { mutate: typeof createMutate; isPending: boolean; error: unknown };
 const revokeMutate = vi.fn();
@@ -128,6 +140,30 @@ describe('ProjectSharingPage (#283 / #1486)', () => {
     );
     const reveal = screen.getByLabelText<HTMLInputElement>('Public share link');
     expect(reveal.value).toContain('/share/schedule/RAWTOKEN');
+  });
+
+  it('renders the revealed link expiry through the user date-format preference (rule 257 / #2059)', async () => {
+    const user = userEvent.setup();
+    createMutate.mockImplementation(
+      (_input, { onSuccess }: { onSuccess: (l: unknown) => void }) => {
+        onSuccess({
+          ...link({ contentKind: 'schedule', expiresAt: '2026-08-05T00:00:00Z' }),
+          token: 'RAWTOKEN',
+          sharePath: '/share/schedule/RAWTOKEN',
+        });
+      },
+    );
+    render(<ProjectSharingPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Create link…' }));
+    await screen.findByRole('dialog', { name: 'Share this schedule' });
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/won.t be able to see it again/i)).toBeInTheDocument(),
+    );
+    // Routed through the preference hook — not `new Date(...).toLocaleDateString()`.
+    expect(screen.getByText(/Expires PREF\[2026-08-05T00:00:00Z\]/)).toBeInTheDocument();
   });
 
   it('can pick "Never" so the minted link has no expiry', async () => {

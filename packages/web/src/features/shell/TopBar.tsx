@@ -63,7 +63,13 @@ export function TopBar({ onHamburgerClick }: Props) {
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
     scrollToTask(id);
-    void navigate('/');
+    // Route to the current project's Schedule so the store selection lands where
+    // the task lives. `navigate('/')` was a stale single-project-era path that
+    // `RootRedirect` resolves to the user's landing page (#2032), dumping the user
+    // on My Work instead of the "what's on fire → take me there" target.
+    if (projectId) {
+      void navigate(`/projects/${projectId}/schedule`);
+    }
   }
 
   return (

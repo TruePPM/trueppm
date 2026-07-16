@@ -39,7 +39,16 @@ vi.mock('@/hooks/useNotifications', () => ({
 }));
 // The health cluster + create menu own their own data hooks and are covered by their
 // own specs; stub them so the structural TopBar tests don't fire their XHRs.
-vi.mock('./HealthCluster', () => ({ HealthCluster: () => <div data-testid="health-cluster" /> }));
+// Capture the `onTaskNavigate` callback TopBar hands the cluster so a spec can
+// exercise `handleTaskNavigate` (the "what's on fire → take me there" route, #2032)
+// without rendering the real cluster's data hooks.
+let capturedTaskNavigate: ((id: string) => void) | undefined;
+vi.mock('./HealthCluster', () => ({
+  HealthCluster: (props: { onTaskNavigate: (id: string) => void }) => {
+    capturedTaskNavigate = props.onTaskNavigate;
+    return <div data-testid="health-cluster" />;
+  },
+}));
 vi.mock('./CreateMenu', () => ({ CreateMenu: () => null }));
 // The running-timer chip owns its own /me/timer/ query (covered by its own spec);
 // stub it so the structural TopBar tests don't fire that XHR (#1415).
@@ -177,6 +186,27 @@ describe('TopBar (unified shell bar, ADR-0134)', () => {
       'aria-expanded',
       'false',
     );
+  });
+
+  // --- health drill-down routing (#2032) ---
+
+  it('routes a health-cluster task pick to that project\'s Schedule, not the landing page', () => {
+    mockNavigate.mockClear();
+    projectId = 'proj-42';
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    // Simulate the popover handing back a picked task.
+    capturedTaskNavigate?.('t-9');
+    expect(mockNavigate).toHaveBeenCalledWith('/projects/proj-42/schedule');
+    // The old stale single-project path must be gone.
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('does not navigate on a health task pick when off-project (no projectId)', () => {
+    mockNavigate.mockClear();
+    projectId = undefined;
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    capturedTaskNavigate?.('t-9');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // --- "me" identity divider (#1736, design §02) ---

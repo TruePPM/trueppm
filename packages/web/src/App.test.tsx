@@ -34,9 +34,9 @@ vi.mock('@tanstack/react-query-devtools', () => ({
 describe('App', () => {
   it('renders the application shell landmark regions', () => {
     renderWithRouter(<AppShell />);
-    // Shell renders header, navigations (view tabs + bottom rail + sidebar), and main
+    // Shell renders header, navigations (sidebar view tier + bottom rail), and main
     expect(screen.getByRole('banner')).toBeInTheDocument(); // <header> in TopBar
-    // Both ViewTabs and BottomNav are aria-label="View" (one hidden per breakpoint in real browser)
+    // Both the rail's ProjectViewsTier and BottomNav are aria-label="View" (one hidden per breakpoint in real browser)
     expect(screen.getAllByRole('navigation', { name: /view/i }).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByRole('main')).toBeInTheDocument();
   });

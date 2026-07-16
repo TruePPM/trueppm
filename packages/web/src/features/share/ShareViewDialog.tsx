@@ -2,6 +2,7 @@ import { WarningIcon } from '@/components/Icons';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { toast } from '@/components/Toast';
 import {
   useCreateShareLink,
@@ -165,6 +166,10 @@ export function ShareViewDialog({
   const [kind, setKind] = useState<'board' | 'schedule'>(contentKind);
   const noun = kind === 'schedule' ? 'schedule' : 'board';
   const { data: allLinks } = useShareLinks(projectId);
+  // Expiry is an instant — render it through the user's date-format preference
+  // (rule 257) so "Expires …" cannot show a different calendar day than the rest
+  // of the app (the ADR-0144/#1953 bug class), which matters on a security string.
+  const { formatInstantDate } = useUserDateFormat();
   const links = useMemo(
     () => (allLinks ?? []).filter((l) => l.contentKind === kind && l.isActive),
     [allLinks, kind],
@@ -263,7 +268,7 @@ export function ShareViewDialog({
             </div>
             <p className="mb-4 tppm-mono text-[11px] text-neutral-text-secondary">
               {created.expiresAt
-                ? `Expires ${new Date(created.expiresAt).toLocaleDateString()}`
+                ? `Expires ${formatInstantDate(created.expiresAt)}`
                 : 'Never expires'}{' '}
               · {created.showAssignees ? 'assignee names shown' : 'assignee names hidden'}
             </p>
