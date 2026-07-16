@@ -216,17 +216,19 @@ def test_long_risk_title_slug_is_capped_at_40(owner: Any) -> None:
 
     program = import_seed(_seed(), owner=owner, create_users=True)
     project = program.projects.get(name="Platform Core")
-    # Two long titles sharing a >40-char prefix exercise the collision-safe cap.
+    # Two titles identical through their first >40 chars collapse to the same
+    # 40-char base slug, so the second must trigger the collision-safe suffix
+    # path (base trimmed to make room for "-2", re-stripped, still ≤ 40).
     Risk.objects.create(
         project=project,
-        title="Cross-team dependency stalls the critical path",
+        title="Cross-team dependency stalls the critical path in Q3",
         status="OPEN",
         probability=4,
         impact=5,
     )
     Risk.objects.create(
         project=project,
-        title="Cross-team dependency stalls the release train",
+        title="Cross-team dependency stalls the critical path in Q4",
         status="OPEN",
         probability=3,
         impact=4,
