@@ -1,8 +1,20 @@
 import { useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router';
+import { useLocation, useNavigate, type Location } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { WarningIcon } from '@/components/Icons';
+
+/**
+ * Build the `/login` destination carrying the current location as `?next=`, so
+ * re-authenticating returns the user to where they were interrupted rather than
+ * their default landing surface (#2052). Mirrors the encoding `RequireAuth` uses
+ * for the unauthenticated redirect (`encodeURIComponent(pathname + search)`),
+ * which `LoginPage` already honors on successful sign-in.
+ */
+function loginHrefWithNext(location: Location): string {
+  const next = encodeURIComponent(location.pathname + location.search);
+  return `/login?next=${next}`;
+}
 
 /**
  * Blocking re-auth gate shown when the user's session expires (#352, escape
@@ -34,6 +46,7 @@ export function SessionExpiredBanner() {
   const enterReadOnlyMode = useAuthStore((s) => s.enterReadOnlyMode);
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const modalActive = sessionExpired && !readOnly;
   // Contain Tab/Shift+Tab inside the modal and land focus on the Sign in
@@ -46,10 +59,13 @@ export function SessionExpiredBanner() {
   if (!modalActive) return null;
 
   function handleSignIn() {
+    // Capture the destination BEFORE clearTokens — clearing tokens can trigger a
+    // redirect that changes location, and we want the screen the user was on.
+    const dest = loginHrefWithNext(location);
     // clearTokens also clears sessionExpired/sessionExpiredReadOnly — without
     // this the modal would remain visible while the login screen renders.
     clearTokens();
-    void navigate('/login', { replace: true });
+    void navigate(dest, { replace: true });
   }
 
   return (
@@ -120,6 +136,7 @@ export function SessionExpiredReadOnlyBar() {
   const readOnly = useAuthStore((s) => s.sessionExpiredReadOnly);
   const clearTokens = useAuthStore((s) => s.clearTokens);
   const navigate = useNavigate();
+  const location = useLocation();
   const signInRef = useRef<HTMLButtonElement>(null);
 
   const active = sessionExpired && readOnly;
@@ -136,8 +153,9 @@ export function SessionExpiredReadOnlyBar() {
   if (!active) return null;
 
   function handleSignIn() {
+    const dest = loginHrefWithNext(location);
     clearTokens();
-    void navigate('/login', { replace: true });
+    void navigate(dest, { replace: true });
   }
 
   return (

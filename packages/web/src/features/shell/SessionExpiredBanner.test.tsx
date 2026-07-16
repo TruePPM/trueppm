@@ -15,18 +15,26 @@
  */
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MemoryRouter, Routes, Route } from 'react-router';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { useAuthStore } from '@/stores/authStore';
 
-function renderWithLoginRoute() {
+// Exposes the login route's full path + search so tests can assert the ?next=
+// param the re-auth handlers carry (#2052).
+function LoginScreen() {
+  const location = useLocation();
+  return <div data-testid="login-screen" data-loc={location.pathname + location.search} />;
+}
+
+function renderWithLoginRoute(entry = '/projects') {
   return render(
-    <MemoryRouter initialEntries={['/projects']}>
+    <MemoryRouter initialEntries={[entry]}>
       <SessionExpiredBanner />
       <SessionExpiredReadOnlyBar />
       <Routes>
         <Route path="/projects" element={<div data-testid="projects-screen" />} />
-        <Route path="/login" element={<div data-testid="login-screen" />} />
+        <Route path="/projects/:id/schedule" element={<div data-testid="schedule-screen" />} />
+        <Route path="/login" element={<LoginScreen />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -68,6 +76,31 @@ describe('SessionExpiredBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(useAuthStore.getState().sessionExpired).toBe(false);
     expect(screen.getByTestId('login-screen')).toBeInTheDocument();
+  });
+
+  it('Sign in carries the current location as ?next= so re-auth returns the user (#2052)', () => {
+    renderWithLoginRoute('/projects/p1/schedule?task=t9');
+    act(() => {
+      useAuthStore.getState().markSessionExpired();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(screen.getByTestId('login-screen')).toHaveAttribute(
+      'data-loc',
+      `/login?next=${encodeURIComponent('/projects/p1/schedule?task=t9')}`,
+    );
+  });
+
+  it('read-only banner "Sign in again" also carries ?next= (#2052)', () => {
+    renderWithLoginRoute('/projects/p1/schedule?task=t9');
+    act(() => {
+      useAuthStore.getState().markSessionExpired();
+      useAuthStore.getState().enterReadOnlyMode();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in again/ }));
+    expect(screen.getByTestId('login-screen')).toHaveAttribute(
+      'data-loc',
+      `/login?next=${encodeURIComponent('/projects/p1/schedule?task=t9')}`,
+    );
   });
 
   it('traps focus inside the re-auth gate — Tab cannot escape behind the scrim', () => {
