@@ -48,7 +48,7 @@ from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
 from .git_automation_services import apply_git_event_to_card
 from .models import BoardAutomation, IntegrationCredential, TaskLink
-from .registry import TASK_LINK_PROVIDERS, TaskLinkProvider
+from .registry import TASK_LINK_PROVIDERS
 from .serializers import (
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
@@ -64,6 +64,10 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
     from rest_framework.request import Request
     from rest_framework.serializers import BaseSerializer
+
+    # Used only in ``cast("type[TaskLinkProvider]", ...)`` string annotations, so
+    # it needs no runtime import (keeps ruff and CodeQL in agreement).
+    from .registry import TaskLinkProvider
 
 
 # Human-readable detail per ``VerifyResult.reason`` for the 422 body. The

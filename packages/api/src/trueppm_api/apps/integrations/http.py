@@ -177,9 +177,6 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-# Backwards-compatible alias.
-_NoRedirect = NoRedirectHandler
-
 _opener = urllib.request.build_opener(NoRedirectHandler)
 
 
@@ -283,7 +280,7 @@ def get(
     req = urllib.request.Request(url, headers=request_headers, method="GET")
     try:
         # URL is SSRF-validated by assert_url_allowed above; redirects are
-        # disabled via the _NoRedirect opener so a 3xx can't escape the guard.
+        # disabled via the _opener (NoRedirectHandler) so a 3xx can't escape the guard.
         with _opener.open(req, timeout=timeout) as resp:  # nosec B310
             body = resp.read(_MAX_BODY_BYTES)
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -340,7 +337,7 @@ def post_form(
     req = urllib.request.Request(url, data=body, headers=request_headers, method="POST")
     try:
         # URL is SSRF-validated by assert_url_allowed above; redirects are
-        # disabled via the _NoRedirect opener so a 3xx can't escape the guard.
+        # disabled via the _opener (NoRedirectHandler) so a 3xx can't escape the guard.
         with _opener.open(req, timeout=timeout) as resp:  # nosec B310
             resp_body = resp.read(_MAX_BODY_BYTES)
             resp_headers = {k.lower(): v for k, v in resp.headers.items()}

@@ -394,7 +394,7 @@ function ChipRadioGroup<K extends string>({
   }, [selected, options]);
 
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>, idx: number) {
-    let next = idx;
+    let next: number;
     if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
       next = (idx + 1) % options.length;
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {

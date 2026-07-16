@@ -337,7 +337,7 @@ def test_pull_to_sprint_rejects_cross_project(
 
 @pytest.mark.django_db
 def test_carryover_returns_unpromoted_items(project: Project, member: object) -> None:
-    _sprint, _retro, _item = _retro_with_item(project, text="open item")
+    _retro_with_item(project, text="open item")
     resp = _client(member).get(f"/api/v1/projects/{project.pk}/retrospective/carryover/")
     assert resp.status_code == 200
     assert len(resp.data["items"]) == 1

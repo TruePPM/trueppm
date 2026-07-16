@@ -435,7 +435,7 @@ function EnumRadioGroup({
   const activeIdx = Math.max(0, options.findIndex((o) => o.value === value));
 
   const onKeyDown = (e: ReactKeyboardEvent, idx: number) => {
-    let next = idx;
+    let next: number;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % options.length;
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + options.length) % options.length;
     else if (e.key === 'Home') next = 0;

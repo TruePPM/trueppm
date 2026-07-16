@@ -28,7 +28,6 @@ if TYPE_CHECKING:
         RetroActionItem,
         Sprint,
         Task,
-        TaskSuggestedAssignee,
     )
 
 logger = logging.getLogger(__name__)

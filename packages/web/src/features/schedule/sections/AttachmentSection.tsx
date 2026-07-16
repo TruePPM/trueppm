@@ -67,7 +67,7 @@ function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null)
  */
 function externalLinkIcon(externalUrl: string | null): string {
   if (!externalUrl) return '🔗';
-  let host = '';
+  let host: string;
   try {
     host = new URL(externalUrl).host.toLowerCase();
   } catch {

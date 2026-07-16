@@ -34,10 +34,6 @@ from trueppm_api.apps.msproject.extended_attributes import (
 
 logger = logging.getLogger(__name__)
 
-# MS Project XML namespace (Project 2003+).
-_NS = "http://schemas.microsoft.com/project"
-_NS_MAP = {"ms": _NS}
-
 # MS Project PredecessorLink/Type values -> TruePPM dep_type.
 _LINK_TYPE_MAP = {
     "0": "FF",

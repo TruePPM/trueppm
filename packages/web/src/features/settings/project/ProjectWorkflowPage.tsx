@@ -153,7 +153,7 @@ function CadenceSection({
 
   const onRadioKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!canEdit) return;
-    let next = focusIdx;
+    let next: number;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       next = Math.min(CADENCE_OPTIONS.length - 1, focusIdx + 1);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
