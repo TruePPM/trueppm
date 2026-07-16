@@ -193,7 +193,7 @@ def _event_errors(payload: dict[str, Any]) -> list[str]:
             est = event.get("estimate")
             if isinstance(est, dict):
                 o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
-                if None not in (o, m, p) and not (o <= m <= p):
+                if o is not None and m is not None and p is not None and not (o <= m <= p):
                     errors.append(
                         f"{base}.estimate: three-point estimate must satisfy "
                         f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
@@ -326,7 +326,7 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
             est = task.get("estimate")
             if isinstance(est, dict):
                 o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
-                if None not in (o, m, p) and not (o <= m <= p):
+                if o is not None and m is not None and p is not None and not (o <= m <= p):
                     errors.append(
                         f"{tpath}.estimate: three-point estimate must satisfy "
                         f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
