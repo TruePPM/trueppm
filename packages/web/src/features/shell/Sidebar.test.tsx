@@ -405,6 +405,15 @@ describe('Sidebar rail — Tier 2 "This project" (grouped views)', () => {
     expect(screen.getByRole('group', { name: 'People views' })).toBeInTheDocument();
   });
 
+  it('trails with Settings, mirroring the program tier (#2045)', () => {
+    renderRail();
+    const settings = screen.getByRole('link', { name: 'Settings' });
+    expect(settings).toHaveAttribute('href', '/projects/p1/settings');
+    // It is a standalone trailing row — outside every grouped landmark — so it
+    // must not live inside one of the PLAN/DELIVER/TRACK/PEOPLE groups.
+    expect(settings.closest('[role="group"]')).toBeNull();
+  });
+
   it('AGILE hides Schedule/Calendar and keeps the DELIVER trio', () => {
     mockUseProject.mockReturnValue({
       data: { ...HYBRID_PROJECT, effective_methodology: 'AGILE' },

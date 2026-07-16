@@ -927,7 +927,8 @@ function ProjectViewsTier({
   isDrawer: boolean;
   onClose?: () => void;
 }) {
-  const { groups, labelFor, standaloneLeading } = useGroupedProjectViews(projectId);
+  const { groups, labelFor, standaloneLeading, standaloneTrailing } =
+    useGroupedProjectViews(projectId);
   const project = useProject(projectId);
   const { data: programs } = usePrograms();
 
@@ -1024,6 +1025,24 @@ function ProjectViewsTier({
             })}
           </div>
         ))}
+
+        {/* Settings trails standalone (no group label), mirroring the program tier's
+            `PROGRAM_VIEWS` Settings row (#2045). Without it the two Tier-2 siblings
+            diverge and desktop project settings (members/access, working calendars —
+            a getting-started step) is reachable only via the UserMenu. */}
+        {(() => {
+          const SettingsIcon = VIEW_TAB_META[standaloneTrailing].Icon;
+          return (
+            <NavLink
+              to={`/projects/${projectId}/${standaloneTrailing}`}
+              onClick={closeDrawer}
+              className={({ isActive }) => rowClass(isActive)}
+            >
+              <SettingsIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 truncate">{labelFor(standaloneTrailing)}</span>
+            </NavLink>
+          );
+        })()}
       </nav>
     </>
   );
