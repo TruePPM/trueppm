@@ -32,7 +32,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
@@ -226,11 +226,15 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         # Bind the fixed scope from the class rather than off the view (an
-        # @api_view FBV has no throttle_scope), then apply the standard
-        # SimpleRateThrottle sliding-window check.
+        # @api_view FBV has no throttle_scope), then run the grandparent's
+        # sliding-window check directly. We deliberately skip
+        # ScopedRateThrottle.allow_request (it re-reads view.throttle_scope,
+        # absent on the FBV) by calling SimpleRateThrottle explicitly instead of
+        # via super() — same resolution, but honest about the intentional skip
+        # and it doesn't trip CodeQL's "super() first arg" reliability rule.
         self.rate = self.get_rate()
         self.num_requests, self.duration = self.parse_rate(self.rate)
-        return super(ScopedRateThrottle, self).allow_request(request, view)
+        return SimpleRateThrottle.allow_request(self, request, view)
 
 
 @extend_schema(
