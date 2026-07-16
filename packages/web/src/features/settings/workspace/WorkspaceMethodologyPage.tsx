@@ -286,6 +286,11 @@ export function WorkspaceMethodologyPage() {
                     checked={checked}
                     disabled={disabled}
                     readOnly={disabled}
+                    // A disabled radio conveys nothing to a screen reader beyond
+                    // "unavailable" — the visual EnterpriseBadge next to the label
+                    // doesn't reach non-visual users, so the reason is spelled out
+                    // via an sr-only span (accessibility gap fixed here, web-rule 265 / #2001).
+                    aria-describedby={disabled ? 'methodology-enforce-enterprise-hint' : undefined}
                     onChange={() => {
                       if (!disabled) setOverridePolicy(opt.id);
                     }}
@@ -312,6 +317,9 @@ export function WorkspaceMethodologyPage() {
                 </label>
               );
             })}
+            <span id="methodology-enforce-enterprise-hint" className="sr-only">
+              Enforce requires TruePPM Enterprise.
+            </span>
           </div>
         </section>
       </div>

@@ -100,6 +100,14 @@ describe('WorkspaceMethodologyPage', () => {
     const enforce = screen.getByRole('radio', { name: /Enforce/i });
     expect(enforce).toBeDisabled();
 
+    // The Enterprise gate must reach screen readers, not just the visual badge
+    // (web-rule 265 / #2001): the disabled radio points at an sr-only hint node.
+    const hintId = enforce.getAttribute('aria-describedby');
+    expect(hintId).toBe('methodology-enforce-enterprise-hint');
+    expect(document.getElementById(hintId as string)?.textContent).toMatch(
+      /requires TruePPM Enterprise/i,
+    );
+
     await user.click(enforce);
     // The click is a no-op — policy stays on the seeded SUGGEST, form stays clean.
     expect(useSettingsSaveStore.getState().dirty).toBe(false);
