@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { handleSyncConflict } from '@/api/conflict';
+import { handleSyncConflict, isSyncConflict } from '@/api/conflict';
 import type { Task, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -134,6 +134,14 @@ export interface UpdateTaskPayload {
    * toast. Omit for legacy last-writer-wins.
    */
   baseVersion?: number;
+  /**
+   * Suppress the default "Someone else changed this" conflict toast (#2036).
+   * A caller that renders its own inline conflict UI — e.g. TaskFormModal's
+   * banner that keeps the modal open and preserves the user's edits — sets this
+   * so the toast doesn't stack on top of the banner. Rollback still runs.
+   * Never sent to the API.
+   */
+  suppressConflictToast?: boolean;
 }
 
 /**
@@ -181,7 +189,13 @@ export function useUpdateTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, projectId: _projectId, baseVersion, ...data }: UpdateTaskPayload) => {
+    mutationFn: async ({
+      id,
+      projectId: _projectId,
+      baseVersion,
+      suppressConflictToast: _suppressConflictToast,
+      ...data
+    }: UpdateTaskPayload) => {
       // Opt into field-level merge (ADR-0217) by declaring the version this edit was
       // based on; the server merges a disjoint concurrent edit or 409s an overlap.
       // Only pass a config arg when opting in, so the default LWW call shape is unchanged.
@@ -209,6 +223,9 @@ export function useUpdateTask() {
       if (context?.snapshot) {
         queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
       }
+      // A caller with its own inline conflict UI (TaskFormModal's banner, #2036)
+      // opts out of the toast so the two don't stack; rollback above still runs.
+      if (variables.suppressConflictToast && isSyncConflict(err)) return;
       // On an overlapping concurrent edit (409), surface the conflict toast with a
       // Reload action that refetches the server's current state (ADR-0217, issue 322).
       handleSyncConflict(err, () => {
