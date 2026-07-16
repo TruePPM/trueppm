@@ -702,9 +702,10 @@ describe('BoardView', () => {
     );
   });
 
-  it('cancels a Move-to move when destination is over WIP limit and user declines (#232)', () => {
+  it('cancels a Move-to move when destination is over WIP limit and user declines (#232, #2050)', () => {
     // IN_PROGRESS already has > 0 tasks; tighten its limit to make any new
-    // move push it over the threshold, then decline the confirm prompt.
+    // move push it over the threshold, then decline the styled confirm dialog
+    // (#2050 replaced the native window.confirm with a role="alertdialog").
     mockColumns = [
       { status: 'BACKLOG', label: 'BACKLOG', visible: true },
       { status: 'NOT_STARTED', label: 'TO DO', visible: true },
@@ -712,19 +713,22 @@ describe('BoardView', () => {
       { status: 'REVIEW', label: 'REVIEW', visible: true },
       { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderBoard();
     // Find a card whose status is NOT IN_PROGRESS so the move triggers the guard.
     const trigger = screen.getAllByLabelText(/Actions for /)[0];
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
     fireEvent.click(screen.getAllByRole('menuitem', { name: 'IN PROGRESS' })[0]);
-    expect(confirmSpy).toHaveBeenCalledOnce();
+    // The move is deferred behind the dialog — nothing mutates yet.
+    const dialog = screen.getByRole('alertdialog', { name: /Move past the WIP limit/i });
     expect(updateMutate).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    // Cancel-first: "Keep it here" declines and leaves the card in place.
+    fireEvent.click(within(dialog).getByRole('button', { name: /Keep it here/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(updateMutate).not.toHaveBeenCalled();
   });
 
-  it('proceeds with the move when user confirms over-WIP-limit prompt (#232)', () => {
+  it('proceeds with the move when user confirms over-WIP-limit dialog (#232, #2050)', () => {
     mockColumns = [
       { status: 'BACKLOG', label: 'BACKLOG', visible: true },
       { status: 'NOT_STARTED', label: 'TO DO', visible: true },
@@ -732,15 +736,17 @@ describe('BoardView', () => {
       { status: 'REVIEW', label: 'REVIEW', visible: true },
       { status: 'COMPLETE', label: 'DONE', visible: true },
     ];
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderBoard();
     const trigger = screen.getAllByLabelText(/Actions for /)[0];
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
     fireEvent.click(screen.getAllByRole('menuitem', { name: 'IN PROGRESS' })[0]);
-    expect(confirmSpy).toHaveBeenCalledOnce();
+    const dialog = screen.getByRole('alertdialog', { name: /Move past the WIP limit/i });
+    expect(updateMutate).not.toHaveBeenCalled();
+    // "Move anyway" confirms and issues the deferred move.
+    fireEvent.click(within(dialog).getByRole('button', { name: /Move anyway/i }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     expect(updateMutate).toHaveBeenCalledWith(expect.objectContaining({ status: 'IN_PROGRESS' }));
-    confirmSpy.mockRestore();
   });
 
   it('renders LaneMeta for each phase with add-task button (issue #208)', () => {

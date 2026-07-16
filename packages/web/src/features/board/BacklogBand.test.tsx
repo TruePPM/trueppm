@@ -168,8 +168,41 @@ describe('BacklogBand (rail)', () => {
     expect(input).toHaveAttribute('placeholder', expect.stringMatching(/Capture an idea/i));
     fireEvent.change(input, { target: { value: 'Refresh the logo' } });
     fireEvent.submit(input.closest('form')!);
-    expect(onQuickCapture).toHaveBeenCalledWith('Refresh the logo');
+    expect(onQuickCapture).toHaveBeenCalledWith('Refresh the logo', expect.any(Object));
     expect((input as HTMLInputElement).value).toBe('');
+  });
+
+  it('restores the typed idea into the field when the create fails (#2030)', () => {
+    // Simulate a failed create: invoke the onError the rail hands down. The rail
+    // optimistically cleared the field on submit; onError must put the idea back
+    // so a silent POST failure on the rapid-fire intake field never loses it.
+    const onQuickCapture = vi.fn((_name: string, opts?: { onError?: () => void }) =>
+      opts?.onError?.(),
+    );
+    renderBand({ tasks: [], onQuickCapture });
+    const input = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    fireEvent.change(input, { target: { value: 'Refresh the logo' } });
+    fireEvent.submit(input.closest('form')!);
+    expect(onQuickCapture).toHaveBeenCalledWith('Refresh the logo', expect.any(Object));
+    // The cleared field is repopulated with the lost idea.
+    expect((input as HTMLInputElement).value).toBe('Refresh the logo');
+  });
+
+  it('does not clobber the next idea if the field was refilled before the error (#2030)', () => {
+    // onError fires late (after the user started typing the next idea). The
+    // restore is gated on the field still being empty, so it must NOT overwrite.
+    let capturedOnError: (() => void) | undefined;
+    const onQuickCapture = vi.fn((_name: string, opts?: { onError?: () => void }) => {
+      capturedOnError = opts?.onError;
+    });
+    renderBand({ tasks: [], onQuickCapture });
+    const input = screen.getByRole('textbox', { name: /Capture a backlog idea/i });
+    fireEvent.change(input, { target: { value: 'First idea' } });
+    fireEvent.submit(input.closest('form')!);
+    // User has already started the next idea before the failure comes back.
+    fireEvent.change(input, { target: { value: 'Second idea' } });
+    capturedOnError?.();
+    expect((input as HTMLInputElement).value).toBe('Second idea');
   });
 
   it('does not capture a blank or whitespace-only title', () => {

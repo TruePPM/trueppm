@@ -63,16 +63,44 @@ describe('useUpdateTaskStatus (online)', () => {
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
-  it('fires an error toast when the PATCH fails (#1631)', async () => {
-    patchMock.mockRejectedValueOnce(new Error('boom'));
+  it('optimistically moves the card in the cache before the PATCH resolves (#2037)', async () => {
+    // A deferred PATCH so we can observe the cache while the request is in flight.
+    let resolvePatch: (v: { data: { id: string; status: string } }) => void = () => {};
+    patchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (resolvePatch = resolve)),
+    );
     const qc = makeQC();
+    qc.setQueryData<Task[]>(
+      ['tasks', 'p1'],
+      [{ id: 't1', name: 'Frame wall', status: 'NOT_STARTED', serverVersion: 3 } as Task],
+    );
     const { result } = renderHook(() => useUpdateTaskStatus(), { wrapper: makeWrapper(qc) });
 
-    result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'COMPLETE' });
+    result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'IN_PROGRESS' });
+
+    // The card moves instantly online — no snap-back waiting on the round-trip.
+    await waitFor(() =>
+      expect(qc.getQueryData<Task[]>(['tasks', 'p1'])?.[0].status).toBe('IN_PROGRESS'),
+    );
+    resolvePatch({ data: { id: 't1', status: 'IN_PROGRESS' } });
+  });
+
+  it('rolls the optimistic move back and toasts when the PATCH fails (#2037, #1631)', async () => {
+    patchMock.mockRejectedValueOnce(new Error('boom'));
+    const qc = makeQC();
+    qc.setQueryData<Task[]>(
+      ['tasks', 'p1'],
+      [{ id: 't1', name: 'Frame wall', status: 'NOT_STARTED', serverVersion: 3 } as Task],
+    );
+    const { result } = renderHook(() => useUpdateTaskStatus(), { wrapper: makeWrapper(qc) });
+
+    result.current.mutate({ projectId: 'p1', taskId: 't1', status: 'IN_PROGRESS' });
 
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith("Couldn't move the card — try again."),
     );
+    // The optimistic patch is reverted to the pre-move snapshot on error.
+    expect(qc.getQueryData<Task[]>(['tasks', 'p1'])?.[0].status).toBe('NOT_STARTED');
   });
 });
 
