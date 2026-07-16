@@ -93,7 +93,7 @@ describe('useUpdateWorkspaceSettings', () => {
 
     result.current.mutate({
       methodologyOverridePolicy: 'enforce',
-      mcHistoryOverridePolicy: 'lock',
+      mcHistoryOverridePolicy: 'enforce',
       attachmentsOverridePolicy: 'suggest',
       iterationLabelOverridePolicy: 'inherit',
       taskDurationChangePercentPolicy: 'prorate',
@@ -103,7 +103,7 @@ describe('useUpdateWorkspaceSettings', () => {
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
     expect(patchMock).toHaveBeenCalledWith('/workspace/', {
       methodology_override_policy: 'enforce',
-      mc_history_override_policy: 'lock',
+      mc_history_override_policy: 'enforce',
       attachments_override_policy: 'suggest',
       iteration_label_override_policy: 'inherit',
       task_duration_change_percent_policy: 'prorate',
