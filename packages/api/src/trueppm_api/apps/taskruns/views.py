@@ -86,6 +86,8 @@ class ProjectTaskRunViewSet(
 
                 current_app.control.revoke(task_run.celery_task_id, terminate=False)
             except Exception:
+                # Best-effort; if the broker is unreachable the tracker still
+                # honors the cancel key on its next update.
                 pass
 
         return Response({"detail": "Cancellation requested."}, status=status.HTTP_202_ACCEPTED)

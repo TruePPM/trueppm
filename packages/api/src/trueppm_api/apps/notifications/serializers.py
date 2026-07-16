@@ -419,6 +419,8 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         except EgressBlocked as exc:
             raise serializers.ValidationError(str(exc)) from exc
         except EgressError:
+            # Host currently unresolvable — allowed through by design; the
+            # delivery path re-checks (see block comment above).
             pass
         return value
 
