@@ -93,9 +93,18 @@ def dump_seed(payload: dict[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+# The seed schema caps every ``slug`` at 40 chars (so a program slug still fits
+# ``Program.code``). Slugs are derived from free-text titles/names, so the
+# exporter must enforce the cap itself — a risk titled longer than ~40 chars
+# would otherwise emit a slug the importer's own schema rejects (#2006).
+_MAX_SLUG_LEN = 40
+
+
 def _slugify(text: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug or "x"
+    # Truncate to the schema cap, then re-strip so a cut mid-separator can't
+    # leave a trailing "-" that violates the kebab-case pattern.
+    return slug[:_MAX_SLUG_LEN].strip("-") or "x"
 
 
 class _SlugAllocator:
@@ -109,7 +118,10 @@ class _SlugAllocator:
         candidate = base
         i = 2
         while candidate in self._used:
-            candidate = f"{base}-{i}"
+            suffix = f"-{i}"
+            # Keep the disambiguated slug within the 40-char cap by trimming the
+            # base to make room for the suffix (and re-stripping any dangling "-").
+            candidate = base[: _MAX_SLUG_LEN - len(suffix)].strip("-") + suffix
             i += 1
         self._used.add(candidate)
         return candidate
