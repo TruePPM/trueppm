@@ -6,12 +6,13 @@
  * the confirm prompt.
  */
 import { test, expect } from '@playwright/test';
+import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-wip-00000000-0000-0000-0000-000000000070';
 const BASE_URL = `/projects/${PROJECT_ID}/board`;
 
 const FIXTURE_PROJECTS = [
-  { id: PROJECT_ID, name: 'WIP Project', description: '', start_date: '2026-04-01', calendar: 'default', methodology: 'HYBRID' },
+  { id: PROJECT_ID, name: 'WIP Project', description: '', start_date: '2026-04-01', calendar: 'default', methodology: 'HYBRID', agile_features: false, estimation_mode: 'open', server_version: 1 },
 ];
 
 const FIXTURE_TASKS = [
@@ -77,90 +78,22 @@ const BOARD_CONFIG = {
 };
 
 async function setupCommon(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm-auth',
-      JSON.stringify({
-        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
-        version: 0,
-      }),
-    );
+  // Shared harness (e2e/fixtures): setupCatchAll returns 404 for any stray
+  // endpoint instead of letting it proxy to the real backend and 401 on the
+  // dummy e2e token — a 401 cascades through auth/token/refresh into the
+  // session-expired modal, which then intercepts board clicks. setupApiMocks
+  // supplies correct shapes for every board endpoint (tasks, members?self,
+  // board-config, monte-carlo/latest, ws/ticket, notifications, sprints, …).
+  await setupAuth(page);
+  await setupCatchAll(page);
+  await setupApiMocks(page, {
+    projects: FIXTURE_PROJECTS,
+    projectId: PROJECT_ID,
+    tasks: FIXTURE_TASKS,
+    boardConfig: BOARD_CONFIG,
+    statusSummary: { task_count: FIXTURE_TASKS.length },
+    overview: { total_tasks: FIXTURE_TASKS.length, start_date: '2026-04-01' },
   });
-
-  await page.route('**/api/v1/projects/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...FIXTURE_PROJECTS[0], server_version: 1, calendar: null, estimation_mode: 'open', agile_features: false }) }),
-  );
-  await page.route(/\/api\/v1\/tasks\//, (route) => {
-    if (route.request().method() === 'PATCH') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'task-c', status: 'IN_PROGRESS' }) });
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS }) });
-  });
-  await page.route('**/api/v1/calendars/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route('**/api/v1/dependencies/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/board-config/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(BOARD_CONFIG) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/board-views/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
-  await page.route('**/api/v1/projects/*/presence/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
-  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
-    route.fulfill({
-      status: 200, contentType: 'application/json',
-      body: JSON.stringify({
-        task_count: FIXTURE_TASKS.length, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
-      }),
-    }),
-  );
-  await page.route('**/api/v1/edition/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
-  );
-  await page.route('**/api/v1/auth/me/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'e2e-user', username: 'e2e', display_name: 'E2E', initials: 'E', email: 'e2e@example.com' }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 300 }]) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/risks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/resource-allocation/**`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ resources: [], window_start: '2026-04-01', window_end: '2026-04-30', unassigned_task_count: 0 }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: FIXTURE_TASKS.length, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-04-01' }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
-  );
-  await page.route('**/api/v1/projects/*/workshop/current/', (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
-  );
-  await page.route('**/api/v1/sprints/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route('**/api/v1/me/active-sprints/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
 }
 
 test.describe('Wave 10 — WIP-limit overload detection', () => {
@@ -180,25 +113,13 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
     await expect(page.getByText(/2\/1 — over WIP limit/i)).toBeVisible();
   });
 
-  test('move-to triggers a confirm prompt and cancels when user declines', async ({ page }) => {
+  test('move-to a WIP-breached column shows a styled confirm; declining cancels the move (#2050)', async ({ page }) => {
     await setupCommon(page);
-    let dialogShown = false;
-    // Resolve a promise once the dialog has been observed AND dismissed,
-    // instead of sleeping a fixed window afterward. The confirm/cancel path
-    // (confirmWipMove) is synchronous, so by the time `dismiss()` resolves
-    // the app has already decided not to call mutate() — polling for a
-    // signal that may never fire (no PATCH) can't tell us anything a sleep
-    // couldn't, but this ties the wait to the actual dialog lifecycle rather
-    // than a guessed duration.
-    let resolveDialogHandled: () => void;
-    const dialogHandled = new Promise<void>((resolve) => {
-      resolveDialogHandled = resolve;
-    });
-    page.on('dialog', async (dlg) => {
-      dialogShown = true;
-      expect(dlg.message()).toMatch(/at its WIP limit/i);
-      await dlg.dismiss();
-      resolveDialogHandled();
+    // A native window.confirm would surface as a page 'dialog' event; the #2050
+    // fix replaces it with a styled role="alertdialog", so a fired native dialog
+    // is now a regression. Fail loudly if one appears.
+    page.on('dialog', (dlg) => {
+      throw new Error(`Unexpected native dialog: ${dlg.message()}`);
     });
 
     let patchCalled = false;
@@ -218,8 +139,43 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
     await page.getByRole('menuitem', { name: /^Move to/i }).click();
     await page.getByRole('menuitem', { name: /In Progress/i }).click();
 
-    await dialogHandled;
-    expect(dialogShown).toBe(true);
+    // The styled alertdialog names the column and its breached limit.
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(/at or over its WIP limit \(2\/1\)/i);
+    // Cancel-first: "Keep it here" is the safe default and cancels the move.
+    await dialog.getByRole('button', { name: /Keep it here/i }).click();
+    await expect(dialog).toHaveCount(0);
     expect(patchCalled).toBe(false);
+  });
+
+  test('confirming the WIP-breach dialog completes the move (#2050)', async ({ page }) => {
+    await setupCommon(page);
+    page.on('dialog', (dlg) => {
+      throw new Error(`Unexpected native dialog: ${dlg.message()}`);
+    });
+
+    let patchStatus: string | null = null;
+    await page.route('**/api/v1/tasks/task-c/', (route) => {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON() as { status?: string };
+        patchStatus = body.status ?? null;
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'task-c', status: 'IN_PROGRESS' }) });
+      }
+      return route.continue();
+    });
+
+    await page.goto(BASE_URL);
+
+    const trigger = page.getByLabel(/Actions for Draft FAT plan/i);
+    await trigger.click();
+    await page.getByRole('menuitem', { name: /^Move to/i }).click();
+    await page.getByRole('menuitem', { name: /In Progress/i }).click();
+
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /Move anyway/i }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect.poll(() => patchStatus).toBe('IN_PROGRESS');
   });
 });

@@ -4,7 +4,11 @@ import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast/toast';
 import type { TaskStatus } from '@/types';
 import { queueOfflineCardStatus } from '@/features/board/offline/useBoardOffline';
-import type { CardStatusVars } from '@/features/board/offline/cardStatusQueue';
+import {
+  optimisticStatusPatch,
+  type CardStatusVars,
+} from '@/features/board/offline/cardStatusQueue';
+import type { Task } from '@/types';
 
 /** The move a caller requests — `useUpdateTaskStatus().mutate(vars)`. */
 type UpdateTaskStatusVars = CardStatusVars;
@@ -44,15 +48,33 @@ export function useUpdateTaskStatus(): UpdateTaskStatusHandle {
       );
       return res.data;
     },
+    // Optimistically move the card in the ['tasks'] cache so the drop lands
+    // instantly online, matching the offline queue's snappy behavior (#2037).
+    // Without this the card sat in the source column for the full PATCH +
+    // invalidate + refetch round-trip — a visible snap-back-then-jump on every
+    // drag. Mirrors useUpdateTask's optimistic pattern (#965) and reuses the
+    // exact patch shape the offline path applies (optimisticStatusPatch).
+    onMutate: async (vars) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks', vars.projectId] });
+      const snapshot = queryClient.getQueryData<Task[]>(['tasks', vars.projectId]);
+      const patch = optimisticStatusPatch(vars);
+      queryClient.setQueryData<Task[]>(
+        ['tasks', vars.projectId],
+        (old) => old?.map((t) => (t.id === vars.taskId ? { ...t, ...patch } : t)) ?? [],
+      );
+      return { snapshot };
+    },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: ['tasks', variables.projectId],
       });
     },
-    // The card position is driven by the ['tasks'] cache, which is only
-    // invalidated on success — so a failed move reverts the card silently. Fire
-    // an explicit error toast so the user knows the move did not stick (issue 1631).
-    onError: () => {
+    // Roll the optimistic patch back to the pre-move snapshot, then surface an
+    // explicit toast so the user knows the move did not stick (issue 1631).
+    onError: (_err, variables, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData(['tasks', variables.projectId], context.snapshot);
+      }
       toast.error("Couldn't move the card — try again.");
     },
   });

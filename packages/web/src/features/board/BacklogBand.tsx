@@ -401,8 +401,12 @@ export interface BacklogBandProps {
   /** Quick capture (#1973) — type a title in the top field and press Enter to
    *  create a BACKLOG idea inline, no modal. The rail clears the field and keeps
    *  focus for rapid successive intake. When omitted, the capture field is not
-   *  rendered (the rail falls back to the "Add with details…" button only). */
-  onQuickCapture?: (name: string) => void;
+   *  rendered (the rail falls back to the "Add with details…" button only).
+   *
+   *  `opts.onError` is invoked if the create fails, so the rail can restore the
+   *  typed idea it optimistically cleared (#2030) — a silent POST failure on a
+   *  rapid-fire intake field otherwise loses the idea with no trace. */
+  onQuickCapture?: (name: string, opts?: { onError?: () => void }) => void;
   /** True while a quick-capture create is in flight — disables the field. */
   isQuickCapturePending?: boolean;
   /** Called when the user clicks "Add with details…" — opens the full add-task
@@ -494,11 +498,17 @@ export function BacklogBand({
     if (!onQuickCapture || isQuickCapturePending) return;
     const name = captureDraft.trim();
     if (name === '') return;
-    onQuickCapture(name);
-    // Clear and keep focus so successive ideas can be captured without reaching
-    // for the mouse — the whole point of an intake field.
+    // Clear and keep focus first so successive ideas can be captured without
+    // reaching for the mouse — the whole point of an intake field — and so an
+    // onError (even a synchronous one) already sees the emptied field.
     setCaptureDraft('');
     captureInputRef.current?.focus();
+    onQuickCapture(name, {
+      // Restore the idea we optimistically cleared if the create fails (#2030),
+      // but only when the field is still empty — never clobber the next idea the
+      // user has already started typing on this rapid-fire intake field.
+      onError: () => setCaptureDraft((cur) => (cur === '' ? name : cur)),
+    });
   }, [onQuickCapture, isQuickCapturePending, captureDraft]);
 
   // Live client-side filter (issue 1609). The rail owns the query string; the

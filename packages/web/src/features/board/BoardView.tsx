@@ -101,6 +101,7 @@ import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { BacklogDrawer } from './BacklogDrawer';
 import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
+import { WipLimitConfirmDialog } from './WipLimitConfirmDialog';
 import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { BoardFilterControl, BoardFilterChips } from './BoardFilterControl';
@@ -498,30 +499,35 @@ function ColumnStub({
   );
 }
 
+/** WIP-limit breach details for a pending move, or `null` when the destination
+ *  is under its limit (or has none configured). */
+export interface WipBreach {
+  label: string;
+  count: number;
+  limit: number;
+}
+
 /**
- * Confirm-prompt guard for moving a task into a column at or over its WIP
- * limit (#232). Returns ``true`` when the move should proceed (under limit
- * or user confirmed) and ``false`` when it should be cancelled.
+ * Compute whether moving one card into `newStatus` would push that column past
+ * its WIP limit (#232). Returns the breach details (column label + current
+ * count + limit) to feed the confirm dialog, or ``null`` when the move is under
+ * the limit or the column has no limit.
  *
- * Uses the native ``window.confirm`` rather than a custom modal — the spec
- * is explicit about a "warning prompt" and the lighter pattern keeps board
- * drag flows responsive. Skips silently when ``window`` isn't available
- * (vitest jsdom + e2e environments both expose it; the guard is defensive).
+ * Replaces the old ``confirmWipMove`` native ``window.confirm`` (#2050): the
+ * caller now defers the move behind a styled ``role="alertdialog"`` instead of a
+ * browser-chrome prompt fired mid-drop.
  */
-function confirmWipMove(
+function wipBreachInfo(
   columns: { status: TaskStatus; label: string; wipLimit: number | null }[],
   countByStatus: Record<string, number>,
   newStatus: TaskStatus,
-): boolean {
+): WipBreach | null {
   const col = columns.find((c) => c.status === newStatus);
   const limit = col?.wipLimit;
-  if (!limit) return true;
-  const projected = (countByStatus[newStatus] ?? 0) + 1;
-  if (projected <= limit) return true;
-  if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
-  return window.confirm(
-    `This column is at its WIP limit (${countByStatus[newStatus] ?? 0}/${limit}). Move anyway?`,
-  );
+  if (!limit) return null;
+  const count = countByStatus[newStatus] ?? 0;
+  if (count + 1 <= limit) return null;
+  return { label: col?.label ?? newStatus, count, limit };
 }
 
 // ---------------------------------------------------------------------------
@@ -2409,6 +2415,16 @@ export function BoardView() {
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
   const [backlogDemoteCandidate, setBacklogDemoteCandidate] = useState<Task | null>(null);
 
+  // Deferred WIP-breach move (#2050) — when a drop / keyboard move would push a
+  // column past its WIP limit, the move is stashed here behind a styled
+  // alertdialog instead of a native window.confirm fired mid-gesture. `perform`
+  // is the full move (mutate + aria-live + drop notice) executed on confirm.
+  const [wipMoveCandidate, setWipMoveCandidate] = useState<{
+    breach: WipBreach;
+    taskName: string;
+    perform: () => void;
+  } | null>(null);
+
   // Keyboard "Schedule…" dialog (#318, rule 135) — opened from a BacklogCard's
   // ··· action. Single instance like BacklogDemoteConfirmDialog. The trigger
   // ref returns focus to the originating ··· button on close.
@@ -2468,7 +2484,12 @@ export function BoardView() {
 
   const handleAddPhase = useCallback(() => {
     const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
-    createTask.mutate({ name, duration: 0, parent_id: null });
+    createTask.mutate(
+      { name, duration: 0, parent_id: null },
+      // The create is fire-and-forget; without this a failed POST added nothing
+      // to the board and told the user nothing (#2030).
+      { onError: () => toast.error(`Couldn't add ${name} — try again.`) },
+    );
   }, [createTask, phases]);
 
   // Keep phaseOrder in sync with server data; only reset when the phase set changes.
@@ -2781,50 +2802,57 @@ export function BoardView() {
         }
         return;
       }
-      // WIP-limit guard (#232): if the destination column is at or over its
-      // limit and the task isn't already in that column, prompt before moving.
-      if (
-        showWip &&
-        newStatus !== activeTask.status &&
-        !confirmWipMove(COLUMNS, totalByStatus, newStatus as TaskStatus)
-      ) {
-        return;
-      }
       // Sprint view drag-to-assign (#429): dropping a card into a phase while
       // scoped to a PLANNED/ACTIVE sprint it isn't yet in assigns it to that
       // sprint. The backend auto-sets sprint_pending for an ACTIVE sprint
       // (ADR-0102 post-activation injection); PLANNED links are part of the
       // commitment baseline with no pending gate. A COMPLETED sprint view is
       // read-only for assignment — we never back-date scope into a closed sprint.
+      // Computed ahead of the WIP guard so both the immediate and the
+      // deferred-confirm paths share one move definition.
       const assignSprintId =
         selectedSprint &&
         (selectedSprint.state === 'ACTIVE' || selectedSprint.state === 'PLANNED') &&
         activeTask.sprintId !== selectedSprint.id
           ? selectedSprint.id
           : undefined;
-      updateStatus.mutate({
-        projectId,
-        taskId: activeTask.id,
-        status: newStatus as TaskStatus,
-        ...(phaseChanged ? { parentId: newPhaseId } : {}),
-        ...(assignSprintId ? { sprintId: assignSprintId } : {}),
-      });
-      if (ariaLiveRef.current) {
-        const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
-        const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
-        const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
-        ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}${reassignNote}`;
-      }
-      // Scope-injection drop toast (#1140): only an ACTIVE-sprint assignment
-      // creates a pending scope-change (ADR-0102 post-activation injection). A
-      // PLANNED-sprint link is part of the commitment baseline (no pending
-      // gate), and a plain status move assigns nothing — neither toasts.
-      if (assignSprintId && selectedSprint?.state === 'ACTIVE') {
-        setDropNotice({
-          key: Date.now(),
-          text: `Added to ${iterationLabel.singular} ${selectedSprint.name} as pending scope — awaiting acceptance.`,
+      const performMove = () => {
+        updateStatus.mutate({
+          projectId,
+          taskId: activeTask.id,
+          status: newStatus as TaskStatus,
+          ...(phaseChanged ? { parentId: newPhaseId } : {}),
+          ...(assignSprintId ? { sprintId: assignSprintId } : {}),
         });
+        if (ariaLiveRef.current) {
+          const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
+          const intoSprint = assignSprintId ? ` and added to ${selectedSprint?.name}` : '';
+          const reassignNote = reassignDeferred ? ' — reassign from the card' : '';
+          ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}${intoSprint}${reassignNote}`;
+        }
+        // Scope-injection drop toast (#1140): only an ACTIVE-sprint assignment
+        // creates a pending scope-change (ADR-0102 post-activation injection). A
+        // PLANNED-sprint link is part of the commitment baseline (no pending
+        // gate), and a plain status move assigns nothing — neither toasts.
+        if (assignSprintId && selectedSprint?.state === 'ACTIVE') {
+          setDropNotice({
+            key: Date.now(),
+            text: `Added to ${iterationLabel.singular} ${selectedSprint.name} as pending scope — awaiting acceptance.`,
+          });
+        }
+      };
+      // WIP-limit guard (#232, #2050): if the destination column is at or over
+      // its limit and the task isn't already there, defer the move behind a
+      // styled confirm dialog instead of a native window.confirm mid-drop.
+      const breach =
+        showWip && newStatus !== activeTask.status
+          ? wipBreachInfo(COLUMNS, totalByStatus, newStatus as TaskStatus)
+          : null;
+      if (breach) {
+        setWipMoveCandidate({ breach, taskName: activeTask.name, perform: performMove });
+        return;
       }
+      performMove();
     },
     [
       activeTask,
@@ -2856,18 +2884,25 @@ export function BoardView() {
       // sprint can never be mutated regardless of which affordance triggers the
       // move — the banner alone was purely cosmetic (issue 1512).
       if (readOnly) return;
-      if (
-        showWip &&
-        newStatus !== task.status &&
-        !confirmWipMove(COLUMNS, totalByStatus, newStatus)
-      ) {
+      const performMove = () => {
+        updateStatus.mutate({ projectId, taskId: task.id, status: newStatus });
+        if (ariaLiveRef.current) {
+          const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
+          ariaLiveRef.current.textContent = `${task.name} moved to ${colLabel}`;
+        }
+      };
+      // WIP-limit guard (#232, #2050): defer past-limit moves behind the styled
+      // confirm dialog — the keyboard Move-to path is a second write into the
+      // same mutation, so it needs the same non-native prompt as drag-end.
+      const breach =
+        showWip && newStatus !== task.status
+          ? wipBreachInfo(COLUMNS, totalByStatus, newStatus)
+          : null;
+      if (breach) {
+        setWipMoveCandidate({ breach, taskName: task.name, perform: performMove });
         return;
       }
-      updateStatus.mutate({ projectId, taskId: task.id, status: newStatus });
-      if (ariaLiveRef.current) {
-        const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
-        ariaLiveRef.current.textContent = `${task.name} moved to ${colLabel}`;
-      }
+      performMove();
     },
     [projectId, updateStatus, COLUMNS, showWip, totalByStatus, readOnly],
   );
@@ -2891,10 +2926,21 @@ export function BoardView() {
   // The richer path (assignee, description) stays on the "Add with details…"
   // button, which opens the full modal via handleAddTask above.
   const handleQuickCaptureBacklog = useCallback(
-    (name: string) => {
+    (name: string, opts?: { onError?: () => void }) => {
       const trimmed = name.trim();
       if (!trimmed || !projectId) return;
-      createTask.mutate({ name: trimmed, duration: 0, status: 'BACKLOG', parent_id: null });
+      createTask.mutate(
+        { name: trimmed, duration: 0, status: 'BACKLOG', parent_id: null },
+        {
+          // Rapid-fire intake clears the field optimistically; if the POST fails
+          // the idea is gone with no trace. Surface it and let the rail restore
+          // the typed text into the input (#2030).
+          onError: () => {
+            toast.error(`Couldn't add "${trimmed}" — try again.`);
+            opts?.onError?.();
+          },
+        },
+      );
     },
     [createTask, projectId],
   );
@@ -4047,6 +4093,23 @@ export function BoardView() {
             if (ariaLiveRef.current) {
               ariaLiveRef.current.textContent = `${target.name} moved to Backlog`;
             }
+          }}
+        />
+      )}
+
+      {/* WIP-limit breach confirm (#232, #2050) — replaces a native window.confirm
+          fired mid-drop. Cancel-first: dismissing keeps the card in place. */}
+      {wipMoveCandidate && (
+        <WipLimitConfirmDialog
+          taskName={wipMoveCandidate.taskName}
+          columnLabel={wipMoveCandidate.breach.label}
+          count={wipMoveCandidate.breach.count}
+          limit={wipMoveCandidate.breach.limit}
+          onCancel={() => setWipMoveCandidate(null)}
+          onConfirm={() => {
+            const perform = wipMoveCandidate.perform;
+            setWipMoveCandidate(null);
+            perform();
           }}
         />
       )}
