@@ -110,7 +110,12 @@ function MiniGantt() {
 }
 
 export function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [searchParams] = useSearchParams();
+  // After accepting a workspace invite (#2035) the user arrives here with their
+  // just-set username pre-filled and a one-shot `welcome` flag, so they land on a
+  // sign-in form that already knows who they are rather than a blank dead-end.
+  const justAccepted = searchParams.get('welcome') === '1';
+  const [email, setEmail] = useState(() => searchParams.get('u') ?? '');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +134,6 @@ export function LoginPage() {
 
   const setAccessToken = useAuthStore((s) => s.setAccessToken);
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -226,6 +230,17 @@ export function LoginPage() {
             Sign in to keep your launch on schedule.
           </p>
         </div>
+
+        {/* Post-invite welcome banner (#2035) — confirms the account is ready so
+            the redirect from the invite screen reads as a success, not a bounce. */}
+        {justAccepted && (
+          <div
+            role="status"
+            className="rounded border border-semantic-on-track bg-semantic-on-track-bg p-3 text-sm text-neutral-text-primary"
+          >
+            Your account is ready. Sign in to get started.
+          </div>
+        )}
 
         {/* Form */}
         <form
