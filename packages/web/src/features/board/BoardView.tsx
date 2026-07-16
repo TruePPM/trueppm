@@ -477,7 +477,7 @@ function ColumnStub({
       }${hasMyCards ? `, contains ${myCardCount} of your card${myCardCount !== 1 ? 's' : ''}` : ''}`}
       className={`h-full w-full py-2.5 flex flex-col items-center gap-2 bg-neutral-surface-sunken
         hover:bg-neutral-surface transition-colors
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset${
+        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset${
           hasMyCards ? ' border-l-2 border-l-brand-primary' : ''
         }`}
     >
@@ -1035,7 +1035,7 @@ function PhaseLaneImpl({
       onKeyDown={handleKeyDown}
       title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
-        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
+        focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
       aria-expanded={!collapsed}
       aria-controls={`phase-${phase.id}-content`}
       aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}
@@ -1061,7 +1061,7 @@ function PhaseLaneImpl({
         focused
           ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
           : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:border-brand-primary/50 hover:text-brand-primary',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+        'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
         // 22px visual control + an invisible expander to reach the 44px touch
         // target (rule 5) without disturbing the dense lane-meta layout.
         "before:absolute before:inset-[-11px] before:content-['']",
@@ -1152,8 +1152,8 @@ function PhaseLaneImpl({
                 aria-label={`Expand ${col.label} column`}
                 data-testid={`lane-stub-${phase.id}-${col.status}`}
                 className="bg-neutral-surface-sunken/60 border-l border-neutral-border
-                  hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2
-                  focus-visible:ring-brand-primary focus-visible:ring-inset"
+                  hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2
+                  focus:ring-brand-primary focus:ring-inset"
               >
                 {count > 0 && (
                   <span className="sr-only">
@@ -3295,7 +3295,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => myTasksFilter.setEnabled(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
+                  focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -3317,7 +3317,7 @@ export function BoardView() {
                 type="button"
                 onClick={() => setDebtOnly(false)}
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
+                  focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
               >
                 Show all →
               </button>
@@ -3373,7 +3373,7 @@ export function BoardView() {
                 onClick={exitFocusLane}
                 data-testid="exit-focus"
                 className="ml-1 underline hover:no-underline
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+                  focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
               >
                 Exit focus →
               </button>
@@ -3429,7 +3429,7 @@ export function BoardView() {
                         aria-label="Expand columns containing your cards"
                         className="min-h-[44px] md:min-h-0 underline hover:no-underline
                           text-neutral-text-secondary hover:text-brand-primary
-                          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+                          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
                       >
                         {myHiddenCount} of your card{myHiddenCount !== 1 ? 's' : ''} hidden
                       </button>
@@ -3445,7 +3445,7 @@ export function BoardView() {
                       aria-controls="collapsed-wip-popover"
                       data-testid="collapsed-wip-trigger"
                       className={`flex items-center gap-1 px-1.5 py-px rounded-chip border font-medium
-                        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none ${
+                        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none ${
                           worstOver
                             ? 'border-semantic-critical/40 bg-semantic-critical-bg text-semantic-critical'
                             : 'border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk'
@@ -3463,7 +3463,7 @@ export function BoardView() {
                     onClick={expandAllColumns}
                     data-testid="expand-all-columns"
                     className="ml-auto underline hover:no-underline text-brand-primary
-                      focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-control"
+                      focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-control"
                   >
                     Expand all →
                   </button>
@@ -3492,7 +3492,7 @@ export function BoardView() {
                                 band === 'over' ? 'over limit' : 'at limit'
                               }`}
                               className="w-full flex items-center gap-2 px-1.5 py-1 rounded-control text-left
-                                hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:outline-none"
+                                hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-inset focus:outline-none"
                             >
                               <span
                                 aria-hidden="true"
@@ -3537,7 +3537,7 @@ export function BoardView() {
                 data-testid="board-zero-match-clear"
                 className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
                   text-brand-primary font-medium hover:bg-brand-primary/10
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                  focus:ring-2 focus:ring-brand-primary focus:outline-none"
               >
                 Clear filters
               </button>
@@ -3805,7 +3805,7 @@ export function BoardView() {
                               data-testid={`collapse-column-${col.status}`}
                               className="relative flex-shrink-0 w-[18px] h-[18px] flex items-center justify-center rounded-control
                               text-neutral-text-disabled hover:text-brand-primary hover:bg-brand-primary/10
-                              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                               before:absolute before:inset-[-13px] before:content-['']"
                             >
                               <svg
@@ -3939,7 +3939,7 @@ export function BoardView() {
                                   className="border border-brand-primary/40 rounded-control px-4 py-2 text-sm
                               text-brand-primary font-medium
                               hover:bg-brand-primary/10 disabled:opacity-50
-                              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                              focus:ring-2 focus:ring-brand-primary focus:outline-none"
                                 >
                                   {createTask.isPending ? 'Adding…' : '+ Add Phase'}
                                 </button>
@@ -3960,7 +3960,7 @@ export function BoardView() {
                             text-neutral-text-secondary hover:border-brand-primary/40
                             hover:text-brand-primary
                             hover:bg-brand-primary/5 disabled:opacity-50
-                            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                            focus:ring-2 focus:ring-brand-primary focus:outline-none"
                               >
                                 {createTask.isPending ? 'Adding…' : '+ Add Phase'}
                               </button>
@@ -3984,7 +3984,7 @@ export function BoardView() {
                               className="border border-brand-primary/40 rounded-control px-3 py-1.5 text-xs
                           text-brand-primary font-medium
                           hover:bg-brand-primary/10
-                          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                          focus:ring-2 focus:ring-brand-primary focus:outline-none"
                             >
                               Show all tasks
                             </button>
@@ -4067,8 +4067,8 @@ export function BoardView() {
           className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
             border border-brand-primary-dark text-white flex items-center justify-center
             text-2xl font-light md:hidden z-10
-            focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2
-            focus-visible:ring-offset-brand-primary"
+            focus:ring-2 focus:ring-white focus:ring-offset-2
+            focus:ring-offset-brand-primary"
           aria-label="Add task"
         >
           +
@@ -4332,7 +4332,7 @@ export function BoardView() {
                 }}
                 className="border border-neutral-border rounded-control px-3 py-1.5 text-xs
                   text-neutral-text-primary hover:bg-neutral-surface-raised
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                  focus:ring-2 focus:ring-brand-primary focus:outline-none"
               >
                 Cancel
               </button>
@@ -4350,7 +4350,7 @@ export function BoardView() {
                 }}
                 className="border border-semantic-critical/40 rounded-control px-3 py-1.5 text-xs
                   text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50
-                  focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:outline-none"
+                  focus:ring-2 focus:ring-semantic-critical focus:outline-none"
               >
                 {endWorkshop.isPending ? 'Ending…' : 'End Workshop'}
               </button>

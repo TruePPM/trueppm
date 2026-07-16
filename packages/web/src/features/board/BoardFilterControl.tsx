@@ -56,7 +56,7 @@ function Chip({ label, onRemove, removeAria }: { label: string; onRemove: () => 
         onClick={onRemove}
         aria-label={removeAria}
         className="leading-none rounded-full hover:bg-brand-primary/20 w-4 h-4 inline-flex items-center justify-center
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          focus:ring-2 focus:ring-brand-primary focus:outline-none"
       >
         <span aria-hidden="true">✕</span>
       </button>
@@ -137,7 +137,7 @@ export function BoardFilterChips({
         onClick={onClearAll}
         data-testid="board-filter-chips-clear"
         className="ml-auto underline hover:no-underline flex-shrink-0
-          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control"
+          focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control"
       >
         Clear all →
       </button>
@@ -256,7 +256,7 @@ export function BoardFilterControl({
         data-testid="board-filter-trigger"
         className={[
           'inline-flex items-center gap-1 rounded-full text-xs px-2.5 py-1 relative',
-          'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none',
+          'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none',
           count > 0 || open
             ? 'bg-brand-primary/10 text-brand-primary'
             : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
@@ -295,7 +295,7 @@ export function BoardFilterControl({
               data-testid="board-filter-clear-all"
               className="text-xs text-brand-primary underline hover:no-underline
                 disabled:text-neutral-text-disabled disabled:no-underline disabled:cursor-default
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded-control px-1"
+                focus:ring-2 focus:ring-brand-primary focus:outline-none rounded-control px-1"
             >
               Clear all
             </button>

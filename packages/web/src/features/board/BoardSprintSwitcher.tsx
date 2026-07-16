@@ -109,7 +109,7 @@ export function BoardSprintSwitcher({
         aria-label={selected ? `${itl.singular} view: ${selected.name}` : 'Board scope: Project'}
         className={[
           'inline-flex h-7 items-center gap-1 rounded-control border px-2 text-xs font-medium',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
           selected
             ? 'border-brand-primary/40 bg-brand-primary/5 text-brand-primary'
             : 'border-neutral-border bg-neutral-surface text-neutral-text-primary hover:bg-neutral-surface-raised',
@@ -134,8 +134,8 @@ export function BoardSprintSwitcher({
             aria-checked={!selectedSprintId}
             onClick={() => choose(null)}
             className="flex w-full items-center justify-between px-3 py-2 text-left text-sm
-              hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised
-              focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+              hover:bg-neutral-surface-raised focus:outline-none focus:bg-neutral-surface-raised
+              focus:ring-2 focus:ring-inset focus:ring-brand-primary"
           >
             <span className="font-medium text-neutral-text-primary">All tasks (project)</span>
             {!selectedSprintId && <span aria-hidden="true">✓</span>}
@@ -164,8 +164,8 @@ export function BoardSprintSwitcher({
                 aria-checked={isSel}
                 onClick={() => choose(s.id)}
                 className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-sm
-                  hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:bg-neutral-surface-raised
-                  focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+                  hover:bg-neutral-surface-raised focus:outline-none focus:bg-neutral-surface-raised
+                  focus:ring-2 focus:ring-inset focus:ring-brand-primary"
               >
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5">
@@ -197,8 +197,8 @@ export function BoardSprintSwitcher({
               aria-expanded={showAll}
               className="flex w-full items-center px-3 py-2 text-left text-xs font-medium
                 text-brand-primary hover:bg-neutral-surface-raised
-                focus-visible:outline-none focus-visible:bg-neutral-surface-raised
-                focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
+                focus:outline-none focus:bg-neutral-surface-raised
+                focus:ring-2 focus:ring-inset focus:ring-brand-primary"
             >
               {showAll ? 'Show fewer' : `Show all sprints (${hidden.length})`}
             </button>

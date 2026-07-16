@@ -238,7 +238,7 @@ function ScheduleAction({
       }}
       className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded-control
         text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
     >
       <span aria-hidden="true" className="leading-none">···</span>
     </button>
@@ -280,7 +280,7 @@ export function BacklogCard({
           onClick={(e) => onClick(e.currentTarget)}
           {...attributes}
           {...listeners}
-          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
+          className={`flex w-full items-center gap-2 rounded-control border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
         >
           <PriorityDot rank={task.priorityRank} />
           <span
@@ -308,7 +308,7 @@ export function BacklogCard({
         onClick={(e) => onClick(e.currentTarget)}
         {...attributes}
         {...listeners}
-        className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
+        className={`flex w-full flex-col gap-1.5 rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus:outline-none ${focusRing} ${dragOpacity}`}
         style={{ borderLeft: `3px solid ${phaseColor}` }}
       >
         <div className="flex items-center gap-1.5">
@@ -532,7 +532,7 @@ export function BacklogBand({
         className={[
           'flex flex-col items-center gap-3 py-4 cursor-pointer',
           'border-r border-neutral-border bg-neutral-surface-raised',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
+          'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
           overTint ? 'bg-brand-primary/5' : '',
         ].join(' ')}
         style={{ width: 44, flexShrink: 0 }}
@@ -588,7 +588,7 @@ export function BacklogBand({
           aria-label="Collapse backlog rail"
           title="Collapse"
           className="inline-flex items-center justify-center rounded-control border border-neutral-border bg-neutral-surface text-neutral-text-secondary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           style={{ width: 24, height: 24 }}
         >
           ‹
@@ -665,7 +665,7 @@ export function BacklogBand({
                 aria-label="Clear backlog search"
                 title="Clear search"
                 className="inline-flex items-center justify-center rounded-control text-neutral-text-disabled
-                  hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
                 style={{ width: 16, height: 16, lineHeight: 0 }}
               >
                 <span aria-hidden="true">×</span>
@@ -678,7 +678,7 @@ export function BacklogBand({
                 aria-label="Open command palette to search everything"
                 title="Open command palette (⌘K)"
                 className="tppm-mono text-xs text-neutral-text-disabled hover:text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-0.5"
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-0.5"
               >
                 ⌘K
               </button>
@@ -720,7 +720,7 @@ export function BacklogBand({
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="not-italic font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control px-1"
+              className="not-italic font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-control px-1"
             >
               Clear search
             </button>
@@ -754,7 +754,7 @@ export function BacklogBand({
           aria-busy={isCaptureIdeaPending}
           className="mt-1.5 flex items-center justify-center gap-1.5 rounded-control border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
             hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           style={{ height: 36 }}
         >
           <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>

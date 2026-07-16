@@ -1137,7 +1137,7 @@ export function TaskFormModal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="w-8 h-8 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none shrink-0"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none shrink-0"
         >
           <span aria-hidden="true">×</span>
         </button>
@@ -1152,7 +1152,7 @@ export function TaskFormModal({
           <button
             type="button"
             onClick={onClose}
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
           >
             Close
           </button>
@@ -1168,7 +1168,7 @@ export function TaskFormModal({
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
               disabled={isPending || deleteTask.isPending}
-              className="text-[13px] text-semantic-critical hover:bg-semantic-critical/5 px-2 py-1 rounded-control focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+              className="text-[13px] text-semantic-critical hover:bg-semantic-critical/5 px-2 py-1 rounded-control focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1 focus:outline-none disabled:opacity-50"
               aria-haspopup="dialog"
             >
               Delete task
@@ -1193,7 +1193,7 @@ export function TaskFormModal({
               }
             }}
             disabled={isPending}
-            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+            className="h-8 md:h-8 min-h-11 md:min-h-0 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-50"
           >
             Cancel
           </button>

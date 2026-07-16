@@ -98,7 +98,7 @@ export function EpicHeader({
           aria-label={`Edit epic ${epic.name}`}
           // Sole open/edit affordance for the row → meets the 44px touch target (rule 207);
           // negative margin keeps the visual header height compact while widening the hit area.
-          className="-my-1.5 inline-flex min-h-[44px] items-center rounded-control px-1 text-left text-sm font-semibold text-neutral-text-primary hover:text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="-my-1.5 inline-flex min-h-[44px] items-center rounded-control px-1 text-left text-sm font-semibold text-neutral-text-primary hover:text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           {epic.name}
         </button>
@@ -139,7 +139,7 @@ export function EpicHeader({
                 const rect = e.currentTarget.getBoundingClientRect();
                 setMenuAnchor({ x: rect.left, y: rect.bottom });
               }}
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             >
               ⋯
             </button>

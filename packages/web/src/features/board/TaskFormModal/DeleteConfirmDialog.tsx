@@ -59,7 +59,7 @@ export function DeleteConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={isPending}
-            className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
+            className="h-8 px-3 rounded-control border border-neutral-border bg-transparent text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-50"
           >
             Cancel
           </button>
@@ -67,7 +67,7 @@ export function DeleteConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={isPending}
-            className="h-8 px-3 rounded-control bg-semantic-critical text-white text-[13px] font-medium border-none hover:bg-semantic-critical/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-semantic-critical focus-visible:outline-none disabled:opacity-50"
+            className="h-8 px-3 rounded-control bg-semantic-critical text-white text-[13px] font-medium border-none hover:bg-semantic-critical/90 focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-semantic-critical focus:outline-none disabled:opacity-50"
           >
             {isPending ? 'Deleting…' : 'Delete'}
           </button>

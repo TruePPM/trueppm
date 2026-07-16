@@ -470,7 +470,7 @@ function BoardCardImpl({
               // worst-offender badge on this card).
               'relative shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
               "before:absolute before:inset-[-12px] before:content-['']",
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
               isBlocked
                 ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                 : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
@@ -499,7 +499,7 @@ function BoardCardImpl({
               // worst-offender badge on this card).
               'relative shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded-chip text-xs border font-medium',
               "before:absolute before:inset-[-12px] before:content-['']",
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
               riskChipToneClass(linkedRisksMaxSeverity),
             ].join(' ')}
             aria-label={
@@ -527,8 +527,8 @@ function BoardCardImpl({
         }}
         className="relative before:absolute before:inset-[-10px] before:content-[''] w-6 h-6 flex items-center justify-center rounded-control text-neutral-text-secondary
           hover:bg-neutral-surface-raised opacity-0 group-hover:opacity-100 max-md:opacity-100
-          focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1"
+          focus:opacity-100 focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1"
         aria-label={`Actions for ${task.name}`}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
@@ -555,7 +555,7 @@ function BoardCardImpl({
               role="menuitem"
               className="w-full text-left px-3 py-2 text-sm text-semantic-critical
                 hover:bg-semantic-critical-bg
-                focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-inset"
+                focus:ring-2 focus:ring-semantic-critical focus:ring-inset"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen(false);
@@ -571,7 +571,7 @@ function BoardCardImpl({
             role="menuitem"
             className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
               hover:bg-neutral-surface-raised
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+              focus:ring-2 focus:ring-brand-primary focus:ring-inset"
             onClick={(e) => {
               e.stopPropagation();
               setMoveOpen(!moveOpen);
@@ -591,7 +591,7 @@ function BoardCardImpl({
                   role="menuitem"
                   className="w-full text-left px-5 py-2 text-sm text-neutral-text-primary
                     hover:bg-neutral-surface-raised
-                    focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+                    focus:ring-2 focus:ring-brand-primary focus:ring-inset"
                   onClick={(e) => {
                     e.stopPropagation();
                     onMenuMove(task, col.status);
@@ -625,8 +625,8 @@ function BoardCardImpl({
         className="absolute top-2 right-9 w-6 h-6 flex items-center justify-center rounded-control
           text-brand-primary hover:bg-brand-primary/10
           before:absolute before:inset-[-10px] before:content-['']
-          focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:outline-none"
+          focus:opacity-100 focus:ring-2 focus:ring-brand-primary
+          focus:ring-offset-1 focus:outline-none"
       >
         <span aria-hidden="true">✓</span>
       </button>
@@ -637,7 +637,7 @@ function BoardCardImpl({
   const containerClass = [
     'bg-neutral-surface border rounded-card relative group',
     readOnly ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
-    'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+    'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
     // v2 fluidity (ADR-0126): subtle hover-lift, no shadow (rule 1) — the card's
     // own border supplies the edge. Single multi-prop transition so opacity
     // (dim states) and the lift share one declaration; lift is motion-safe (rule 70).
@@ -983,7 +983,7 @@ function BoardCardImpl({
                 aria-label={`${cardSignal.srText}. Show health details.`}
                 className={`relative inline-flex items-center gap-0.5 px-1.5 py-px rounded-chip text-xs border font-medium
                   before:absolute before:inset-[-12px] before:content-['']
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
                   ${cardSignalToneClass(cardSignal.tone)}`}
               >
                 <span aria-hidden="true">{cardSignal.glyph}</span>
