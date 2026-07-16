@@ -78,7 +78,7 @@ export function LabelPillRow({
         {shown.map((l) => (
           <LabelPill key={l.id} label={l} dotOnly />
         ))}
-        {extra > 0 && <span className="text-[10px] text-neutral-text-secondary">+{extra}</span>}
+        {extra > 0 && <span className="text-xs text-neutral-text-secondary">+{extra}</span>}
       </span>
     );
   }
