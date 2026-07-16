@@ -175,9 +175,9 @@ async function stubLinks(
 }
 
 async function openDrawerLinksSection(page: Page): Promise<Locator> {
-  // The schedule view does not consume the `?task=` query param (no
-  // useSearchParams hook); the drawer opens by clicking the task name in the
-  // grid — same pattern as task-collaboration.spec.ts.
+  // The schedule view now consumes `?task=` (#2031), but this helper opens the
+  // drawer by clicking the task name so the assertions below stay independent of
+  // the deep-link path (which has its own dedicated test).
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
   const grid = page.getByRole('grid', { name: 'Task list' });
   await grid.getByText('Foundation', { exact: true }).click();
@@ -205,6 +205,19 @@ test.describe('Task external links (#637)', () => {
       projectId: PROJECT_ID,
       tasks: FIXTURE_TASKS,
     });
+  });
+
+  test('deep-link: /schedule?task=<id> opens the drawer directly (#2031)', async ({ page }) => {
+    // A notification or My Work row navigates straight to this URL; previously
+    // nothing read `?task=` so the user landed on the schedule with nothing
+    // selected. The drawer must now open on the linked task, and closing it must
+    // strip the param so the URL round-trips the drawer state.
+    await page.goto(`/projects/${PROJECT_ID}/schedule?task=${TASK_ID}`);
+    const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
+    await expect(drawer).toBeVisible({ timeout: 5_000 });
+    await drawer.getByRole('button', { name: 'Close task detail' }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page).toHaveURL((url) => !url.searchParams.has('task'));
   });
 
   test('golden path: detect, add, then refresh to a live status', async ({ page }) => {

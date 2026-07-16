@@ -616,3 +616,16 @@ describe('GridView — extra coverage', () => {
     expect(screen.queryByRole('dialog', { name: /task form/i })).not.toBeInTheDocument();
   });
 });
+
+describe('GridView — URL-synced filters (#2046)', () => {
+  beforeEach(() => {
+    projectMethodology = 'HYBRID';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+  });
+
+  it('seeds the search filter from ?q= so a shared/reloaded link restores it', async () => {
+    await renderGrid(['/projects/proj-1/grid?q=Design']);
+    const searchBox = await screen.findByRole('searchbox', { name: /search tasks/i });
+    expect(searchBox).toHaveValue('Design');
+  });
+});

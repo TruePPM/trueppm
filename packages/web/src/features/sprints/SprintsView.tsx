@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -153,13 +154,37 @@ export function SprintsView() {
   const hasPlannedSprint = buckets.planned.length > 0;
   const projectName = projectQuery.data?.name;
 
+  const [searchParams, setSearchParams] = useSearchParams();
+
   // The timeline strip is a sprint SELECTOR (ADR-0094 + #567 amendment): the
   // workspace body renders the state-appropriate surface for the SELECTED sprint
   // so a user can review ANY past sprint, not just the most-recently-closed one.
   // Lifecycle actions (Close/Plan/Activate) stay tied to the real active/planned
   // sprint regardless of selection (one-active-sprint model). Default selection:
   // active → next planned → most-recently-closed.
-  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(null);
+  const [selectedSprintId, setSelectedSprintIdState] = useState<string | null>(
+    () => searchParams.get('sprint'),
+  );
+  // Wrap the setter so a sprint selection is mirrored into `?sprint=<id>` (issue
+  // #2046): "look at Sprint 12's outcome" becomes a shareable link, and activity
+  // rows / the ⌘K palette can deep-link a specific sprint. Absence of the param
+  // falls back to the default selection (active → planned → most-recently-closed)
+  // resolved in the effect below.
+  const setSelectedSprintId = useCallback(
+    (id: string | null) => {
+      setSelectedSprintIdState(id);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) next.set('sprint', id);
+          else next.delete('sprint');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   useEffect(() => {
     if (selectedSprintId !== null) return;
     const fallback =
@@ -168,7 +193,7 @@ export function SprintsView() {
       buckets.closed[buckets.closed.length - 1]?.id ??
       null;
     if (fallback) setSelectedSprintId(fallback);
-  }, [selectedSprintId, activeSprint, plannedSprint, buckets.closed]);
+  }, [selectedSprintId, activeSprint, plannedSprint, buckets.closed, setSelectedSprintId]);
   const selectedSprint = useMemo(
     () => sprints.find((s) => s.id === selectedSprintId) ?? null,
     [sprints, selectedSprintId],
@@ -225,7 +250,23 @@ export function SprintsView() {
   // Task detail drawer — opened by clicking a backlog row. null = closed.
   // Mirrors the Board/Schedule pattern (ADR-0050): the row hands an id up and
   // the full Task is resolved from the project task list already loaded above.
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // Seeded from `?task=` and mirrored back so the drawer round-trips a refresh
+  // or link-copy (issue #2031); seeding in the initializer avoids a mount race
+  // with the emit effect.
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
+    () => searchParams.get('task'),
+  );
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedTaskId) next.set('task', selectedTaskId);
+        else next.delete('task');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedTaskId, setSearchParams]);
   // Index the project task list by id so a clicked backlog row (which carries
   // only the lightweight SprintBacklogTask) can open the full Task in the
   // shared drawer — the same index the Board builds from useScheduleTasks.

@@ -158,6 +158,13 @@ describe('RiskRegisterView', () => {
     expect(screen.getByText('Select a project to view risks.')).toBeInTheDocument();
   });
 
+  it('opens the drawer on the risk named by ?risk= so an activity/register deep-link lands on the item (#2046)', async () => {
+    renderWithProviders(<RiskRegisterView />, { initialEntries: ['/?risk=risk-001'] });
+    expect(
+      await screen.findByRole('dialog', { name: 'Critical infrastructure failure' }),
+    ).toBeInTheDocument();
+  });
+
   it('renders skeleton rows while risks are loading', () => {
     useRisksState.risks = [];
     useRisksState.isLoading = true;

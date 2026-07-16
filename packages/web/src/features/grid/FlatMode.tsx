@@ -1,4 +1,5 @@
-import { useMemo, useCallback, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useCallback, useState, type KeyboardEvent } from 'react';
+import { useSearchParams } from 'react-router';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
@@ -30,8 +31,29 @@ export function FlatMode({ filters, onClearFilters, onOpenDetail }: FlatModeProp
   const { selectedIds, toggle } = useTaskSelectionStore();
   const updateTask = useUpdateTask();
 
-  const [sortCol, setSortCol] = useState<SortCol>('wbs');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Sort is URL-synced so a sorted view survives a reload and is shareable
+  // (issue #2046). The `wbs`/`asc` default is kept out of the URL to keep a
+  // clean grid's link clean; only a non-default sort writes `?sort=`/`?dir=`.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [sortCol, setSortCol] = useState<SortCol>(
+    () => (searchParams.get('sort') as SortCol | null) ?? 'wbs',
+  );
+  const [sortDir, setSortDir] = useState<SortDir>(() =>
+    searchParams.get('dir') === 'desc' ? 'desc' : 'asc',
+  );
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (sortCol !== 'wbs') next.set('sort', sortCol);
+        else next.delete('sort');
+        if (sortDir !== 'asc') next.set('dir', sortDir);
+        else next.delete('dir');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [sortCol, sortDir, setSearchParams]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
 
   const handleHeaderClick = useCallback(

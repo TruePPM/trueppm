@@ -95,12 +95,15 @@ describe('MultiTeamLens', () => {
     ).toBeInTheDocument();
   });
 
-  it('cards link to the project Sprints view', () => {
+  it('cards deep-link to the specific sprint in the project Sprints view', () => {
     renderWithRouter(
-      <MultiTeamLens entries={[entry({ project_id: 'proj-xyz', project_name: 'Gamma' })]} />,
+      <MultiTeamLens
+        entries={[entry({ project_id: 'proj-xyz', project_name: 'Gamma' })]}
+      />,
     );
     const link = screen.getByRole('link', { name: /Gamma/i });
-    expect(link).toHaveAttribute('href', '/projects/proj-xyz/sprints');
+    // Carries the sprint id so the view selects it directly (#2046).
+    expect(link).toHaveAttribute('href', '/projects/proj-xyz/sprints?sprint=sp-1');
   });
 
   it('falls back to "no velocity yet" when forecast bounds are null', () => {
