@@ -52,7 +52,11 @@ test.describe('Session expired banner', () => {
     await expect(dialog.getByRole('button', { name: 'Sign in' })).toBeFocused();
 
     await dialog.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page).toHaveURL(/\/login/);
+    // Carries the interrupted location as ?next= so LoginPage returns the user
+    // there after re-auth, instead of dropping them on their default landing (#2052).
+    await expect(page).toHaveURL(
+      new RegExp(`/login\\?next=${encodeURIComponent('/projects/e2e-session/overview')}`),
+    );
   });
 
   test('escape hatch: view cached content read-only, then a blocked write re-prompts sign-in (#1922)', async ({
