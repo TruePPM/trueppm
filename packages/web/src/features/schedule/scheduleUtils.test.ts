@@ -116,8 +116,16 @@ describe('computeInitialScrollLeft', () => {
     expect(computeInitialScrollLeft(100, 1100, 2812)).toBe(0);
   });
 
-  it('clamps to maxScroll when today is past the project end', () => {
-    // todayX far right → target exceeds maxScroll → clamped down.
-    expect(computeInitialScrollLeft(9000, 1100, 2812)).toBe(2812);
+  it('clamps to maxScroll when today is past the last bar but still on the chart', () => {
+    // todayX within the content (scrollWidth = maxScroll + viewport = 3912): today
+    // sits in the trailing buffer, so framing still shows the project on the left.
+    expect(computeInitialScrollLeft(3800, 1100, 2812)).toBe(2812);
+  });
+
+  it('returns null when today is entirely past the chart (finished project)', () => {
+    // todayX 9000 > scrollWidth 3912 → today is off the whole chart. Framing here
+    // would scroll into the empty trailing buffer and hide the project, so skip it
+    // and leave the default project-start view (#2004).
+    expect(computeInitialScrollLeft(9000, 1100, 2812)).toBeNull();
   });
 });

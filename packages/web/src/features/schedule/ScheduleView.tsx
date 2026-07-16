@@ -730,18 +730,15 @@ export function ScheduleView() {
     if (!engine || !scheduleScales) return;
     const container = canvasScrollRef.current;
     if (!container) return;
-    let todayX: number;
-    try {
-      todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
-    } catch {
-      return; // today out of the padded scale range — leave the default position
-    }
+    const todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
     const target = computeInitialScrollLeft(
       todayX,
       container.clientWidth,
       container.scrollWidth - container.clientWidth,
     );
-    if (target === null) return; // whole chart fits — nothing to frame yet
+    // null → nothing to frame (chart fits, or today is entirely off the chart —
+    // a finished/future project); leave the default project-start view.
+    if (target === null) return;
     container.scrollLeft = target;
     didInitialFrameRef.current = true;
   }, [engine, scheduleScales]);
