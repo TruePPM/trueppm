@@ -759,152 +759,363 @@ def build_aurora() -> dict:
 
 
 def build_bayside() -> dict:
+    """Bayside Civic Center — a two-project waterfall PROGRAM (#2003).
+
+    Split from a single project into a program of two phased waterfall projects
+    joined by hard cross-project dependencies — the pure-waterfall cross-project
+    showcase:
+
+    - **Sitework & Structure** (``bayside-sitework``): Site Prep → Foundation →
+      Framing, ending at the "Structure topped out" milestone. The execution
+      front lives here (steel erection is in flight).
+    - **Building & Fit-out** (``bayside-building``): MEP → Finish-out → the
+      "Certificate of occupancy" milestone. Every interior task is gated on the
+      structure passing framing inspection, so the whole project is future work
+      whose start floats against the sitework critical path.
+
+    The program exercises all four dependency types and both lead/lag: FS/SS/FF
+    within a project, an SF and a negative-lag *lead* on the cross-project MEP
+    mobilization, and a +7 curing lag on the foundation. It also tells a real
+    baseline story: a Contract baseline captured at award, a Rebaseline after the
+    owner's mezzanine change order pushed the structure right, and a residual
+    two-day weather slip on the current plan that drifts past even the rebaseline.
+    """
     ns = "bayside"
-    # phase -> [(task, most_likely, [(dep_wbs, dep_type[, lag])])]
-    phases = [
+
+    # Categorical label palette (ADR-0400): colors are enum keys, never hex.
+    SITEWORK_LABELS = [
+        {
+            "slug": "critical-path",
+            "name": "Critical path",
+            "color": "rose",
+            "position": 0,
+        },
+        {
+            "slug": "inspection",
+            "name": "Inspection gate",
+            "color": "amber",
+            "position": 1,
+        },
+        {
+            "slug": "weather",
+            "name": "Weather-sensitive",
+            "color": "cyan",
+            "position": 2,
+        },
+        {
+            "slug": "change-order",
+            "name": "Change order",
+            "color": "purple",
+            "position": 3,
+        },
+    ]
+    BUILDING_LABELS = [
+        {
+            "slug": "critical-path",
+            "name": "Critical path",
+            "color": "rose",
+            "position": 0,
+        },
+        {
+            "slug": "long-lead",
+            "name": "Long-lead procurement",
+            "color": "amber",
+            "position": 1,
+        },
+        {
+            "slug": "inspection",
+            "name": "Inspection gate",
+            "color": "teal",
+            "position": 2,
+        },
+        {
+            "slug": "commissioning",
+            "name": "Commissioning",
+            "color": "green",
+            "position": 3,
+        },
+    ]
+
+    # phase -> [(task, most_likely, [(dep_wbs, dep_type[, lag])], [labels])]. Each
+    # project keeps its own wbs tree starting at "1". A shared day cursor advances
+    # across both projects so absolute planned_start dates stay sequential — the
+    # building work naturally lands in the future, after the structure.
+    sitework_phases = [
         (
             "Site Prep",
             [
-                ("Mobilize site", 4, []),
-                ("Clear & grade", 6, [("1.1", "FS")]),
-                ("Temporary utilities", 3, [("1.1", "SS")]),
-                ("Site survey sign-off", 2, [("1.2", "FS"), ("1.3", "FS")]),
+                ("Mobilize site", 4, [], []),
+                ("Clear & grade", 6, [("1.1", "FS")], ["critical-path"]),
+                ("Temporary utilities", 3, [("1.1", "SS")], []),
+                (
+                    "Site survey sign-off",
+                    2,
+                    [("1.2", "FS"), ("1.3", "FS")],
+                    ["inspection"],
+                ),
             ],
         ),
         (
             "Foundation",
             [
-                ("Excavate footings", 5, [("1.4", "FS")]),
-                ("Rebar & formwork", 6, [("2.1", "FS")]),
-                ("Pour east footing", 3, [("2.2", "FS")]),
-                ("Pour west footing", 3, [("2.2", "SS")]),  # parallel pours
+                ("Excavate footings", 5, [("1.4", "FS")], ["critical-path"]),
                 (
-                    # The east pour cures for a week before its forms can come
-                    # off (+7 curing lag on the FS edge); the west pour's forms
-                    # strip together with it (FF).
+                    "Rebar & formwork",
+                    6,
+                    [("2.1", "FS")],
+                    ["critical-path", "inspection"],
+                ),
+                ("Pour east footing", 3, [("2.2", "FS")], ["weather"]),
+                (
+                    "Pour west footing",
+                    3,
+                    [("2.2", "SS")],
+                    ["weather"],
+                ),  # parallel pours
+                (
+                    # East pour cures a week before forms strip (+7 curing lag on
+                    # the FS edge); the west pour's forms strip together with it (FF).
                     "Cure & strip forms",
                     4,
                     [("2.3", "FS", 7), ("2.4", "FF")],
+                    ["critical-path"],
                 ),
             ],
         ),
         (
             "Framing",
             [
-                ("Steel erection", 8, [("2.5", "FS")]),
-                ("Floor decking", 6, [("3.1", "FS")]),
-                ("Roof structure", 7, [("3.1", "FS")]),
-                ("Framing inspection", 2, [("3.2", "FF"), ("3.3", "FF")]),
+                ("Steel erection", 8, [("2.5", "FS")], ["critical-path"]),
+                ("Floor decking", 6, [("3.1", "FS")], ["change-order"]),
+                ("Roof structure", 7, [("3.1", "FS")], ["weather"]),
+                (
+                    "Framing inspection",
+                    2,
+                    [("3.2", "FF"), ("3.3", "FF")],
+                    ["critical-path", "inspection"],
+                ),
             ],
         ),
+    ]
+    building_phases = [
         (
             "MEP",
             [
-                # Lead (negative lag): electrical rough-in mobilizes three days
-                # before the framing inspection wraps — the trades overlap the
-                # inspection window.
-                ("Rough-in electrical", 7, [("3.4", "FS", -3)]),
-                ("Rough-in plumbing", 6, [("3.4", "FS")]),
-                ("HVAC ductwork", 8, [("3.4", "FS")]),
-                ("MEP equipment delivery", 5, []),
-                ("MEP inspection", 3, [("4.1", "FS"), ("4.2", "FS"), ("4.3", "FS")]),
+                # Cross-project lead (negative lag): electrical rough-in mobilizes
+                # three days before the sitework framing inspection certifies — the
+                # trades overlap the inspection window across the project boundary.
+                (
+                    "Rough-in electrical",
+                    7,
+                    [("bayside-sitework:3.4", "FS", -3)],
+                    ["critical-path"],
+                ),
+                ("Rough-in plumbing", 6, [("bayside-sitework:3.4", "FS")], []),
+                ("HVAC ductwork", 8, [("bayside-sitework:3.4", "FS")], []),
+                ("MEP equipment delivery", 5, [], ["long-lead"]),
+                (
+                    "MEP inspection",
+                    3,
+                    [("1.1", "FS"), ("1.2", "FS"), ("1.3", "FS")],
+                    ["inspection"],
+                ),
             ],
         ),
         (
             "Finish-out",
             [
-                ("Drywall & paint", 8, [("4.5", "FS")]),
-                ("Flooring", 6, [("5.1", "FS")]),
-                ("Fixtures & casework", 5, [("5.1", "FS")]),
+                ("Drywall & paint", 8, [("1.5", "FS")], ["critical-path"]),
+                ("Flooring", 6, [("2.1", "FS")], []),
+                ("Fixtures & casework", 5, [("2.1", "FS")], []),
+                # SF: commissioning must start no later than flooring finishes.
+                ("Commissioning start", 0, [("2.2", "SF")], ["commissioning"]),
                 (
-                    "Commissioning start",
-                    0,
-                    [("5.2", "SF")],
-                ),  # SF: start no later than flooring finish
-                ("Final inspection & handover", 3, [("5.2", "FS"), ("5.3", "FS")]),
+                    "Final inspection & handover",
+                    3,
+                    [("2.2", "FS"), ("2.3", "FS")],
+                    ["critical-path", "inspection"],
+                ),
             ],
         ),
     ]
+
     crew = ["diego", "tom", "nadia", "omar"]
-    tasks, deps, baseline_rows = [], [], []
-    # Realized slip (#1784): the owner's mezzanine change order pushed everything
-    # from Floor decking (3.2) onward 7 days right of the contract baseline, so
-    # baseline-vs-current variance actually reads on the Gantt. Baseline rows keep
-    # the ORIGINAL dates/durations; the current plan carries the shift. 3.2 itself
-    # was re-estimated 6 -> 8 days (the task.estimate beat below narrates it).
-    slip_days = 7
-    cursor = 0
-    for p_idx, (phase, items) in enumerate(phases, start=1):
-        tasks.append(
-            {
-                "wbs_path": str(p_idx),
-                "name": phase,
-                "governance_class": "gated",
-                "delivery_mode": "waterfall",
-            }
-        )
-        for t_idx, (name, ml, dep_list) in enumerate(items, start=1):
-            wbs = f"{p_idx}.{t_idx}"
-            shift = slip_days if p_idx > 3 or (p_idx == 3 and t_idx >= 2) else 0
-            done = p_idx <= 2
-            # The execution front is a single in-flight task: steel erection
-            # (3.1) is mid-flight; its FS successors have NOT started — an FS
-            # successor can never be underway while its predecessor is unfinished.
-            in_prog = wbs == "3.1"
-            status = (
-                "COMPLETE" if done else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
+
+    def _emit_project(phases, *, cursor, slug, execution_front, mezzanine_shift):
+        """Generate one waterfall project's tasks/deps/baseline rows.
+
+        ``execution_front`` names the single in-flight wbs (COMPLETE before it,
+        IN_PROGRESS at it, NOT_STARTED after) or is ``None`` for an all-future
+        project. ``mezzanine_shift`` is a callable ``wbs -> (rebaseline_days,
+        current_days)`` giving the change-order slip captured by the active
+        rebaseline vs. the further slip on the current plan — so the contract
+        baseline (0), the rebaseline, and the current plan can each diverge.
+        """
+        tasks, deps = [], []
+        contract_rows, rebaseline_rows = [], []
+        # A project is "done through" everything up to its execution front.
+        done_wbs: set[str] = set()
+        if execution_front is not None:
+            ef_phase, ef_task = (int(x) for x in execution_front.split("."))
+            for p_i, (_ph, items) in enumerate(phases, start=1):
+                for t_i, _ in enumerate(items, start=1):
+                    if (p_i, t_i) < (ef_phase, ef_task):
+                        done_wbs.add(f"{p_i}.{t_i}")
+        for p_idx, (phase, items) in enumerate(phases, start=1):
+            tasks.append(
+                {
+                    "wbs_path": str(p_idx),
+                    "name": phase,
+                    "governance_class": "gated",
+                    "delivery_mode": "waterfall",
+                }
             )
-            is_ms = ml == 0
-            duration = 8 if wbs == "3.2" else ml
-            task = {
-                "wbs_path": wbs,
-                "name": name,
-                "status": status,
-                "governance_class": "gated",
-                "delivery_mode": "waterfall",
-                "assignee": crew[(p_idx + t_idx) % len(crew)],
-            }
-            # NOT_STARTED work carries no percent_complete at all — a ragged but
-            # honest execution front, not a wall of zeros.
-            if done:
-                task["percent_complete"] = 100.0
-            elif in_prog:
-                task["percent_complete"] = 55.0
-            if is_ms:
-                task["is_milestone"] = True
-                task["delivery_mode"] = "milestone"
-                task["planned_start"] = d(cursor * 2 + shift)
-            else:
-                task["duration"] = duration
-                task["planned_start"] = d(cursor * 2 + shift)
-                task["estimate"] = three_point(duration)
-                baseline_rows.append(
-                    {
-                        "task": wbs,
-                        "start": d(cursor * 2),
-                        "finish": d(cursor * 2 + ml),
-                        "duration": ml,
-                    }
+            for t_idx, item in enumerate(items, start=1):
+                name, ml, dep_list = item[0], item[1], item[2]
+                labels = item[3] if len(item) > 3 else []
+                wbs = f"{p_idx}.{t_idx}"
+                rebase_shift, cur_shift = mezzanine_shift(wbs)
+                is_done = wbs in done_wbs
+                in_prog = wbs == execution_front
+                status = (
+                    "COMPLETE"
+                    if is_done
+                    else ("IN_PROGRESS" if in_prog else "NOT_STARTED")
                 )
-            tasks.append(task)
-            for dep in dep_list:
-                deps.append(
-                    {
-                        "predecessor": dep[0],
-                        "successor": wbs,
-                        "dep_type": dep[1],
-                        "lag": dep[2] if len(dep) > 2 else 0,
-                    }
-                )
-            cursor += max(ml, 1)
+                is_ms = ml == 0
+                # Floor decking absorbed the change-order rework: re-estimated 6 -> 8.
+                duration = 8 if (slug == "bayside-sitework" and wbs == "3.2") else ml
+                task = {
+                    "wbs_path": wbs,
+                    "name": name,
+                    "status": status,
+                    "governance_class": "gated",
+                    "delivery_mode": "waterfall",
+                    "assignee": crew[(p_idx + t_idx) % len(crew)],
+                }
+                if labels:
+                    task["labels"] = labels
+                # NOT_STARTED work carries no percent_complete — an honest ragged
+                # front, not a wall of zeros.
+                if is_done:
+                    task["percent_complete"] = 100.0
+                elif in_prog:
+                    task["percent_complete"] = 55.0
+                base_day = cursor[0] * 2
+                if is_ms:
+                    task["is_milestone"] = True
+                    task["delivery_mode"] = "milestone"
+                    task["planned_start"] = d(base_day + cur_shift)
+                else:
+                    task["duration"] = duration
+                    task["planned_start"] = d(base_day + cur_shift)
+                    task["estimate"] = three_point(duration)
+                    # Contract baseline: the plan at award (no slip). Rebaseline:
+                    # the change-order plan (captures the +7 shift and the 3.2
+                    # re-estimate). Both keep ORIGINAL vs. re-baselined dates so
+                    # each shows drift against the current plan.
+                    contract_rows.append(
+                        {
+                            "task": wbs,
+                            "start": d(base_day),
+                            "finish": d(base_day + ml),
+                            "duration": ml,
+                        }
+                    )
+                    rebaseline_rows.append(
+                        {
+                            "task": wbs,
+                            "start": d(base_day + rebase_shift),
+                            "finish": d(base_day + rebase_shift + duration),
+                            "duration": duration,
+                        }
+                    )
+                tasks.append(task)
+                for dep in dep_list:
+                    deps.append(
+                        {
+                            "predecessor": dep[0],
+                            "successor": wbs,
+                            "dep_type": dep[1],
+                            "lag": dep[2] if len(dep) > 2 else 0,
+                        }
+                    )
+                cursor[0] += max(ml, 1)
+        return tasks, deps, contract_rows, rebaseline_rows
+
+    # Change-order slip model. The mezzanine change order pushed the structure
+    # from Floor decking (3.2) onward +7 of the contract; a subsequent weather
+    # delay added +2 to the roof/inspection tail on the *current* plan only, so
+    # it drifts past even the rebaseline. Building work inherits the full slip.
+    def sitework_shift(wbs: str) -> tuple[int, int]:
+        if wbs in ("3.3", "3.4"):  # roof + framing inspection caught the weather slip
+            return 7, 9
+        if wbs == "3.2":  # floor decking: change order only
+            return 7, 7
+        return 0, 0  # phases 1-2 and steel erection predate the change order
+
+    def building_shift(_wbs: str) -> tuple[int, int]:
+        # Building has a single Contract baseline (no rebaseline); pass the same
+        # value for rebaseline/current so its rebaseline rows are unused. Current
+        # plan carries the full +9 cross-project slip from the structure.
+        return 9, 9
+
+    cursor = [0]
+    sw_tasks, sw_deps, sw_contract, sw_rebaseline = _emit_project(
+        sitework_phases,
+        cursor=cursor,
+        slug="bayside-sitework",
+        execution_front="3.1",
+        mezzanine_shift=sitework_shift,
+    )
+    # "Structure topped out" — the program marker gating all interior work.
+    _topped = cursor[0] * 2
+    sw_tasks.append(
+        {
+            "wbs_path": "4",
+            "name": "Structure topped out",
+            "is_milestone": True,
+            "delivery_mode": "milestone",
+            "governance_class": "gated",
+            "planned_start": d(_topped + 9),
+            "labels": ["critical-path"],
+        }
+    )
+    sw_deps.append({"predecessor": "3.4", "successor": "4", "dep_type": "FS", "lag": 0})
+
+    bd_tasks, bd_deps, bd_contract, _bd_rebaseline = _emit_project(
+        building_phases,
+        cursor=cursor,
+        slug="bayside-building",
+        execution_front=None,
+        mezzanine_shift=building_shift,
+    )
+    # "Certificate of occupancy" — the program finish milestone.
+    _co = cursor[0] * 2
+    bd_tasks.append(
+        {
+            "wbs_path": "3",
+            "name": "Certificate of occupancy",
+            "is_milestone": True,
+            "delivery_mode": "milestone",
+            "governance_class": "gated",
+            "planned_start": d(_co + 9),
+            "labels": ["critical-path"],
+        }
+    )
+    bd_deps.append({"predecessor": "2.5", "successor": "3", "dep_type": "FS", "lag": 0})
+    bd_deps.append({"predecessor": "2.4", "successor": "3", "dep_type": "FS", "lag": 0})
 
     # --- event timeline ----------------------------------------------------
-    # Waterfall history: an inspection-fail-and-rework loop the synthesizer can't
-    # produce, a crew reassignment, permit/weather field notes, and dated risk
-    # lifecycles. Offsets are in days from project start (planned_start is
-    # ``d(cursor*2)``); all stay <= the anchor (90 = "today").
-    def task(wbs: str) -> str:
-        return f"task:bayside:{wbs}"
+    # Waterfall history across both projects: an inspection-fail-and-rework loop
+    # the synthesizer can't produce, a crew reassignment, permit/weather field
+    # notes, the change-order re-baseline, and dated risk lifecycles. Offsets are
+    # in days from program start; all stay <= the anchor (90 = "today").
+    def sw(wbs: str) -> str:
+        return f"task:bayside-sitework:{wbs}"
+
+    def bd(wbs: str) -> str:
+        return f"task:bayside-building:{wbs}"
 
     events: list[dict] = [
         # Permit gates the site-prep sign-off (1.4) — a field note plus the risk
@@ -912,7 +1123,7 @@ def build_bayside() -> dict:
         _ev(
             ts(22, 9, 0),
             "task.comment",
-            task("1.4"),
+            sw("1.4"),
             "tom",
             body="Survey package is ready, but the municipal permit is still in "
             "review — that's gating the site-prep sign-off.",
@@ -922,7 +1133,7 @@ def build_bayside() -> dict:
         _ev(
             ts(31, 9, 0),
             "task.comment",
-            task("2.1"),
+            sw("2.1"),
             "tom",
             body="Hit a soft layer at the east footing — ordering a geotech survey "
             "before we set rebar.",
@@ -932,53 +1143,53 @@ def build_bayside() -> dict:
         ),
         _ev(ts(38, 14, 0), "risk.status", "risk:soil-conditions", "tom", to="CLOSED"),
         # Hero: Rebar & formwork (2.2) fails inspection on bar spacing, is re-tied,
-        # and passes re-inspection — a non-linear Review → rework → Review path.
+        # and passes re-inspection — a non-linear Review -> rework -> Review path.
         _ev(
             ts(40, 8, 0),
             "task.comment",
-            task("2.2"),
+            sw("2.2"),
             "diego",
             body="Rebar cage and formwork up for the east footing.",
         ),
-        _ev(ts(40, 9, 0), "task.status", task("2.2"), "diego", to="IN_PROGRESS"),
+        _ev(ts(40, 9, 0), "task.status", sw("2.2"), "diego", to="IN_PROGRESS"),
         _ev(
             ts(43, 15, 0),
             "task.comment",
-            task("2.2"),
+            sw("2.2"),
             "diego",
             body="Tied and shimmed. Calling for inspection.",
         ),
-        _ev(ts(43, 15, 30), "task.status", task("2.2"), "diego", to="REVIEW"),
+        _ev(ts(43, 15, 30), "task.status", sw("2.2"), "diego", to="REVIEW"),
         _ev(
             ts(44, 10, 0),
             "task.comment",
-            task("2.2"),
+            sw("2.2"),
             "omar",
             body="Inspection: bar spacing on the north face is out of tolerance per "
             "the spec. Failing it — needs a re-tie.",
         ),
-        _ev(ts(44, 10, 30), "task.status", task("2.2"), "omar", to="IN_PROGRESS"),
+        _ev(ts(44, 10, 30), "task.status", sw("2.2"), "omar", to="IN_PROGRESS"),
         _ev(
             ts(46, 14, 0),
             "task.comment",
-            task("2.2"),
+            sw("2.2"),
             "diego",
             body="Re-tied to spec and re-shot the spacing. Ready for re-inspection.",
         ),
-        _ev(ts(46, 14, 30), "task.status", task("2.2"), "diego", to="REVIEW"),
+        _ev(ts(46, 14, 30), "task.status", sw("2.2"), "diego", to="REVIEW"),
         _ev(
             ts(47, 9, 0),
             "task.comment",
-            task("2.2"),
+            sw("2.2"),
             "omar",
             body="Re-inspection passed. Cleared to pour.",
         ),
-        _ev(ts(47, 9, 30), "task.status", task("2.2"), "omar", to="COMPLETE"),
+        _ev(ts(47, 9, 30), "task.status", sw("2.2"), "omar", to="COMPLETE"),
         # Weather note on the pour window.
         _ev(
             ts(50, 7, 0),
             "task.comment",
-            task("2.3"),
+            sw("2.3"),
             "diego",
             body="Rain moving in for the pour window — coordinating to pour ahead of "
             "the front so we don't lose the day.",
@@ -988,11 +1199,11 @@ def build_bayside() -> dict:
         _ev(
             ts(56, 8, 0),
             "task.comment",
-            task("2.4"),
+            sw("2.4"),
             "diego",
             body="The pours belong with the concrete crew — moving the west pour to Tom.",
         ),
-        _ev(ts(56, 8, 5), "task.assign", task("2.4"), "diego", assignee="tom"),
+        _ev(ts(56, 8, 5), "task.assign", sw("2.4"), "diego", assignee="tom"),
         # Crane risk booked and resolved ahead of the structural phase.
         _ev(
             ts(70, 9, 0),
@@ -1004,21 +1215,21 @@ def build_bayside() -> dict:
         _ev(
             ts(78, 9, 0), "risk.status", "risk:crane-availability", "tom", to="RESOLVED"
         ),
-        # In-flight framing phase: steel erection kicks off with an authored
-        # status move — the execution front on import day.
+        # In-flight framing phase: steel erection kicks off with an authored status
+        # move — the execution front on import day.
         _ev(
             ts(72, 8, 0),
             "task.comment",
-            task("3.1"),
+            sw("3.1"),
             "diego",
             body="Crane is rigged and the first column line is bolted — steel "
             "erection is underway.",
         ),
-        _ev(ts(72, 8, 30), "task.status", task("3.1"), "diego", to="IN_PROGRESS"),
+        _ev(ts(72, 8, 30), "task.status", sw("3.1"), "diego", to="IN_PROGRESS"),
         _ev(
             ts(74, 9, 0),
             "task.comment",
-            task("3.1"),
+            sw("3.1"),
             "diego",
             body="Steel is going up. Owner is still weighing a mezzanine design "
             "change — holding the final connections until it's resolved.",
@@ -1026,50 +1237,326 @@ def build_bayside() -> dict:
         _ev(
             ts(76, 11, 0), "risk.status", "risk:design-change", "diego", to="MITIGATING"
         ),
-        # The change order lands on floor decking: re-estimated 6 -> 8 days —
-        # where the current plan diverges from the contract baseline.
+        # The change order lands on floor decking: re-estimated 6 -> 8 days, and the
+        # program is re-baselined so the contract plan is preserved for the claim.
         _ev(
             ts(77, 9, 0),
             "task.comment",
-            task("3.2"),
+            sw("3.2"),
             "diego",
-            body="Mezzanine change adds deck framing at grid C — re-estimating "
-            "floor decking before we sequence the crews.",
+            body="Mezzanine change adds deck framing at grid C — re-estimating floor "
+            "decking and re-baselining so the contract dates stay on record.",
         ),
         _ev(
-            ts(77, 9, 30),
-            "task.estimate",
-            task("3.2"),
-            "diego",
-            estimate=three_point(8),
+            ts(77, 9, 30), "task.estimate", sw("3.2"), "diego", estimate=three_point(8)
+        ),
+        _ev(
+            ts(77, 12, 0),
+            "baseline.capture",
+            "project:bayside-sitework",
+            "sam",
+            body="Rebaseline — mezzanine change order",
+        ),
+        # A subsequent weather delay drifts the roof/inspection tail two days past
+        # even the fresh rebaseline — the residual variance on the current plan.
+        _ev(
+            ts(84, 7, 0),
+            "task.comment",
+            sw("3.3"),
+            "tom",
+            body="High winds shut the crane two afternoons this week — roof steel "
+            "and the framing inspection are running two days behind the rebaseline.",
+        ),
+        # Cross-project field note: MEP mobilizes ahead of the inspection cert.
+        _ev(
+            ts(88, 14, 0),
+            "task.comment",
+            bd("1.1"),
+            "nadia",
+            body="Framing inspection is on the municipal calendar; electrical "
+            "rough-in mobilizes three days ahead of the certificate so the fit-out "
+            "project doesn't lose the overlap.",
         ),
         # Recent beats — the field log reaches import day.
         _ev(
             ts(87, 7, 30),
             "task.comment",
-            task("3.1"),
+            sw("3.1"),
             "tom",
             body="Final steel delivery hit the laydown yard this morning — crane "
             "picks resume at first light.",
         ),
-        _ev(
-            ts(88, 14, 0),
-            "task.comment",
-            task("3.4"),
-            "omar",
-            body="Framing inspection is on the municipal calendar; electrical "
-            "rough-in mobilizes three days ahead of the certificate.",
-        ),
         _ev(ts(89, 11, 0), "risk.status", "risk:weather", "sam", to="MITIGATING"),
     ]
+
+    _calendars = [
+        {
+            "slug": "site",
+            "name": "Site Standard (5-day)",
+            "working_days": 31,
+            "hours_per_day": 8.0,
+        },
+        # concrete crew works a 4-day week (Mon-Thu = 1+2+4+8 = 15), weather-dependent
+        {
+            "slug": "concrete-crew",
+            "name": "Concrete Crew (4-day)",
+            "working_days": 15,
+            "hours_per_day": 10.0,
+        },
+    ]
+    _resources = [
+        {
+            "slug": "sam",
+            "name": "Sam Okafor",
+            "job_role": "Program Manager",
+            "max_units": 1.0,
+            "account": "sam",
+            "calendar": "site",
+        },
+        {
+            "slug": "diego",
+            "name": "Diego Santos",
+            "job_role": "Site Superintendent",
+            "max_units": 1.0,
+            "account": "diego",
+            "calendar": "site",
+        },
+        {
+            "slug": "tom",
+            "name": "Tom Becker",
+            "job_role": "Concrete Foreman",
+            "max_units": 1.0,
+            "account": "tom",
+            "calendar": "concrete-crew",
+        },
+        {
+            "slug": "nadia",
+            "name": "Nadia Hassan",
+            "job_role": "MEP Lead",
+            "max_units": 1.0,
+            "account": "nadia",
+            "calendar": "site",
+        },
+        {
+            "slug": "omar",
+            "name": "Omar Aziz",
+            "job_role": "Inspector",
+            "max_units": 0.5,
+            "account": "omar",
+            "calendar": "site",
+        },
+        {
+            "slug": "raj",
+            "name": "Raj Mehta",
+            "job_role": "Project Scheduler",
+            "max_units": 1.0,
+            "account": "raj",
+            "calendar": "site",
+        },
+        {
+            "slug": "ada",
+            "name": "Ada Boyega",
+            "job_role": "Owner's Rep (advisor)",
+            "max_units": 0.1,
+            "account": "ada",
+            "calendar": "site",
+        },
+    ]
+
+    sitework_project = {
+        "slug": "bayside-sitework",
+        "name": "Sitework & Structure",
+        "description": "The below-grade and structural scope — site prep, foundation, and framing "
+        "up to a topped-out structure.",
+        "methodology": "WATERFALL",
+        "start_date": d(0),
+        "calendar": "site",
+        "default_view": "SCHEDULE",
+        "labels": SITEWORK_LABELS,
+        "tasks": sw_tasks,
+        "dependencies": sw_deps,
+        "baselines": [
+            {
+                "name": "Contract baseline",
+                # Superseded by the rebaseline: kept for the change-order claim but
+                # no longer the active overlay (only one active baseline per project).
+                "is_active": False,
+                "captured_at": d(2),
+                "tasks": sw_contract,
+            },
+            {
+                "name": "Rebaseline — mezzanine change order",
+                "is_active": True,
+                "captured_at": d(77),
+                "tasks": sw_rebaseline,
+            },
+        ],
+        "risks": [
+            {
+                "slug": "weather",
+                "title": "Weather delays outdoor phases",
+                "status": "OPEN",
+                "probability": 4,
+                "impact": 3,
+                "category": "EXTERNAL",
+                "response": "MITIGATE",
+                "owner": "sam",
+                "tasks": ["2.3", "2.4"],
+            },
+            {
+                "slug": "soil-conditions",
+                "title": "Unexpected soil conditions at excavation",
+                # Starting state; risk.status walks it OPEN -> MITIGATING -> CLOSED.
+                "status": "OPEN",
+                "probability": 2,
+                "impact": 4,
+                "category": "TECHNICAL",
+                "response": "ACCEPT",
+                "owner": "tom",
+                "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
+                "tasks": ["2.1"],
+            },
+            {
+                "slug": "permit-delay",
+                "title": "Building permit approval slips",
+                "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
+                "status": "OPEN",
+                "probability": 3,
+                "impact": 5,
+                "category": "EXTERNAL",
+                "response": "MITIGATE",
+                "owner": "sam",
+                "tasks": ["1.4"],
+            },
+            {
+                "slug": "labor",
+                "title": "Concrete crew availability",
+                "status": "OPEN",
+                "probability": 3,
+                "impact": 3,
+                "category": "ORGANIZATIONAL",
+                "response": "MITIGATE",
+                "owner": "tom",
+                "tasks": ["2.3"],
+            },
+            {
+                "slug": "design-change",
+                "title": "Owner-requested design change order",
+                "status": "OPEN",
+                "probability": 3,
+                "impact": 4,
+                "category": "PROJECT_MANAGEMENT",
+                "response": "MITIGATE",
+                "owner": "diego",
+                "tasks": ["3.1"],
+            },
+            {
+                "slug": "crane-availability",
+                "title": "Tower crane scheduling conflict",
+                # Starting state; risk.status walks it OPEN -> MITIGATING -> RESOLVED.
+                "status": "OPEN",
+                "probability": 2,
+                "impact": 3,
+                "category": "ORGANIZATIONAL",
+                "response": "MITIGATE",
+                "owner": "tom",
+                "notes": "Crane window booked and confirmed for the structural phase.",
+                "tasks": ["3.3"],
+            },
+            {
+                "slug": "material-escalation",
+                "title": "Steel & concrete price escalation",
+                "status": "ACCEPTED",
+                "probability": 4,
+                "impact": 3,
+                "category": "EXTERNAL",
+                "response": "ACCEPT",
+                "owner": "omar",
+                "tasks": ["3.2"],
+            },
+        ],
+    }
+
+    building_project = {
+        "slug": "bayside-building",
+        "name": "Building & Fit-out",
+        "description": "The interior scope — MEP rough-in, finishes, and commissioning through to a "
+        "certificate of occupancy. Every task is gated on the structure passing framing inspection.",
+        "methodology": "WATERFALL",
+        "start_date": d(0),
+        "calendar": "site",
+        "default_view": "SCHEDULE",
+        "labels": BUILDING_LABELS,
+        "tasks": bd_tasks,
+        "dependencies": bd_deps,
+        "baselines": [
+            {
+                "name": "Contract baseline",
+                "is_active": True,
+                "captured_at": d(2),
+                # Captured at award; the current plan carries the +9 slip that
+                # propagated across the boundary from the structure change order +
+                # weather, so the fit-out variance reads the cross-project cascade.
+                "tasks": bd_contract,
+            }
+        ],
+        "risks": [
+            {
+                "slug": "supply-chain",
+                "title": "MEP equipment supply delay",
+                "status": "MITIGATING",
+                "probability": 3,
+                "impact": 5,
+                "category": "EXTERNAL",
+                "response": "MITIGATE",
+                "owner": "nadia",
+                "tasks": ["1.4"],
+            },
+            {
+                "slug": "electrical-inspection",
+                "title": "Electrical rough-in inspection rework",
+                "status": "MITIGATING",
+                "probability": 3,
+                "impact": 3,
+                "category": "TECHNICAL",
+                "response": "MITIGATE",
+                "owner": "nadia",
+                "tasks": ["1.5"],
+            },
+            {
+                "slug": "subcontractor-default",
+                "title": "MEP subcontractor financial risk",
+                "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
+                "status": "OPEN",
+                "probability": 2,
+                "impact": 5,
+                "category": "EXTERNAL",
+                "response": "TRANSFER",
+                "owner": "sam",
+                "tasks": ["1.4"],
+            },
+            {
+                "slug": "commissioning-delay",
+                "title": "Building-systems commissioning slips occupancy",
+                "status": "OPEN",
+                "probability": 3,
+                "impact": 4,
+                "category": "TECHNICAL",
+                "response": "MITIGATE",
+                "owner": "diego",
+                "tasks": ["2.4"],
+            },
+        ],
+    }
 
     return {
         "schema_version": "2.0",
         "program": {
             "slug": "bayside-civic-center",
             "name": "Bayside Civic Center Construction",
-            "description": "Waterfall-only sample — CPM with all four dependency types, "
-            "three-point estimates, a baseline, and a resource calendar.",
+            "description": "Waterfall-only sample — a two-project program (structure + fit-out) joined by "
+            "cross-project dependencies, with all four dependency types, three-point estimates, a "
+            "contract baseline plus a change-order rebaseline, and a resource calendar.",
             "methodology": "WATERFALL",
             "color": "#B5651D",
             "lead": "sam",
@@ -1088,244 +1575,36 @@ def build_bayside() -> dict:
                 ]
             ]
         ),
-        "calendars": [
+        "calendars": _calendars,
+        "resources": _resources,
+        # Program-level cross-project risk: a structure slip cascades into fit-out.
+        "risks": [
             {
-                "slug": "site",
-                "name": "Site Standard (5-day)",
-                "working_days": 31,
-                "hours_per_day": 8.0,
-            },
-            # concrete crew works a 4-day week (Mon-Thu = 1+2+4+8 = 15), weather-dependent
-            {
-                "slug": "concrete-crew",
-                "name": "Concrete Crew (4-day)",
-                "working_days": 15,
-                "hours_per_day": 10.0,
-            },
-        ],
-        "resources": [
-            {
-                "slug": "sam",
-                "name": "Sam Okafor",
-                "job_role": "Project Manager",
-                "max_units": 1.0,
-                "account": "sam",
-                "calendar": "site",
+                "slug": "structure-cascade",
+                "title": "Structure slip cascades into fit-out",
+                "description": "Any framing-inspection slip pushes the entire interior fit-out project right, "
+                "since every MEP and finish task is gated on the structure across the project boundary.",
+                "status": "MITIGATING",
+                "probability": 4,
+                "impact": 4,
+                "category": "ORGANIZATIONAL",
+                "response": "MITIGATE",
+                "owner": "sam",
+                "tasks": ["bayside-sitework:3.4", "bayside-building:1.1"],
             },
             {
-                "slug": "diego",
-                "name": "Diego Santos",
-                "job_role": "Site Superintendent",
-                "max_units": 1.0,
-                "account": "diego",
-                "calendar": "site",
-            },
-            {
-                "slug": "tom",
-                "name": "Tom Becker",
-                "job_role": "Concrete Foreman",
-                "max_units": 1.0,
-                "account": "tom",
-                "calendar": "concrete-crew",
-            },
-            {
-                "slug": "nadia",
-                "name": "Nadia Hassan",
-                "job_role": "MEP Lead",
-                "max_units": 1.0,
-                "account": "nadia",
-                "calendar": "site",
-            },
-            {
-                "slug": "omar",
-                "name": "Omar Aziz",
-                "job_role": "Inspector",
-                "max_units": 0.5,
-                "account": "omar",
-                "calendar": "site",
-            },
-            {
-                "slug": "raj",
-                "name": "Raj Mehta",
-                "job_role": "Project Scheduler",
-                "max_units": 1.0,
-                "account": "raj",
-                "calendar": "site",
-            },
-            {
-                "slug": "ada",
-                "name": "Ada Boyega",
-                "job_role": "Owner's Rep (advisor)",
-                "max_units": 0.1,
-                "account": "ada",
-                "calendar": "site",
+                "slug": "inspection-fail",
+                "title": "Framing inspection rework",
+                "status": "OPEN",
+                "probability": 2,
+                "impact": 4,
+                "category": "TECHNICAL",
+                "response": "ACCEPT",
+                "owner": "diego",
+                "tasks": ["bayside-sitework:3.4"],
             },
         ],
-        "projects": [
-            {
-                "slug": "bayside",
-                "name": "Bayside Civic Center",
-                "methodology": "WATERFALL",
-                "start_date": d(0),
-                "calendar": "site",
-                "default_view": "SCHEDULE",
-                "tasks": tasks,
-                "dependencies": deps,
-                "baselines": [
-                    {
-                        "name": "Contract baseline",
-                        "is_active": True,
-                        # Captured at contract award, before the mezzanine change
-                        # order pushed phase 3+ seven days right of it.
-                        "captured_at": d(2),
-                        "tasks": baseline_rows,
-                    }
-                ],
-                "risks": [
-                    {
-                        "slug": "weather",
-                        "title": "Weather delays outdoor phases",
-                        "status": "OPEN",
-                        "probability": 4,
-                        "impact": 3,
-                        "category": "EXTERNAL",
-                        "response": "MITIGATE",
-                        "owner": "sam",
-                        "tasks": ["2.3", "2.4"],
-                    },
-                    {
-                        "slug": "supply-chain",
-                        "title": "MEP equipment supply delay",
-                        "status": "MITIGATING",
-                        "probability": 3,
-                        "impact": 5,
-                        "category": "EXTERNAL",
-                        "response": "MITIGATE",
-                        "owner": "nadia",
-                        "tasks": ["4.4"],
-                    },
-                    {
-                        "slug": "inspection-fail",
-                        "title": "Framing inspection rework",
-                        "status": "OPEN",
-                        "probability": 2,
-                        "impact": 4,
-                        "category": "TECHNICAL",
-                        "response": "ACCEPT",
-                        "owner": "diego",
-                        "tasks": ["3.4"],
-                    },
-                    {
-                        "slug": "labor",
-                        "title": "Concrete crew availability",
-                        "status": "OPEN",
-                        "probability": 3,
-                        "impact": 3,
-                        "category": "ORGANIZATIONAL",
-                        "response": "MITIGATE",
-                        "owner": "tom",
-                        "tasks": ["2.3"],
-                    },
-                    {
-                        "slug": "permit-delay",
-                        "title": "Building permit approval slips",
-                        "description": "The municipal permit office is running 3 weeks behind; gates site prep sign-off.",
-                        # Starting state; risk.status walks it to MITIGATING (#1253).
-                        "status": "OPEN",
-                        "probability": 3,
-                        "impact": 5,
-                        "category": "EXTERNAL",
-                        "response": "MITIGATE",
-                        "owner": "sam",
-                        "tasks": ["1.4"],
-                    },
-                    {
-                        "slug": "design-change",
-                        "title": "Owner-requested design change order",
-                        "status": "OPEN",
-                        "probability": 3,
-                        "impact": 4,
-                        "category": "PROJECT_MANAGEMENT",
-                        "response": "MITIGATE",
-                        "owner": "diego",
-                        "tasks": ["3.1"],
-                    },
-                    {
-                        "slug": "soil-conditions",
-                        "title": "Unexpected soil conditions at excavation",
-                        # Starting state; risk.status walks it OPEN → MITIGATING →
-                        # CLOSED as the geotech survey clears it (#1253).
-                        "status": "OPEN",
-                        "probability": 2,
-                        "impact": 4,
-                        "category": "TECHNICAL",
-                        "response": "ACCEPT",
-                        "owner": "tom",
-                        "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
-                        "tasks": ["2.1"],
-                    },
-                    {
-                        "slug": "subcontractor-default",
-                        "title": "MEP subcontractor financial risk",
-                        "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
-                        "status": "OPEN",
-                        "probability": 2,
-                        "impact": 5,
-                        "category": "EXTERNAL",
-                        "response": "TRANSFER",
-                        "owner": "sam",
-                        "tasks": ["4.4"],
-                    },
-                    {
-                        "slug": "electrical-inspection",
-                        "title": "Electrical rough-in inspection rework",
-                        "status": "MITIGATING",
-                        "probability": 3,
-                        "impact": 3,
-                        "category": "TECHNICAL",
-                        "response": "MITIGATE",
-                        "owner": "nadia",
-                        "tasks": ["4.2"],
-                    },
-                    {
-                        "slug": "material-escalation",
-                        "title": "Steel & concrete price escalation",
-                        "status": "ACCEPTED",
-                        "probability": 4,
-                        "impact": 3,
-                        "category": "EXTERNAL",
-                        "response": "ACCEPT",
-                        "owner": "omar",
-                        "tasks": ["3.2"],
-                    },
-                    {
-                        "slug": "crane-availability",
-                        "title": "Tower crane scheduling conflict",
-                        # Starting state; risk.status walks it OPEN → MITIGATING →
-                        # RESOLVED as the crane window is booked (#1253).
-                        "status": "OPEN",
-                        "probability": 2,
-                        "impact": 3,
-                        "category": "ORGANIZATIONAL",
-                        "response": "MITIGATE",
-                        "owner": "tom",
-                        "notes": "Crane window booked and confirmed for the structural phase.",
-                        "tasks": ["3.3"],
-                    },
-                    {
-                        "slug": "commissioning-delay",
-                        "title": "Building-systems commissioning slips occupancy",
-                        "status": "OPEN",
-                        "probability": 3,
-                        "impact": 4,
-                        "category": "TECHNICAL",
-                        "response": "MITIGATE",
-                        "owner": "diego",
-                        "tasks": ["5.2"],
-                    },
-                ],
-            }
-        ],
+        "projects": [sitework_project, building_project],
         "events": events,
     }
 
