@@ -47,7 +47,14 @@ test.describe('Blocked roll-up panel (ADR-0124)', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
-    await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
+    // A project that has blocked tasks necessarily has tasks — set total_tasks
+    // so the Overview renders its dashboard (incl. the Blocked roll-up) rather
+    // than the zero-task first-run handoff (#2048), which replaces the body.
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: PROJECT_ID,
+      overview: { total_tasks: 5 },
+    });
   });
 
   test('lists blocked tasks with type, age, assignee, and soft link — no reason', async ({ page }) => {
