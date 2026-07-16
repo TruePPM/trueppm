@@ -350,4 +350,37 @@ test.describe('Program Settings → General', () => {
     await expect(general.getByRole('switch', { name: 'Allow public link sharing' })).toHaveCount(0);
     await expect(sharingGroup.getByText('Inherit (Off)')).toBeVisible();
   });
+
+  // #2008: clicking an inheritable "Override" chip focuses its visually-hidden
+  // (`sr-only`, position:absolute) radio. Before the fix, that focused radio's
+  // containing block escaped the (non-positioned) settings scroll container, so
+  // the browser scrolled the WINDOW to reveal it — pushing the h-screen app up
+  // and blanking the screen. The scroll authority is now a positioned containing
+  // block, so focus-scroll stays inside it and the window never moves.
+  test('overriding an inheritable setting does not scroll the window (no blank screen)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    const general = page.locator('[data-settings-section="general"]');
+    await expect(general.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    // Scroll the (below-the-fold) Run history limit override into the container's
+    // view, then click Override — the exact reported gesture.
+    const runHistory = general.getByRole('radiogroup', { name: 'Run history limit' });
+    await runHistory.scrollIntoViewIfNeeded();
+    const scrollYBefore = await page.evaluate(() => window.scrollY);
+
+    await runHistory.getByText('Override', { exact: true }).click();
+
+    // The override input revealed (the click registered)…
+    await expect(general.getByRole('spinbutton', { name: 'Run history limit' })).toBeVisible();
+    // …and the click did NOT scroll the window (the regression: pre-fix the focused
+    // sr-only radio scrolled the h-screen app up by ~890px, blanking the screen).
+    const scrollYAfter = await page.evaluate(() => window.scrollY);
+    expect(Math.abs(scrollYAfter - scrollYBefore)).toBeLessThan(50);
+    // The field the user acted on is still within the viewport, not pushed off-screen.
+    await expect(runHistory).toBeInViewport();
+  });
 });
