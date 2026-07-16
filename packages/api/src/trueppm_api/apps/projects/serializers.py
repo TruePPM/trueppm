@@ -4986,7 +4986,9 @@ class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
     """
 
     # Exclude soft-deleted tasks so a relation cannot anchor to a tombstoned row.
-    source = serializers.PrimaryKeyRelatedField(queryset=Task.objects.filter(is_deleted=False))
+    source = serializers.PrimaryKeyRelatedField(  # type: ignore[assignment]
+        queryset=Task.objects.filter(is_deleted=False)
+    )
     target = serializers.PrimaryKeyRelatedField(queryset=Task.objects.filter(is_deleted=False))
     created_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
         read_only=True

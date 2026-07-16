@@ -5652,7 +5652,7 @@ class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelati
         # per-object re-check would wrongly 403 a target-only member of a
         # cross-project relation whose source project they cannot open.
         queryset = self.filter_queryset(self.get_queryset())
-        obj = get_object_or_404(queryset, pk=self.kwargs["pk"])
+        obj: TaskRelation = get_object_or_404(queryset, pk=self.kwargs["pk"])
         if self.request.method not in SAFE_METHODS:
             self.check_object_permissions(self.request, obj.source)
         return obj
