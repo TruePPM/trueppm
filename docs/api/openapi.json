@@ -41446,10 +41446,13 @@
                     "epic",
                     "feature",
                     "story",
-                    "task"
+                    "task",
+                    "bug",
+                    "spike",
+                    "chore"
                 ],
                 "type": "string",
-                "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task"
+                "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task\n* `bug` - Bug\n* `spike` - Spike\n* `chore` - Chore"
             },
             "KeyEnum": {
                 "enum": [

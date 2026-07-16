@@ -27,4 +27,29 @@ describe('DetailCreate', () => {
       ),
     );
   });
+
+  it('submits the entered story-points estimate', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<DetailCreate tagSuggestions={[]} onCancel={vi.fn()} onCreate={onCreate} />);
+
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Estimated work' } });
+    fireEvent.change(screen.getByLabelText('Story points'), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create item' }));
+
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ storyPoints: 5 })),
+    );
+  });
+
+  it('submits null story points when the estimate is left blank', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<DetailCreate tagSuggestions={[]} onCancel={vi.fn()} onCreate={onCreate} />);
+
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Unestimated' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create item' }));
+
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ storyPoints: null })),
+    );
+  });
 });

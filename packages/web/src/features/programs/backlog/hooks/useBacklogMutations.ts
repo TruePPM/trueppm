@@ -16,6 +16,7 @@ export interface CreateBacklogItemInput {
   itemType: BacklogItemType;
   description?: string;
   tags: string[];
+  storyPoints?: number | null;
 }
 
 export interface BacklogMutations {
@@ -48,6 +49,7 @@ export function useBacklogMutations(programId: string | undefined): BacklogMutat
         item_type: input.itemType,
         description: input.description?.trim() ?? '',
         tags: input.tags,
+        story_points: input.storyPoints ?? null,
       });
       const item = fromApiItem(res.data);
       upsertInCache(item);

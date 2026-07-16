@@ -35,6 +35,8 @@ import {
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
   epic: 'Epic',
+  feature: 'Feature',
+  task: 'Task',
   spike: 'Spike',
   chore: 'Chore',
   bug: 'Bug',
@@ -49,6 +51,7 @@ interface DetailDraft {
   itemType: BacklogItemType;
   status: BacklogItem['status'];
   tags: string[];
+  storyPoints: number | null;
 }
 
 function toDraft(item: BacklogItem): DetailDraft {
@@ -57,6 +60,7 @@ function toDraft(item: BacklogItem): DetailDraft {
     itemType: item.itemType,
     status: item.status,
     tags: item.tags,
+    storyPoints: item.storyPoints ?? null,
   };
 }
 
@@ -97,7 +101,8 @@ export function DetailView({
       base.description !== draft.description ||
       base.itemType !== draft.itemType ||
       base.status !== draft.status ||
-      base.tags.join(' ') !== draft.tags.join(' ')
+      base.tags.join(' ') !== draft.tags.join(' ') ||
+      base.storyPoints !== draft.storyPoints
     );
   }, [item, draft]);
 
@@ -107,6 +112,7 @@ export function DetailView({
       itemType: draft.itemType,
       status: draft.status,
       tags: draft.tags,
+      storyPoints: draft.storyPoints,
     });
   }
 
@@ -228,6 +234,32 @@ export function DetailView({
           <span className="tppm-mono tabular-nums text-neutral-text-primary">
             #{item.priorityRank}
           </span>
+
+          <label className="text-neutral-text-secondary" htmlFor={`${item.id}-points`}>
+            Story points
+          </label>
+          {canEdit ? (
+            <input
+              id={`${item.id}-points`}
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              value={draft.storyPoints ?? ''}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  storyPoints: e.target.value === '' ? null : Number(e.target.value),
+                }))
+              }
+              placeholder="—"
+              className={`h-8 w-24 ${INPUT_BASE}`}
+            />
+          ) : (
+            <span className="tabular-nums text-neutral-text-primary">
+              {item.storyPoints ?? <span className="text-neutral-text-disabled">—</span>}
+            </span>
+          )}
 
           <span className="self-start pt-1.5 text-neutral-text-secondary">Tags</span>
           {canEdit ? (

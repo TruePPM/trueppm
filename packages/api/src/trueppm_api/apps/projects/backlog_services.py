@@ -15,25 +15,36 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import (
     BacklogItem,
     BacklogItemStatus,
     BacklogItemType,
+    Label,
+    LabelColor,
     Project,
     Task,
+    TaskLabel,
     TaskStatus,
     TaskType,
 )
 
 # Map the program intake taxonomy (ADR-0069) onto the project work-item taxonomy
-# (ADR-0105). ``feature`` has no Task analogue and falls back to TASK at the call site.
+# (ADR-0105). The two enums are reconciled (#1995): every intake type maps to a
+# distinct Task type so a pulled bug/spike/chore keeps its kind instead of
+# silently collapsing to a plain task. ``chore`` is the intake name for
+# ``TaskType.TECH_DEBT``; ``feature`` has no Task analogue and maps to ``TASK``.
 _ITEM_TYPE_TO_TASK_TYPE: dict[str, TaskType] = {
     BacklogItemType.EPIC: TaskType.EPIC,
     BacklogItemType.STORY: TaskType.STORY,
     BacklogItemType.TASK: TaskType.TASK,
+    BacklogItemType.BUG: TaskType.BUG,
+    BacklogItemType.SPIKE: TaskType.SPIKE,
+    BacklogItemType.CHORE: TaskType.TECH_DEBT,
+    BacklogItemType.FEATURE: TaskType.TASK,
 }
 
 
@@ -97,6 +108,7 @@ def pull_to_project_backlog(
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
+    new_label_ids: list[str] = []
     with transaction.atomic():
         item = BacklogItem.objects.select_for_update().get(pk=item_id, is_deleted=False)
 
@@ -118,10 +130,16 @@ def pull_to_project_backlog(
             status=TaskStatus.BACKLOG,
             sprint=None,
             # ADR-0105: carry the intake item's type into the project work-item
-            # taxonomy so a pulled story/epic keeps its kind. ``feature`` has no Task
-            # equivalent and maps to the default TASK.
+            # taxonomy so a pulled story/bug/spike keeps its kind. The taxonomies
+            # are reconciled (#1995), so ``.get`` always hits; the TASK fallback is
+            # defensive only (an unknown value can no longer be created).
             type=_ITEM_TYPE_TO_TASK_TYPE.get(item.item_type, TaskType.TASK),
         )
+
+        # Carry the intake item's free-text tags onto the task as project labels
+        # (#1992) so a PO's thematic grouping survives the crossing. Runs inside
+        # the atomic block so a rolled-back pull leaves no orphan labels.
+        new_label_ids = _apply_tags_as_labels(task, project, item.tags, actor)
 
         item.status = BacklogItemStatus.PULLED
         item.pulled_task = task
@@ -145,6 +163,18 @@ def pull_to_project_backlog(
         lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
     )
 
+    # Any labels coined from the item's tags are new project vocabulary — tell open
+    # boards/label managers so they can render the pulled task's pills (#1992). Bind
+    # the id through a function arg so closure late-binding can't collapse the loop's
+    # events to the last id.
+    def _broadcast_label(lid: str) -> None:
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "label_created", {"id": lid})
+        )
+
+    for _label_id in new_label_ids:
+        _broadcast_label(_label_id)
+
     # Bind the payload via a default arg so closure late-binding can never swap it
     # if this function grows more branches later (matches inbound_sync.py).
     def _dispatch(pid: str = project_id, wp: dict[str, Any] = webhook_payload) -> None:
@@ -152,6 +182,86 @@ def pull_to_project_backlog(
 
     transaction.on_commit(_dispatch)
     return task
+
+
+def _apply_tags_as_labels(
+    task: Task,
+    project: Project,
+    tags: list[str],
+    actor: Any,
+) -> list[str]:
+    """Carry a pulled item's free-text tags onto the task as project labels (#1992).
+
+    Each tag becomes — or, case-insensitively, reuses — a project-scoped ``Label``
+    and is attached to ``task`` via ``TaskLabel``. Reuse keeps the catalog from
+    sprouting a near-duplicate on every pull; new labels take the neutral default
+    slot (``SLATE``) appended to the end of the palette order, which a project admin
+    can recolor later. Idempotent per tag via ``TaskLabel.get_or_create``.
+
+    Must be called inside the pull's ``transaction.atomic`` block so a rolled-back
+    pull leaves no orphan labels. The label soft cap is honored: once the project is
+    at the ceiling, further *new* tags are skipped (existing matches still attach) so
+    a pull can never blow past the curation floor the ``LabelViewSet`` enforces.
+
+    Args:
+        task: The freshly created project-backlog Task to label.
+        project: The task's project (labels are project-scoped).
+        tags: The item's tags — already normalized (trimmed, de-duped) by the
+            serializer's ``validate_tags``.
+        actor: The pulling user, recorded as ``created_by`` on any new label.
+
+    Returns:
+        The ids of labels *created* here (not reused), so the caller can broadcast
+        ``label_created`` once the transaction commits.
+    """
+    if not tags:
+        return []
+    # Call-time import mirrors the pull's views import — avoids a services→views cycle.
+    from trueppm_api.apps.projects.views import _label_soft_cap
+
+    cap = _label_soft_cap()
+    live = Label.objects.filter(project=project, is_deleted=False)
+    label_count = live.count()
+    next_position = (live.aggregate(m=Max("position"))["m"] or 0) + 1
+    creator = actor if getattr(actor, "is_authenticated", False) else None
+
+    created_ids: list[str] = []
+    for tag in tags:
+        # Label.name is capped at 50 chars; BacklogItem tags are unbounded, so clamp
+        # to keep an over-long tag from raising instead of degrading gracefully.
+        name = tag[:50]
+        label = Label.objects.filter(project=project, name__iexact=name, is_deleted=False).first()
+        if label is None:
+            if label_count >= cap:
+                # At the curation ceiling — skip coining a new label but keep going;
+                # a pull must not fail because the project's label catalog is full.
+                continue
+            try:
+                # Savepoint the create so a concurrent pull that coined the same tag
+                # first raises only a local IntegrityError (on uniq_label_name_per_project)
+                # instead of poisoning the whole pull transaction. Without the nested
+                # atomic the outer pull would roll back to a transient 500.
+                with transaction.atomic():
+                    label = Label.objects.create(
+                        project=project,
+                        name=name,
+                        color=LabelColor.SLATE,
+                        position=next_position,
+                        created_by=creator,
+                    )
+            except IntegrityError:
+                # Lost the race — the other transaction's label is now committed and
+                # visible; reuse it (exact-name match, since the unique constraint is
+                # on exact (project, name)). Fall through to attach it.
+                label = Label.objects.filter(project=project, name=name, is_deleted=False).first()
+                if label is None:
+                    continue
+            else:
+                next_position += 1
+                label_count += 1
+                created_ids.append(str(label.pk))
+        TaskLabel.objects.get_or_create(task=task, label=label)
+    return created_ids
 
 
 def reset_pulled_item_on_task_delete(task_id: str) -> None:

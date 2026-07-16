@@ -89,6 +89,7 @@ describe('useBacklogMutations', () => {
         itemType: 'bug',
         description: '  body  ',
         tags: ['x'],
+        storyPoints: 3,
       });
     });
 
@@ -97,8 +98,27 @@ describe('useBacklogMutations', () => {
       item_type: 'bug',
       description: 'body',
       tags: ['x'],
+      story_points: 3,
     });
     expect(read().map((i) => i.id)).toEqual(['BI-1', 'BI-2']);
+  });
+
+  it('createItem sends story_points: null when the estimate is omitted', async () => {
+    postMock.mockResolvedValue({ data: apiItem({ id: 'BI-3', title: 'Unestimated' }) });
+    const { result } = setup([existing()]);
+
+    await act(async () => {
+      await result.current.createItem({
+        title: 'Unestimated',
+        itemType: 'story',
+        tags: [],
+      });
+    });
+
+    expect(postMock).toHaveBeenCalledWith(
+      BASE,
+      expect.objectContaining({ story_points: null }),
+    );
   });
 
   it('updateItem PATCHes the changed fields and replaces the cached row in place', async () => {

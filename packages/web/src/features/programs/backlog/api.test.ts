@@ -129,6 +129,16 @@ describe('toPatchPayload', () => {
     expect(toPatchPayload({ description: '' })).toEqual({ description: '' });
   });
 
+  it('maps a story-points estimate onto its snake_case key', () => {
+    expect(toPatchPayload({ storyPoints: 8 })).toEqual({ story_points: 8 });
+  });
+
+  it('sends null to clear a story-points estimate (present but nulled)', () => {
+    // A cleared estimate is an explicit null, not a dropped key, so the column
+    // is actually reset server-side.
+    expect(toPatchPayload({ storyPoints: null })).toEqual({ story_points: null });
+  });
+
   it('coerces a null description to an empty string via the `?? ""` guard', () => {
     const patch: Partial<BacklogItem> = { description: null as unknown as string };
     expect(toPatchPayload(patch)).toEqual({ description: '' });

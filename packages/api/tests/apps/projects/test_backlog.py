@@ -30,10 +30,14 @@ from trueppm_api.apps.projects.models import (
     BacklogItemStatus,
     BacklogItemType,
     Calendar,
+    Label,
+    LabelColor,
     Program,
     Project,
     Task,
+    TaskLabel,
     TaskStatus,
+    TaskType,
 )
 
 User = get_user_model()
@@ -571,3 +575,185 @@ def test_search_is_program_scoped(owner: object, program: Program) -> None:
         f"/api/v1/programs/{program.pk}/backlog-items/", {"q": "Shared widget"}
     )
     assert len(_list_payload(resp)) == 1
+
+
+# ---------------------------------------------------------------------------
+# #1995 — item-type ↔ task-type reconciliation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("item_type", "expected_task_type"),
+    [
+        (BacklogItemType.EPIC, TaskType.EPIC),
+        (BacklogItemType.STORY, TaskType.STORY),
+        (BacklogItemType.TASK, TaskType.TASK),
+        (BacklogItemType.BUG, TaskType.BUG),
+        (BacklogItemType.SPIKE, TaskType.SPIKE),
+        (BacklogItemType.CHORE, TaskType.TECH_DEBT),
+        # FEATURE has no dedicated Task analogue → the documented TASK fallback.
+        (BacklogItemType.FEATURE, TaskType.TASK),
+    ],
+)
+def test_pull_maps_item_type_to_task_type(
+    member: object,
+    program: Program,
+    project: Project,
+    item_type: str,
+    expected_task_type: str,
+) -> None:
+    """A pulled bug/spike/chore keeps its kind instead of collapsing to TASK (#1995)."""
+    item = _item(program, item_type=item_type)
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    task = Task.objects.get(pk=resp.data["task"]["id"])
+    assert task.type == expected_task_type
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("item_type", ["bug", "spike", "chore"])
+def test_create_accepts_reconciled_item_types(
+    member: object, program: Program, item_type: str
+) -> None:
+    """The create dropdown's dev-vocabulary types are now valid backend choices (#1995)."""
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/",
+        {"title": f"A {item_type}", "item_type": item_type},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert BacklogItem.objects.get(pk=resp.data["id"]).item_type == item_type
+
+
+# ---------------------------------------------------------------------------
+# #1991 — story points writable on create
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_accepts_story_points(member: object, program: Program) -> None:
+    """Story points are set on create (they were writable server-side but never sent)."""
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/",
+        {"title": "Estimated", "item_type": "story", "story_points": 8},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert BacklogItem.objects.get(pk=resp.data["id"]).story_points == 8
+
+
+# ---------------------------------------------------------------------------
+# #1992 — tags carried onto the pulled task as labels
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pull_carries_tags_as_labels(member: object, program: Program, project: Project) -> None:
+    """A PO's thematic tags survive the pull as project labels on the new task."""
+    item = _item(program, tags=["auth", "mobile"])
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+
+    task = Task.objects.get(pk=resp.data["task"]["id"])
+    label_names = sorted(task.labels.values_list("name", flat=True))
+    assert label_names == ["auth", "mobile"]
+    # New labels are project-scoped and take the neutral default palette slot.
+    for label in Label.objects.filter(project=project):
+        assert label.color == LabelColor.SLATE
+
+
+@pytest.mark.django_db
+def test_pull_reuses_existing_label_case_insensitively(
+    member: object, program: Program, project: Project
+) -> None:
+    """A tag matching an existing label (any case) reuses it — no near-duplicate."""
+    existing = Label.objects.create(project=project, name="Auth", color=LabelColor.TEAL)
+    item = _item(program, tags=["auth"])
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+
+    task = Task.objects.get(pk=resp.data["task"]["id"])
+    assert list(task.labels.all()) == [existing]
+    # Reused, not re-coined: still a single "Auth"-ish label in the project, and its
+    # curated color is untouched.
+    assert Label.objects.filter(project=project).count() == 1
+    existing.refresh_from_db()
+    assert existing.color == LabelColor.TEAL
+
+
+@pytest.mark.django_db
+def test_two_pulls_sharing_a_tag_coin_one_label(
+    member: object, program: Program, project: Project
+) -> None:
+    """Pulling two items with the same tag into one project reuses the label once."""
+    first = _item(program, title="First", tags=["auth"])
+    second = _item(program, title="Second", tags=["Auth"])  # different case, same tag
+    base = f"/api/v1/programs/{program.pk}/backlog-items"
+    r1 = _client(member).post(
+        f"{base}/{first.pk}/pull/", {"project_id": str(project.pk)}, format="json"
+    )
+    r2 = _client(member).post(
+        f"{base}/{second.pk}/pull/", {"project_id": str(project.pk)}, format="json"
+    )
+    assert r1.status_code == 201 and r2.status_code == 201
+
+    # One label total (case-insensitive reuse across pulls), attached to both tasks.
+    assert Label.objects.filter(project=project).count() == 1
+    label = Label.objects.get(project=project)
+    assert {str(pk) for pk in label.tasks.values_list("pk", flat=True)} == {
+        str(r1.data["task"]["id"]),
+        str(r2.data["task"]["id"]),
+    }
+
+
+@pytest.mark.django_db
+def test_pull_with_no_tags_creates_no_labels(
+    member: object, program: Program, project: Project
+) -> None:
+    item = _item(program, tags=[])
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert not Label.objects.filter(project=project).exists()
+    assert not TaskLabel.objects.filter(task_id=resp.data["task"]["id"]).exists()
+
+
+@pytest.mark.django_db
+def test_pull_broadcasts_label_created_for_new_labels(
+    member: object,
+    program: Program,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """Coining a label from a tag tells open boards via a deferred label_created event."""
+    from trueppm_api.apps.projects.backlog_services import pull_to_project_backlog
+
+    item = _item(program, tags=["auth"])
+    events: list[tuple[str, dict[str, object]]] = []
+    with (
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+            side_effect=lambda _pid, et, payload: events.append((et, payload)),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        pull_to_project_backlog(item_id=str(item.pk), project=project, actor=member)
+
+    label = Label.objects.get(project=project, name="auth")
+    assert ("label_created", {"id": str(label.pk)}) in events

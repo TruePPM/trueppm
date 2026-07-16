@@ -63,6 +63,7 @@ export interface CreateItemPayload {
   item_type: BacklogItemType;
   description?: string;
   tags: string[];
+  story_points?: number | null;
 }
 
 /** PATCH body — only the writable fields the UI can edit, in API shape. */
@@ -74,6 +75,8 @@ export function toPatchPayload(patch: Partial<BacklogItem>): Record<string, unkn
   if (patch.status !== undefined) body.status = STATUS_TO_API[patch.status];
   if (patch.tags !== undefined) body.tags = patch.tags;
   if (patch.priorityRank !== undefined) body.priority_rank = patch.priorityRank;
+  // story_points is nullable server-side; a cleared field sends null, not omitted.
+  if (patch.storyPoints !== undefined) body.story_points = patch.storyPoints ?? null;
   return body;
 }
 
