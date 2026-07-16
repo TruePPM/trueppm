@@ -1164,9 +1164,24 @@ function PhaseLaneImpl({
                 key={col.status}
                 className="bg-neutral-surface-sunken border-l border-neutral-border p-2 min-h-[56px] flex items-center justify-center"
               >
-                <span className="text-xs text-neutral-text-disabled">
-                  {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
-                </span>
+                {count > 0 ? (
+                  <span className="text-xs text-neutral-text-disabled">
+                    {count} task{count !== 1 ? 's' : ''}
+                  </span>
+                ) : (
+                  <>
+                    {/* Empty cell — a dashed hollow "0" so a collapsed lane reads as
+                        "no cards", not "n/a" (#1943). Matches the ColumnStub empty
+                        treatment (#1697) instead of a bare em-dash (rule 201). */}
+                    <span
+                      aria-hidden="true"
+                      className="tppm-mono tabular-nums text-xs font-bold min-w-[18px] px-1 py-px rounded-full border border-dashed border-neutral-border text-neutral-text-secondary text-center"
+                    >
+                      0
+                    </span>
+                    <span className="sr-only">0 cards, empty</span>
+                  </>
+                )}
               </div>
             );
           }
