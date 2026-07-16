@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { HealthState } from '@/types';
+import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { iterationLabelForms } from '@/lib/iterationLabel';
@@ -63,6 +64,10 @@ export function ProjectSettingsPage() {
   const { data: project } = useProject(projectId);
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
+  // The Workspace scope tab links to `/settings`, which RequireWorkspaceAdmin
+  // bounces a non-workspace-admin away from (#2012). Disable the tab (rather than
+  // render a dead link) when the user is positively not a workspace admin.
+  const isWorkspaceAdmin = useIsWorkspaceAdmin();
 
   if (!projectId) return null;
 
@@ -127,7 +132,7 @@ export function ProjectSettingsPage() {
     <SettingsShell
       scope="project"
       scopeLinks={[
-        { scope: 'workspace', label: 'Workspace', to: '/settings' },
+        { scope: 'workspace', label: 'Workspace', to: isWorkspaceAdmin === false ? null : '/settings', disabledReason: 'Requires workspace admin' },
         { scope: 'program',   label: 'Program',   to: programTarget ? `/programs/${programTarget}/settings` : null, disabledReason: 'No programs yet' },
         { scope: 'project',   label: 'Project',   to: `/projects/${projectId}/settings` },
       ]}

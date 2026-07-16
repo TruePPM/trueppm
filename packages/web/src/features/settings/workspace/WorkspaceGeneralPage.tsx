@@ -94,6 +94,8 @@ export function WorkspaceGeneralPage() {
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
   const [publicSharing, setPublicSharing] = useState(false);
+  const [publicSharingPolicy, setPublicSharingPolicy] =
+    useState<'inherit' | 'suggest' | 'enforce'>('suggest');
   const [iterationLabel, setIterationLabel] = useState('Sprint');
   const [iterationLabelPolicy, setIterationLabelPolicy] = useState<IterationLabelPolicy>('suggest');
   // Forecast-history config (ADR-0144, issue 1232) — workspace is the non-null root.
@@ -120,6 +122,7 @@ export function WorkspaceGeneralPage() {
     workWeek: [true, true, true, true, true, false, false] as boolean[],
     allowGuests: false,
     publicSharing: false,
+    publicSharingPolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
     iterationLabel: 'Sprint',
     iterationLabelPolicy: 'suggest' as IterationLabelPolicy,
     mcHistoryEnabled: true,
@@ -144,6 +147,7 @@ export function WorkspaceGeneralPage() {
       workWeek: ws.workWeek,
       allowGuests: ws.allowGuests,
       publicSharing: ws.publicSharing,
+      publicSharingPolicy: ws.publicSharingOverridePolicy,
       iterationLabel: ws.iterationLabel,
       iterationLabelPolicy: ws.iterationLabelOverridePolicy,
       mcHistoryEnabled: ws.mcHistoryEnabled,
@@ -161,6 +165,7 @@ export function WorkspaceGeneralPage() {
     setWorkWeek(snap.workWeek);
     setAllowGuests(snap.allowGuests);
     setPublicSharing(snap.publicSharing);
+    setPublicSharingPolicy(snap.publicSharingPolicy);
     setIterationLabel(snap.iterationLabel);
     setIterationLabelPolicy(snap.iterationLabelPolicy);
     setMcHistoryEnabled(snap.mcHistoryEnabled);
@@ -181,6 +186,7 @@ export function WorkspaceGeneralPage() {
     workWeek,
     allowGuests,
     publicSharing,
+    publicSharingPolicy,
     iterationLabel,
     iterationLabelPolicy,
     mcHistoryEnabled,
@@ -201,6 +207,7 @@ export function WorkspaceGeneralPage() {
       workWeek,
       allowGuests,
       publicSharing,
+      publicSharingOverridePolicy: publicSharingPolicy,
       iterationLabel,
       iterationLabelOverridePolicy: iterationLabelPolicy,
       mcHistoryEnabled,
@@ -220,6 +227,7 @@ export function WorkspaceGeneralPage() {
       workWeek,
       allowGuests,
       publicSharing,
+      publicSharingPolicy,
       iterationLabel,
       iterationLabelPolicy,
       mcHistoryEnabled,
@@ -238,6 +246,7 @@ export function WorkspaceGeneralPage() {
     workWeek,
     allowGuests,
     publicSharing,
+    publicSharingPolicy,
     iterationLabel,
     iterationLabelPolicy,
     mcHistoryEnabled,
@@ -258,6 +267,7 @@ export function WorkspaceGeneralPage() {
     setWorkWeek(initial.workWeek);
     setAllowGuests(initial.allowGuests);
     setPublicSharing(initial.publicSharing);
+    setPublicSharingPolicy(initial.publicSharingPolicy);
     setIterationLabel(initial.iterationLabel);
     setIterationLabelPolicy(initial.iterationLabelPolicy);
     setMcHistoryEnabled(initial.mcHistoryEnabled);
@@ -516,6 +526,51 @@ export function WorkspaceGeneralPage() {
               Programs and projects may narrow this, but cannot widen it.
             </p>
           )}
+          {/* Cascade policy (ADR-0135, #978 / #2014). Mirrors the sibling
+              TermOverridePolicy controls on this page (iteration label, forecast
+              history): OSS exposes "may override" (suggest) vs the Enterprise
+              ENFORCE lock. INHERIT and SUGGEST are honored identically in OSS, so
+              a stored `inherit` reads as "may override" and heals to `suggest`. */}
+          <fieldset className="mt-3 flex flex-col gap-1.5 border-0 p-0 m-0">
+            <legend className="text-[12px] font-medium text-neutral-text-secondary mb-0.5">
+              Programs &amp; projects
+            </legend>
+            <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
+              <input
+                type="radio"
+                name="public-sharing-policy"
+                checked={publicSharingPolicy !== 'enforce'}
+                onChange={() => setPublicSharingPolicy('suggest')}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              />
+              May narrow or widen this default
+            </label>
+            {/* ENFORCE locks the workspace setting so lower scopes cannot override
+                — an Enterprise capability (ADR-0135). Disabled on the OSS surface;
+                the EnterpriseBadge (community-only) is the reachable upsell link.
+                OSS stores the value but never enforces the lock downstream. */}
+            <span className="inline-flex items-center gap-1.5">
+              <label className="flex items-center gap-2 text-[13px] text-neutral-text-disabled cursor-not-allowed">
+                <input
+                  type="radio"
+                  name="public-sharing-policy"
+                  checked={publicSharingPolicy === 'enforce'}
+                  disabled
+                  readOnly
+                  // A disabled radio conveys only "unavailable" to a screen reader;
+                  // the visual EnterpriseBadge doesn't reach non-visual users, so the
+                  // reason is spelled out via an sr-only span (web-rule 265 / #2001).
+                  aria-describedby="public-sharing-enforce-enterprise-hint"
+                  className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                />
+                Enforce sharing workspace-wide
+              </label>
+              <EnterpriseBadge />
+              <span id="public-sharing-enforce-enterprise-hint" className="sr-only">
+                Enforcing sharing workspace-wide requires TruePPM Enterprise.
+              </span>
+            </span>
+          </fieldset>
         </FieldRow>
 
         {/* Forecast history (ADR-0144, issue 1232). Workspace is the non-null root of the
