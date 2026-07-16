@@ -98,18 +98,24 @@ describe('<SettingsShell>', () => {
     expect(screen.getByText('ACCESS_SECTION')).toBeInTheDocument();
   });
 
-  it('separates adjacent sections with a hairline divider, suppressed on the first (issue 1986)', () => {
+  it('ranks adjacent sections by air + a 2px rule, suppressed on the first (issues 1986/2007)', () => {
     renderShell();
     const sections = Array.from(
       document.querySelectorAll<HTMLElement>('[data-settings-section]'),
     );
     expect(sections.length).toBeGreaterThanOrEqual(2);
-    // Every section carries the divider utilities; `first:` suppresses it on the
-    // leading section (flush under the header) via CSS — assert the classes are
-    // present so the boundary treatment can't silently regress.
+    // Every section ranks by negative space (32px gap both sides of the rule via
+    // mt-8 + pt-8) and a 2px rule that out-weighs the 1px `/55` field-row lines;
+    // `first:` suppresses the gap/rule on the leading section (flush under the
+    // header) via CSS — assert the classes are present so the boundary treatment
+    // can't silently regress back to a near-invisible hairline.
     for (const s of sections) {
-      expect(s.className).toContain('border-t');
+      expect(s.className).toContain('border-t-2');
       expect(s.className).toContain('border-neutral-border');
+      expect(s.className).toContain('mt-8');
+      expect(s.className).toContain('pt-8');
+      expect(s.className).toContain('first:mt-0');
+      expect(s.className).toContain('first:pt-0');
       expect(s.className).toContain('first:border-t-0');
     }
   });
