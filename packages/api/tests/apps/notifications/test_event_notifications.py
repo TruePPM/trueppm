@@ -32,6 +32,7 @@ from trueppm_api.apps.notifications.services import (
 )
 from trueppm_api.apps.notifications.tasks import _send_email_for_notification
 from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -207,8 +208,24 @@ def test_notification_channels_registered() -> None:
 
 
 @pytest.mark.django_db
-def test_smtp_status_for_org_admin(client: APIClient) -> None:
+def test_smtp_status_forbidden_for_single_project_admin(client: APIClient) -> None:
+    # #2016: the read gate is IsWorkspaceAdminStrict. `client` authenticates a
+    # single-project admin (ProjectMembership ADMIN, no WorkspaceMembership), who
+    # resolves to the implicit workspace MEMBER and must not read mail-transport
+    # posture.
     resp = client.get("/api/v1/workspace/email-settings/")
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
+def test_smtp_status_for_workspace_admin(db: object) -> None:
+    ws_admin = User.objects.create_user(username="ev_wsadmin", password="pw", email="wsa@x.io")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=ws_admin, role=WorkspaceRole.ADMIN
+    )
+    c = APIClient()
+    c.force_authenticate(user=ws_admin)
+    resp = c.get("/api/v1/workspace/email-settings/")
     assert resp.status_code == 200, resp.data
     assert "from_email" in resp.data
     assert "transport_mode" in resp.data
