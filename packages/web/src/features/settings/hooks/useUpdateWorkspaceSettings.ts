@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  CalendarOverridePolicy,
   DurationChangePercentPolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
@@ -41,6 +42,8 @@ interface WorkspaceSettingsPatchRaw {
   attachments_enabled?: boolean;
   allowed_attachment_types?: string[];
   attachments_override_policy?: 'inherit' | 'suggest' | 'enforce';
+  calendar?: string | null;
+  calendar_override_policy?: CalendarOverridePolicy;
 }
 
 function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
@@ -77,6 +80,9 @@ function toRaw(patch: WorkspaceSettingsPatch): WorkspaceSettingsPatchRaw {
     raw.allowed_attachment_types = patch.allowedAttachmentTypes;
   if (patch.attachmentsOverridePolicy !== undefined)
     raw.attachments_override_policy = patch.attachmentsOverridePolicy;
+  if (patch.calendar !== undefined) raw.calendar = patch.calendar;
+  if (patch.calendarOverridePolicy !== undefined)
+    raw.calendar_override_policy = patch.calendarOverridePolicy;
   return raw;
 }
 

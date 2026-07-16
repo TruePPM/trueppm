@@ -201,6 +201,19 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         return [IsAuthenticated()]
 
+    def perform_update(self, serializer: serializers.BaseSerializer[Program]) -> None:
+        # ADR-0441: reassigning a program's working calendar (a different default, or
+        # cleared to inherit the workspace) re-points every member project that sets no
+        # calendar of its own, so capture the before-value and fan out a CPM recompute
+        # to the inheriting projects only when ``calendar`` actually changes. Other
+        # program-field edits (name, methodology, sharing, …) never touch scheduling.
+        old_calendar_id = serializer.instance.calendar_id if serializer.instance else None
+        instance = serializer.save()
+        if instance.calendar_id != old_calendar_id:
+            from trueppm_api.apps.projects.views import _recalc_projects_for_program_calendar
+
+            _recalc_projects_for_program_calendar(instance.pk)
+
     def get_queryset(self) -> QuerySet[Program]:
         """Programs visible to the current user (those they have membership on).
 
@@ -226,7 +239,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
             )
             # select_related on ``lead`` so ProgramSerializer.lead_detail does not
             # incur one extra User query per program on list responses (#523).
-            .select_related("lead")
+            # select_related ``calendar`` + prefetch its exceptions so
+            # ProgramSerializer.effective_calendar (ADR-0441, with holiday_count) does
+            # not N+1 the program list. The workspace-tier calendar is the shared
+            # singleton, resolved once via the serializer's ``_sharing_workspace`` cache.
+            .select_related("lead", "calendar")
+            .prefetch_related("calendar__exceptions")
             .annotate(
                 _my_role=Subquery(my_role_sq),
                 project_count=Count(
@@ -1051,7 +1069,13 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         incomplete = ~Q(tasks__status=TaskStatus.COMPLETE) & Q(tasks__is_deleted=False)
         qs = (
             Project.objects.filter(program=program, is_deleted=False)
-            .select_related("calendar")
+            # ADR-0441: ProjectSerializer.effective_calendar resolves project ?? program
+            # ?? workspace and reports holiday_count, so select_related the program-tier
+            # calendar and prefetch both tiers' exceptions to keep this list N+1-free.
+            # (The workspace-tier calendar is the shared singleton, resolved once via the
+            # serializer's cached workspace.)
+            .select_related("calendar", "program", "program__calendar")
+            .prefetch_related("calendar__exceptions", "program__calendar__exceptions")
             .annotate(
                 overdue_count=Count(
                     "tasks",

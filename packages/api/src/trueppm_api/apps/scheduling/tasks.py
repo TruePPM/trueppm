@@ -777,19 +777,22 @@ def _run_schedule(
 
     try:
         db_project = (
-            Project.objects.select_related("calendar")
+            Project.objects.select_related("calendar", "program__calendar")
             # tasks__sprint: build_sched_tasks reads each task's sprint.start_date
             # for the ADR-0168 sprint-window floor; prefetch it to avoid an N+1.
             # calendar__exceptions + calendar_layers__calendar__exceptions:
             # compose_project_calendar reads every CalendarException row of the
             # base calendar (#1491) AND of every applied overlay (#906); prefetch
-            # both to avoid an N+1.
+            # both to avoid an N+1. program__calendar__exceptions: when the project
+            # inherits its base calendar from the program (ADR-0441), the resolver
+            # reads the program calendar's exceptions too — prefetch to avoid an N+1.
             .prefetch_related(
                 "tasks",
                 "tasks__sprint",
                 "tasks__predecessors",
                 "calendar__exceptions",
                 "calendar_layers__calendar__exceptions",
+                "program__calendar__exceptions",
             )
             .get(pk=project_id)
         )

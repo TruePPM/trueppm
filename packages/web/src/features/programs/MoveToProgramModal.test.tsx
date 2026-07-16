@@ -21,6 +21,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     name: 'Artemis',
     description: '',
     code: '',
+    calendar: null,
     methodology: 'HYBRID',
     effective_methodology: 'HYBRID',
     inherited_methodology: 'HYBRID',

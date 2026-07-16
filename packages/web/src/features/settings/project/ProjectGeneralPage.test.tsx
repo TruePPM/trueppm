@@ -40,9 +40,10 @@ vi.mock('@/hooks/useCalendars', () => ({
   useCalendars: () =>
     useCalendars() as { calendars: unknown[]; isLoading: boolean; error: unknown },
 }));
+// working_days is a single integer bitmask (Mon=1…Sun=64): 31 = Mon–Fri, 63 = Mon–Sat.
 const DEFAULT_CALENDARS = [
-  { id: 'cal-1', name: 'Standard 5-day', working_days: [1, 2, 3, 4, 5], hours_per_day: 8 },
-  { id: 'cal-2', name: 'Six-day site week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 },
+  { id: 'cal-1', name: 'Standard 5-day', working_days: 31, hours_per_day: 8 },
+  { id: 'cal-2', name: 'Six-day site week', working_days: 63, hours_per_day: 10 },
 ];
 
 function renderPage() {

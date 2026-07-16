@@ -270,6 +270,7 @@ export default defineConfig({
             { slug: "administration/audit-log" },
             { slug: "administration/sharing-and-access" },
             { slug: "administration/attachment-policy" },
+            { slug: "administration/working-calendars" },
             { slug: "administration/git-event-automation" },
             { slug: "administration/mcp-server" },
           ],

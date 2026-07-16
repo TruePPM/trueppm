@@ -1,7 +1,9 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  EffectiveCalendar,
   MCAttributionAudience,
+  ProjectCalendarSource,
   ProjectDefaultView,
   ProjectHealth,
   ProjectVisibility,
@@ -37,6 +39,14 @@ export interface ApiProjectDetail {
    */
   start_floor?: string;
   calendar: string | null;
+  /**
+   * Read-only server-resolved calendar (ADR-0441, issue #1987): project override
+   * ?? program ?? workspace ?? null (the system default). Optional — absent on a
+   * stale cached response from before #1987 shipped; callers must guard for that.
+   */
+  effective_calendar?: EffectiveCalendar | null;
+  /** Which scope supplied `effective_calendar` (ADR-0441, issue #1987). */
+  calendar_source?: ProjectCalendarSource;
   /**
    * Program UUID this project belongs to (ADR-0070), or null for a standalone
    * project. Drives the cross-project dependency picker (ADR-0120): the schedule

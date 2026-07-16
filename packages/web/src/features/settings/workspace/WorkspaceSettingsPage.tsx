@@ -8,6 +8,7 @@ import { WorkspaceGroupsPage } from './WorkspaceGroupsPage';
 import { WorkspaceRolesPage } from './WorkspaceRolesPage';
 import { WorkspaceMethodologyPage } from './WorkspaceMethodologyPage';
 import { WorkspaceSchedulePage } from './WorkspaceSchedulePage';
+import { WorkspaceCalendarPage } from './WorkspaceCalendarPage';
 import { WorkspaceProgramsPage } from './WorkspaceProgramsPage';
 import { WorkspaceEmailPage } from './WorkspaceEmailPage';
 import { WorkspaceSsoPage } from './WorkspaceSsoPage';
@@ -78,6 +79,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     items: [
       { id: 'methodology', label: 'Methodology defaults', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
       { id: 'schedule',    label: 'Schedule',             icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
+      { id: 'calendar',    label: 'Working calendar',     icon: <NavIcon><GanttIcon aria-hidden="true" /></NavIcon> },
       { id: 'programs',    label: 'Programs',             icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
       { id: 'attachments', label: 'Attachments',          icon: <NavIcon><ExternalLinkIcon aria-hidden="true" /></NavIcon> },
       { id: 'email',       label: 'Email & SMTP',         icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
@@ -135,6 +137,7 @@ export function WorkspaceSettingsPage() {
       <SettingsSection id="sso"><WorkspaceSsoPage /></SettingsSection>
       <SettingsSection id="methodology"><WorkspaceMethodologyPage /></SettingsSection>
       <SettingsSection id="schedule"><WorkspaceSchedulePage /></SettingsSection>
+      <SettingsSection id="calendar"><WorkspaceCalendarPage /></SettingsSection>
       <SettingsSection id="programs"><WorkspaceProgramsPage /></SettingsSection>
       <SettingsSection id="attachments"><WorkspaceAttachmentsPage /></SettingsSection>
       <SettingsSection id="email"><WorkspaceEmailPage /></SettingsSection>

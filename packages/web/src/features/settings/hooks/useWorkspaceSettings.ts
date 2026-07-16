@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
+  CalendarOverridePolicy,
   DurationChangePercentPolicy,
   MCAttributionAudience,
   MCHistoryOverridePolicy,
@@ -38,6 +39,8 @@ interface WorkspaceSettingsRaw {
   attachments_enabled: boolean;
   allowed_attachment_types: string[];
   attachments_override_policy: 'inherit' | 'suggest' | 'enforce';
+  calendar: string | null;
+  calendar_override_policy: CalendarOverridePolicy;
   logo_url: string | null;
 }
 
@@ -67,6 +70,8 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     attachmentsEnabled: raw.attachments_enabled,
     allowedAttachmentTypes: raw.allowed_attachment_types,
     attachmentsOverridePolicy: raw.attachments_override_policy,
+    calendar: raw.calendar,
+    calendarOverridePolicy: raw.calendar_override_policy,
     logoUrl: raw.logo_url,
   };
 }

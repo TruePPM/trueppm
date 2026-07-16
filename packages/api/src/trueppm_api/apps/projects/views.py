@@ -8,7 +8,7 @@ import functools
 import logging
 import re
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -341,29 +341,13 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
             _recalc_projects_for_calendar(instance.pk)
 
 
-def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
-    """Enqueue a CPM recompute for every live project using this calendar.
+def _enqueue_calendar_recalc(project_ids: Sequence[uuid.UUID | str]) -> None:
+    """Defer a CALENDAR_CHANGE recompute for each project to ``transaction.on_commit``.
 
-    Calendar (and calendar-exception) edits are org-admin writes that may touch
-    projects the editor is not a member of, so the fan-out is by calendar FK, not
-    by membership. Dispatch is deferred to ``transaction.on_commit`` and routed
-    through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
-    recompute; ``enqueue_recalculate`` coalesces onto any PENDING request per
-    project, so several exception edits in one transaction cost one recompute each.
+    Routed through the scheduling outbox (ADR-0027) so a broker outage cannot drop the
+    recompute; ``enqueue_recalculate`` coalesces onto any PENDING request per project,
+    so several edits in one transaction cost one recompute each.
     """
-    # A calendar edit must recompute every project that applies it — as its base
-    # calendar OR as an overlay layer (#906/ADR-0251). Missing the overlay branch
-    # would let an overlay-calendar (or overlay-exception) edit silently skip the
-    # CPM recompute for projects that use it only as an overlay. distinct() because
-    # the layer join can multiply a project row.
-    project_ids = list(
-        Project.objects.filter(
-            Q(calendar_id=calendar_id) | Q(calendar_layers__calendar_id=calendar_id),
-            is_deleted=False,
-        )
-        .distinct()
-        .values_list("id", flat=True)
-    )
     if not project_ids:
         return
 
@@ -372,6 +356,87 @@ def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
             _enqueue_recalculate(str(pid), reason=ScheduleRequestReason.CALENDAR_CHANGE)
 
     transaction.on_commit(_dispatch)
+
+
+def _recalc_projects_for_calendar(calendar_id: uuid.UUID | str) -> None:
+    """Enqueue a CPM recompute for every live project this calendar's edit affects.
+
+    Calendar (and calendar-exception) edits are org-admin writes that may touch
+    projects the editor is not a member of, so the fan-out is by calendar FK, not by
+    membership. A project is affected when it applies the calendar as its **base**, as
+    an **overlay** layer (#906/ADR-0251), OR when it **inherits** the calendar as its
+    effective base from its program or the workspace (ADR-0441): a program-default or
+    workspace-default calendar edit must reach the projects that resolve up to it, not
+    only the projects that name it directly. distinct() because the layer join can
+    multiply a project row.
+    """
+    from trueppm_api.apps.projects.calendar_settings import calendar_override_locked
+    from trueppm_api.apps.workspace.models import Workspace
+
+    workspace = Workspace.load()
+
+    if calendar_override_locked(workspace) and workspace.calendar_id == calendar_id:
+        # Enterprise lock active and this is the (mandatory) workspace calendar: every
+        # live project effectively schedules against it regardless of its own override.
+        # (OSS registers no enforcement provider, so this branch never fires there.)
+        selector = Q()
+    else:
+        # Direct base, overlay layer, or inherited-from-program base.
+        selector = (
+            Q(calendar_id=calendar_id)
+            | Q(calendar_layers__calendar_id=calendar_id)
+            | Q(calendar__isnull=True, program__calendar_id=calendar_id)
+        )
+        # Inherited-from-workspace base: only when this IS the workspace calendar, and
+        # only for projects with no base of their own AND no program-level override.
+        if workspace.calendar_id == calendar_id:
+            selector |= Q(calendar__isnull=True, program__isnull=True)
+            selector |= Q(calendar__isnull=True, program__calendar__isnull=True)
+
+    project_ids = list(
+        Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
+    )
+    _enqueue_calendar_recalc(project_ids)
+
+
+def _recalc_projects_for_program_calendar(program_id: uuid.UUID | str) -> None:
+    """Recompute a program's projects that inherit its calendar (ADR-0441).
+
+    Called when a program's ``calendar`` FK is reassigned (a different default, or
+    cleared to inherit the workspace) — every member project that sets no calendar of
+    its own now resolves to a different effective base and must be rescheduled. Projects
+    that override with their own calendar are unaffected and deliberately skipped.
+    """
+    project_ids = list(
+        Project.objects.filter(
+            program_id=program_id, calendar__isnull=True, is_deleted=False
+        ).values_list("id", flat=True)
+    )
+    _enqueue_calendar_recalc(project_ids)
+
+
+def _recalc_projects_for_workspace_calendar() -> None:
+    """Recompute every project that inherits the workspace calendar (ADR-0441).
+
+    Called when the workspace ``calendar`` FK (or its override policy) is reassigned —
+    a project resolves to the workspace calendar only when it sets no calendar of its
+    own AND its program sets none either (or it has no program). Under an active
+    Enterprise lock every project resolves to the workspace calendar, so the fan-out
+    widens to all live projects.
+    """
+    from trueppm_api.apps.projects.calendar_settings import calendar_override_locked
+    from trueppm_api.apps.workspace.models import Workspace
+
+    if calendar_override_locked(Workspace.load()):
+        selector = Q()
+    else:
+        selector = Q(calendar__isnull=True, program__isnull=True) | Q(
+            calendar__isnull=True, program__calendar__isnull=True
+        )
+    project_ids = list(
+        Project.objects.filter(selector, is_deleted=False).distinct().values_list("id", flat=True)
+    )
+    _enqueue_calendar_recalc(project_ids)
 
 
 class CalendarExceptionViewSet(IdempotencyMixin, viewsets.ModelViewSet[CalendarException]):
@@ -592,8 +657,14 @@ class ProjectViewSet(
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
-    queryset = Project.objects.select_related("calendar", "lead", "program").order_by(
-        "start_date", "name"
+    queryset = (
+        Project.objects.select_related("calendar", "lead", "program", "program__calendar")
+        # ADR-0441: ProjectSerializer.effective_calendar resolves project ?? program ??
+        # workspace and reports holiday_count, so prefetch the base and program-tier
+        # calendars' exceptions to keep the project list N+1-free. (The workspace-tier
+        # calendar is the shared singleton, resolved once via the serializer's cache.)
+        .prefetch_related("calendar__exceptions", "program__calendar__exceptions")
+        .order_by("start_date", "name")
     )
     serializer_class = ProjectSerializer
     pagination_class = DirectoryPagination

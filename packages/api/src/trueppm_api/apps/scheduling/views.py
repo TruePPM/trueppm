@@ -320,12 +320,17 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
 
     try:
         project = (
-            Project.objects.select_related("calendar")
+            Project.objects.select_related("calendar", "program__calendar")
             # calendar__exceptions + calendar_layers__calendar__exceptions:
             # compose_project_calendar reads the base calendar's exceptions (#1491)
             # AND every applied overlay's (#906); prefetch both to avoid an N+1.
             .prefetch_related(
-                "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
+                "tasks",
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                # ADR-0441: the resolver reads the program calendar's exceptions when a
+                # project inherits its base calendar from the program.
+                "program__calendar__exceptions",
             )
             .get(pk=pk, is_deleted=False)
         )
@@ -773,9 +778,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
         try:
             project = (
-                Project.objects.select_related("calendar")
+                Project.objects.select_related("calendar", "program__calendar")
                 .prefetch_related(
-                    "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
+                    "tasks",
+                    "calendar__exceptions",
+                    "calendar_layers__calendar__exceptions",
+                    # ADR-0441: the resolver reads the program calendar's exceptions when a
+                    # project inherits its base calendar from the program.
+                    "program__calendar__exceptions",
                 )
                 .get(pk=pk, is_deleted=False)
             )
@@ -1831,8 +1841,13 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             )
 
         project = get_object_or_404(
-            Project.objects.select_related("calendar").prefetch_related(
-                "tasks", "calendar__exceptions", "calendar_layers__calendar__exceptions"
+            Project.objects.select_related("calendar", "program__calendar").prefetch_related(
+                "tasks",
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                # ADR-0441: the resolver reads the program calendar's exceptions when a
+                # project inherits its base calendar from the program.
+                "program__calendar__exceptions",
             ),
             pk=pk,
             is_deleted=False,

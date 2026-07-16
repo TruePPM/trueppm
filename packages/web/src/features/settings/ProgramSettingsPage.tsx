@@ -16,6 +16,7 @@ import { ProgramAccessPage } from './program/ProgramAccessPage';
 import { ProgramStakeholdersPage } from './program/ProgramStakeholdersPage';
 import { ProgramRollupPage } from './program/ProgramRollupPage';
 import { ProgramCadencePage } from './program/ProgramCadencePage';
+import { ProgramCalendarPage } from './program/ProgramCalendarPage';
 import { ProgramRiskPolicyPage } from './program/ProgramRiskPolicyPage';
 import { ProgramIntegrationsPage } from './program/ProgramIntegrationsPage';
 import { ProgramAttachmentsPage } from './program/ProgramAttachmentsPage';
@@ -30,6 +31,7 @@ import {
   SettingsIcon,
   ExternalLinkIcon,
   WarningIcon,
+  GanttIcon,
 } from '@/components/Icons';
 
 function NavIcon({ children }: { children: ReactNode }) {
@@ -136,6 +138,15 @@ export function ProgramSettingsPage() {
           ),
         },
         {
+          id: 'calendar',
+          label: 'Working calendar',
+          icon: (
+            <NavIcon>
+              <GanttIcon aria-hidden="true" />
+            </NavIcon>
+          ),
+        },
+        {
           id: 'risk',
           label: 'Risk policy',
           icon: (
@@ -223,6 +234,9 @@ export function ProgramSettingsPage() {
       </SettingsSection>
       <SettingsSection id="cadence">
         <ProgramCadencePage />
+      </SettingsSection>
+      <SettingsSection id="calendar">
+        <ProgramCalendarPage />
       </SettingsSection>
       <SettingsSection id="risk">
         <ProgramRiskPolicyPage />

@@ -50,6 +50,7 @@ export interface UpdateProgramInput {
       | 'task_duration_change_percent_policy'
       | 'attachments_enabled'
       | 'allowed_attachment_types'
+      | 'calendar'
       | 'health'
       | 'target_date'
       | 'visibility'

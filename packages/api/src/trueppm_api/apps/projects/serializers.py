@@ -161,6 +161,33 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
         read_only_fields = ["id", "server_version"]
 
 
+class EffectiveCalendarSerializer(serializers.ModelSerializer[Calendar]):
+    """Compact read-only view of a resolved effective calendar (ADR-0441, #1987).
+
+    A lean representation of the base calendar a program/project actually schedules
+    against once inheritance is resolved (project ?? program ?? workspace) — enough
+    for a client or integration to know the working-day pattern and which calendar to
+    fetch for full holiday detail, without inlining every ``CalendarException`` on every
+    row of a project list. ``holiday_count`` reads the prefetched ``exceptions`` (callers
+    that surface this on a list must prefetch ``calendar__exceptions`` /
+    ``program__calendar__exceptions`` and the workspace calendar's exceptions).
+    """
+
+    holiday_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Calendar
+        fields = ["id", "name", "working_days", "hours_per_day", "timezone", "holiday_count"]
+
+    def get_holiday_count(self, obj: Calendar) -> int:
+        # Read the prefetched "exceptions" cache (callers prefetch
+        # calendar__exceptions / program__calendar__exceptions) rather than issuing a
+        # COUNT per row. len() on the prefetch is deliberate here; .count() would
+        # defeat the prefetch with a per-row query — the exact N+1 perf-check flagged.
+        # nosemgrep: len-all-count
+        return len(obj.exceptions.all())
+
+
 # ---------------------------------------------------------------------------
 # Composable working calendars (#906, ADR-0251)
 # ---------------------------------------------------------------------------
@@ -423,6 +450,14 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # the same way the map does: agile features are on for anything that is not pure
     # WATERFALL. Read-only; clients (web/mobile/MCP) read this single resolved value.
     agile_features = serializers.SerializerMethodField()
+    # Server-resolved effective working calendar (ADR-0441, #1987): the base calendar
+    # this project schedules against after inheritance — project ?? program ?? workspace,
+    # or null for the system default (Mon-Fri/8h/UTC). ``calendar_source`` names which
+    # scope supplied it so clients (web/mobile/MCP) can explain "why this calendar"
+    # without re-deriving the precedence. The raw nullable ``calendar`` override field
+    # (already present) is the write path; these two are read-only resolved facts.
+    effective_calendar = serializers.SerializerMethodField()
+    calendar_source = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -442,6 +477,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             # explicit anchor (Monte Carlo falls back to today).
             "status_date",
             "calendar",
+            # Read-only server-resolved effective calendar + its source scope (ADR-0441).
+            "effective_calendar",
+            "calendar_source",
             "code",
             "health",
             "visibility",
@@ -555,6 +593,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "my_role",
             "my_role_label",
             "default_member_role_label",
+            "effective_calendar",
+            "calendar_source",
             "effective_iteration_label",
             "inherited_iteration_label",
             "effective_methodology",
@@ -910,6 +950,51 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         program_label = program.iteration_label if program else None
         return program_label or ws.iteration_label or DEFAULT_ITERATION_LABEL
 
+    def validate_calendar(self, value: Calendar | None) -> Calendar | None:
+        """Reject a calendar override while a workspace enforcement lock is active.
+
+        ADR-0441: under ``INHERIT`` (always) or ``ENFORCE`` with a registered
+        enterprise provider, the workspace calendar is mandatory and a per-project
+        override is forbidden. OSS registers no provider, so the lock is inactive and
+        the override is allowed. The UI renders the picker read-only under a lock; this
+        is the server-side backstop for a direct API write. 403 (policy refusal), not
+        400 (bad value). Re-sending the current value is a harmless no-op.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from .calendar_settings import calendar_override_locked
+
+        instance = self.instance
+        current_id = instance.calendar_id if instance is not None else None
+        if instance is not None and (value.id if value else None) == current_id:
+            return value
+        if calendar_override_locked(self._iteration_workspace()):
+            raise PermissionDenied(
+                "This workspace's calendar policy locks the working calendar to the "
+                "workspace default — it can't be overridden per project."
+            )
+        return value
+
+    def get_effective_calendar(self, obj: Project) -> dict[str, Any] | None:
+        """The resolved base calendar this project schedules against (ADR-0441).
+
+        ``None`` means the system default (Mon-Fri/8h/UTC) — nothing up the chain sets
+        a calendar. Uses the cached workspace singleton so a project list resolves it
+        once, not once per row.
+        """
+        from .calendar_settings import resolve_effective_base_calendar
+
+        cal = resolve_effective_base_calendar(obj, workspace=self._iteration_workspace())
+        if cal is None:
+            return None
+        return EffectiveCalendarSerializer(cal, context=self.context).data
+
+    def get_calendar_source(self, obj: Project) -> str:
+        """Which scope supplied ``effective_calendar`` (project/program/workspace/system)."""
+        from .calendar_settings import resolve_calendar_source
+
+        return resolve_calendar_source(obj, workspace=self._iteration_workspace())
+
     def validate_methodology(self, value: str) -> str:
         """Reject a methodology override while a workspace enforcement lock is active.
 
@@ -1126,9 +1211,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         """
         ws = getattr(self, "_ws_cache", None)
         if ws is None:
+            from django.db.models import prefetch_related_objects
+
             from trueppm_api.apps.workspace.models import Workspace
 
             ws = Workspace.load()
+            # Warm the workspace calendar's exceptions once (ADR-0441): a project that
+            # inherits its base calendar from the workspace reads
+            # effective_calendar.holiday_count off this shared instance, so without the
+            # prefetch every such row in a list would re-query the exceptions (N+1).
+            if ws.calendar is not None:
+                prefetch_related_objects([ws.calendar], "exceptions")
             self._ws_cache = ws
         return ws
 
@@ -1348,6 +1441,14 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     inherited_attachments_enabled = serializers.SerializerMethodField()
     effective_allowed_attachment_types = serializers.SerializerMethodField()
     inherited_allowed_attachment_types = serializers.SerializerMethodField()
+    # Server-resolved working calendar (ADR-0441, #1987): program override ?? workspace
+    # calendar, or null for the system default (Mon-Fri/8h/UTC). Clients read
+    # ``effective_calendar``; ``inherited_calendar`` is the workspace value the program
+    # shows when its own override is cleared (drives the "Inherit (X)" copy);
+    # ``calendar_source`` names which scope won. The raw ``calendar`` FK is the write path.
+    effective_calendar = serializers.SerializerMethodField()
+    inherited_calendar = serializers.SerializerMethodField()
+    calendar_source = serializers.SerializerMethodField()
 
     class Meta:
         model = Program
@@ -1398,6 +1499,13 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            # Program working-calendar override (ADR-0441, #1987). Nullable: NULL =
+            # inherit the workspace calendar. Admin+-gated write (program viewset gates
+            # update at ADMIN). effective_/inherited_/source are read-only resolved facts.
+            "calendar",
+            "effective_calendar",
+            "inherited_calendar",
+            "calendar_source",
             # Risk & cross-project deps policy (#529). Read-only here so the
             # Workspace → Programs bulk matrix (#1283) can show + diff each
             # program's current value; writes stay on the dedicated risk_policy
@@ -1455,6 +1563,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "inherited_attachments_enabled",
             "effective_allowed_attachment_types",
             "inherited_allowed_attachment_types",
+            "effective_calendar",
+            "inherited_calendar",
+            "calendar_source",
             # Risk policy is display-only on this serializer (#1283) — writes go
             # through the dedicated risk_policy action / workspace bulk endpoint.
             "risk_slip_propagation",
@@ -1539,6 +1650,57 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
 
         return resolve_inherited_methodology(obj, workspace=self._sharing_workspace())
 
+    def validate_calendar(self, value: Calendar | None) -> Calendar | None:
+        """Reject a program calendar override while a workspace lock is active (ADR-0441).
+
+        Mirrors ``ProjectSerializer.validate_calendar``. OSS registers no enforcement
+        provider, so the lock is never active and the override is allowed; the 403 only
+        fires under Enterprise-active ENFORCE (or the INHERIT backstop for a direct API
+        write). Re-sending the current value is a harmless no-op.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from .calendar_settings import calendar_override_locked
+
+        instance = self.instance
+        current_id = instance.calendar_id if instance is not None else None
+        if instance is not None and (value.id if value else None) == current_id:
+            return value
+        if calendar_override_locked(self._sharing_workspace()):
+            raise PermissionDenied(
+                "This workspace's calendar policy locks the working calendar to the "
+                "workspace default — it can't be overridden per program."
+            )
+        return value
+
+    def get_effective_calendar(self, obj: Program) -> dict[str, Any] | None:
+        """The resolved base calendar this program schedules against (ADR-0441).
+
+        ``None`` means the system default (program and workspace both unset). Uses the
+        cached workspace singleton so a program list resolves it once, not per row.
+        """
+        from .calendar_settings import resolve_effective_base_calendar
+
+        cal = resolve_effective_base_calendar(obj, workspace=self._sharing_workspace())
+        if cal is None:
+            return None
+        return EffectiveCalendarSerializer(cal, context=self.context).data
+
+    def get_inherited_calendar(self, obj: Program) -> dict[str, Any] | None:
+        """The workspace calendar the program inherits when its override is cleared."""
+        from .calendar_settings import resolve_inherited_base_calendar
+
+        cal = resolve_inherited_base_calendar(obj, workspace=self._sharing_workspace())
+        if cal is None:
+            return None
+        return EffectiveCalendarSerializer(cal, context=self.context).data
+
+    def get_calendar_source(self, obj: Program) -> str:
+        """Which scope supplied ``effective_calendar`` (program/workspace/system)."""
+        from .calendar_settings import resolve_calendar_source
+
+        return resolve_calendar_source(obj, workspace=self._sharing_workspace())
+
     def get_effective_task_duration_change_percent_policy(self, obj: Program) -> str:
         from .task_duration_settings import resolve_effective_duration_policy
 
@@ -1555,9 +1717,17 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         a single Workspace query, not N."""
         ws = getattr(self, "_ws_cache", None)
         if ws is None:
+            from django.db.models import prefetch_related_objects
+
             from trueppm_api.apps.workspace.models import Workspace
 
             ws = Workspace.load()
+            # Warm the workspace calendar's exceptions once (ADR-0441): a program that
+            # inherits its base calendar from the workspace reads
+            # effective_calendar.holiday_count off this shared instance, so without the
+            # prefetch every such row in a list would re-query the exceptions (N+1).
+            if ws.calendar is not None:
+                prefetch_related_objects([ws.calendar], "exceptions")
             self._ws_cache = ws
         return ws
 

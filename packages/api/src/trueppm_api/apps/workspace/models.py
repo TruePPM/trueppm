@@ -312,6 +312,33 @@ class Workspace(models.Model):
         default=TermOverridePolicy.SUGGEST,
     )
 
+    # Workspace-wide default working calendar (ADR-0441, #1987) — the root of the
+    # Project → Program → Workspace → system-default inheritance chain. NULL = fall
+    # through to the system default (Mon-Fri/8h/UTC); we do not seed a system-default
+    # Calendar row, so the migration is purely additive and every existing project keeps
+    # its own behavior (a project with no calendar resolved to the system default before
+    # and still does when the workspace calendar is unset). Resolved computed-on-read in
+    # ``apps.projects.calendar_settings`` and fed to CPM via ``scheduling.calendars``.
+    # PROTECT so a Calendar still in use as the workspace default cannot be deleted.
+    calendar = models.ForeignKey(
+        "projects.Calendar",
+        on_delete=models.PROTECT,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
+    # Whether programs/projects may override the workspace calendar above (ADR-0441,
+    # mirroring the other *_override_policy fields). SUGGEST (OSS default) = downstream
+    # may override freely; ENFORCE = Enterprise hard lock (no-op in OSS — stored but
+    # never enforced; the enforcement seam lives in ``apps.projects.calendar_settings``,
+    # which registers no provider in the community edition, so ENFORCE degrades to
+    # SUGGEST). INHERIT hides the per-scope override affordance entirely.
+    calendar_override_policy = models.CharField(
+        max_length=16,
+        choices=TermOverridePolicy.choices,
+        default=TermOverridePolicy.SUGGEST,
+    )
+
     # Workspace branding logo (ADR-0149, #969). Raster only (PNG/WebP) — SVG is
     # rejected at the serializer because it can embed <script> and the logo is
     # served from a public (AllowAny) endpoint. A plain FileField, not ImageField,

@@ -951,6 +951,12 @@ export const router = createBrowserRouter([
                     ),
                   },
                   {
+                    path: 'settings/calendar',
+                    element: (
+                      <SectionRedirect base="/programs/:programId/settings" anchor="calendar" />
+                    ),
+                  },
+                  {
                     path: 'settings/risk',
                     element: <SectionRedirect base="/programs/:programId/settings" anchor="risk" />,
                   },
@@ -1014,6 +1020,10 @@ export const router = createBrowserRouter([
               {
                 path: 'settings/schedule',
                 element: <SectionRedirect base="/settings" anchor="schedule" />,
+              },
+              {
+                path: 'settings/calendar',
+                element: <SectionRedirect base="/settings" anchor="calendar" />,
               },
               {
                 path: 'settings/programs',

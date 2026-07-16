@@ -210,16 +210,20 @@ def gather_program_schedule(
 
     member_projects = list(
         Project.objects.filter(program=program, is_deleted=False)
-        .select_related("calendar")
+        .select_related("calendar", "program__calendar")
         # calendar__exceptions + calendar_layers__calendar__exceptions:
         # compose_project_calendar reads each member project's base calendar
         # exceptions (#1491) AND its applied overlays (#906); prefetch both to
         # avoid an N+1 across the whole program (this loop iterates every member).
+        # program__calendar__exceptions: a member project that sets no calendar of
+        # its own inherits the program calendar (ADR-0441), whose exceptions the
+        # resolver reads — prefetch to keep the whole-program pass N+1-free.
         .prefetch_related(
             "tasks",
             "tasks__sprint",
             "calendar__exceptions",
             "calendar_layers__calendar__exceptions",
+            "program__calendar__exceptions",
         )
         .order_by("start_date", "name")
     )
