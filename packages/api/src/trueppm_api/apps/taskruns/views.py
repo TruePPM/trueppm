@@ -86,7 +86,7 @@ class ProjectTaskRunViewSet(
 
                 current_app.control.revoke(task_run.celery_task_id, terminate=False)
             except Exception:
-                pass
+                pass  # Best-effort; the Redis cancel flag above is the authoritative stop signal
 
         return Response({"detail": "Cancellation requested."}, status=status.HTTP_202_ACCEPTED)
 

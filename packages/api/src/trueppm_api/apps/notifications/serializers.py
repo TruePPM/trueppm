@@ -419,7 +419,7 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         except EgressBlocked as exc:
             raise serializers.ValidationError(str(exc)) from exc
         except EgressError:
-            pass
+            pass  # Fail-open on unresolvable/transient host (see note above); delivery re-checks
         return value
 
     # -- object-level validation + persist ------------------------------------
