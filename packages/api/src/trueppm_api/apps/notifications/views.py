@@ -24,12 +24,12 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.permissions import (
-    IsOrgAdmin,
     IsProjectMember,
     IsWorkspaceOperator,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.workspace.permissions import IsWorkspaceAdminStrict
 
 from .categories import CATEGORIES, CATEGORY_MENTIONS, event_types_for_category
 from .models import (
@@ -573,21 +573,25 @@ class WorkspaceEmailSettingsView(IdempotencyMixin, APIView):
     """``/api/v1/workspace/email-settings/`` — writable workspace SMTP config.
 
     Upgrades the #639 read-only status page to the writable surface (#712,
-    ADR-0213). ``GET`` is org-admin readable so any workspace admin can see the
-    posture; **writes** (``PUT``/``PATCH``) require the install operator
-    (superuser) because the transport is installation-global — a single-project
-    admin must not be able to repoint all outbound mail at an attacker relay
-    (security review C1). The password is write-only and never echoed. A save is
-    rejected (400) if the candidate transport can't be opened, so a bad config
-    can't lock the workspace out of mail (validate-before-persist, ADR-0213 §3).
+    ADR-0213). ``GET`` is gated ``IsWorkspaceAdminStrict`` — a *workspace* ADMIN,
+    not merely someone with ADMIN on one project — because the payload discloses
+    installation mail-transport posture (SMTP host, from-domain, bounce-webhook
+    URL, rate limits), the same class of org-topology disclosure the SSO config
+    read is gated against (#2016; mirrors ``sso.views`` / ADR-0087 §6). **Writes**
+    (``PUT``/``PATCH``) still require the install operator (superuser) because the
+    transport is installation-global — a single-project admin must not be able to
+    repoint all outbound mail at an attacker relay (security review C1). The
+    password is write-only and never echoed. A save is rejected (400) if the
+    candidate transport can't be opened, so a bad config can't lock the workspace
+    out of mail (validate-before-persist, ADR-0213 §3).
     """
 
-    permission_classes = [IsAuthenticated, IsOrgAdmin]
+    permission_classes = [IsAuthenticated, IsWorkspaceAdminStrict]
 
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in ("PUT", "PATCH"):
             return [IsAuthenticated(), IsWorkspaceOperator()]
-        return [IsAuthenticated(), IsOrgAdmin()]
+        return [IsAuthenticated(), IsWorkspaceAdminStrict()]
 
     def get_throttles(self) -> list[Any]:
         # Throttle only the write path (each write re-opens a candidate SMTP

@@ -29,6 +29,7 @@ from trueppm_api.apps.notifications.models import (
     WorkspaceEmailSettings,
 )
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
 
 User = get_user_model()
 
@@ -50,12 +51,37 @@ def operator(db: object) -> object:
 
 @pytest.fixture
 def project_admin(db: object) -> object:
-    """A non-superuser who is ADMIN on one project (satisfies IsOrgAdmin only)."""
+    """A non-superuser who is ADMIN on one project but holds no workspace role.
+
+    Resolves to the implicit workspace MEMBER (``_workspace_membership_role``), so
+    they must NOT read the installation mail config under the strict gate (#2016).
+    """
     user = User.objects.create_user(username="pm", email="pm@corp.test", password="pw")
     calendar = Calendar.objects.create(name="Standard")
     project = Project.objects.create(name="Alpha", start_date=date(2026, 1, 1), calendar=calendar)
     ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
     return user
+
+
+@pytest.fixture
+def workspace_admin(db: object) -> object:
+    """A non-superuser with an explicit workspace ADMIN membership (#2016).
+
+    The genuine reader: workspace-scoped ADMIN, distinct from a mere project
+    admin, mirroring the SSO config read gate.
+    """
+    user = User.objects.create_user(username="wsadmin", email="wsadmin@corp.test", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=user, role=WorkspaceRole.ADMIN
+    )
+    return user
+
+
+@pytest.fixture
+def workspace_admin_client(workspace_admin: object) -> APIClient:
+    client = APIClient()
+    client.force_authenticate(user=workspace_admin)
+    return client
 
 
 @pytest.fixture
@@ -109,15 +135,32 @@ def test_set_empty_password_clears(db: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RBAC (C1): writes require superuser; reads allow org-admin
+# RBAC: writes require superuser (C1); reads require workspace ADMIN (#2016) —
+# a single-project admin must not read installation mail-transport posture.
 # ---------------------------------------------------------------------------
 
 
-def test_get_allowed_for_org_admin(admin_client: APIClient) -> None:
+def test_get_forbidden_for_single_project_admin(admin_client: APIClient) -> None:
+    # #2016: the read gate is IsWorkspaceAdminStrict, aligned with the SSO config
+    # read. ADMIN on one project resolves to workspace MEMBER — not enough to see
+    # SMTP host / from-domain / bounce-webhook / rate-limit disclosure.
     resp = admin_client.get(URL)
+    assert resp.status_code == 403
+
+
+def test_get_allowed_for_workspace_admin(workspace_admin_client: APIClient) -> None:
+    resp = workspace_admin_client.get(URL)
     assert resp.status_code == 200
     assert resp.data["transport_mode"] == EmailTransportMode.CLOUD
-    assert resp.data["can_edit"] is False  # not a superuser
+    assert resp.data["can_edit"] is False  # workspace admin, but not the superuser operator
+
+
+def test_get_allowed_for_operator(operator_client: APIClient) -> None:
+    # The superuser install operator resolves to the implicit workspace OWNER and
+    # can both read and (uniquely) write.
+    resp = operator_client.get(URL)
+    assert resp.status_code == 200
+    assert resp.data["can_edit"] is True
 
 
 def test_get_requires_auth(db: object) -> None:
