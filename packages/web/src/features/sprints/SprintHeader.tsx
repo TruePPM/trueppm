@@ -75,7 +75,7 @@ export function SprintHeader({
           aria-haspopup="dialog"
           className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Filter
         </button>
@@ -91,7 +91,7 @@ export function SprintHeader({
           className="min-h-[44px] inline-flex items-center px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
             disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:hover:text-neutral-text-secondary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
         >
           Plan next {itl.lower}
         </button>
@@ -109,7 +109,7 @@ export function SprintHeader({
             border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
             disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:hover:bg-neutral-surface-sunken
             disabled:border-neutral-border disabled:text-neutral-text-disabled
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+            focus:outline-none focus:ring-2 focus:ring-semantic-critical focus:ring-offset-1"
         >
           Close {itl.lower}
         </button>

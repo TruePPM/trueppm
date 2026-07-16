@@ -84,7 +84,7 @@ export function PredecessorsEditor({
                 onClick={() => onRemove(index)}
                 disabled={disabled}
                 aria-label={`Remove predecessor ${row.predecessorName}`}
-                className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-40 shrink-0"
+                className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-40 shrink-0"
               >
                 <span aria-hidden="true">×</span>
               </button>
@@ -102,7 +102,7 @@ export function PredecessorsEditor({
             // Defer focus so the input has mounted.
             window.setTimeout(() => inputRef.current?.focus(), 0);
           }}
-          className="h-8 px-3 self-start rounded-control border border-dashed border-neutral-border text-[13px] text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-40"
+          className="h-8 px-3 self-start rounded-control border border-dashed border-neutral-border text-[13px] text-neutral-text-secondary hover:bg-neutral-surface-sunken focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-40"
         >
           + Link predecessor
         </button>
@@ -142,7 +142,7 @@ export function PredecessorsEditor({
                       // Keep picker open so users can chain-add multiple.
                       inputRef.current?.focus();
                     }}
-                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-neutral-surface-sunken focus:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
                   >
                     <span className="tppm-mono text-xs text-neutral-text-disabled w-12 shrink-0">
                       {t.wbs || '—'}
@@ -160,7 +160,7 @@ export function PredecessorsEditor({
                 setPickerOpen(false);
                 setSearch('');
               }}
-              className="text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary px-2 py-0.5 rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
+              className="text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary px-2 py-0.5 rounded-control focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
             >
               Done
             </button>

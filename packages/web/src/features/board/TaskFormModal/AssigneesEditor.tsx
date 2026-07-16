@@ -119,7 +119,7 @@ export function AssigneesEditor({
             onClick={() => onRemove(index)}
             disabled={disabled}
             aria-label={`Remove ${row.resourceName}`}
-            className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-40 shrink-0"
+            className="w-6 h-6 inline-flex items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-40 shrink-0"
           >
             <span aria-hidden="true">×</span>
           </button>
@@ -155,7 +155,7 @@ export function AssigneesEditor({
                     setSearch('');
                     inputRef.current?.focus();
                   }}
-                  className="w-full text-left px-2 py-1.5 text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+                  className="w-full text-left px-2 py-1.5 text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus:bg-neutral-surface-sunken focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset"
                 >
                   {pr.resource.name}
                   {pr.roleTitle && (

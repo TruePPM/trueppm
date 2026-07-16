@@ -140,7 +140,7 @@ export function SprintDailyDeltaPanel({ sprintId }: Props) {
             onClick={() => void query.refetch()}
             className="rounded border border-neutral-border bg-neutral-surface-raised px-2 py-1 font-medium
               text-neutral-text-primary hover:border-brand-primary
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
           >
             Retry
           </button>
@@ -247,7 +247,7 @@ function WindowControl({
             onClick={() => onChange(opt.mode)}
             className={[
               'px-2 py-0.5 font-medium border-l border-neutral-border first:border-l-0',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset',
+              'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
               active
                 ? 'bg-brand-primary text-white'
                 : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised',
@@ -497,7 +497,7 @@ function ScopeRow({
           onClick={() => setAuditOpen(true)}
           aria-haspopup="dialog"
           className="text-xs font-medium text-brand-primary hover:underline
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded"
         >
           View scope audit
         </button>
@@ -561,7 +561,7 @@ function TaskRef({
       type="button"
       onClick={() => setSelectedTaskId(taskId)}
       className="flex items-center gap-2 flex-1 min-w-0 text-left rounded
-        hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        hover:text-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
     >
       {inner}
     </button>

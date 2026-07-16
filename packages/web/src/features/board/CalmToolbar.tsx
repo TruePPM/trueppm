@@ -103,8 +103,8 @@ export function ToolbarChip({
           'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs',
           'border border-neutral-border text-neutral-text-primary',
           'hover:bg-neutral-surface-raised',
-          'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-          'focus-visible:outline-none',
+          'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+          'focus:outline-none',
           isOpen ? 'bg-neutral-surface-raised' : 'bg-neutral-surface',
         ].join(' ')}
       >
@@ -167,8 +167,8 @@ export function ToolbarToggle({
       className={[
         'inline-flex items-center rounded-full text-xs',
         hideLabel ? 'justify-center w-7 h-7' : 'gap-1 px-2.5 py-1',
-        'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        'focus-visible:outline-none',
+        'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+        'focus:outline-none',
         'disabled:opacity-50 disabled:cursor-wait',
         pressed
           ? 'bg-brand-primary/10 text-brand-primary'
@@ -215,8 +215,8 @@ export function LayoutSwitcher({ layout, onChange }: LayoutSwitcherProps) {
             onClick={() => onChange(id)}
             className={[
               'rounded-full px-2.5 py-0.5 text-xs',
-              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-              'focus-visible:outline-none',
+              'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+              'focus:outline-none',
               active
                 ? 'bg-brand-primary/10 text-brand-primary'
                 : 'text-neutral-text-secondary hover:text-neutral-text-primary',
@@ -430,7 +430,7 @@ function ChipRadioGroup<K extends string>({
             onKeyDown={(e) => onKeyDown(e, i)}
             className={[
               'inline-flex items-center gap-2 rounded-control px-2 py-1 text-left text-xs',
-              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+              'focus:ring-2 focus:ring-brand-primary focus:outline-none',
               isSelected
                 ? 'bg-brand-primary/10 text-brand-primary'
                 : 'text-neutral-text-primary hover:bg-neutral-surface-raised',
@@ -763,8 +763,8 @@ export function CalmToolbar(props: CalmToolbarProps) {
         className={[
           'inline-flex items-center justify-center w-7 h-7 rounded-full',
           'text-neutral-text-primary hover:bg-neutral-surface-raised',
-          'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-          'focus-visible:outline-none',
+          'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+          'focus:outline-none',
         ].join(' ')}
       >
         <SlidersIcon className="h-4 w-4" aria-hidden="true" />
@@ -839,7 +839,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
               aria-label={props.workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
               className={[
                 'rounded-control px-2 py-1 text-left text-xs',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                'focus:ring-2 focus:ring-brand-primary focus:outline-none',
                 'disabled:opacity-50',
                 props.workshopMode
                   ? 'bg-brand-primary/10 text-brand-primary'
@@ -875,7 +875,7 @@ function MoreItem({
       disabled={disabled}
       aria-busy={ariaBusy}
       aria-label={ariaLabel}
-      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-50"
+      className="rounded-control px-2 py-1 text-left text-xs text-neutral-text-primary hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none disabled:opacity-50"
     >
       {children}
     </button>

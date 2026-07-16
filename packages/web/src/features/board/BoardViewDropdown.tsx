@@ -93,7 +93,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
           type="button"
           onClick={onCancel}
           className="border border-neutral-border rounded-control px-2 py-0.5 text-xs text-neutral-text-secondary
-            hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+            hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none"
         >
           Cancel
         </button>
@@ -102,7 +102,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
           disabled={!name.trim() || isSaving}
           onClick={() => name.trim() && onSave(name.trim())}
           className="border border-brand-primary/40 rounded-control px-2 py-0.5 text-xs text-brand-primary
-            hover:bg-brand-primary/5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+            hover:bg-brand-primary/5 focus:ring-2 focus:ring-brand-primary focus:outline-none
             disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSaving ? 'Saving…' : 'Save'}
@@ -177,8 +177,8 @@ export function BoardViewDropdown({
 
   const btnClass =
     'border border-neutral-border rounded-control px-2 py-0.5 text-xs text-neutral-text-primary ' +
-    'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary ' +
-    'focus-visible:outline-none inline-flex items-center gap-1';
+    'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary ' +
+    'focus:outline-none inline-flex items-center gap-1';
 
   const activeClass =
     'border-brand-primary/40 bg-brand-primary/5 text-brand-primary';
@@ -211,8 +211,8 @@ export function BoardViewDropdown({
                 role="menuitem"
                 onClick={handleClearView}
                 className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
-                  hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary
-                  focus-visible:outline-none"
+                  hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
+                  focus:outline-none"
               >
                 Clear view
               </button>
@@ -233,7 +233,7 @@ export function BoardViewDropdown({
               title={bv.description}
               className={[
                 'w-full text-left px-3 py-1.5 text-xs flex items-center justify-between gap-2',
-                'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
                 activeViewId === bv.id ? 'text-brand-primary font-medium' : 'text-neutral-text-primary',
               ].join(' ')}
             >
@@ -260,7 +260,7 @@ export function BoardViewDropdown({
                     onClick={() => handleSelectSaved(sv)}
                     className={[
                       'flex-1 text-left px-3 py-1.5 text-xs flex items-center gap-2',
-                      'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                      'hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary focus:outline-none',
                       activeViewId === sv.id ? 'text-brand-primary font-medium' : 'text-neutral-text-primary',
                     ].join(' ')}
                   >
@@ -276,8 +276,8 @@ export function BoardViewDropdown({
                       onClick={(e) => handleDelete(e, sv)}
                       aria-label={`Delete view "${sv.name}"`}
                       className="px-2 py-1.5 text-neutral-text-disabled opacity-0 group-hover:opacity-100
-                        hover:text-semantic-critical focus:opacity-100 focus-visible:opacity-100
-                        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+                        hover:text-semantic-critical focus:opacity-100
+                        focus:ring-2 focus:ring-brand-primary focus:outline-none
                         transition-opacity"
                     >
                       ×
@@ -295,8 +295,8 @@ export function BoardViewDropdown({
             role="menuitem"
             onClick={() => setShowSave(true)}
             className="w-full text-left px-3 py-1.5 text-xs text-neutral-text-secondary
-              hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary
-              focus-visible:outline-none"
+              hover:bg-neutral-surface-raised focus:ring-2 focus:ring-brand-primary
+              focus:outline-none"
           >
             + Save current view…
           </button>
