@@ -638,6 +638,90 @@ test.describe('Resend invite (#969)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Account-menu nav entry (#2033) — workspace settings must be reachable from
+// the UI: the UserMenu "Workspace settings" row is the only always-available
+// path to /settings (members + invites) for a fresh workspace.
+// ---------------------------------------------------------------------------
+
+test.describe('Workspace settings nav entry (#2033)', () => {
+  async function setupMembersSection(page: Page) {
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
+    );
+  }
+
+  test('golden path — admin opens the account menu and lands on the Members section', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Later route registrations win, so this admin-flavored /auth/me/ overrides
+    // the base one from setup(): the menu row is gated on can_access_admin_settings.
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          id: 'u1',
+          username: 'alice',
+          display_name: 'Alice',
+          initials: 'AL',
+          email: 'alice@truescope.io',
+          can_access_admin_settings: true,
+        }),
+      }),
+    );
+    await setupMembersSection(page);
+
+    await page.goto('/settings/general');
+    // "Page rendered" gate before touching chrome (data-driven route).
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Account — Alice' }).last().click();
+    const row = page.getByRole('menuitem', { name: 'Workspace settings' });
+    await expect(row).toBeVisible();
+    await row.click();
+
+    await expect(page).toHaveURL(/\/settings#members$/);
+    const members = page.locator('[data-settings-section="members"]');
+    await expect(members.getByRole('heading', { name: 'Members' })).toBeVisible();
+  });
+
+  test('non-admin — the account menu has no "Workspace settings" row', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          id: 'u1',
+          username: 'alice',
+          display_name: 'Alice',
+          initials: 'AL',
+          email: 'alice@truescope.io',
+          can_access_admin_settings: false,
+        }),
+      }),
+    );
+    await setupMembersSection(page);
+
+    // Non-admins can't sit on /settings (RequireAdminSettings bounces them), so
+    // open the menu from the personal settings page the sidebar gear targets.
+    await page.goto('/me/settings/general');
+    await expect(page.getByRole('heading', { name: 'Preferences' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Account — Alice' }).last().click();
+    await expect(page.getByRole('menuitem', { name: 'My Work' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Workspace settings' })).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Workspace Groups page
 // ---------------------------------------------------------------------------
 

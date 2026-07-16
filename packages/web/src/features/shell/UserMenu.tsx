@@ -27,6 +27,8 @@ interface MenuContentProps {
   isMobile: boolean;
   /** When set, renders a "Project settings" link in the menu. */
   projectId: string | undefined;
+  /** When true, renders a "Workspace settings" link in the menu. */
+  canAccessAdminSettings: boolean;
 }
 
 function MenuContent({
@@ -38,6 +40,7 @@ function MenuContent({
   onClose,
   isMobile,
   projectId,
+  canAccessAdminSettings,
 }: MenuContentProps) {
   const rowBase = isMobile
     ? 'flex items-center px-4 min-h-[52px]'
@@ -99,6 +102,23 @@ function MenuContent({
           className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
         >
           Project settings
+        </NavLink>
+      )}
+
+      {/* Workspace settings — the ONLY always-available nav entry to /settings
+          (members + invites, calendars, email, SSO). Gated on the same
+          server-computed flag RequireAdminSettings enforces on the route, so
+          the row never leads somewhere the user would be redirected away from
+          (#2033). Lands on #members: inviting the team is the primary
+          getting-started action for a fresh workspace. */}
+      {canAccessAdminSettings && (
+        <NavLink
+          to="/settings#members"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Workspace settings
         </NavLink>
       )}
 
@@ -344,6 +364,7 @@ export function UserMenu() {
     onOpenShortcuts: () => setShowShortcuts(true),
     onClose: close,
     projectId,
+    canAccessAdminSettings: user?.can_access_admin_settings === true,
   };
 
   return (
