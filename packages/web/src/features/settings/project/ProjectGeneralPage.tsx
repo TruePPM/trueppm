@@ -462,18 +462,29 @@ export function ProjectGeneralPage() {
             </div>
           </FieldRow>
 
+          {/* Visibility is stored and rendered but authorization never reads it —
+              access is membership-scoped for every project regardless of this
+              value (#2011). Rather than present a control that gives false
+              assurance (PRIVATE promises a distinction that isn't implemented),
+              the whole control is disabled with a "not yet enforced" note until
+              real queryset/permission enforcement ships. Re-enable both radios
+              and drop the note then. TODO(#2066): enforce WORKSPACE vs PRIVATE. */}
           <FieldRow
             label="Visibility"
             hint="Workspace = anyone signed in can see this project. Private = invited only."
           >
             <div className="flex flex-col gap-3">
               {VISIBILITY_OPTIONS.map((opt) => (
-                <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
+                <label
+                  key={opt.id}
+                  className="flex items-center gap-3 cursor-not-allowed"
+                  aria-disabled="true"
+                >
                   <span
                     className={[
                       'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
                       visibility === opt.id
-                        ? 'border-brand-primary bg-brand-primary'
+                        ? 'border-neutral-text-disabled bg-neutral-text-disabled'
                         : 'border-neutral-border',
                     ].join(' ')}
                     aria-hidden="true"
@@ -487,15 +498,24 @@ export function ProjectGeneralPage() {
                     name="project-visibility"
                     value={opt.id}
                     checked={visibility === opt.id}
-                    onChange={() => setVisibility(opt.id)}
+                    disabled
+                    readOnly
+                    aria-describedby="project-visibility-not-enforced"
                     className="sr-only"
                   />
-                  <span className="text-[13px] font-medium text-neutral-text-primary">
+                  <span className="text-[13px] font-medium text-neutral-text-disabled">
                     {opt.label}
                   </span>
-                  <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
+                  <span className="text-[12px] text-neutral-text-disabled">· {opt.hint}</span>
                 </label>
               ))}
+              <p
+                id="project-visibility-not-enforced"
+                className="text-[12px] text-neutral-text-secondary"
+              >
+                Coming soon — access is currently membership-scoped for all projects, so this
+                setting is not enforced yet.
+              </p>
             </div>
           </FieldRow>
 

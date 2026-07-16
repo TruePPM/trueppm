@@ -779,8 +779,12 @@ class Program(VersionedModel):
     # A target_milestone FK is a deferred follow-up — see #560.
     target_date = models.DateField(null=True, blank=True)
     # Listing scope. WORKSPACE = listable by any workspace member; PRIVATE =
-    # explicit-members-only. Queryset enforcement is a future change — see the
-    # Visibility docstring above.
+    # explicit-members-only. NOT YET ENFORCED — authorization never reads this
+    # field today (access is membership-scoped for every program), so the value
+    # is stored and rendered but access-neutral. The General-settings control is
+    # disabled with a "not yet enforced" note (#2011) to avoid false assurance
+    # until queryset/permission enforcement ships. TODO(#2066): enforce
+    # WORKSPACE vs PRIVATE. See the Visibility docstring above.
     visibility = models.CharField(
         max_length=16,
         choices=Visibility.choices,
@@ -1087,9 +1091,12 @@ class Project(VersionedModel):
         default=Health.AUTO,
     )
     # Listing scope (issue #520). WORKSPACE = listable by any workspace member;
-    # PRIVATE = explicit-members-only. Queryset enforcement is a future change
-    # — this field is stored and rendered today. Reuses the Visibility enum
-    # shared with Program (#523).
+    # PRIVATE = explicit-members-only. NOT YET ENFORCED — authorization never
+    # reads this field today (access is membership-scoped for every project), so
+    # it is stored and rendered but access-neutral. The General-settings control
+    # is disabled with a "not yet enforced" note (#2011) to avoid false assurance
+    # until queryset/permission enforcement ships. TODO(#2066): enforce WORKSPACE
+    # vs PRIVATE. Reuses the Visibility enum shared with Program (#523).
     visibility = models.CharField(
         max_length=16,
         choices=Visibility.choices,

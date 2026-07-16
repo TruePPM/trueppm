@@ -132,6 +132,24 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('radio', { name: 'Hybrid', checked: true })).toBeInTheDocument();
   });
 
+  it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    // Visibility is stored but access is membership-scoped for every program, so
+    // both radios are disabled to avoid false assurance until enforcement ships
+    // (TODO(#2066)).
+    const radios = screen
+      .getAllByRole('radio')
+      .filter((el) => (el as HTMLInputElement).name === 'program-visibility');
+    expect(radios).toHaveLength(2);
+    radios.forEach((radio) => expect(radio).toBeDisabled());
+
+    expect(
+      screen.getByText(/access is currently membership-scoped for all programs/i),
+    ).toBeInTheDocument();
+  });
+
   it('renders the duration-change policy control inheriting the workspace default', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
