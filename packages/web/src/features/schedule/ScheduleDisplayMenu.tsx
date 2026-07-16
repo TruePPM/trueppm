@@ -219,7 +219,7 @@ export function ScheduleDisplayMenu({
           <span
             aria-hidden="true"
             className="absolute -top-1.5 -right-1.5 min-w-[1rem] h-4 px-1 inline-flex items-center
-              justify-center rounded-full bg-brand-primary text-[10px] font-semibold leading-none
+              justify-center rounded-full bg-brand-primary text-xs font-semibold leading-none
               text-neutral-surface"
           >
             {activeFilterCount}
@@ -247,7 +247,7 @@ export function ScheduleDisplayMenu({
                 )}
                 <div
                   id={headingId}
-                  className="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wide
+                  className="px-3 pt-1 pb-0.5 text-xs font-semibold uppercase tracking-[.06em]
                     text-neutral-text-secondary"
                 >
                   {section.label}

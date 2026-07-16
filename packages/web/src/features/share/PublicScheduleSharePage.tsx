@@ -124,7 +124,7 @@ function MonthAxis({ months }: { months: Scale['months'] }) {
       {months.map((m, i) => (
         <span
           key={`${m.label}-${i}`}
-          className="absolute top-0 truncate border-l border-neutral-border pl-1 text-[10px] text-neutral-text-secondary"
+          className="absolute top-0 truncate border-l border-neutral-border pl-1 text-xs text-neutral-text-secondary"
           style={{ left: `${m.leftPct}%`, width: `${m.widthPct}%` }}
         >
           {m.label}
@@ -155,7 +155,7 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
   const scheduled = startMs !== null && endMs !== null;
   if (!scheduled) {
     return (
-      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-[10px] text-neutral-text-disabled">
+      <span className="absolute left-1 top-1/2 -translate-y-1/2 text-xs text-neutral-text-disabled">
         Unscheduled
       </span>
     );
@@ -176,7 +176,7 @@ function Lane({ placed, scale }: { placed: Placed; scale: Scale }) {
           aria-hidden="true"
         />
         <span
-          className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-2 text-[10px] text-neutral-text-secondary"
+          className="absolute top-1/2 -translate-y-1/2 whitespace-nowrap pl-2 text-xs text-neutral-text-secondary"
           style={{ left: `${left}%` }}
         >
           {task.name} · {dayLabel(startMs)}
@@ -221,12 +221,12 @@ function LabelCell({ placed }: { placed: Placed }) {
       style={{ height: ROW_H }}
     >
       <span style={{ width: depth * 12 }} aria-hidden="true" className="shrink-0" />
-      <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-secondary">
+      <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
         {task.is_milestone ? '◆' : task.wbs_path || task.short_id}
       </span>
       {task.is_critical && !task.is_milestone ? (
         // Non-color critical signal (WCAG 1.4.1, DS rule 26) alongside the red bar.
-        <span className="shrink-0 rounded-chip bg-semantic-critical-bg px-1 text-[10px] font-semibold text-semantic-critical">
+        <span className="shrink-0 rounded-chip bg-semantic-critical-bg px-1 text-xs font-semibold text-semantic-critical">
           CP
         </span>
       ) : null}
@@ -362,7 +362,7 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
           </div>
         ) : (
           <>
-            <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-neutral-text-secondary">
+            <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-neutral-text-secondary">
               {criticalCount > 0 ? (
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-4 rounded-full bg-semantic-critical" aria-hidden="true" />
@@ -408,7 +408,7 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
                     className="border-b border-neutral-border px-3 pb-1 pt-2"
                     style={{ height: HEADER_H }}
                   >
-                    <span className="text-[11px] font-semibold text-neutral-text-primary">Task</span>
+                    <span className="text-xs font-semibold text-neutral-text-primary">Task</span>
                   </div>
                   {placed.map((p) => (
                     <LabelCell key={p.task.short_id} placed={p} />

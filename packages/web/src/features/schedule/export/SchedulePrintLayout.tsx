@@ -368,8 +368,11 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                   <span className="min-w-0 flex-1 truncate" title={row.name}>
                     {row.name}
                   </span>
+                  {/* Owner initials at text-xs (rule-50 floor) — the PDF is a zoom-less
+                      paper artifact, so sub-12px initials are unreadable in print
+                      (#2043). h-5 fits the 22px ROW_H with 1px clearance. */}
                   {includeOwnerColumn && row.ownerInitials && (
-                    <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-[9px] font-medium text-neutral-text-primary">
+                    <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-neutral-surface-sunken text-xs font-medium text-neutral-text-primary">
                       {row.ownerInitials}
                     </span>
                   )}

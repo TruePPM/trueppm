@@ -25,7 +25,9 @@ export function SourceMark({ sourceType, label, className }: Props) {
     <span
       aria-hidden="true"
       className={[
-        'grid h-5 w-5 shrink-0 place-items-center rounded-[4px] text-[9px] font-bold leading-none tracking-tight',
+        // h-6 + text-xs matches the AvatarInitials `sm` recipe — the 12px floor
+        // (rule 50) applies to monogram tiles too (#2043).
+        'grid h-6 w-6 shrink-0 place-items-center rounded-[4px] text-xs font-bold leading-none tracking-tight',
         known
           ? 'bg-brand-primary text-neutral-text-inverse'
           : 'bg-neutral-surface-sunken text-neutral-text-secondary',

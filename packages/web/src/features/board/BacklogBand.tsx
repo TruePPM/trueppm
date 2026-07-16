@@ -626,7 +626,7 @@ export function BacklogBand({
                 focus:outline-none disabled:cursor-not-allowed"
             />
             {captureDraft.trim() !== '' && (
-              <span aria-hidden="true" className="tppm-mono text-[11px] text-neutral-text-disabled">
+              <span aria-hidden="true" className="tppm-mono text-xs text-neutral-text-disabled">
                 {isQuickCapturePending ? '…' : '⏎'}
               </span>
             )}

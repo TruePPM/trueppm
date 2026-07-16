@@ -101,7 +101,7 @@ function CreatedLinkRow({
           <div className="truncate text-[12px] font-medium text-neutral-text-primary">
             {link.label || 'Untitled link'}
           </div>
-          <div className="mt-0.5 text-[11px] text-neutral-text-secondary">
+          <div className="mt-0.5 text-xs text-neutral-text-secondary">
             <span className="tppm-mono">
               share/{link.contentKind}/{link.tokenPrefix}…
             </span>{' '}
@@ -110,7 +110,7 @@ function CreatedLinkRow({
               {expiryClause(link.expiresAt)}
             </span>
           </div>
-          <div className="mt-0.5 text-[11px] text-neutral-text-secondary">
+          <div className="mt-0.5 text-xs text-neutral-text-secondary">
             Viewed {link.accessCount}×
             {link.accessCount > 0 ? ` · last ${relativeTime(link.lastAccessedAt)}` : ''}
           </div>
@@ -266,7 +266,7 @@ export function ShareViewDialog({
                 Copy
               </button>
             </div>
-            <p className="mb-4 tppm-mono text-[11px] text-neutral-text-secondary">
+            <p className="mb-4 tppm-mono text-xs text-neutral-text-secondary">
               {created.expiresAt
                 ? `Expires ${formatInstantDate(created.expiresAt)}`
                 : 'Never expires'}{' '}
@@ -291,7 +291,7 @@ export function ShareViewDialog({
                 + New link
               </button>
             </div>
-            <p className="mb-3 text-[11px] text-neutral-text-secondary">
+            <p className="mb-3 text-xs text-neutral-text-secondary">
               {links.length} active. Revoking a link takes effect immediately.
             </p>
             <div className="mb-4 space-y-2">
@@ -313,7 +313,7 @@ export function ShareViewDialog({
             >
               Share this {noun}
             </h2>
-            <p className="mb-4 text-[11px] text-neutral-text-secondary">
+            <p className="mb-4 text-xs text-neutral-text-secondary">
               Anyone with the link can view this {noun}, read-only. No sign-in required.
             </p>
 
@@ -402,14 +402,14 @@ export function ShareViewDialog({
               />
               <span className="text-[12px] text-neutral-text-primary">
                 Show assignee names
-                <span className="block text-[11px] text-neutral-text-secondary">
+                <span className="block text-xs text-neutral-text-secondary">
                   Off by default — the {noun} is visible, but who&rsquo;s on each task stays private.
                 </span>
               </span>
             </label>
 
             {detail ? (
-              <p className="mb-3 text-[11px] text-semantic-critical" role="alert">
+              <p className="mb-3 text-xs text-semantic-critical" role="alert">
                 {detail}
               </p>
             ) : null}
