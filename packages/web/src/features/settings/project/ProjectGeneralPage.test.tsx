@@ -257,8 +257,8 @@ describe('ProjectGeneralPage', () => {
     // Switch health AT_RISK → ON_TRACK.
     fireEvent.click(screen.getByRole('button', { name: /on track/i }));
 
-    // Switch visibility WORKSPACE → PRIVATE.
-    fireEvent.click(screen.getByText(/^private$/i));
+    // Visibility is intentionally NOT edited here — the control is disabled until
+    // enforcement ships (#2011, TODO(#2066)), so the save carries the seed value.
 
     // Pick a different default view.
     fireEvent.change(screen.getByRole('combobox', { name: /default view/i }), {
@@ -277,12 +277,29 @@ describe('ProjectGeneralPage', () => {
         name: 'Atlas Migration',
         code: 'ATLAS',
         health: 'ON_TRACK',
-        visibility: 'PRIVATE',
+        visibility: 'WORKSPACE',
         timezone: 'Europe/London',
         default_view: 'TABLE',
         calendar: 'cal-1',
       }),
     );
+  });
+
+  it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {
+    renderPage();
+
+    // Both visibility radios are disabled — the setting is stored but access is
+    // membership-scoped for every project, so an editable control would give
+    // false assurance until enforcement ships (TODO(#2066)).
+    const radios = screen
+      .getAllByRole('radio')
+      .filter((el) => (el as HTMLInputElement).name === 'project-visibility');
+    expect(radios).toHaveLength(2);
+    radios.forEach((radio) => expect(radio).toBeDisabled());
+
+    expect(
+      screen.getByText(/access is currently membership-scoped for all projects/i),
+    ).toBeInTheDocument();
   });
 
   it('resets the save store between renders so the next page mounts clean', () => {
