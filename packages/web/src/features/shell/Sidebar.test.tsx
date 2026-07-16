@@ -41,6 +41,9 @@ vi.mock('@/hooks/useProjects', () => ({
 vi.mock('@/hooks/usePrograms', () => ({
   usePrograms: () => ({ data: [{ id: 'prog1', name: 'Artemis', code: 'ART', color: null }] }),
 }));
+vi.mock('@/hooks/useProgramSeedIo', () => ({
+  useLoadSampleProgram: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('@/hooks/useMyWork', () => ({
   useMyWork: () => ({ data: { pages: [{ due_today_count: 3 }] } }),
 }));

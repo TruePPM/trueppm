@@ -61,6 +61,7 @@ import {
 } from '@/components/toolbar/ToolbarOverflowMenu';
 import { ImportModal } from '@/components/import/ImportModal';
 import { EmptyState } from '@/components/EmptyState';
+import { Button } from '@/components/Button';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { GanttIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
@@ -105,13 +106,23 @@ import { isPhaseTask } from '@/lib/isPhaseTask';
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
 // ---------------------------------------------------------------------------
 
-function ScheduleEmptyState() {
+export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
   return (
     <EmptyState
       className="h-full bg-neutral-surface"
       icon={GanttIcon}
       title="No tasks yet"
       description="Add tasks to lay out your schedule — the timeline, critical path, and forecast appear as soon as there's work to plan."
+      // A discoverable create CTA (#2044) — mirrors Board's empty state so a new
+      // user is never left hunting for the small toolbar "+ Task" button. Omitted
+      // for read-only roles (Viewer), who have no create affordance to offer.
+      action={
+        onAddTask ? (
+          <Button variant="primary" onClick={onAddTask}>
+            + Add task
+          </Button>
+        ) : undefined
+      }
     />
   );
 }
@@ -1817,7 +1828,9 @@ export function ScheduleView() {
               buildModeActive ? (
                 <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
               ) : (
-                <ScheduleEmptyState />
+                <ScheduleEmptyState
+                  onAddTask={readOnly ? undefined : () => setShowAddForm(true)}
+                />
               )
             ) : (
               <div

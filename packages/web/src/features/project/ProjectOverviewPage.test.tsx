@@ -32,7 +32,15 @@ vi.mock('@/api/client', () => ({
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createMemoryRouter(
-    [{ path: '/projects/:projectId/overview', element: <ProjectOverviewPage /> }],
+    [
+      { path: '/projects/:projectId/overview', element: <ProjectOverviewPage /> },
+      // Stub destinations so the first-run CTAs' router pushes (#2048) can be
+      // asserted by the landed route rather than an href (they are Buttons, not
+      // Links — the DS primary recipe requires <Button>).
+      { path: '/projects/:projectId/schedule', element: <div>schedule-route</div> },
+      { path: '/projects/:projectId/board', element: <div>board-route</div> },
+      { path: '/projects/:projectId/settings', element: <div>settings-route</div> },
+    ],
     { initialEntries: ['/projects/proj-1/overview'] },
   );
   return render(
@@ -1072,5 +1080,69 @@ describe('methodology-adaptive widget gating (#1765)', () => {
       expect(screen.queryByRole('region', { name: /critical path/i })).not.toBeInTheDocument(),
     );
     expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
+  });
+});
+
+describe('first-run handoff — zero-task Overview (#2048)', () => {
+  /** Mock every Overview endpoint with a zero-task overview and the given
+   *  methodology + self role. */
+  function setupFirstRun(opts: {
+    effective_methodology?: string;
+    role?: number;
+  }) {
+    const { effective_methodology = 'HYBRID', role = 100 } = opts;
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/projects/proj-1/')
+        return Promise.resolve({ data: { ...PROJECT_DETAIL, effective_methodology } });
+      if (url.endsWith('/members/')) return Promise.resolve({ data: [{ id: 'me', role }] });
+      if (url.endsWith('/overview/'))
+        return Promise.resolve({ data: { ...OVERVIEW_RESPONSE, total_tasks: 0 } });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+  }
+
+  it('replaces the KPI dashboard with a first-task CTA and hides the zero-value widgets', async () => {
+    setupFirstRun({});
+    renderPage();
+    expect(
+      await screen.findByRole('heading', { name: /add your first task/i }),
+    ).toBeInTheDocument();
+    // The noisy zero-KPI dashboard is gone.
+    expect(screen.queryByRole('region', { name: /needs attention/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: /burn-up chart/i })).not.toBeInTheDocument();
+  });
+
+  it('lands authoring on Schedule for a schedule-visible project (HYBRID)', async () => {
+    setupFirstRun({ effective_methodology: 'HYBRID' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /add your first task/i }));
+    expect(await screen.findByText('schedule-route')).toBeInTheDocument();
+  });
+
+  it('lands authoring on Board for an agile-only project (schedule hidden)', async () => {
+    setupFirstRun({ effective_methodology: 'AGILE' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /add your first task/i }));
+    expect(await screen.findByText('board-route')).toBeInTheDocument();
+  });
+
+  it('shows the Invite teammates CTA for an Owner and routes to settings (#2048)', async () => {
+    // The invite form on settings#access is Owner-only, so the CTA gates on OWNER.
+    setupFirstRun({ role: 400 });
+    renderPage();
+    await screen.findByRole('heading', { name: /add your first task/i });
+    fireEvent.click(screen.getByRole('button', { name: /invite teammates/i }));
+    expect(await screen.findByText('settings-route')).toBeInTheDocument();
+  });
+
+  it('hides the Invite teammates CTA for a non-owner admin (invite form is Owner-only)', async () => {
+    setupFirstRun({ role: 300 });
+    renderPage();
+    await screen.findByRole('heading', { name: /add your first task/i });
+    expect(screen.queryByRole('button', { name: /invite teammates/i })).not.toBeInTheDocument();
   });
 });

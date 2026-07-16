@@ -16,6 +16,11 @@ vi.mock('react-router', async (importOriginal) => ({
   useNavigate: () => navigateMock,
 }));
 
+// Stub the heavy multi-step create modal — we only assert it opens (#2034).
+vi.mock('@/features/shell/NewProjectModal', () => ({
+  NewProjectModal: () => <div data-testid="new-project-modal" role="dialog" />,
+}));
+
 beforeEach(() => {
   loadSampleMutate.mockReset();
   navigateMock.mockReset();
@@ -29,6 +34,24 @@ describe('MyWorkEmptyState v2 (#499 / ADR-0129)', () => {
     expect(screen.getByRole('heading', { name: /get you started/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Explore a demo project' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Learn more/i })).toBeInTheDocument();
+  });
+
+  it('flavor A — leads with a Create your first project CTA + Browse programs link (#2034)', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    expect(
+      screen.getByRole('button', { name: 'Create your first project' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Browse programs/i })).toHaveAttribute(
+      'href',
+      '/programs',
+    );
+  });
+
+  it('flavor A — Create your first project opens the new-project modal (#2034)', () => {
+    renderWithRouter(<MyWorkEmptyState hasProjects={false} />);
+    expect(screen.queryByTestId('new-project-modal')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Create your first project' }));
+    expect(screen.getByTestId('new-project-modal')).toBeInTheDocument();
   });
 
   it('flavor A — clicking the demo CTA fires the load-sample mutation', () => {
