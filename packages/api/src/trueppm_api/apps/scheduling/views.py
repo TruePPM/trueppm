@@ -49,6 +49,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     Project,
     Task,
+    three_point_estimates_ordered,
 )
 from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 from trueppm_api.apps.scheduling.models import (
@@ -1624,6 +1625,32 @@ class VelocitySuggestionViewSet(
 
         task = suggestion.task
         project_id = task.project_id
+
+        # A velocity suggestion writes most_likely_duration alone. When the task
+        # already carries a complete three-point estimate, overwriting the middle
+        # value can break the optimistic <= most_likely <= pessimistic invariant
+        # the scheduler enforces — the invalid triple then detonates the next
+        # CPM/program recompute instead of failing here (#2002). Refuse so the PM
+        # adjusts the optimistic/pessimistic estimates rather than corrupting them
+        # silently. No-op for the common case where opt/pess are unset.
+        if not three_point_estimates_ordered(
+            task.optimistic_duration,
+            suggestion.suggested_duration,
+            task.pessimistic_duration,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "Accepting this suggestion would set most likely duration to "
+                        f"{suggestion.suggested_duration} days, which violates this "
+                        "task's three-point estimate ordering (optimistic ≤ most "
+                        f"likely ≤ pessimistic; optimistic is {task.optimistic_duration}, "
+                        f"pessimistic is {task.pessimistic_duration}). Adjust the "
+                        "optimistic/pessimistic estimates first."
+                    )
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
 
         with transaction.atomic():
             task.most_likely_duration = suggestion.suggested_duration

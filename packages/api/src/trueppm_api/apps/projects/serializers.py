@@ -85,6 +85,7 @@ from trueppm_api.apps.projects.models import (
     TaskNote,
     TaskRecurrenceRule,
     TaskStatus,
+    three_point_estimates_ordered,
     validate_project_span,
 )
 from trueppm_api.apps.projects.schema_migrations import (
@@ -3147,12 +3148,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             _opt = _pert["optimistic_duration"]
             _ml = _pert["most_likely_duration"]
             _pess = _pert["pessimistic_duration"]
-            if (
-                _opt is not None
-                and _ml is not None
-                and _pess is not None
-                and not _opt <= _ml <= _pess
-            ):
+            if not three_point_estimates_ordered(_opt, _ml, _pess):
                 raise serializers.ValidationError(
                     {
                         "most_likely_duration": serializers.ErrorDetail(

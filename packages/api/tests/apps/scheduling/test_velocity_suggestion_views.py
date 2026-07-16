@@ -198,6 +198,56 @@ def test_admin_accept_writes_duration_and_enqueues_cpm(
 
 
 @pytest.mark.django_db
+def test_accept_refuses_when_it_would_break_three_point_ordering(
+    project: Project, task: Task, suggestion: VelocitySuggestion
+) -> None:
+    """#2002: accept writes most_likely alone; guard the resulting triple.
+
+    Task has a complete estimate (opt=1, pess=2); the suggested most_likely of 3
+    would violate optimistic <= most_likely <= pessimistic. Refuse with 422 and
+    leave the task and suggestion untouched, rather than persisting a triple the
+    scheduler rejects at compute time.
+    """
+    task.optimistic_duration = 1
+    task.pessimistic_duration = 2
+    task.save(update_fields=["optimistic_duration", "pessimistic_duration"])
+    assert suggestion.suggested_duration == 3  # breaks 1 <= 3 <= 2
+
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+
+    resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/accept/")
+
+    assert resp.status_code == 422
+    task.refresh_from_db()
+    suggestion.refresh_from_db()
+    assert task.most_likely_duration == 2  # unchanged
+    assert suggestion.accepted_at is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_accept_succeeds_with_valid_complete_three_point_estimate(
+    project: Project, task: Task, suggestion: VelocitySuggestion
+) -> None:
+    """The guard is a no-op when the suggested most_likely keeps the triple ordered."""
+    task.optimistic_duration = 1
+    task.pessimistic_duration = 5
+    task.save(update_fields=["optimistic_duration", "pessimistic_duration"])
+    assert suggestion.suggested_duration == 3  # 1 <= 3 <= 5 is valid
+
+    pm = User.objects.create_user(username="pm", password="pw")
+    ProjectMembership.objects.create(project=project, user=pm, role=Role.ADMIN)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        resp = _client_for(pm).post(f"/api/v1/velocity-suggestions/{suggestion.id}/accept/")
+
+    assert resp.status_code == 200
+    task.refresh_from_db()
+    assert task.most_likely_duration == 3
+
+
+@pytest.mark.django_db
 def test_accept_idempotent_when_already_accepted(
     project: Project, suggestion: VelocitySuggestion
 ) -> None:
