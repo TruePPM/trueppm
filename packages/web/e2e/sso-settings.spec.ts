@@ -28,7 +28,7 @@ const WORKSPACE = {
   mc_history_enabled: true,
   mc_history_retention_cap: 100,
   mc_history_attribution_audience: 'ADMIN_OWNER',
-  mc_history_override_policy: 'allow',
+  mc_history_override_policy: 'suggest',
 };
 
 const BLANK_SSO = {

@@ -166,11 +166,14 @@ export type ProjectDefaultView = 'SCHEDULE' | 'BOARD' | 'TABLE' | 'OVERVIEW';
 export type MCAttributionAudience = 'ADMIN_OWNER' | 'SCHEDULER_PLUS' | 'NONE';
 
 /**
- * Workspace policy for downstream forecast-history overrides (ADR-0144). `allow`
- * lets programs/projects override; `lock` pins the workspace values and is
- * Enterprise-enforced — OSS stores it but never enforces the lock downstream.
+ * Workspace policy for downstream forecast-history overrides (ADR-0144). Shares
+ * the three-value `TermOverridePolicy` shape used by every other override policy:
+ * `inherit`/`suggest` both let programs/projects override (OSS honors them
+ * identically); `enforce` pins the workspace values and is Enterprise-enforced —
+ * OSS stores it but never enforces the lock downstream. The old `allow`/`lock`
+ * pair was a frontend-only invention the backend never accepted (#2010).
  */
-export type MCHistoryOverridePolicy = 'allow' | 'lock';
+export type MCHistoryOverridePolicy = 'inherit' | 'suggest' | 'enforce';
 
 /** Hard ceiling on the retained-run count, enforced server-side (ADR-0144). */
 export const MC_HISTORY_RETENTION_MIN = 1;

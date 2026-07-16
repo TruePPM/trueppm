@@ -24,7 +24,7 @@ const WS: WorkspaceSettings = {
   mcHistoryEnabled: true,
   mcHistoryRetentionCap: 100,
   mcHistoryAttributionAudience: 'ADMIN_OWNER',
-  mcHistoryOverridePolicy: 'allow',
+  mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'prorate',
   taskDurationChangePercentOverridePolicy: 'suggest',
   methodology: 'HYBRID',

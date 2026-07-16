@@ -92,7 +92,7 @@ export function WorkspaceGeneralPage() {
   const [mcHistoryAttributionAudience, setMcHistoryAttributionAudience] =
     useState<MCAttributionAudience>('ADMIN_OWNER');
   const [mcHistoryOverridePolicy, setMcHistoryOverridePolicy] =
-    useState<MCHistoryOverridePolicy>('allow');
+    useState<MCHistoryOverridePolicy>('suggest');
   // Duration-change percent policy (ADR-0151, issue 1254) — workspace is the non-null root.
   const [taskDurationChangePercentPolicy, setTaskDurationChangePercentPolicy] =
     useState<DurationChangePercentPolicy>('keep');
@@ -115,7 +115,7 @@ export function WorkspaceGeneralPage() {
     mcHistoryEnabled: true,
     mcHistoryRetentionCap: 100,
     mcHistoryAttributionAudience: 'ADMIN_OWNER' as MCAttributionAudience,
-    mcHistoryOverridePolicy: 'allow' as MCHistoryOverridePolicy,
+    mcHistoryOverridePolicy: 'suggest' as MCHistoryOverridePolicy,
     taskDurationChangePercentPolicy: 'keep' as DurationChangePercentPolicy,
     taskDurationChangePercentOverridePolicy: 'suggest' as 'inherit' | 'suggest' | 'enforce',
   });
@@ -635,13 +635,13 @@ export function WorkspaceGeneralPage() {
               <input
                 type="radio"
                 name="mc-history-policy"
-                checked={mcHistoryOverridePolicy !== 'lock'}
-                onChange={() => setMcHistoryOverridePolicy('allow')}
+                checked={mcHistoryOverridePolicy !== 'enforce'}
+                onChange={() => setMcHistoryOverridePolicy('suggest')}
                 className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
               May override these settings
             </label>
-            {/* LOCK pins the workspace values so lower scopes cannot override — an
+            {/* ENFORCE pins the workspace values so lower scopes cannot override — an
                 Enterprise capability (ADR-0144). Disabled on the OSS surface; the
                 EnterpriseBadge (community-only) is the reachable upsell link. OSS
                 stores the value but never enforces the lock downstream. */}
@@ -650,7 +650,7 @@ export function WorkspaceGeneralPage() {
                 <input
                   type="radio"
                   name="mc-history-policy"
-                  checked={mcHistoryOverridePolicy === 'lock'}
+                  checked={mcHistoryOverridePolicy === 'enforce'}
                   disabled
                   readOnly
                   // A disabled radio conveys only "unavailable" to a screen reader;
