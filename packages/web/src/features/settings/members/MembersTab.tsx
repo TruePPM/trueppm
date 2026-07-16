@@ -27,7 +27,7 @@ export function MembersTab() {
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-2xl px-6 pb-8 space-y-8">
       {/* Members list */}
       <section aria-labelledby="members-heading">
         <h2 id="members-heading" className="text-base font-semibold text-neutral-text-primary mb-4">

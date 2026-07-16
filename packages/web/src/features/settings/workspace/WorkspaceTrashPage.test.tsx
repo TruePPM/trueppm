@@ -12,6 +12,12 @@ vi.mock('../SettingsShell', () => ({
   SettingsPageTitle: ({ title }: { title: string }) => <h1>{title}</h1>,
 }));
 
+// The shell reads the workspace name for its context pill (#2013); stub the
+// query hook so the test doesn't need a QueryClientProvider.
+vi.mock('../hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => ({ data: { name: 'TrueScope' }, isLoading: false }),
+}));
+
 const restoreMutate = vi.fn<(id: string, opts?: { onSuccess?: () => void }) => void>();
 let restoreState = {
   mutate: restoreMutate,

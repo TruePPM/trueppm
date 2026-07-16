@@ -298,7 +298,7 @@ export function WorkspaceGroupsPage() {
         </form>
       )}
 
-      <div className="px-6 py-5">
+      <div className="px-6 pt-5 pb-8">
         {isLoading ? (
           <div className="grid grid-cols-2 gap-3.5">
             {[1, 2, 3, 4].map((i) => (

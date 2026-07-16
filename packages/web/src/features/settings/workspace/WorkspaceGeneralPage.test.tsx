@@ -1,9 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
 import type { WorkspaceSettings } from '../hooks/useWorkspaceSettings';
+
+// Mutable so a test can vary the loaded settings (e.g. an empty subdomain on a
+// self-hosted install) without re-mocking the module (#2013).
+const mockState = vi.hoisted(() => ({ ws: undefined as unknown }));
 
 // The page is fully hook-backed; mock the data/mutation/dirty-form hooks so it
 // renders without a QueryClientProvider. The dirty-form hook is a side effect
@@ -38,7 +42,7 @@ const WS: WorkspaceSettings = {
 };
 
 vi.mock('../hooks/useWorkspaceSettings', () => ({
-  useWorkspaceSettings: () => ({ data: WS, isLoading: false }),
+  useWorkspaceSettings: () => ({ data: mockState.ws, isLoading: false }),
 }));
 vi.mock('../hooks/useUpdateWorkspaceSettings', () => ({
   useUpdateWorkspaceSettings: () => ({ mutateAsync: vi.fn() }),
@@ -62,6 +66,12 @@ vi.mock('../hooks/useWorkspaceLogo', async () => {
 vi.mock('@/hooks/useEdition', () => ({
   useEdition: vi.fn(() => ({ edition: 'community', isLoading: false })),
 }));
+
+// Reset to the default fixture before each test; a test may mutate `mockState.ws`
+// afterward to exercise a different loaded state.
+beforeEach(() => {
+  mockState.ws = { ...WS };
+});
 
 // A <Link> to the danger page needs a Router context.
 function renderPage() {
@@ -212,5 +222,43 @@ describe('WorkspaceGeneralPage — forecast history', () => {
     expect(document.getElementById(hintId as string)?.textContent).toMatch(
       /requires TruePPM Enterprise/i,
     );
+  });
+});
+
+// ----- Display-value fixes (#2013) -------------------------------------------
+
+describe('WorkspaceGeneralPage — display fixes (#2013)', () => {
+  it('shows the subdomain row for a hosted workspace that has one', () => {
+    mockState.ws = { ...WS, subdomain: 'truescope' };
+    renderPage();
+    expect(screen.getByText('Subdomain')).toBeInTheDocument();
+    expect(screen.getByText('truescope')).toBeInTheDocument();
+  });
+
+  it('hides the subdomain row on a self-hosted install with no subdomain', () => {
+    // A bare `https://.trueppm.app` is meaningless on self-host — the whole row
+    // is suppressed rather than rendered empty.
+    mockState.ws = { ...WS, subdomain: '' };
+    renderPage();
+    expect(screen.queryByText('Subdomain')).not.toBeInTheDocument();
+    expect(screen.queryByText('.trueppm.app')).not.toBeInTheDocument();
+  });
+
+  it('does not fabricate a static guest count on the Allow guests toggle', () => {
+    renderPage();
+    // The old hardcoded "3 guests currently in the workspace" hint was a lie —
+    // there is no client-side count, so no count is shown.
+    expect(screen.queryByText(/guests currently in the workspace/i)).not.toBeInTheDocument();
+  });
+
+  it('persists the lowercase token for Default project view, not the display label', () => {
+    // The saved value must match the model token convention ("board"), not the
+    // capitalized option label. A stored capitalized value still selects.
+    mockState.ws = { ...WS, defaultProjectView: 'Board' };
+    renderPage();
+    const select = screen.getByRole('combobox', { name: 'Default project view' });
+    expect(select).toHaveValue('board');
+    expect(within(select).getByRole('option', { name: 'Board' })).toHaveValue('board');
+    expect(within(select).getByRole('option', { name: 'Overview' })).toHaveValue('overview');
   });
 });

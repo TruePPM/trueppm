@@ -59,7 +59,17 @@ const TIMEZONE_OPTIONS = [
   'UTC',
 ];
 
-const DEFAULT_VIEW_OPTIONS = ['Overview', 'Board', 'Schedule', 'WBS', 'Table', 'Calendar'];
+// The option value is the persisted token (lowercase, matching the model default
+// `"board"` and the project-view route slugs); the label is display-only. Storing
+// the capitalized label drifted the saved value from the token convention (#2013).
+const DEFAULT_VIEW_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'board', label: 'Board' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'wbs', label: 'WBS' },
+  { value: 'table', label: 'Table' },
+  { value: 'calendar', label: 'Calendar' },
+];
 
 const SELECT_CLASS =
   'h-8 pl-2.5 pr-7 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary';
@@ -128,7 +138,9 @@ export function WorkspaceGeneralPage() {
       timezone: ws.timezone,
       fiscalMonth: ws.fiscalYearStartMonth,
       fiscalDay: ws.fiscalYearStartDay,
-      defaultProjectView: ws.defaultProjectView,
+      // Normalize to the lowercase token so a value that drifted to a capitalized
+      // label under the old bug still matches an option (and heals on next save).
+      defaultProjectView: ws.defaultProjectView.toLowerCase(),
       workWeek: ws.workWeek,
       allowGuests: ws.allowGuests,
       publicSharing: ws.publicSharing,
@@ -306,13 +318,18 @@ export function WorkspaceGeneralPage() {
           />
         </FieldRow>
 
-        <FieldRow label="Subdomain" hint="Members sign in here.">
-          <div className="flex items-center h-8 rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 w-full max-w-[420px] gap-1 text-[13px]">
-            <span className="text-neutral-text-secondary shrink-0">https://</span>
-            <span className="font-mono text-neutral-text-primary">{ws.subdomain}</span>
-            <span className="text-neutral-text-secondary shrink-0">.trueppm.app</span>
-          </div>
-        </FieldRow>
+        {/* Self-hosted installs have no `.trueppm.app` subdomain, so the field is
+            empty — rendering it anyway produced a bare `https://.trueppm.app`. Only
+            show the row for hosted workspaces that actually have one (#2013). */}
+        {ws.subdomain ? (
+          <FieldRow label="Subdomain" hint="Members sign in here.">
+            <div className="flex items-center h-8 rounded-control border border-neutral-border bg-neutral-surface-raised px-2.5 w-full max-w-[420px] gap-1 text-[13px]">
+              <span className="text-neutral-text-secondary shrink-0">https://</span>
+              <span className="font-mono text-neutral-text-primary">{ws.subdomain}</span>
+              <span className="text-neutral-text-secondary shrink-0">.trueppm.app</span>
+            </div>
+          </FieldRow>
+        ) : null}
 
         <FieldRow label="Workspace logo" hint="Square PNG or WebP. 256×256 minimum. Max 2 MB.">
           <WorkspaceLogoField logoUrl={ws.logoUrl} name={ws.name} />
@@ -392,8 +409,8 @@ export function WorkspaceGeneralPage() {
             style={SELECT_STYLE}
           >
             {DEFAULT_VIEW_OPTIONS.map((v) => (
-              <option key={v} value={v}>
-                {v}
+              <option key={v.value} value={v.value}>
+                {v.label}
               </option>
             ))}
           </select>
@@ -473,7 +490,6 @@ export function WorkspaceGeneralPage() {
             on={allowGuests}
             onChange={setAllowGuests}
             ariaLabel="Allow guest access"
-            hint="3 guests currently in the workspace"
           />
         </FieldRow>
 

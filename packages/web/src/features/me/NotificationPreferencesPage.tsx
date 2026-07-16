@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import {
   type NotificationPreferenceRow,
   useApplyNotificationPreset,
@@ -249,13 +250,16 @@ export function NotificationPreferencesPage() {
       aria-label="Notification preferences"
       className="flex flex-col gap-4 p-6 max-w-3xl mx-auto"
     >
-      <header>
-        <h1 className="text-lg font-semibold text-neutral-text-primary">
-          Notification preferences
-        </h1>
-        <p className="text-sm text-neutral-text-secondary">
-          Choose how you&apos;re notified about your work.
-        </p>
+      <header className="flex flex-col gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-neutral-text-primary">
+            Notification preferences
+          </h1>
+          <p className="text-sm text-neutral-text-secondary">
+            Choose how you&apos;re notified about your work.
+          </p>
+        </div>
+        <MeSettingsSubNav />
       </header>
 
       {/* Do Not Disturb (#1707) — the coarse master switch, above the per-event

@@ -26,6 +26,7 @@ import {
   type MyApiToken,
 } from '@/hooks/useMyApiTokens';
 import { McpConnectPanel } from '@/features/settings/components/integrations/McpConnectPanel';
+import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import { docsUrl } from '@/lib/docsUrl';
 
 /** Whether a created/listed token carries the read-only MCP scope. */
@@ -90,6 +91,9 @@ export function PersonalAccessTokensPage() {
             </span>
           )}
         </p>
+        <div className="mt-3">
+          <MeSettingsSubNav />
+        </div>
       </header>
 
       {isLoading ? (

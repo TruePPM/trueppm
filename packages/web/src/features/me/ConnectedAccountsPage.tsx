@@ -21,6 +21,7 @@ import {
 } from '@/hooks/useIntegrationCredentials';
 import { registry } from '@/lib/widget-registry';
 import { docsUrl } from '@/lib/docsUrl';
+import { MeSettingsSubNav } from '@/features/me/MeSettingsSubNav';
 import {
   EXTERNAL_TASK_SOURCES,
   type ExternalTaskSourceEntry,
@@ -102,21 +103,24 @@ export function ConnectedAccountsPage() {
       aria-label="Connected accounts"
       className="flex flex-col gap-6 p-6 max-w-3xl mx-auto"
     >
-      <header>
-        <h1 className="text-lg font-semibold text-neutral-text-primary">
-          Connected accounts
-        </h1>
-        <p className="mt-1 text-sm text-neutral-text-secondary">
-          Connect GitLab or GitHub to unlock on-demand previews of task links.
-          Credentials are stored encrypted and never returned to your browser.{' '}
-          <a
-            href={docsUrl('features/connected-accounts')}
-            className="text-brand-primary underline-offset-2 hover:underline"
-          >
-            Learn more
-          </a>
-          .
-        </p>
+      <header className="flex flex-col gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-neutral-text-primary">
+            Connected accounts
+          </h1>
+          <p className="mt-1 text-sm text-neutral-text-secondary">
+            Connect GitLab or GitHub to unlock on-demand previews of task links.
+            Credentials are stored encrypted and never returned to your browser.{' '}
+            <a
+              href={docsUrl('features/connected-accounts')}
+              className="text-brand-primary underline-offset-2 hover:underline"
+            >
+              Learn more
+            </a>
+            .
+          </p>
+        </div>
+        <MeSettingsSubNav />
       </header>
 
       {allEmpty && <EmptyStateHint />}

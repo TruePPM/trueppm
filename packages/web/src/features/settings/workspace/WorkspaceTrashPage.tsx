@@ -1,20 +1,14 @@
-import type { ReactNode } from 'react';
 import { toast } from '@/components/Toast';
 import {
   useTrashedProjects,
   useRestoreProject,
   type TrashProject,
 } from '@/hooks/useProjectMutations';
-import {
-  OverviewIcon,
-  ResourcesIcon,
-  WbsIcon,
-  SettingsIcon,
-  WarningIcon,
-  InboxIcon,
-} from '@/components/Icons';
+import { InboxIcon } from '@/components/Icons';
 import { EmptyState } from '@/components/EmptyState';
-import { SettingsShell, SettingsPageTitle, type SettingsNavGroup } from '../SettingsShell';
+import { SettingsShell, SettingsPageTitle } from '../SettingsShell';
+import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
+import { buildWorkspaceNavGroups } from './workspaceNav';
 
 /**
  * Workspace > Trash (issue 1113, ADR-0202).
@@ -26,55 +20,10 @@ import { SettingsShell, SettingsPageTitle, type SettingsNavGroup } from '../Sett
  * surface for a delete the user didn't (or couldn't) undo in the moment.
  */
 
-function ActivityNavIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function TrashNavIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function NavIcon({ children }: { children: ReactNode }) {
-  return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
-}
-
-// Mirrors WorkspaceSystemHealthShell's rail so the chrome is consistent; Trash is the
-// active route. Each shell defines its own NAV_GROUPS (established convention).
-const NAV_GROUPS: SettingsNavGroup[] = [
-  {
-    label: 'Organization',
-    items: [
-      { id: 'general', label: 'General',             to: '/settings#general', icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
-      { id: 'members', label: 'Members',             to: '/settings#members', icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
-      { id: 'groups',  label: 'Groups & teams',      to: '/settings#groups',  icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-      { id: 'roles',   label: 'Roles & permissions', to: '/settings#roles',   icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { id: 'health',    label: 'System health',     to: '/settings/health',           icon: <NavIcon><ActivityNavIcon /></NavIcon> },
-      { id: 'retention', label: 'Retention & purge', to: '/settings/health/retention', icon: <NavIcon><TrashNavIcon /></NavIcon> },
-      { id: 'trash',     label: 'Trash',             to: '/settings/trash',            icon: <NavIcon><TrashNavIcon /></NavIcon> },
-    ],
-  },
-  {
-    label: 'Danger',
-    items: [
-      { id: 'danger', label: 'Archive / Delete', to: '/settings#danger', icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
-    ],
-  },
-];
+// Trash is an off-route shell, so the rail deep-links config sections back to the
+// consolidated page (`linked: true`). Fed from the shared `workspaceNav` builder so
+// it stays in sync with the consolidated rail (#2013).
+const NAV_GROUPS = buildWorkspaceNavGroups({ linked: true });
 
 /** "3 days ago" / "today" from an ISO timestamp. */
 function relativeDaysAgo(iso: string): string {
@@ -162,6 +111,7 @@ function TrashRow({
 
 export function WorkspaceTrashPage() {
   const { data: projects, isLoading, isError, refetch } = useTrashedProjects();
+  const { data: ws } = useWorkspaceSettings();
   const restore = useRestoreProject();
 
   const onRestore = (project: TrashProject) => {
@@ -180,7 +130,7 @@ export function WorkspaceTrashPage() {
         { scope: 'program', label: 'Program', to: null, disabledReason: 'Switch from the workspace page' },
         { scope: 'project', label: 'Project', to: null, disabledReason: 'Switch from the workspace page' },
       ]}
-      contextName="TrueScope Aerospace"
+      contextName={ws?.name ?? 'Workspace'}
       navGroups={NAV_GROUPS}
       exitTo="/"
       exitLabel="Home"

@@ -79,7 +79,7 @@ export function ProjectSignalPrivacyPage() {
         subtitle="Control how far each team signal can travel. Your team owns the ceiling; the Scrum Master moves the dial below it."
       />
 
-      <div className="max-w-2xl px-4 py-6">
+      <div className="max-w-2xl px-6 pb-8">
         {/* Header actions */}
         {policy && (
           <div className="mb-4 flex items-center justify-between gap-3">
