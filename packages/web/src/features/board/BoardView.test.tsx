@@ -409,6 +409,28 @@ describe('BoardView', () => {
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
   });
 
+  it('renders a dashed hollow "0" (not an em-dash) for empty cells in a collapsed lane (#1943)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    // Before collapse the lane renders live BoardCells — no collapsed-cell stub text.
+    expect(screen.queryByText('0 cards, empty')).not.toBeInTheDocument();
+
+    const toggleBtn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
+    await user.click(toggleBtn);
+
+    // The Alpha lane's REVIEW column has no cards. Collapsed, that cell must read as
+    // "empty", not "n/a": a dashed hollow "0" with an accessible name ending "empty"
+    // (rule 201, matching the ColumnStub #1697 treatment), never a bare em-dash.
+    const emptyLabels = screen.getAllByText('0 cards, empty');
+    expect(emptyLabels.length).toBeGreaterThan(0);
+    // The sr-only accessible name follows the visible glyph; the glyph is a hollow
+    // dashed "0", not an em-dash.
+    const glyph = emptyLabels[0].previousElementSibling;
+    expect(glyph).toHaveTextContent('0');
+    expect(glyph?.textContent).not.toContain('—');
+    expect(glyph?.className).toContain('border-dashed');
+  });
+
   it('shows WIP toggle in toolbar', async () => {
     const user = userEvent.setup();
     renderBoard();
