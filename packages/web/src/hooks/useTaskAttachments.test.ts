@@ -121,7 +121,7 @@ describe('useCreateAttachment', () => {
     expect(call[0]).toBe('/projects/p1/tasks/t1/attachments/');
     expect(call[1]).toBeInstanceOf(FormData);
     expect((call[1] as FormData).get('file')).toBeInstanceOf(File);
-    expect(call[2]).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } });
+    expect(call[2]).toEqual({ headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
   });
 
   it('POSTs JSON for an external link with explicit title', async () => {
@@ -234,9 +234,8 @@ describe('useSignedDownloadUrl', () => {
         ttl: 1800,
       });
     });
-    expect(getMock).toHaveBeenCalledWith(
-      '/projects/p1/tasks/t1/attachments/a1/signed-url/',
-      { params: { ttl: 1800 } },
-    );
+    expect(getMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/attachments/a1/signed-url/', {
+      params: { ttl: 1800 },
+    });
   });
 });

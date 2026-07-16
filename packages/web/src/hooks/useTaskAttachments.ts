@@ -98,6 +98,7 @@ export function useCreateAttachment() {
         form.append('file', vars.file, vars.file.name);
         const res = await apiClient.post<TaskAttachment>(path, form, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 0,
         });
         return res.data;
       }
@@ -124,9 +125,7 @@ export function useDeleteAttachment() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, DeleteAttachmentVars>({
     mutationFn: async ({ projectId, taskId, attachmentId }) => {
-      await apiClient.delete(
-        `/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}/`,
-      );
+      await apiClient.delete(`/projects/${projectId}/tasks/${taskId}/attachments/${attachmentId}/`);
     },
     onSuccess: (_data, { taskId }) => {
       void queryClient.invalidateQueries({ queryKey: attachmentsKey(taskId) });

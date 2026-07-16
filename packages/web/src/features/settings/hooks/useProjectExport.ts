@@ -97,10 +97,10 @@ export async function downloadProjectExport(
   job: ProjectExportJob,
   code?: string | null,
 ): Promise<void> {
-  const res = await apiClient.get<Blob>(
-    `/projects/${projectId}/export/jobs/${job.id}/download/`,
-    { responseType: 'blob' },
-  );
+  const res = await apiClient.get<Blob>(`/projects/${projectId}/export/jobs/${job.id}/download/`, {
+    responseType: 'blob',
+    timeout: 0,
+  });
   const url = URL.createObjectURL(res.data);
   const anchor = document.createElement('a');
   anchor.href = url;

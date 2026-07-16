@@ -35,6 +35,16 @@ vi.mock('@/api/wsTicket', () => ({
   }),
 }));
 
+// Membership events toast the current user when their own role changes (#2039).
+// Hoisted so the vi.mock factory (itself hoisted) can close over it.
+const toastMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+  warm: vi.fn(),
+}));
+vi.mock('@/components/Toast/toast', () => ({ toast: toastMock }));
+
 class MockWebSocket {
   static OPEN = 1;
   static CLOSED = 3;
@@ -1378,5 +1388,91 @@ describe('useProjectWebSocket — recalculating badge lifecycle (#1976)', () => 
     dispatch('task_run_completed', { task_run_id: 'other-1', result_summary: null });
 
     expect(useSchedulerStore.getState().isRecalculating).toBe(true);
+  });
+});
+
+describe('useProjectWebSocket — membership events refresh self-role (#2039)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    toastMock.info.mockClear();
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok-abc', isAuthenticated: true });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown> = {}) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function selfRoleInvalidations(calls: unknown[][]): number {
+    return calls.filter((call) => {
+      const arg = call[0] as { queryKey?: unknown[] } | undefined;
+      return (
+        Array.isArray(arg?.queryKey) &&
+        arg.queryKey[0] === 'project-member-self' &&
+        arg.queryKey[1] === 'proj-1'
+      );
+    }).length;
+  }
+
+  it.each(['member_added', 'member_role_changed', 'member_removed'])(
+    'invalidates the caller self-role query on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { membership_id: 'm1', user_id: 'someone-else' });
+
+      expect(selfRoleInvalidations(invalidateSpy.mock.calls)).toBe(1);
+    },
+  );
+
+  it('toasts when the current user is the one whose role changed', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('member_role_changed', { membership_id: 'm1', user_id: 'me', role: 100 });
+
+    expect(toastMock.info).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not toast when a different member had their role changed', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('member_role_changed', { membership_id: 'm1', user_id: 'other', role: 100 });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
+  });
+
+  it('does not toast for member_added/member_removed even when it targets the current user', () => {
+    qc.setQueryData(['current-user'], { id: 'me' });
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('member_added', { membership_id: 'm1', user_id: 'me' });
+    dispatch('member_removed', { membership_id: 'm1', user_id: 'me' });
+
+    expect(toastMock.info).not.toHaveBeenCalled();
   });
 });

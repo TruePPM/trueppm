@@ -46,7 +46,7 @@ export function useImportRisks(projectId: string | null | undefined) {
       const res = await apiClient.post<RiskImportResult>(
         `/projects/${projectId}/risks/import/`,
         form,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
     },

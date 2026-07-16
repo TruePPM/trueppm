@@ -14,6 +14,11 @@ describe('ProjectNotFound', () => {
     expect(back).toHaveAttribute('href', '/');
   });
 
+  it('hedges the copy to cover a lost-access case, not only deletion (#2040)', () => {
+    renderWithRouter(<ProjectNotFound />);
+    expect(screen.getByText(/no longer have access/i)).toBeInTheDocument();
+  });
+
   it('exposes a status role for assistive tech', () => {
     renderWithRouter(<ProjectNotFound />);
     expect(screen.getByRole('status')).toBeInTheDocument();

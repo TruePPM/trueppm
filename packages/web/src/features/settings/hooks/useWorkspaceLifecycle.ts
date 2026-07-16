@@ -105,6 +105,7 @@ export function useWorkspaceExportJob(jobId: string | null) {
 export async function downloadWorkspaceExport(job: WorkspaceExportJob): Promise<void> {
   const res = await apiClient.get<Blob>(`/workspace/export/${job.id}/download/`, {
     responseType: 'blob',
+    timeout: 0,
   });
   const url = URL.createObjectURL(res.data);
   const anchor = document.createElement('a');

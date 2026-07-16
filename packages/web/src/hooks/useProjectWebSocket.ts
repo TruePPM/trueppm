@@ -49,6 +49,7 @@ import { useTaskRunStore } from '@/stores/taskRunStore';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
 import { fetchWsTicket } from '@/api/wsTicket';
+import { toast } from '@/components/Toast/toast';
 import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 
@@ -740,6 +741,29 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'member_removed'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
+        // Also refresh the caller's *own* role row (#2039). `useCurrentUserRole`
+        // caches `['project-member-self', projectId]` with a 5-min staleTime, and
+        // nothing else invalidates it — so an admin demoting you would leave every
+        // role gate (canEdit, canManageScope, Monte Carlo row…) rendering write
+        // affordances that then 403 generically for minutes. Refetching here
+        // reconciles the gates the moment the membership event lands. When the
+        // event targets the current user, toast so the affordance change is
+        // explained rather than silently appearing. The server only broadcasts
+        // member_role_changed when the role actually moved, so no client-side
+        // "did it change" comparison is needed.
+        void queryClient.invalidateQueries({
+          queryKey: ['project-member-self', projectIdRef.current],
+        });
+        const affectedUserId = typeof payload.user_id === 'string' ? payload.user_id : null;
+        const currentUserId =
+          queryClient.getQueryData<{ id: string }>(['current-user'])?.id ?? null;
+        if (
+          event_type === 'member_role_changed' &&
+          affectedUserId !== null &&
+          affectedUserId === currentUserId
+        ) {
+          toast.info('Your role in this project changed.');
+        }
       }
 
       // --- User-defined @mention group events (issue 515 / #516) ---

@@ -58,7 +58,7 @@ describe('useImportRisks', () => {
     expect(url).toBe('/projects/p1/risks/import/');
     expect(body).toBeInstanceOf(FormData);
     expect(body.get('file')).toBeInstanceOf(File);
-    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' } });
+    expect(config).toEqual({ headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 });
 
     // Something landed → the register refetches.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['risks', 'p1'] });
