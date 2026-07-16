@@ -658,12 +658,16 @@ export function SettingsSection({ id, children }: SettingsSectionProps) {
         data-settings-section={id}
         aria-label={id}
         // Section-level break so adjacent sections are visually separable at a
-        // glance (issue 1986): a warm-canvas gap + a full-strength hairline rule
-        // above each section's title strip. The full-strength `neutral-border`
-        // reads as a higher-level boundary than the `/55` intra-section field-row
-        // borders. Suppressed on the first section (flush under the header).
-        // scroll-mt matches the gap so a scrolled-to heading clears the divider.
-        className="scroll-mt-4 mt-4 border-t border-neutral-border first:mt-0 first:border-t-0"
+        // glance (issues 1986/2007). `neutral-border` #E6E1D6 is only ~5% darker
+        // than the warm canvas, so opacity alone can't rank a section boundary
+        // above the `/55` intra-section field-row lines — negative space is the
+        // reliable lever. Rank sections by *air* (32px of canvas gap both sides of
+        // the rule via mt-8 + pt-8) and by *width* (a 2px rule vs the 1px field
+        // rows); field rows and the title-strip underline stay 1px/55%. Suppressed
+        // on the first section (flush under the header). scroll-mt clears the
+        // heading below the sticky header + the section top padding when scroll-spy
+        // jumps to it (ADR-0146).
+        className="scroll-mt-6 mt-8 pt-8 border-t-2 border-neutral-border first:mt-0 first:pt-0 first:border-t-0"
       >
         {/* Contain a section render failure to this region — on the consolidated
             page (ADR-0146) an unguarded throw would reach the root boundary and
