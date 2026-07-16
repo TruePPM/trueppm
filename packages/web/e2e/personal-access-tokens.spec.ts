@@ -203,4 +203,30 @@ test.describe('Personal access tokens page', () => {
     await expect(page.getByLabel('10 of 10 active tokens')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled();
   });
+
+  // #2023 — the shared personal-settings subnav renders on every /me/settings/*
+  // page (previously api-tokens had none) and cross-navigates.
+  test('subnav: lists all four personal-settings pages and cross-navigates', async ({ page }) => {
+    await setup(page);
+    await page.goto('/me/settings/api-tokens');
+
+    const nav = page.getByRole('navigation', { name: 'Personal settings sections' });
+    await expect(nav.getByRole('link', { name: 'General' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Notifications' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Connected accounts' })).toBeVisible();
+    await expect(nav.getByRole('link', { name: 'Personal access tokens' })).toBeVisible();
+
+    // Client-side navigation to a sibling page (assert the URL, not the
+    // destination's data render, to stay independent of that page's mocks).
+    await nav.getByRole('link', { name: 'Notifications' }).click();
+    await expect(page).toHaveURL(/\/me\/settings\/notifications$/);
+  });
+
+  // #2023 — bare /me/settings has no page of its own; it redirects to General
+  // rather than falling through to the 404 catch-all.
+  test('bare /me/settings redirects to General', async ({ page }) => {
+    await setup(page);
+    await page.goto('/me/settings');
+    await expect(page).toHaveURL(/\/me\/settings\/general$/);
+  });
 });

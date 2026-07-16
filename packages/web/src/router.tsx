@@ -772,6 +772,13 @@ export const router = createBrowserRouter([
                 ),
                 handle: { title: 'Notifications' } satisfies RouteHandle,
               },
+              // Bare /me/settings has no page of its own — a bookmarked or typed
+              // URL redirects to General rather than falling through to the 404
+              // catch-all (#2023).
+              {
+                path: 'me/settings',
+                element: <Navigate to="/me/settings/general" replace />,
+              },
               // Per-user general preferences — default landing screen (ADR-0129, #1181).
               // Flat route like the other /me/settings/* pages (no SettingsShell).
               {

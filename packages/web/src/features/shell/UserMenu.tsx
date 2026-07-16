@@ -134,6 +134,17 @@ function MenuContent({
           Notifications
         </NavLink>
 
+        {/* Connected accounts row (#587) — kept in sync with
+            PersonalSettingsSubNav so the menu lists all four personal pages. */}
+        <NavLink
+          to="/me/settings/connected-accounts"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Connected accounts
+        </NavLink>
+
         {/* Personal access tokens row (issue 648) */}
         <NavLink
           to="/me/settings/api-tokens"

@@ -19,6 +19,7 @@ import { Link, useNavigate } from 'react-router';
 import { useProjects } from '@/hooks/useProjects';
 import { SettingsCard } from '../SettingsShell';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
+import { Button } from '@/components/Button';
 
 export function IntegrationsRedirect() {
   const { data: projects, isLoading } = useProjects();
@@ -57,17 +58,9 @@ export function IntegrationsRedirect() {
               You don&apos;t have any projects yet. Create a project to add
               webhooks, API tokens, and connected accounts.
             </p>
-            <button
-              type="button"
-              onClick={() => setShowNewProject(true)}
-              className="
-                inline-flex items-center h-8 px-3 rounded-control text-[13px] font-medium
-                bg-brand-primary text-white hover:bg-brand-primary-dark
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              "
-            >
+            <Button onClick={() => setShowNewProject(true)}>
               Create your first project
-            </button>
+            </Button>
             <p className="mt-5 text-[12px] text-neutral-text-secondary">
               Looking for workspace-wide integration management? That&apos;s
               part of the Enterprise edition.

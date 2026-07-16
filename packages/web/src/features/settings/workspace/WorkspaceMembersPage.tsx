@@ -544,7 +544,7 @@ export function WorkspaceMembersPage() {
       )}
 
       {/* Table */}
-      <div className="px-6 py-4">
+      <div className="px-6 pt-4 pb-8">
         <div className="rounded-card border border-neutral-border overflow-hidden">
           {/* Header */}
           <div

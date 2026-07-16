@@ -14,7 +14,6 @@
  * would do.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink } from 'react-router';
 import { useCurrentUser, type DefaultLanding, type RoleContext } from '@/hooks/useCurrentUser';
 import { useUpdateDefaultLanding } from '@/hooks/useDefaultLanding';
 import { useUpdateRoleContext } from '@/hooks/useRoleContext';
@@ -27,39 +26,9 @@ import { RoleContextRadioGroup } from '@/features/me/RoleContextRadioGroup';
 import { ROLE_CONTEXT_LABEL } from '@/features/me/roleContext';
 import { ViewVisibilitySection } from '@/features/me/ViewVisibilitySection';
 import { TimezoneFormatSection } from '@/features/me/TimezoneFormatSection';
+import { PersonalSettingsSubNav } from '@/features/me/PersonalSettingsSubNav';
 
 const SAVED_TOAST_MS = 3000;
-
-/** In-page secondary nav across the flat /me/settings/* pages. */
-function SettingsSubNav() {
-  const linkClass = ({ isActive }: { isActive: boolean }) =>
-    [
-      'text-sm rounded-control px-1 -mx-1',
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-      isActive
-        ? 'font-medium text-neutral-text-primary'
-        : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-    ].join(' ');
-  return (
-    <nav aria-label="Preferences sections" className="flex flex-wrap items-center gap-x-4 gap-y-1">
-      <NavLink to="/me/settings/general" className={linkClass}>
-        General
-      </NavLink>
-      <span aria-hidden="true" className="text-neutral-text-disabled">
-        ·
-      </span>
-      <NavLink to="/me/settings/notifications" className={linkClass}>
-        Notifications
-      </NavLink>
-      <span aria-hidden="true" className="text-neutral-text-disabled">
-        ·
-      </span>
-      <NavLink to="/me/settings/connected-accounts" className={linkClass}>
-        Connected accounts
-      </NavLink>
-    </nav>
-  );
-}
 
 export function MyGeneralPreferencesPage() {
   const { user } = useCurrentUser();
@@ -135,8 +104,8 @@ export function MyGeneralPreferencesPage() {
   return (
     <main aria-label="General preferences" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
       <header className="flex flex-col gap-2">
+        <PersonalSettingsSubNav />
         <h1 className="text-lg font-semibold text-neutral-text-primary">Preferences</h1>
-        <SettingsSubNav />
       </header>
 
       <section

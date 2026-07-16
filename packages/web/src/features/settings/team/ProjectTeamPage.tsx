@@ -105,7 +105,7 @@ export function ProjectTeamPage() {
         subtitle="Assign facilitation and ownership. Roles control who can manage the team; facets mark the Scrum Master and Product Owner — independent of role."
       />
 
-      <div className="max-w-2xl px-4 py-6">
+      <div className="px-6 pb-8 max-w-[720px]">
         {pending && (
           <div
             role="alertdialog"

@@ -27,6 +27,7 @@ import {
 } from '@/hooks/useMyApiTokens';
 import { McpConnectPanel } from '@/features/settings/components/integrations/McpConnectPanel';
 import { docsUrl } from '@/lib/docsUrl';
+import { PersonalSettingsSubNav } from '@/features/me/PersonalSettingsSubNav';
 
 /** Whether a created/listed token carries the read-only MCP scope. */
 function isMcpRead(scopes: readonly string[] | undefined): boolean {
@@ -46,7 +47,8 @@ export function PersonalAccessTokensPage() {
   return (
     <main aria-label="Personal access tokens" className="flex flex-col gap-6 p-6 max-w-3xl mx-auto">
       <header>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <PersonalSettingsSubNav />
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-neutral-text-primary">
               Personal access tokens

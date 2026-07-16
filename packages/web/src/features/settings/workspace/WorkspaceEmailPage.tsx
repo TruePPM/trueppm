@@ -190,7 +190,7 @@ export function WorkspaceEmailPage() {
 
   if (isError) {
     return (
-      <div className="px-6 py-5 max-w-[920px]">
+      <div className="px-6 pb-8 max-w-[920px]">
         <SettingsCard className="border-semantic-critical/40">
           <div className="px-4 py-4 flex items-center gap-3" role="alert">
             <p className="flex-1 text-[13px] text-neutral-text-secondary">

@@ -37,6 +37,7 @@ import {
   useSyncExternalSource,
 } from '@/hooks/useExternalConnection';
 import { ExternalSourceConnectDialog } from './ExternalSourceConnectDialog';
+import { PersonalSettingsSubNav } from '@/features/me/PersonalSettingsSubNav';
 
 type DialogMode = 'connect' | 'rotate' | 'revoke';
 
@@ -102,11 +103,12 @@ export function ConnectedAccountsPage() {
       aria-label="Connected accounts"
       className="flex flex-col gap-6 p-6 max-w-3xl mx-auto"
     >
-      <header>
+      <header className="flex flex-col gap-2">
+        <PersonalSettingsSubNav />
         <h1 className="text-lg font-semibold text-neutral-text-primary">
           Connected accounts
         </h1>
-        <p className="mt-1 text-sm text-neutral-text-secondary">
+        <p className="text-sm text-neutral-text-secondary">
           Connect GitLab or GitHub to unlock on-demand previews of task links.
           Credentials are stored encrypted and never returned to your browser.{' '}
           <a
