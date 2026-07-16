@@ -165,6 +165,13 @@ describe('WorkspaceGeneralPage — forecast history', () => {
       name: /Available in TruePPM Enterprise/i,
     });
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+    // The Enterprise gate must reach screen readers, not just the visual badge
+    // (web-rule 265 / #2001): the disabled radio points at an sr-only hint node.
+    const hintId = enforce.getAttribute('aria-describedby');
+    expect(hintId).toBe('duration-change-enforce-enterprise-hint');
+    expect(document.getElementById(hintId as string)?.textContent).toMatch(
+      /requires TruePPM Enterprise/i,
+    );
   });
 
   it('clamps the retention input to the 500 hard cap', async () => {
@@ -187,5 +194,23 @@ describe('WorkspaceGeneralPage — forecast history', () => {
       name: /Available in TruePPM Enterprise/i,
     });
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+    // The Enterprise gate must reach screen readers, not just the visual badge
+    // (web-rule 265 / #2001): the disabled radio points at an sr-only hint node.
+    const hintId = lock.getAttribute('aria-describedby');
+    expect(hintId).toBe('mc-history-enforce-enterprise-hint');
+    expect(document.getElementById(hintId as string)?.textContent).toMatch(
+      /requires TruePPM Enterprise/i,
+    );
+  });
+
+  it('exposes the iteration-terminology Enforce gate to screen readers (web-rule 265 / #2001)', () => {
+    renderPage();
+    const enforce = screen.getByRole('radio', { name: /Enforce workspace-wide/i });
+    expect(enforce).toBeDisabled();
+    const hintId = enforce.getAttribute('aria-describedby');
+    expect(hintId).toBe('iteration-enforce-enterprise-hint');
+    expect(document.getElementById(hintId as string)?.textContent).toMatch(
+      /requires TruePPM Enterprise/i,
+    );
   });
 });

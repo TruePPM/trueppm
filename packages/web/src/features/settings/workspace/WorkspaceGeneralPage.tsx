@@ -430,11 +430,18 @@ export function WorkspaceGeneralPage() {
                     checked={iterationLabelPolicy === 'enforce'}
                     disabled
                     readOnly
+                    // A disabled radio conveys only "unavailable" to a screen reader;
+                    // the visual EnterpriseBadge doesn't reach non-visual users, so the
+                    // reason is spelled out via an sr-only span (web-rule 265 / #2001).
+                    aria-describedby="iteration-enforce-enterprise-hint"
                     className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                   />
                   Enforce workspace-wide
                 </label>
                 <EnterpriseBadge />
+                <span id="iteration-enforce-enterprise-hint" className="sr-only">
+                  Enforce workspace-wide requires TruePPM Enterprise.
+                </span>
               </span>
             </fieldset>
           </div>
@@ -602,11 +609,18 @@ export function WorkspaceGeneralPage() {
                   checked={taskDurationChangePercentOverridePolicy === 'enforce'}
                   disabled
                   readOnly
+                  // A disabled radio conveys only "unavailable" to a screen reader;
+                  // the visual EnterpriseBadge doesn't reach non-visual users, so the
+                  // reason is spelled out via an sr-only span (web-rule 265 / #2001).
+                  aria-describedby="duration-change-enforce-enterprise-hint"
                   className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 Force this policy everywhere; overrides are ignored.
               </label>
               <EnterpriseBadge />
+              <span id="duration-change-enforce-enterprise-hint" className="sr-only">
+                Forcing this policy everywhere requires TruePPM Enterprise.
+              </span>
             </span>
           </fieldset>
         </FieldRow>
@@ -639,11 +653,18 @@ export function WorkspaceGeneralPage() {
                   checked={mcHistoryOverridePolicy === 'lock'}
                   disabled
                   readOnly
+                  // A disabled radio conveys only "unavailable" to a screen reader;
+                  // the visual EnterpriseBadge doesn't reach non-visual users, so the
+                  // reason is spelled out via an sr-only span (web-rule 265 / #2001).
+                  aria-describedby="mc-history-enforce-enterprise-hint"
                   className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 />
                 Lock workspace-wide
               </label>
               <EnterpriseBadge />
+              <span id="mc-history-enforce-enterprise-hint" className="sr-only">
+                Locking these settings workspace-wide requires TruePPM Enterprise.
+              </span>
             </span>
           </fieldset>
         </FieldRow>
