@@ -41,6 +41,7 @@ import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
+import { SubtreeDeleteConfirmDialog } from './SubtreeDeleteConfirmDialog';
 import { ScheduleForecastBar } from './ScheduleForecastBar';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
@@ -1027,6 +1028,80 @@ export function ScheduleView() {
     return () => window.removeEventListener('keydown', onKey);
   }, [breakpoint, canExportSchedule, openExportDialog]);
 
+  // Subtree-delete confirm (#2029). Deleting a summary/phase row takes its whole
+  // WBS subtree with it, and the Undo below can only recover the row itself —
+  // never its descendants — so a one-key Backspace on a phase is unrecoverable.
+  // Gate that specific case behind a confirm that names the descendant count.
+  const [pendingSubtreeDelete, setPendingSubtreeDelete] = useState<{
+    id: string;
+    name: string;
+    count: number;
+  } | null>(null);
+
+  // The actual build-mode delete + Undo toast, factored out so both the fast
+  // path (leaf rows, no confirm) and the confirmed subtree path share it.
+  // `descendantCount` drives the honest copy: Undo recreates only the row's own
+  // core fields (name/duration/parent/sprint/milestone), so when a subtree was
+  // deleted we say so instead of the old "Task restored" that implied the whole
+  // subtree came back (#2029 — the Undo actively misled).
+  const performBuildModeDelete = useCallback(
+    (taskId: string, descendantCount: number) => {
+      if (!projectId) {
+        deleteTaskMut.mutate(taskId);
+        return;
+      }
+      const snapshot = allTasks.find((t) => t.id === taskId);
+      deleteTaskMut.mutate(taskId, {
+        onSuccess: () => {
+          if (!snapshot) return;
+          const label = snapshot.name || 'Untitled task';
+          const subtaskSuffix =
+            descendantCount > 0
+              ? ` and its ${descendantCount} subtask${descendantCount === 1 ? '' : 's'}`
+              : '';
+          setScheduleActionToast({
+            message: `Deleted “${label}”${subtaskSuffix}`,
+            action: {
+              label: 'Undo',
+              onClick: () => {
+                createTaskMut.mutate(
+                  {
+                    name: snapshot.name,
+                    duration: snapshot.isMilestone ? 0 : snapshot.duration,
+                    parent_id: snapshot.parentId ?? null,
+                    sprint: snapshot.sprintId ?? null,
+                    is_milestone: snapshot.isMilestone,
+                  },
+                  {
+                    onSuccess: (recreated) => {
+                      focus.focusRow(recreated.id);
+                      setScheduleActionToast({
+                        // Honest recovery scope (#2029): a subtree delete only
+                        // restores the parent row — deps/assignments/children are
+                        // gone until the server exposes a real restore endpoint
+                        // (TODO(#2078): swap this create-a-new-row Undo for the
+                        // faithful restore and drop the caveat copy).
+                        message:
+                          descendantCount > 0
+                            ? 'Restored the row only — its subtasks were not recovered'
+                            : 'Task restored',
+                        durationMs: descendantCount > 0 ? 5000 : 2000,
+                      });
+                    },
+                    onError: () => {
+                      setScheduleActionToast({ message: 'Couldn’t restore the task.' });
+                    },
+                  },
+                );
+              },
+            },
+          });
+        },
+      });
+    },
+    [projectId, allTasks, deleteTaskMut, createTaskMut, focus, setScheduleActionToast],
+  );
+
   const buildModeApi = useMemo<BuildModeApi>(
     () => ({
       focus,
@@ -1059,52 +1134,21 @@ export function ScheduleView() {
         updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
       },
       deleteTask: (taskId) => {
-        // Build-mode delete (Backspace/Delete keybinding and the ⋮ menu) is
-        // destructive with no confirm, to keep the daily build path fast. The
-        // safety net the keybinding always assumed but never had is this Undo
-        // toast (#1762): capture the task's recreatable fields BEFORE the delete,
-        // and on success surface "Deleted — Undo" that recreates it. Undo is
-        // core-field only (name, duration, parent, sprint, milestone) — it mints a
-        // new row id and does NOT restore child rows, dependencies, or resource
-        // assignments; the backend delete is a soft-delete but exposes no task
-        // restore endpoint, so a faithful in-place restore isn't available here.
-        if (!projectId) {
-          deleteTaskMut.mutate(taskId);
+        // Leaf rows delete immediately with the Undo safety net (#1762) — the
+        // fast daily build path. But a summary/phase row carries a WBS subtree
+        // that Undo cannot bring back, so gate that case behind a confirm that
+        // names the descendant count (#2029). `childCountById` only holds
+        // summaries, so a plain leaf never trips the guard.
+        const summary = childCountById.get(taskId);
+        if (summary && summary.count > 0) {
+          setPendingSubtreeDelete({
+            id: taskId,
+            name: summary.name || 'Untitled task',
+            count: summary.count,
+          });
           return;
         }
-        const snapshot = allTasks.find((t) => t.id === taskId);
-        deleteTaskMut.mutate(taskId, {
-          onSuccess: () => {
-            if (!snapshot) return;
-            const label = snapshot.name || 'Untitled task';
-            setScheduleActionToast({
-              message: `Deleted “${label}”`,
-              action: {
-                label: 'Undo',
-                onClick: () => {
-                  createTaskMut.mutate(
-                    {
-                      name: snapshot.name,
-                      duration: snapshot.isMilestone ? 0 : snapshot.duration,
-                      parent_id: snapshot.parentId ?? null,
-                      sprint: snapshot.sprintId ?? null,
-                      is_milestone: snapshot.isMilestone,
-                    },
-                    {
-                      onSuccess: (recreated) => {
-                        focus.focusRow(recreated.id);
-                        setScheduleActionToast({ message: 'Task restored', durationMs: 2000 });
-                      },
-                      onError: () => {
-                        setScheduleActionToast({ message: 'Couldn’t restore the task.' });
-                      },
-                    },
-                  );
-                },
-              },
-            });
-          },
-        });
+        performBuildModeDelete(taskId, 0);
       },
       // #806: include deleteTask so the row gets the "in-flight" treatment during
       // delete and downstream guards (context-menu suppression, auto-close of an
@@ -1126,7 +1170,8 @@ export function ScheduleView() {
       createTaskMut,
       projectId,
       allTasks,
-      setScheduleActionToast,
+      childCountById,
+      performBuildModeDelete,
     ],
   );
 
@@ -2034,6 +2079,20 @@ export function ScheduleView() {
             if (!createBaselineMut.isPending) setCaptureBaselineConfirmOpen(false);
           }}
           onConfirm={handleCaptureBaseline}
+        />
+      )}
+
+      {/* Subtree-delete confirm (#2029) — only raised for summary rows with
+          descendants; leaf deletes stay confirm-free. */}
+      {pendingSubtreeDelete && (
+        <SubtreeDeleteConfirmDialog
+          name={pendingSubtreeDelete.name}
+          count={pendingSubtreeDelete.count}
+          onCancel={() => setPendingSubtreeDelete(null)}
+          onConfirm={() => {
+            performBuildModeDelete(pendingSubtreeDelete.id, pendingSubtreeDelete.count);
+            setPendingSubtreeDelete(null);
+          }}
         />
       )}
 
