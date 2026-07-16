@@ -47,8 +47,18 @@ export function ProjectLabelsPage() {
     if (!swap) return;
     // Swap the two positions (two immediate PATCHes). A transient collision only
     // affects tie-break ordering (falls back to name), never correctness.
-    updateLabel.mutate({ labelId: label.id, name: label.name, color: label.color, position: swap.position });
-    updateLabel.mutate({ labelId: swap.id, name: swap.name, color: swap.color, position: label.position });
+    updateLabel.mutate({
+      labelId: label.id,
+      name: label.name,
+      color: label.color,
+      position: swap.position,
+    });
+    updateLabel.mutate({
+      labelId: swap.id,
+      name: swap.name,
+      color: swap.color,
+      position: label.position,
+    });
   };
 
   return (
@@ -68,7 +78,9 @@ export function ProjectLabelsPage() {
         {!isLoading && sorted.length === 0 && (
           <p className="text-sm text-neutral-text-secondary">
             No labels yet.{' '}
-            {canCreate ? 'Create one below or from any task’s Labels section.' : 'An admin or team member can create one.'}
+            {canCreate
+              ? 'Create one below or from any task’s Labels section.'
+              : 'An admin or team member can create one.'}
           </p>
         )}
 
@@ -84,10 +96,20 @@ export function ProjectLabelsPage() {
                 onMoveUp={() => move(label, -1)}
                 onMoveDown={() => move(label, 1)}
                 onRename={(name) =>
-                  updateLabel.mutate({ labelId: label.id, name, color: label.color, position: label.position })
+                  updateLabel.mutate({
+                    labelId: label.id,
+                    name,
+                    color: label.color,
+                    position: label.position,
+                  })
                 }
                 onRecolor={(color) =>
-                  updateLabel.mutate({ labelId: label.id, name: label.name, color, position: label.position })
+                  updateLabel.mutate({
+                    labelId: label.id,
+                    name: label.name,
+                    color,
+                    position: label.position,
+                  })
                 }
                 onDelete={() => deleteLabel.mutate(label.id)}
               />
@@ -108,13 +130,7 @@ export function ProjectLabelsPage() {
   );
 }
 
-function ColorSwatchRow({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (color: string) => void;
-}) {
+function ColorSwatchRow({ value, onChange }: { value: string; onChange: (color: string) => void }) {
   return (
     <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Label color">
       {LABEL_COLOR_KEYS.map((key) => (
@@ -162,7 +178,11 @@ function LabelRow({
   if (!canManage) {
     return (
       <li className="flex items-center gap-2 py-1">
-        <span className="inline-block h-3 w-3 rounded-full" style={labelDotStyle(label.color)} aria-hidden="true" />
+        <span
+          className="inline-block h-3 w-3 rounded-full"
+          style={labelDotStyle(label.color)}
+          aria-hidden="true"
+        />
         <span className="text-sm text-neutral-text-primary">{label.name}</span>
       </li>
     );
@@ -187,7 +207,7 @@ function LabelRow({
         onBlur={() => name.trim() && name.trim() !== label.name && onRename(name.trim())}
         aria-label={`Label name (${label.name})`}
         data-testid={`label-name-${label.id}`}
-        className="h-8 flex-1 min-w-[8rem] rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
+        className="h-8 min-w-0 flex-1 rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
       />
       <div className="flex items-center gap-1">
@@ -233,7 +253,11 @@ function LabelRow({
       )}
 
       {confirming && (
-        <div className="flex w-full items-center gap-2 pt-1 text-sm" role="alertdialog" aria-label={`Delete ${label.name}?`}>
+        <div
+          className="flex w-full items-center gap-2 pt-1 text-sm"
+          role="alertdialog"
+          aria-label={`Delete ${label.name}?`}
+        >
           <span className="text-neutral-text-secondary">
             Delete “{label.name}”? It is removed from every task that has it.
           </span>
@@ -285,37 +309,48 @@ function CreateLabelRow({
 
   return (
     <div className="mt-4 border-t border-neutral-border pt-3">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">New label</p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
+        New label
+      </p>
       {atCapMessage ? (
         <p className="text-sm text-semantic-at-risk">{atCapMessage}</p>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
+        // Stack the color picker above the name+Add row so the control never
+        // overflows the narrow settings column. The name input carries `min-w-0`
+        // (it must be able to shrink — a min-width floor here was the #1988 clip:
+        // the input pushed itself and the Add button past the card's
+        // `overflow-hidden` edge at mobile widths) and a `max-w` cap so it stays
+        // a reasonably sized field on wide screens instead of stretching edge to
+        // edge. Same overflow fix the settings `FieldRow` adopted in #539.
+        <div className="flex flex-col gap-2">
           <ColorSwatchRow value={color} onChange={setColor} />
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="Label name"
-            aria-label="New label name"
-            data-testid="label-create-name"
-            className="h-8 flex-1 min-w-[10rem] rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          />
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!name.trim() || pending}
-            // Explicit accessible name: the settings page stacks every section on
-            // one route, so a bare "Add" collides with the Members invite form's
-            // Add button (strict-mode) and reads ambiguously to a screen reader.
-            aria-label="Add label"
-            data-testid="label-create-add"
-            className="h-8 rounded-control bg-brand-primary px-3 text-sm font-medium text-white
-              hover:bg-brand-primary-dark disabled:opacity-60"
-          >
-            Add
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              placeholder="Label name"
+              aria-label="New label name"
+              data-testid="label-create-name"
+              className="h-8 min-w-0 flex-1 sm:max-w-xs rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!name.trim() || pending}
+              // Explicit accessible name: the settings page stacks every section on
+              // one route, so a bare "Add" collides with the Members invite form's
+              // Add button (strict-mode) and reads ambiguously to a screen reader.
+              aria-label="Add label"
+              data-testid="label-create-add"
+              className="h-8 shrink-0 rounded-control bg-brand-primary px-3 text-sm font-medium text-white
+                hover:bg-brand-primary-dark disabled:opacity-60"
+            >
+              Add
+            </button>
+          </div>
         </div>
       )}
     </div>
