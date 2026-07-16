@@ -191,7 +191,7 @@ export function WorkspaceRolesPage() {
             uneditable in OSS, so the cards + matrix render directly (no disabled
             fieldset, no preview banner). Export stays functional (#594). */}
         {/* Role summary cards */}
-        <div className="px-6 py-4">
+        <div className="px-6 pt-2 pb-4">
           <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
             {ROLES.map((role) => {
               const { count, hint } = ROLE_DESCRIPTIONS[role];
