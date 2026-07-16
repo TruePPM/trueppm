@@ -26,9 +26,10 @@ describe('KeyboardShortcutsModal', () => {
     render(<KeyboardShortcutsModal onClose={vi.fn()} />);
     // The dead-end placeholder must be gone (#1556).
     expect(screen.queryByText(/coming soon/i)).toBeNull();
-    // Section groupings.
+    // Section groupings — including the new Editing group (#2058).
     expect(screen.getByRole('heading', { name: 'Global' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Command palette' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Editing' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Board' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Schedule (Gantt)' })).toBeInTheDocument();
     // A representative binding from each group.
@@ -41,11 +42,33 @@ describe('KeyboardShortcutsModal', () => {
     expect(screen.getByText('Nudge by one working day')).toBeInTheDocument();
   });
 
+  it('documents the previously-omitted wired bindings (#2058)', () => {
+    render(<KeyboardShortcutsModal onClose={vi.fn()} />);
+    // The global `?` hotkey is self-documenting.
+    expect(screen.getByText('Show keyboard shortcuts')).toBeInTheDocument();
+    // ⌘S save (SettingsShell + TaskDetailDrawer, rules 115/217).
+    expect(screen.getByText('Save your changes')).toBeInTheDocument();
+    // Continuous zoom / fit (rules 127/129).
+    expect(screen.getByText('Zoom in or out')).toBeInTheDocument();
+    expect(screen.getByText('Fit the schedule to the project')).toBeInTheDocument();
+    // Drag-to-pan (rules 130/131).
+    expect(screen.getByText('Hold and drag to pan (or middle-drag)')).toBeInTheDocument();
+    // Build-mode sibling reorder (#347) — the schedule reorder binding.
+    expect(screen.getByText('Reorder a task among siblings (build mode)')).toBeInTheDocument();
+  });
+
+  it('cross-links the per-surface board / build cheatsheets (#2058)', () => {
+    render(<KeyboardShortcutsModal onClose={vi.fn()} />);
+    expect(screen.getByText(/Board and Schedule build mode have more shortcuts/i)).toBeInTheDocument();
+  });
+
   it('renders the OS modifier chip for the command palette shortcut', () => {
     render(<KeyboardShortcutsModal onClose={vi.fn()} />);
     // jsdom is not a Mac → modifierKeyLabel() resolves to "Ctrl".
     expect(screen.getByText('CtrlK')).toBeInTheDocument();
     expect(screen.getByText('CtrlB')).toBeInTheDocument();
+    // ⌘S save chip resolves to Ctrl too.
+    expect(screen.getByText('CtrlS')).toBeInTheDocument();
   });
 
   it('calls onClose when Escape is pressed', () => {
