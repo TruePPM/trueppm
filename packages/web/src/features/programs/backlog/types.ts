@@ -27,10 +27,25 @@ export const BACKLOG_ITEM_TYPES: readonly BacklogItemType[] = [
 ] as const;
 
 /**
- * Where a PULLED item landed. The API exposes only the created task id and
- * timestamp; `projectId`/`projectName` are known optimistically (the user just
- * picked the target) but are not returned by the list serializer, so they are
- * optional and absent after a reload.
+ * Whether a story-points estimate is relevant to this item type (#2026).
+ * Epics and Features are containers, not estimable leaf work — and the program
+ * backlog is a flat list with no epic→child hierarchy, so there is nothing to
+ * roll up into an Epic total here. Both therefore hide the points field; every
+ * leaf work item (story/task/bug/spike/chore) keeps it. Defined as an exclusion
+ * so a future leaf type is estimable by default. (The read-only rolled-up Epic
+ * total belongs on the project product-backlog, where the hierarchy exists —
+ * tracked in the estimation-scale work, #2027.)
+ */
+export function itemTypeShowsPoints(type: BacklogItemType): boolean {
+  return type !== 'epic' && type !== 'feature';
+}
+
+/**
+ * Where a PULLED item landed. `taskId`/`at` come from the item itself; the
+ * serializer also exposes `pulled_task_project_id`/`pulled_task_project_name`
+ * (#1994), so `projectId`/`projectName` survive a reload and back the "Go to
+ * task" wayfinding deep-link. They stay optional because they are `null` for a
+ * not-yet-pulled item (mapped to `undefined` at the boundary).
  */
 export interface BacklogPullLink {
   taskId: string;

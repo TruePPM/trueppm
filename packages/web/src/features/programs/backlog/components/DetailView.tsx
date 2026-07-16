@@ -17,6 +17,7 @@ import { CloseIcon, ExternalLinkIcon } from '@/components/Icons';
 import {
   BACKLOG_ITEM_TYPES,
   SETTABLE_STATUSES,
+  itemTypeShowsPoints,
   type BacklogItem,
   type BacklogItemType,
 } from '../types';
@@ -191,9 +192,16 @@ export function DetailView({
             <select
               id={`${item.id}-type`}
               value={draft.itemType}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, itemType: e.target.value as BacklogItemType }))
-              }
+              onChange={(e) => {
+                // Switching to a container type (epic/feature) drops the now-hidden
+                // points so a leaf estimate never persists silently on a container.
+                const next = e.target.value as BacklogItemType;
+                setDraft((d) => ({
+                  ...d,
+                  itemType: next,
+                  storyPoints: itemTypeShowsPoints(next) ? d.storyPoints : null,
+                }));
+              }}
               className={`h-8 ${INPUT_BASE}`}
             >
               {BACKLOG_ITEM_TYPES.map((t) => (
@@ -235,30 +243,37 @@ export function DetailView({
             #{item.priorityRank}
           </span>
 
-          <label className="text-neutral-text-secondary" htmlFor={`${item.id}-points`}>
-            Story points
-          </label>
-          {canEdit ? (
-            <input
-              id={`${item.id}-points`}
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1}
-              value={draft.storyPoints ?? ''}
-              onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  storyPoints: e.target.value === '' ? null : Number(e.target.value),
-                }))
-              }
-              placeholder="—"
-              className={`h-8 w-24 ${INPUT_BASE}`}
-            />
-          ) : (
-            <span className="tabular-nums text-neutral-text-primary">
-              {item.storyPoints ?? <span className="text-neutral-text-disabled">—</span>}
-            </span>
+          {/* Points are relevant only for leaf work items — Epics/Features hide
+              them (#2026). Gate on the live draft type so the field appears and
+              disappears as the user changes the type in this same pane. */}
+          {itemTypeShowsPoints(draft.itemType) && (
+            <>
+              <label className="text-neutral-text-secondary" htmlFor={`${item.id}-points`}>
+                Story points
+              </label>
+              {canEdit ? (
+                <input
+                  id={`${item.id}-points`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={draft.storyPoints ?? ''}
+                  onChange={(e) =>
+                    setDraft((d) => ({
+                      ...d,
+                      storyPoints: e.target.value === '' ? null : Number(e.target.value),
+                    }))
+                  }
+                  placeholder="—"
+                  className={`h-8 w-24 ${INPUT_BASE}`}
+                />
+              ) : (
+                <span className="tabular-nums text-neutral-text-primary">
+                  {item.storyPoints ?? <span className="text-neutral-text-disabled">—</span>}
+                </span>
+              )}
+            </>
           )}
 
           <span className="self-start pt-1.5 text-neutral-text-secondary">Tags</span>

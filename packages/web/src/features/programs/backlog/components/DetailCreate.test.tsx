@@ -78,4 +78,25 @@ describe('DetailCreate', () => {
       expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ storyPoints: null })),
     );
   });
+
+  it('hides the story-points field for container types (epic/feature) and clears any estimate', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(<DetailCreate tagSuggestions={[]} onCancel={vi.fn()} onCreate={onCreate} />);
+
+    // Default type is Story → points visible and estimable.
+    fireEvent.change(screen.getByLabelText('Story points'), { target: { value: '8' } });
+    expect(screen.getByLabelText('Story points')).toBeInTheDocument();
+
+    // Switch to Epic → points field disappears and the staged estimate is dropped.
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'epic' } });
+    expect(screen.queryByLabelText('Story points')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'A container' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create item' }));
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ itemType: 'epic', storyPoints: null }),
+      ),
+    );
+  });
 });
