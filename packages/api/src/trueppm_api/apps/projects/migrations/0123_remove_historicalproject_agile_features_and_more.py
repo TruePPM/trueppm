@@ -5,7 +5,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0121_task_three_point_estimate_ordered"),
+        ("projects", "0122_task_relation"),
     ]
 
     operations = [
