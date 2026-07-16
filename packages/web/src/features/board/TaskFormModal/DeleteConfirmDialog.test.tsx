@@ -1,6 +1,51 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { DeleteConfirmDialog } from './DeleteConfirmDialog';
+import { DeleteConfirmDialog, describeCascade } from './DeleteConfirmDialog';
+
+describe('describeCascade', () => {
+  it('returns an empty string when every count is zero', () => {
+    expect(
+      describeCascade([
+        { count: 0, singular: 'subtask', plural: 'subtasks' },
+        { count: 0, singular: 'dependency link', plural: 'dependency links' },
+      ]),
+    ).toBe('');
+  });
+
+  it('uses the singular noun for a count of one', () => {
+    expect(describeCascade([{ count: 1, singular: 'subtask', plural: 'subtasks' }])).toBe(
+      '1 subtask',
+    );
+  });
+
+  it('pluralizes and drops zero-count clauses', () => {
+    expect(
+      describeCascade([
+        { count: 3, singular: 'subtask', plural: 'subtasks' },
+        { count: 0, singular: 'dependency link', plural: 'dependency links' },
+      ]),
+    ).toBe('3 subtasks');
+  });
+
+  it('joins two non-zero clauses with "and"', () => {
+    expect(
+      describeCascade([
+        { count: 2, singular: 'subtask', plural: 'subtasks' },
+        { count: 1, singular: 'dependency link', plural: 'dependency links' },
+      ]),
+    ).toBe('2 subtasks and 1 dependency link');
+  });
+
+  it('Oxford-joins three or more clauses', () => {
+    expect(
+      describeCascade([
+        { count: 2, singular: 'subtask', plural: 'subtasks' },
+        { count: 4, singular: 'dependency link', plural: 'dependency links' },
+        { count: 1, singular: 'comment', plural: 'comments' },
+      ]),
+    ).toBe('2 subtasks, 4 dependency links, and 1 comment');
+  });
+});
 
 describe('DeleteConfirmDialog', () => {
   it('renders the task name in the body and the alertdialog role', () => {
@@ -14,6 +59,52 @@ describe('DeleteConfirmDialog', () => {
     );
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(screen.getByText(/“My Task”/)).toBeInTheDocument();
+  });
+
+  it('states the plain single-item copy when nothing else cascades', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="Solo"
+        isPending={false}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/will be permanently removed\. This can’t be undone\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/along with its/)).not.toBeInTheDocument();
+  });
+
+  it('quantifies subtasks and dependency links in the body copy', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="Parent"
+        isPending={false}
+        subtaskCount={3}
+        dependencyCount={1}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(/along with its 3 subtasks and 1 dependency link\./),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the subtasks clause when the count is zero', () => {
+    render(
+      <DeleteConfirmDialog
+        taskName="Leaf"
+        isPending={false}
+        subtaskCount={0}
+        dependencyCount={2}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/along with its 2 dependency links\./)).toBeInTheDocument();
+    expect(screen.queryByText(/subtask/)).not.toBeInTheDocument();
   });
 
   it('autofocuses Cancel — destructive actions never autofocus the destructive button', () => {
