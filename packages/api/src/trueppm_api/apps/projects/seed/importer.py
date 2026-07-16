@@ -477,7 +477,6 @@ class _SeedImporter:
             code=data.get("code", ""),
             default_view=data.get("default_view", "SCHEDULE"),
             estimation_mode=data.get("estimation_mode", "open"),
-            agile_features=data.get("agile_features", data["methodology"] != "WATERFALL"),
             # is_sample is owned by the importer so the idempotency guard in
             # _replace_existing can distinguish disposable demo data from real
             # work on a later reload (#994).

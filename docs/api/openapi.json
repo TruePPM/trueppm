@@ -46845,6 +46845,17 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "rollup_enabled_kpis": {
+                        "readOnly": true
+                    },
+                    "rollup_aggregation_policy": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RollupAggregationPolicyEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "health": {
                         "$ref": "#/components/schemas/HealthEnum"
                     },
@@ -46968,6 +46979,8 @@
                     "project_count",
                     "risk_escalation_days",
                     "risk_slip_propagation",
+                    "rollup_aggregation_policy",
+                    "rollup_enabled_kpis",
                     "server_version",
                     "updated_at"
                 ]
@@ -50189,6 +50202,16 @@
                 ],
                 "type": "string",
                 "description": "* `project` - Project\n* `holidays` - Holidays\n* `workspace` - Workspace / shutdown"
+            },
+            "RollupAggregationPolicyEnum": {
+                "enum": [
+                    "worst",
+                    "average",
+                    "weighted_by_budget",
+                    "task_weighted"
+                ],
+                "type": "string",
+                "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted"
             },
             "SchedulerRun": {
                 "type": "object",

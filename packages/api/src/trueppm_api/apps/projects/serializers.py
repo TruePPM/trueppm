@@ -1516,6 +1516,12 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             # not inheritable — no effective_*/inherited_* pair (default WARN / 3d).
             "risk_slip_propagation",
             "risk_escalation_days",
+            # Rollup config (ADR-0169, #527). Read-only here so generic GET
+            # consumers (program list, MCP readers) can see which KPIs a program
+            # surfaces and how project health aggregates, without a second call
+            # (#2025). Writes stay on the dedicated ``/rollup-config/`` action.
+            "rollup_enabled_kpis",
+            "rollup_aggregation_policy",
             "health",
             # Headline target finish date (#560). Read/write; ADMIN+ to set
             # (the program viewset gates update/partial_update at IsProgramAdmin).
@@ -1573,6 +1579,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             # through the dedicated risk_policy action / workspace bulk endpoint.
             "risk_slip_propagation",
             "risk_escalation_days",
+            # Rollup config is display-only on this serializer (#2025) — writes go
+            # through the dedicated /rollup-config/ action.
+            "rollup_enabled_kpis",
+            "rollup_aggregation_policy",
             "is_closed",
             "closed_at",
             "closed_by",
@@ -1868,22 +1878,31 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.
 
-        On create the program does not yet exist, so we skip the check — the
-        atomic OWNER membership row created by ``access.services.create_program``
-        is added in the same transaction as the Program itself, and the
-        ``ProgramViewSet.create`` path does not currently forward the ``lead``
-        field through that service (only name/description/methodology). When
-        the create path grows lead support, the OWNER row will exist before
-        this validator runs because membership creation precedes Program save.
+        On create the program does not yet exist, so no ProgramMembership rows
+        exist to query. The only member the create transaction *will* produce is
+        the creator, inserted as OWNER by ``access.services.create_program`` in the
+        same atomic transaction as the Program. The membership invariant therefore
+        still holds if — and only if — the requested lead is the creator; any other
+        user is not (yet) a member and is rejected. This lets a PM start a program
+        with themselves as lead in one save (#2025) without weakening the rule.
 
-        On partial_update the instance is set and we enforce the membership.
-        Unsetting (lead=None) is always permitted.
+        On partial_update the instance is set and we enforce the membership against
+        the persisted rows. Unsetting (lead=None) is always permitted.
         """
         if value is None:
             return value
         instance = getattr(self, "instance", None)
         if instance is None:
-            return value
+            # Create path — the only future member is the creator (OWNER).
+            request = self.context.get("request")
+            creator = getattr(request, "user", None)
+            if creator is not None and value == creator:
+                return value
+            raise serializers.ValidationError(
+                "The selected user must be a member of this program before they "
+                "can be assigned as lead. A new program can only start with its "
+                "creator as lead; add other members first, then assign the lead."
+            )
         # Lazy import avoids a circular dep — access imports from projects.
         from trueppm_api.apps.access.models import ProgramMembership
 

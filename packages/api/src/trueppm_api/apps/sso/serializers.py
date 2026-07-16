@@ -112,6 +112,27 @@ class OIDCProviderWriteSerializer(serializers.ModelSerializer[OIDCProvider]):
             raise serializers.ValidationError("default_role must be Member or Admin.")
         return value
 
+    def validate_allow_password_signin(self, value: bool) -> bool:
+        """Reject the field in OSS instead of persisting a set-but-ignored no-op.
+
+        ``allow_password_signin`` is an *enforcement* setting: only an edition that
+        registers a local-login policy provider (Enterprise) actually blocks password
+        login when it is ``False``. In OSS nothing enforces it, so silently storing a
+        client's value would be a footgun — the admin sets "off", nothing changes, and
+        the API reports success (#2025). A field-level validator fires only when the
+        client actually sends the key (the view PATCHes ``partial=True``), so an
+        untouched provider save is unaffected. The read serializer still surfaces
+        ``allow_password_signin_enforced: false`` so clients can discover why.
+        """
+        from trueppm_api.apps.sso.extensions import local_login_policy_enforced
+
+        if not local_login_policy_enforced():
+            raise serializers.ValidationError(
+                "Enforcing password sign-in on/off is an Enterprise-governed setting "
+                "and is not honored in the community edition, so it cannot be set here."
+            )
+        return value
+
     def validate_allowed_email_domains(self, value: list[str]) -> list[str]:
         cleaned: list[str] = []
         for raw in value:

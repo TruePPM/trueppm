@@ -419,8 +419,6 @@ class _Exporter:
             block["default_view"] = project.default_view
         if project.estimation_mode and project.estimation_mode != "open":
             block["estimation_mode"] = project.estimation_mode
-        if project.agile_features:
-            block["agile_features"] = True
 
         # Project-scoped labels (ADR-0400, #1089) folded into the seed (#1958) so a
         # re-seed round-trips board-card labels. Slugs are allocated per project

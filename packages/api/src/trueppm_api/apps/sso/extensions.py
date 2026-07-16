@@ -75,6 +75,18 @@ def register_local_login_policy_provider(provider: Callable[[Any], bool] | None)
     _LOCAL_LOGIN_POLICY = provider
 
 
+def local_login_policy_enforced() -> bool:
+    """Whether an edition actually enforces the ``allow_password_signin`` setting.
+
+    OSS returns ``False`` — the community edition never blocks password login, so
+    persisting ``allow_password_signin`` would be a set-but-ignored no-op. The SSO
+    write serializer uses this to *reject* the field in OSS instead of silently
+    swallowing it (#2025). Enterprise registers a policy provider, flipping this to
+    ``True``, and its own serializer accepts and honors the field.
+    """
+    return _LOCAL_LOGIN_POLICY is not None
+
+
 def local_login_allowed(user: Any) -> bool:
     """Whether ``user`` may complete a username/password login.
 
