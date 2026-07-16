@@ -169,3 +169,77 @@ def test_export_project_standalone_has_no_program(owner: Any) -> None:
     validate_seed(doc)
     assert doc["program"]["name"] == "Platform Core"
     assert len(doc["projects"]) == 1
+
+
+def test_calendar_exceptions_round_trip_through_v1(owner: Any) -> None:
+    """A calendar with non-working exception ranges exports and re-imports (#2006).
+
+    Regression: the exporter emitted ``calendars[].exceptions`` on the default
+    v1 path, but the v1 schema (``additionalProperties: false``) rejected it, so
+    any program with a holiday/shutdown could not be re-imported after export.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Calendar, CalendarException
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    calendar = Calendar.objects.get(pk=program.projects.get(name="Platform Core").calendar_id)
+    CalendarException.objects.create(
+        calendar=calendar,
+        exc_start=date(2026, 12, 24),
+        exc_end=date(2026, 12, 26),
+        description="Winter shutdown",
+    )
+
+    exported = export_program(program)
+    # The offending field must now round-trip through v1 validation.
+    validate_seed(exported)
+    assert exported["schema_version"] == "1.0"
+    cal_block = next(c for c in exported["calendars"] if c.get("exceptions"))
+    assert cal_block["exceptions"] == [
+        {"exc_start": "2026-12-24", "exc_end": "2026-12-26", "description": "Winter shutdown"}
+    ]
+
+    # Re-importing must materialize the exception back onto the calendar.
+    reimported = import_seed(exported, owner=owner, create_users=True)
+    re_cal = Calendar.objects.get(pk=reimported.projects.get(name="Platform Core").calendar_id)
+    assert re_cal.exceptions.count() == 1
+
+
+def test_long_risk_title_slug_is_capped_at_40(owner: Any) -> None:
+    """A risk title longer than 40 chars still emits a schema-valid slug (#2006).
+
+    Regression: the export-only slug was slugified from the title with no length
+    cap, so a descriptive risk title overflowed the schema's ``maxLength: 40``.
+    """
+    from trueppm_api.apps.projects.models import Risk
+
+    program = import_seed(_seed(), owner=owner, create_users=True)
+    project = program.projects.get(name="Platform Core")
+    # Two titles identical through their first >40 chars collapse to the same
+    # 40-char base slug, so the second must trigger the collision-safe suffix
+    # path (base trimmed to make room for "-2", re-stripped, still ≤ 40).
+    Risk.objects.create(
+        project=project,
+        title="Cross-team dependency stalls the critical path in Q3",
+        status="OPEN",
+        probability=4,
+        impact=5,
+    )
+    Risk.objects.create(
+        project=project,
+        title="Cross-team dependency stalls the critical path in Q4",
+        status="OPEN",
+        probability=3,
+        impact=4,
+    )
+
+    exported = export_program(program)
+    validate_seed(exported)
+
+    project_block = next(p for p in exported["projects"] if p["slug"] == "platform-core")
+    slugs = [r["slug"] for r in project_block["risks"]]
+    assert all(len(s) <= 40 for s in slugs), slugs
+    # Slugs must stay unique and kebab-case-valid even after truncation.
+    assert len(set(slugs)) == len(slugs)
+    assert all(not s.startswith("-") and not s.endswith("-") for s in slugs)

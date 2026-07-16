@@ -108,7 +108,22 @@
           "description": "Bitmask Mon=1..Sun=64. Default 31 (Mon-Fri)."
         },
         "hours_per_day": { "type": "number", "exclusiveMinimum": 0, "maximum": 24 },
-        "timezone": { "type": "string", "maxLength": 64 }
+        "timezone": { "type": "string", "maxLength": 64 },
+        "exceptions": {
+          "type": "array",
+          "description": "Non-working date ranges (holidays, shutdowns, PTO). Materialized as CalendarException rows on import.",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["exc_start", "exc_end"],
+            "properties": {
+              "exc_start": { "type": "string", "format": "date" },
+              "exc_end": { "type": "string", "format": "date" },
+              "description": { "type": "string", "maxLength": 255 }
+            }
+          }
+        }
       }
     },
     "resource": {
