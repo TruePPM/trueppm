@@ -103,6 +103,25 @@ def build_aurora() -> dict:
     ]
     devs = ["mei", "diego", "nadia", "tom"]
 
+    # Categorical label palette (ADR-0400) + attachments by story name.
+    labels_catalog = [
+        {"slug": "must-have", "name": "Must-have", "color": "rose", "position": 0},
+        {"slug": "growth", "name": "Growth", "color": "green", "position": 1},
+        {"slug": "polish", "name": "Polish", "color": "teal", "position": 2},
+        {"slug": "a11y", "name": "Accessibility", "color": "blue", "position": 3},
+    ]
+    story_labels = {
+        "Biometric login": ["must-have"],
+        "Push notifications": ["must-have"],
+        "Offline cache": ["must-have"],
+        "Payment sheet": ["growth"],
+        "Referral program": ["growth"],
+        "Accessibility pass": ["a11y"],
+        "Dark mode": ["polish"],
+        "Haptics": ["polish"],
+        "Widget gallery": ["polish"],
+    }
+
     # Anchor placed inside the active sprint (#1253): two completed sprints in the
     # recent past, Sprint 3 bracketing "today", Sprint 4 ahead. 14-day sprints, so
     # Sprint 3 starts on day 28 and "today" at day 35 lands a week into it.
@@ -286,6 +305,8 @@ def build_aurora() -> dict:
                 "dor": "ready" if state != "PLANNED" else "idea",
             }
             story.update(overrides.get(name, {}))
+            if name in story_labels:
+                story["labels"] = story_labels[name]
             tasks.append(story)
             story_idx += 1
 
@@ -691,6 +712,7 @@ def build_aurora() -> dict:
                     "In Review",
                     "Done",
                 ],
+                "labels": labels_catalog,
                 "tasks": tasks,
                 "sprints": sprints,
                 "risks": [
@@ -1618,6 +1640,28 @@ def build_helios() -> dict:
     ns = "helios"
     tasks, deps = [], []
 
+    # Categorical label palette (ADR-0400) + attachments by wbs.
+    helios_labels = [
+        {"slug": "migration", "name": "Data migration", "color": "cyan", "position": 0},
+        {
+            "slug": "integration",
+            "name": "Integration",
+            "color": "purple",
+            "position": 1,
+        },
+        {"slug": "compliance", "name": "Compliance", "color": "amber", "position": 2},
+        {"slug": "core", "name": "Core CRM", "color": "blue", "position": 3},
+    ]
+    helios_task_labels = {
+        "1.5": ["migration"],  # Data model design — the migration contract
+        "2.3": ["core"],  # Lead pipeline
+        "2.4": ["integration"],  # Email sync
+        "2.13": ["compliance"],  # Audit log
+        "2.14": ["integration", "compliance"],  # SSO integration
+        "2.17": ["migration"],  # Data migration run
+        "2.18": ["migration"],  # Cutover rehearsal
+    }
+
     # Anchor placed inside the active build sprint (#1253): the planning phase and
     # Build Sprint 1 sit in the past, Build Sprint 2 (days 74-87) brackets "today"
     # at day 81, and Build Sprint 3 is ahead.
@@ -1670,6 +1714,8 @@ def build_helios() -> dict:
                 "assignee": "ivan",
             }
         )
+        if wbs in helios_task_labels:
+            tasks[-1]["labels"] = helios_task_labels[wbs]
         baseline_rows.append(
             {"task": wbs, "start": D(cursor), "finish": D(cursor + ml), "duration": ml}
         )
@@ -1833,6 +1879,8 @@ def build_helios() -> dict:
         story.update(override)
         if story.get("sprint") is None:
             del story["sprint"]
+        if f"2.{i}" in helios_task_labels:
+            story["labels"] = helios_task_labels[f"2.{i}"]
         tasks.append(story)
     # cross-phase dependency: the data-migration story depends on the planning data-model task
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})
@@ -2166,6 +2214,7 @@ def build_helios() -> dict:
                     # carried Email sync.
                     "completion_ratio": 0.5,
                 },
+                "labels": helios_labels,
                 "tasks": tasks,
                 "dependencies": deps,
                 "sprints": sprints,

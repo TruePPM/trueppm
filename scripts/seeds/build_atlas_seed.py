@@ -228,6 +228,34 @@ def three_point(most_likely: int, risk: float = 1.0) -> dict:
 
 # --- Project 1: Platform Core (agile) --------------------------------------
 
+# Categorical label palette (ADR-0400): color is a stable enum key, never hex.
+# The agile stream tags work by cross-cutting theme so the board's label filter
+# has something real to slice on.
+PC_LABELS = [
+    {"slug": "security", "name": "Security", "color": "rose", "position": 0},
+    {"slug": "tech-debt", "name": "Tech debt", "color": "slate", "position": 1},
+    {
+        "slug": "customer-request",
+        "name": "Customer request",
+        "color": "blue",
+        "position": 2,
+    },
+    {"slug": "spike", "name": "Spike", "color": "purple", "position": 3},
+    {"slug": "compliance", "name": "Compliance", "color": "amber", "position": 4},
+]
+# wbs -> label slugs. Kept small and meaningful — a few themed stories, not a
+# label on every card.
+PC_STORY_LABELS = {
+    "1.1": ["security"],  # SSO login — the CSRF finding lives here
+    "1.2": ["security"],  # MFA enrollment
+    "1.5": ["security", "compliance"],  # Audit log
+    "2.6": ["tech-debt"],  # cross-project cutover hook, parked ON_HOLD
+    "3.8": ["spike"],  # Anomaly detection spike
+    "4.1": ["compliance"],  # Plan catalog (billing → regulatory gate)
+    "4.5": ["customer-request"],  # Tax engine — firming-up requirements
+    "4.9": ["customer-request"],  # Usage-based invoicing v2
+}
+
 # Epic grouping nodes (wbs "1".."5"); stories live beneath them.
 PC_EPICS = [
     "Identity & access",
@@ -408,6 +436,8 @@ def build_platform_core() -> dict:
                 "governance_class": "flow",
             }
         )
+        if wbs in PC_STORY_LABELS:
+            story["labels"] = PC_STORY_LABELS[wbs]
         if wbs == "2.6":
             # Near-infeasible commitment (#372): committed to the ACTIVE sprint
             # but gated by a cross-project FS predecessor — Migration Tooling's
@@ -446,6 +476,7 @@ def build_platform_core() -> dict:
         "agile_features": True,
         "forecast_history": FORECAST_HISTORY["platform-core"],
         "board_columns": ["Backlog", "To Do", "In Progress", "In Review", "Done"],
+        "labels": PC_LABELS,
         "tasks": tasks,
         "dependencies": [
             # Cross-project seam driving the at-risk sprint commitment (see task 2.6).
@@ -616,6 +647,25 @@ MT_PHASES = [
 ]
 MT_DEVS = ["yuki", "omar", "raj", "tom"]
 
+# Waterfall-stream label palette + attachments (ADR-0400).
+MT_LABELS = [
+    {"slug": "critical-path", "name": "Critical path", "color": "rose", "position": 0},
+    {"slug": "cutover", "name": "Cutover", "color": "amber", "position": 1},
+    {"slug": "data-quality", "name": "Data quality", "color": "cyan", "position": 2},
+    {"slug": "rollback", "name": "Rollback", "color": "purple", "position": 3},
+    {"slug": "dry-run", "name": "Dry run", "color": "slate", "position": 4},
+]
+MT_TASK_LABELS = {
+    "1.2": ["data-quality"],  # Profile data quality
+    "2.2": ["data-quality"],  # Schema transformer
+    "3.1": ["dry-run", "critical-path"],  # Dry-run migration
+    "3.2": ["critical-path"],  # Performance tuning
+    "3.4": ["cutover"],  # Production rehearsal
+    "4.3": ["rollback"],  # Rollback drill
+    "5.2": ["cutover", "critical-path"],  # Final cutover
+    "5.3": ["cutover"],  # Decommission legacy
+}
+
 
 def build_migration_tooling() -> dict:
     tasks: list[dict] = []
@@ -668,6 +718,8 @@ def build_migration_tooling() -> dict:
             # of each being decoupled by its own fixed planned_start.
             if slip is not None:
                 task["planned_start"] = d(original + slip)
+            if wbs in MT_TASK_LABELS:
+                task["labels"] = MT_TASK_LABELS[wbs]
             tasks.append(task)
             # The baseline keeps the ORIGINAL (pre-slip) window.
             baseline_rows.append(
@@ -715,6 +767,7 @@ def build_migration_tooling() -> dict:
         "calendar": "standard",
         "default_view": "SCHEDULE",
         "forecast_history": FORECAST_HISTORY["migration-tooling"],
+        "labels": MT_LABELS,
         "tasks": tasks,
         "dependencies": deps,
         "baselines": [
@@ -791,6 +844,25 @@ def build_migration_tooling() -> dict:
 
 
 # --- Project 3: GTM Readiness (hybrid) -------------------------------------
+
+# Hybrid-stream label palette + attachments (ADR-0400).
+GTM_LABELS = [
+    {
+        "slug": "launch-blocker",
+        "name": "Launch blocker",
+        "color": "rose",
+        "position": 0,
+    },
+    {"slug": "content", "name": "Content", "color": "teal", "position": 1},
+    {"slug": "pricing", "name": "Pricing", "color": "amber", "position": 2},
+]
+GTM_TASK_LABELS = {
+    "1.2": ["pricing", "launch-blocker"],  # Pricing & packaging sign-off (long pole)
+    "1.3": ["launch-blocker"],  # Launch gate review
+    "2.1": ["content"],  # Sales deck
+    "2.5": ["content"],  # Launch blog
+    "2.7": ["content"],  # Support runbook
+}
 
 # The hybrid stream is genuinely hybrid: a gated waterfall planning lane AND a
 # real sprint cadence over the enablement lane (a 1-2 person content team, so
@@ -874,6 +946,8 @@ def build_gtm_readiness() -> dict:
                 "assignee": "jordan",
             }
         )
+        if wbs in GTM_TASK_LABELS:
+            task["labels"] = GTM_TASK_LABELS[wbs]
         tasks.append(task)
         for dep in dep_paths:
             deps.append(
@@ -920,6 +994,8 @@ def build_gtm_readiness() -> dict:
                 "delivery_mode": "scrum",
             }
         )
+        if f"2.{minor}" in GTM_TASK_LABELS:
+            story["labels"] = GTM_TASK_LABELS[f"2.{minor}"]
         tasks.append(story)
 
     sprints: list[dict] = []
@@ -972,6 +1048,7 @@ def build_gtm_readiness() -> dict:
         "default_view": "OVERVIEW",
         "agile_features": True,
         "forecast_history": FORECAST_HISTORY["gtm-readiness"],
+        "labels": GTM_LABELS,
         "tasks": tasks,
         "dependencies": deps,
         "sprints": sprints,

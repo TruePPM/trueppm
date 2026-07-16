@@ -120,17 +120,19 @@ is the signal that the capability works.
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| Critical path | Bayside · `bayside-sam` | Schedule view | A highlighted critical path through the construction phases |
+| Critical path | Bayside · `bayside-sam` | Program schedule | A cross-project critical path running from the structure into the fit-out |
+| Cross-project dependencies | Bayside · `bayside-sam` | Program schedule | Fit-out tasks gated on the structure's framing inspection, incl. a negative-lag lead |
 | All four dependency types | Bayside · `bayside-sam` | Foundation/Finish-out links | FS, SS, FF, and SF links present (parallel pours, "finish together", SF on commissioning) |
 | Three-point estimates | Bayside · `bayside-sam` | Any scheduled task | Optimistic / most-likely / pessimistic on the estimate |
-| Baseline-vs-actual slip | Bayside · `bayside-sam` | Baseline overlay | Completed work compared against the captured **Contract baseline** |
+| Baseline + rebaseline | Bayside · `bayside-sam` | Baseline overlay | The current plan compared against the superseded **Contract baseline** and the active **change-order Rebaseline** |
+| Labels | every sample | Board / schedule filter | Themed labels (e.g. Bayside "critical-path", "inspection"; Atlas "security", "cutover") |
 | Monte Carlo P50/P80/P95 | Bayside · `bayside-sam` / Atlas · `atlas-alex` | Monte Carlo modal | Monotonic P50 ≤ P80 ≤ P95; toggling a high-impact risk shifts P80 |
 
 ### Risk register
 
 | Capability | Sample · persona | Look here | Expect |
 |---|---|---|---|
-| Populated register | Bayside (12) · Atlas (20) | Risk register | A full register with a probability × impact matrix |
+| Populated register | Bayside (13) · Atlas (20) | Risk register | A full register with a probability × impact matrix |
 | Risk status lifecycle | every sample | A risk → **History** | Dated Open → Mitigating → Resolved/Closed (e.g. Bayside "soil conditions"; Atlas "SSO security finding") |
 | Schedule-driving risks | Atlas · `atlas-alex` | Risk → Monte Carlo | Several high probability × impact risks that visibly move the forecast |
 

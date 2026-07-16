@@ -424,6 +424,27 @@ def test_bayside_demonstrates_a_rebaseline() -> None:
     )
 
 
+@pytest.mark.parametrize("stem,_min,_max", SAMPLES)
+def test_every_sample_uses_labels(stem: str, _min: int, _max: int) -> None:
+    # Labels (ADR-0400) are a first-class board/filter surface; every sample must
+    # ship a catalog and actually tag work with it, and no task may reference a
+    # label the project's catalog does not declare (#2003).
+    doc = _load(stem)
+    assert any(p.get("labels") for p in doc["projects"]), f"{stem}: no label catalog"
+    labeled = 0
+    for project in doc["projects"]:
+        catalog = {label["slug"] for label in project.get("labels", [])}
+        for task in project["tasks"]:
+            used = set(task.get("labels", []))
+            dangling = used - catalog
+            assert not dangling, (
+                f"{stem}/{project['slug']}:{task['wbs_path']} labels {dangling} not in catalog"
+            )
+            if used:
+                labeled += 1
+    assert labeled >= 3, f"{stem}: only {labeled} labeled tasks — the label surface reads empty"
+
+
 def test_helios_populates_the_program_rollup() -> None:
     # Without a baseline the rollup's variance KPIs render blank, without
     # milestones milestone_health is "unknown", and without forecast_history the

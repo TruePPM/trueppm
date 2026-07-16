@@ -138,6 +138,32 @@
         "mc_iterations": 2000,
         "completion_ratio": 0.5
       },
+      "labels": [
+        {
+          "slug": "migration",
+          "name": "Data migration",
+          "color": "cyan",
+          "position": 0
+        },
+        {
+          "slug": "integration",
+          "name": "Integration",
+          "color": "purple",
+          "position": 1
+        },
+        {
+          "slug": "compliance",
+          "name": "Compliance",
+          "color": "amber",
+          "position": 2
+        },
+        {
+          "slug": "core",
+          "name": "Core CRM",
+          "color": "blue",
+          "position": 3
+        }
+      ],
       "tasks": [
         {
           "wbs_path": "1",
@@ -223,7 +249,10 @@
           },
           "governance_class": "gated",
           "delivery_mode": "waterfall",
-          "assignee": "ivan"
+          "assignee": "ivan",
+          "labels": [
+            "migration"
+          ]
         },
         {
           "wbs_path": "1.6",
@@ -295,7 +324,10 @@
           "assignee": "nadia",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "core"
+          ]
         },
         {
           "wbs_path": "2.4",
@@ -308,7 +340,10 @@
           "assignee": "mei",
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "integration"
+          ]
         },
         {
           "wbs_path": "2.5",
@@ -427,7 +462,10 @@
           "assignee": "nadia",
           "sprint": "he-sprint-2",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "compliance"
+          ]
         },
         {
           "wbs_path": "2.14",
@@ -440,7 +478,11 @@
           "assignee": "mei",
           "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "integration",
+            "compliance"
+          ]
         },
         {
           "wbs_path": "2.15",
@@ -478,7 +520,10 @@
           "assignee": "nadia",
           "sprint": "he-sprint-3",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "migration"
+          ]
         },
         {
           "wbs_path": "2.18",
@@ -491,7 +536,10 @@
           "assignee": "mei",
           "sprint": "he-sprint-1",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "labels": [
+            "migration"
+          ]
         },
         {
           "wbs_path": "4",

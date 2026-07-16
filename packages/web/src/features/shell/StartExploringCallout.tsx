@@ -50,11 +50,11 @@ const START_EXPLORING_COPY: Record<string, SampleGuidance> = {
   },
   'bayside-civic-center': {
     title: 'Bayside Civic Center',
-    intro: 'A waterfall build with a full critical path. Start here:',
+    intro: 'A two-project waterfall program joined by cross-project dependencies. Start here:',
     steps: [
-      'Open the project → Schedule for the CPM critical path (all four dependency types).',
-      'Open → Grid to see the three-point estimates behind the P50/P80/P95 forecast.',
-      'A baseline is captured — compare planned vs. current on the Schedule.',
+      'Open the program → Schedule for the cross-project critical path (all four dependency types).',
+      'Open a project → Grid to see the three-point estimates behind the P50/P80/P95 forecast.',
+      'Compare the Contract baseline against the change-order Rebaseline on the Schedule.',
     ],
   },
   'helios-crm-replacement': {
