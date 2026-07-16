@@ -993,6 +993,15 @@ class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Program
       create         — Owner only; cannot assign role >= caller's own
       partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard
       destroy        — Owner only for others; self-remove allowed; last-Owner guard
+
+    Why membership is Owner-only while program *configuration* is Admin+
+    (:class:`IsProgramAdmin` on rename/methodology/calendar/health/visibility/
+    sharing/rollup/risk): the asymmetry is intentional (#2017 product decision).
+    Deciding *who* belongs to a program and at *what* role is a sovereignty
+    (ownership) decision — it grants or revokes another person's access — which
+    is categorically distinct from reconfiguring a program whose membership is
+    already scoped. Admins may tune an already-scoped program; only Owners may
+    change its roster. Do not "fix" this by lowering the gate to Admin+.
     """
 
     permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
