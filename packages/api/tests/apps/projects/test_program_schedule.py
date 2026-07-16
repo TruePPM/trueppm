@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -217,13 +218,27 @@ def test_schedule_too_large_program_returns_422(calendar: Calendar) -> None:
     assert resp.data["detail"].code == "program_schedule_too_large"
 
 
+def _drop_estimate_ordering_constraint() -> None:
+    """Drop the #2005 ordering CheckConstraint for the rest of this test transaction.
+
+    Simulates a database that predates the constraint, so a *legacy* mis-ordered
+    triple can be written. Must be called before any ``projects_task`` INSERT in the
+    transaction — Postgres rejects ``ALTER TABLE`` once a command has left pending
+    trigger events on the table. The DDL is transactional and rolls back with the
+    test, restoring the constraint."""
+    with connection.cursor() as cur:
+        cur.execute("ALTER TABLE projects_task DROP CONSTRAINT task_three_point_estimate_ordered")
+
+
 def _program_with_invalid_task(
     calendar: Calendar,
 ) -> tuple[Program, Project, Task]:
     """One program, a good project + a "Migration Tooling" project holding a task
-    with an invalid three-point triple (opt=1, ml=5, pess=0). Created via the ORM
-    to simulate imported/seeded/legacy data that bypassed serializer validation;
-    the engine's #1069 ordering guard rejects it."""
+    with an invalid three-point triple (opt=1, ml=5, pess=0) — a legacy row that
+    predates the #2005 ordering constraint; the engine's #1069 ordering guard
+    rejects it at compute time. The constraint is dropped before any task INSERT so
+    the legacy row can be written."""
+    _drop_estimate_ordering_constraint()
     program = Program.objects.create(name="Atlas Platform Launch")
     good = Project.objects.create(
         name="Core API", start_date=START, calendar=calendar, program=program
@@ -303,6 +318,7 @@ def test_gather_background_path_reraises_raw_scheduler_error(calendar: Calendar)
 
     from trueppm_api.apps.projects.program_schedule import gather_program_schedule
 
+    _drop_estimate_ordering_constraint()
     program = Program.objects.create(name="Atlas Platform Launch")
     proj = Project.objects.create(
         name="Migration Tooling", start_date=START, calendar=calendar, program=program
