@@ -26,6 +26,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Risk,
     Task,
+    TaskRelation,
 )
 from trueppm_api.apps.sync.tasks import _do_reap
 
@@ -91,6 +92,16 @@ def _make_dependency(
     return dep
 
 
+def _make_task_relation(source: Task, target: Task, *, soft_delete: bool = False) -> TaskRelation:
+    rel = TaskRelation.objects.create(source=source, target=target, relation_type="relates_to")
+    if soft_delete:
+        # Raw update() bypasses TaskRelation.soft_delete() for test speed — deleted_at
+        # is the reap age_field and must be stamped explicitly (see _make_task's note).
+        TaskRelation.objects.filter(pk=rel.pk).update(is_deleted=True, deleted_at=timezone.now())
+        rel.refresh_from_db()
+    return rel
+
+
 def _make_risk(project: Project, *, soft_delete: bool = False) -> Risk:
     risk = Risk.objects.create(project=project, title="R", probability=1, impact=1)
     if soft_delete:
@@ -115,6 +126,13 @@ def _backdate_task_deleted_at(task: Task, days_ago: int) -> None:
 def _backdate_dependency_deleted_at(dep: Dependency, days_ago: int) -> None:
     """Move a Dependency's deleted_at into the past to simulate an aged tombstone."""
     Dependency.objects.filter(pk=dep.pk).update(
+        deleted_at=timezone.now() - timedelta(days=days_ago)
+    )
+
+
+def _backdate_task_relation_deleted_at(rel: TaskRelation, days_ago: int) -> None:
+    """Move a TaskRelation's deleted_at into the past to simulate an aged tombstone."""
+    TaskRelation.objects.filter(pk=rel.pk).update(
         deleted_at=timezone.now() - timedelta(days=days_ago)
     )
 
@@ -252,6 +270,42 @@ def test_reap_domain_tombstones_respects_retention_window_for_dependency(
 
 
 # ---------------------------------------------------------------------------
+# test_reap_domain_tombstones_respects_retention_window_for_task_relation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reap_domain_tombstones_respects_retention_window_for_task_relation(
+    live_project: Project,
+) -> None:
+    """Soft-deleted TaskRelation links younger than the retention window survive.
+
+    TaskRelation carries ``deleted_at`` (stamped only by soft_delete(), mirrors
+    Dependency), the same age_field mechanism, so an offline client that misses a
+    relation deletion gets the same reconnect grace window a dependency deletion
+    gets. It reaps via the source task's project (no direct project FK).
+    """
+    src = _make_task(live_project)
+    tgt = _make_task(live_project)
+    recent_rel = _make_task_relation(src, tgt, soft_delete=True)
+    # deleted_at is already recent — leave it as-is.
+
+    src2 = _make_task(live_project)
+    tgt2 = _make_task(live_project)
+    old_rel = _make_task_relation(src2, tgt2, soft_delete=True)
+    _backdate_task_relation_deleted_at(old_rel, days_ago=95)
+
+    _do_reap(override_days=90)
+
+    assert TaskRelation.objects.filter(pk=recent_rel.pk).exists(), (
+        "relation soft-deleted within the retention window should not be reaped"
+    )
+    assert not TaskRelation.objects.filter(pk=old_rel.pk).exists(), (
+        "relation tombstone older than the retention window should be hard-deleted"
+    )
+
+
+# ---------------------------------------------------------------------------
 # test_reap_domain_tombstones_skips_archived_projects
 # ---------------------------------------------------------------------------
 
@@ -311,6 +365,7 @@ def test_reap_domain_tombstones_returns_counts(live_project: Project) -> None:
     # we force override_days=0 (cutoff = now - 0 days = now).
     # Use >= 1 instead of == 1 to be robust against race conditions.
     assert counts["projects.risk"] >= 1, "should have deleted at least 1 Risk tombstone"
-    # Sprint and Dependency labels must also appear (with zero counts is fine).
+    # Sprint, Dependency, and TaskRelation labels must also appear (zero counts is fine).
     assert "projects.sprint" in counts
     assert "projects.dependency" in counts
+    assert "projects.taskrelation" in counts

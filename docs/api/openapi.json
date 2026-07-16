@@ -32668,6 +32668,394 @@
                 }
             }
         },
+        "/api/v1/task-relations/": {
+            "get": {
+                "operationId": "v1_task_relations_list",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "task-relations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskRelationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List task relations"
+            },
+            "post": {
+                "operationId": "v1_task_relations_create",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "tags": [
+                    "task-relations"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRelation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Create task relation"
+            }
+        },
+        "/api/v1/task-relations/{id}/": {
+            "get": {
+                "operationId": "v1_task_relations_retrieve",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task relation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "task-relations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRelation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve task relation"
+            },
+            "put": {
+                "operationId": "v1_task_relations_update",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task relation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "task-relations"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRelationRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRelation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update task relation"
+            },
+            "patch": {
+                "operationId": "v1_task_relations_partial_update",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task relation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "task-relations"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRelationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRelationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRelationRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRelation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Partially update task relation"
+            },
+            "delete": {
+                "operationId": "v1_task_relations_destroy",
+                "description": "CRUD for informational task-to-task relations (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nNOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no\ncycle check, and **no schedule recompute** on write (the one deliberate\ndivergence from :class:`DependencyViewSet`, which recalculates). Endpoints may\nsit in the same project or in two projects of the same *program* (ADR-0120 D1);\ncross-*program* is rejected in the serializer.\n\nPermission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need\nproject membership (Viewer+); writes need write authority on the **source**\ntask (Member-may-relate-own, Resource Manager read-only, PM+ any). The write\ngate is evaluated against the *source task*, not the relation row (which carries\nno assignee), so the Member-own rule resolves correctly.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task relation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "task-relations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete task relation"
+            }
+        },
         "/api/v1/task-resources/": {
             "get": {
                 "operationId": "v1_task_resources_list",
@@ -43846,6 +44234,37 @@
                     }
                 }
             },
+            "PaginatedTaskRelationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskRelation"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskResourceList": {
                 "type": "object",
                 "required": [
@@ -45341,6 +45760,27 @@
                     },
                     "inherit_morning_notification": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PatchedTaskRelationRequest": {
+                "type": "object",
+                "description": "Read/write serializer for an *informational* task-to-task relation (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nnot a scheduling :class:`Dependency`: it is inert — no CPM effect, no lag, no\ncycle check, and no schedule recompute on write. Endpoints may sit in the same\nproject or in two projects of the **same program** (the ADR-0120 D1 envelope);\ncross-*program* links are rejected (portfolio coordination is Enterprise,\nADR-0070). Mirrors :class:`DependencySerializer`'s cross-project IDOR/read\nhandling and its ``_card_for`` minimal-visibility card, minus the consent gate\nand cycle detection a scheduling edge needs.\n\nOnce created, only ``note`` is editable — the endpoints and the relation type\nare immutable (a PATCH re-pointing them would be a scope-injection vector and a\nsilent identity change of the link).",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "target": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "relation_type": {
+                        "$ref": "#/components/schemas/RelationTypeEnum"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 280
                     }
                 }
             },
@@ -48883,6 +49323,15 @@
                     "velocity_low"
                 ]
             },
+            "RelationTypeEnum": {
+                "enum": [
+                    "relates_to",
+                    "blocks",
+                    "duplicates"
+                ],
+                "type": "string",
+                "description": "* `relates_to` - Relates to\n* `blocks` - Blocks\n* `duplicates` - Duplicates"
+            },
             "ResolutionEnum": {
                 "enum": [
                     "unresolved",
@@ -52394,6 +52843,93 @@
                     "task"
                 ]
             },
+            "TaskRelation": {
+                "type": "object",
+                "description": "Read/write serializer for an *informational* task-to-task relation (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nnot a scheduling :class:`Dependency`: it is inert — no CPM effect, no lag, no\ncycle check, and no schedule recompute on write. Endpoints may sit in the same\nproject or in two projects of the **same program** (the ADR-0120 D1 envelope);\ncross-*program* links are rejected (portfolio coordination is Enterprise,\nADR-0070). Mirrors :class:`DependencySerializer`'s cross-project IDOR/read\nhandling and its ``_card_for`` minimal-visibility card, minus the consent gate\nand cycle detection a scheduling edge needs.\n\nOnce created, only ``note`` is editable — the endpoints and the relation type\nare immutable (a PATCH re-pointing them would be a scope-injection vector and a\nsilent identity change of the link).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "source": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "target": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "relation_type": {
+                        "$ref": "#/components/schemas/RelationTypeEnum"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 280
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "source_card": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExternalTaskCard"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "target_card": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExternalTaskCard"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "source",
+                    "source_card",
+                    "target",
+                    "target_card"
+                ]
+            },
+            "TaskRelationRequest": {
+                "type": "object",
+                "description": "Read/write serializer for an *informational* task-to-task relation (ADR-0455).\n\nA relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,\nnot a scheduling :class:`Dependency`: it is inert — no CPM effect, no lag, no\ncycle check, and no schedule recompute on write. Endpoints may sit in the same\nproject or in two projects of the **same program** (the ADR-0120 D1 envelope);\ncross-*program* links are rejected (portfolio coordination is Enterprise,\nADR-0070). Mirrors :class:`DependencySerializer`'s cross-project IDOR/read\nhandling and its ``_card_for`` minimal-visibility card, minus the consent gate\nand cycle detection a scheduling edge needs.\n\nOnce created, only ``note`` is editable — the endpoints and the relation type\nare immutable (a PATCH re-pointing them would be a scope-injection vector and a\nsilent identity change of the link).",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "target": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "relation_type": {
+                        "$ref": "#/components/schemas/RelationTypeEnum"
+                    },
+                    "note": {
+                        "type": "string",
+                        "maxLength": 280
+                    }
+                },
+                "required": [
+                    "source",
+                    "target"
+                ]
+            },
             "TaskReorderRequest": {
                 "type": "object",
                 "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/reorder/.\n\nAccepts the sibling list for a single WBS parent level and returns the new\nwbs_path for every repositioned task so the frontend can update its cache\nwithout a full refetch.\n\nparent_path: ltree string of the parent task (e.g. \"1.2\") or empty string\n    for the root level.  The server validates that all ordered_ids are\n    live siblings under this parent.\nordered_ids: UUIDs of the siblings in the desired order.  Every live sibling\n    under parent_path must appear — partial lists are rejected to prevent\n    ambiguous gaps in the WBS sequence.",
@@ -54541,6 +55077,10 @@
         {
             "name": "tasks",
             "description": "Tasks, dependencies, milestones, acceptance criteria and task runs."
+        },
+        {
+            "name": "task-relations",
+            "description": "Informational task-to-task relations (relates to, blocks, duplicates) — cross-references with no scheduling effect."
         },
         {
             "name": "scheduling",

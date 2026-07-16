@@ -36,6 +36,7 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     Task,
     TaskRecurrenceRule,
+    TaskRelation,
     TaskSuggestedAssignee,
 )
 from trueppm_api.apps.sync.pagination import SyncCursor, SyncSource, paginate_changes
@@ -54,6 +55,7 @@ from trueppm_api.apps.sync.serializers import (
     SyncSprintSerializer,
     SyncTaskLinkSerializer,
     SyncTaskRecurrenceRuleSerializer,
+    SyncTaskRelationSerializer,
     SyncTaskSerializer,
     SyncTaskSuggestedAssigneeSerializer,
     SyncTimeEntrySerializer,
@@ -351,6 +353,22 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                 "labels",
                 Label.objects.filter(project=project, server_version__gt=since),
                 SyncLabelSerializer,
+            ),
+            (
+                # Informational task relations (ADR-0455) — appended LAST to preserve
+                # the stable protocol order. Same-project relations only: a
+                # cross-project relation's counterpart task may live in a project
+                # this client has not synced (mirrors the Dependency same-project
+                # scoping above). Pull-only, like Dependency — never in the upload
+                # WRITABLE_COLLECTIONS. The delta joins via ``source`` since
+                # TaskRelation carries no direct project FK.
+                "task_relations",
+                TaskRelation.objects.filter(
+                    source__project=project,
+                    target__project=project,
+                    server_version__gt=since,
+                ).select_related("source"),
+                SyncTaskRelationSerializer,
             ),
         ]
 
@@ -686,9 +704,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     UNION ALL
                     SELECT MAX(server_version)
                       FROM projects_label WHERE project_id = %s
+                    UNION ALL
+                    SELECT MAX(t.server_version)
+                      FROM projects_task_relation tr
+                      JOIN projects_task t ON tr.source_id = t.id
+                     WHERE t.project_id = %s
                 ) sub
                 """,
                 [
+                    project_pk,
                     project_pk,
                     project_pk,
                     project_pk,

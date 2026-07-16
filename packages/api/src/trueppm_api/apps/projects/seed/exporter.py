@@ -45,6 +45,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskComment,
     TaskLabel,
+    TaskRelation,
 )
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
@@ -527,7 +528,39 @@ class _Exporter:
         label_slugs = self.task_label_slugs.get(task.pk)
         if label_slugs:
             block["labels"] = label_slugs
+        links = self._task_relation_blocks(task)
+        if links:
+            block["links"] = links
         return block
+
+    def _task_relation_blocks(self, task: Task) -> list[dict[str, Any]]:
+        """Emit this task's outgoing informational relations (ADR-0455).
+
+        Mirrors :meth:`_dependency_blocks`: one block per live ``TaskRelation`` where
+        the task is the *source*, ordered ``(relation_type, target wbs)`` so the
+        round-trip is byte-stable. A relation whose target task is excluded from the
+        export (e.g. a wbs-less promoted task) is dropped, mirroring how a dangling
+        dependency edge is skipped. The target ref is project-qualified only when it
+        crosses a project boundary — the same convention as a dependency predecessor.
+        """
+        src = self.task_ref.get(task.pk)
+        if src is None:
+            return []
+        src_pslug = src[0]
+        blocks: list[dict[str, Any]] = []
+        for rel in (
+            TaskRelation.objects.filter(source=task, is_deleted=False)
+            .select_related("target")
+            .order_by("relation_type", "target__wbs_path", "pk")
+        ):
+            tref = self.task_ref.get(rel.target_id)
+            if tref is None:
+                continue
+            target_ref = tref[1] if tref[0] == src_pslug else f"{tref[0]}:{tref[1]}"
+            block: dict[str, Any] = {"target": target_ref, "link_type": rel.relation_type}
+            _put(block, "note", rel.note)
+            blocks.append(block)
+        return blocks
 
     def _sprint_block(self, sprint: Sprint) -> dict[str, Any]:
         block: dict[str, Any] = {

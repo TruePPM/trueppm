@@ -244,6 +244,9 @@ def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
             + len(project.get("dependencies", []))
             + len(project.get("sprints", []))
             + len(project.get("risks", []))
+            # TaskRelation rows materialize like dependencies, so they count
+            # toward the per-import ceiling (ADR-0455).
+            + sum(len(t.get("links", [])) for t in project.get("tasks", []))
         )
     if total > MAX_SEED_NODES:
         return [f"$: seed too large — {total} entities exceeds the {MAX_SEED_NODES} limit"]
@@ -318,6 +321,24 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
                 errors.append(f"{tpath}.parent_epic: no task {parent!r} in this project")
             for k, label_ref in enumerate(task.get("labels", [])):
                 _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
+            # Informational task-to-task relations (ADR-0455). The target must
+            # resolve to a real task; a bare wbs is enclosing-project, a
+            # "<slug>:<wbs>" ref a sibling project. Because a seed document is a
+            # single program, _check_task_ref's "no project with slug" error is
+            # itself the cross-program guard — a resolvable target is always in the
+            # same program as the source (the ADR-0120 D1 envelope). Self-links are
+            # rejected here too (inert; the DB CheckConstraint is the backstop).
+            for k, link in enumerate(task.get("links", [])):
+                lpath = f"{tpath}.links[{k}].target"
+                target = link.get("target")
+                _check_task_ref(target, slug, task_index, lpath, errors)
+                if target is not None:
+                    if ":" in target:
+                        tproj, _, twbs = target.partition(":")
+                    else:
+                        tproj, twbs = slug, target
+                    if tproj == slug and twbs == wbs:
+                        errors.append(f"{lpath}: a task cannot link to itself")
             # A complete three-point estimate must be ordered — the same invariant
             # the engine, the REST serializer, and the DB CheckConstraint enforce
             # (#2005). Caught here so a mis-authored seed fails loudly at build/CI

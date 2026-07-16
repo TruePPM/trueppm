@@ -69,6 +69,7 @@ from trueppm_api.apps.projects.models import (
     ProjectCustomField,
     ProjectExportJob,
     PulseResponse,
+    RelationType,
     RetroActionItem,
     RetroBoardItem,
     Risk,
@@ -84,6 +85,7 @@ from trueppm_api.apps.projects.models import (
     TaskDurationChangeEvent,
     TaskNote,
     TaskRecurrenceRule,
+    TaskRelation,
     TaskStatus,
     three_point_estimates_ordered,
     validate_project_span,
@@ -4964,6 +4966,211 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             for i, t in enumerate(tasks)
         ]
         raise CycleDetectedError(cycle_payload)
+
+
+class TaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
+    """Read/write serializer for an *informational* task-to-task relation (ADR-0455).
+
+    A relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,
+    not a scheduling :class:`Dependency`: it is inert — no CPM effect, no lag, no
+    cycle check, and no schedule recompute on write. Endpoints may sit in the same
+    project or in two projects of the **same program** (the ADR-0120 D1 envelope);
+    cross-*program* links are rejected (portfolio coordination is Enterprise,
+    ADR-0070). Mirrors :class:`DependencySerializer`'s cross-project IDOR/read
+    handling and its ``_card_for`` minimal-visibility card, minus the consent gate
+    and cycle detection a scheduling edge needs.
+
+    Once created, only ``note`` is editable — the endpoints and the relation type
+    are immutable (a PATCH re-pointing them would be a scope-injection vector and a
+    silent identity change of the link).
+    """
+
+    # Exclude soft-deleted tasks so a relation cannot anchor to a tombstoned row.
+    source = serializers.PrimaryKeyRelatedField(  # type: ignore[assignment]
+        queryset=Task.objects.filter(is_deleted=False)
+    )
+    target = serializers.PrimaryKeyRelatedField(queryset=Task.objects.filter(is_deleted=False))
+    created_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
+        read_only=True
+    )
+    source_card = serializers.SerializerMethodField()
+    target_card = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskRelation
+        fields = [
+            "id",
+            "source",
+            "target",
+            "relation_type",
+            "note",
+            "created_by",
+            "created_at",
+            "source_card",
+            "target_card",
+        ]
+        read_only_fields = ["id", "created_by", "created_at"]
+
+    @extend_schema_field(ExternalTaskCardSerializer(allow_null=True))
+    def get_source_card(self, obj: TaskRelation) -> dict[str, Any] | None:
+        return self._card_for(obj, obj.source)
+
+    @extend_schema_field(ExternalTaskCardSerializer(allow_null=True))
+    def get_target_card(self, obj: TaskRelation) -> dict[str, Any] | None:
+        return self._card_for(obj, obj.target)
+
+    def _card_for(self, relation: TaskRelation, task: Task) -> dict[str, Any] | None:
+        """Return the D5 minimal card for ``task`` — only on a cross-project relation.
+
+        Same-project relations carry no card: the client already holds both tasks,
+        so emitting it would only bloat the payload. The card is populated for both
+        endpoints of a cross-project relation so a reader on either side can name a
+        counterpart they may not be able to open (never "relates to [redacted]").
+        """
+        if relation.source.project_id == relation.target.project_id:
+            return None
+        return dict(ExternalTaskCardSerializer(task).data)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        source = attrs.get("source") or (self.instance.source if self.instance else None)
+        target = attrs.get("target") or (self.instance.target if self.instance else None)
+        relation_type = attrs.get("relation_type") or (
+            self.instance.relation_type if self.instance else RelationType.RELATES_TO
+        )
+
+        request = self.context.get("request")
+        view = self.context.get("view")
+
+        # Endpoints and type are immutable after creation — a PATCH edits ``note``
+        # only. Reject a repoint rather than silently ignore it so the client can
+        # never believe it moved a link.
+        if self.instance is not None:
+            if "source" in attrs and attrs["source"].pk != self.instance.source_id:
+                raise serializers.ValidationError({"source": "cannot be changed after creation."})
+            if "target" in attrs and attrs["target"].pk != self.instance.target_id:
+                raise serializers.ValidationError({"target": "cannot be changed after creation."})
+            if "relation_type" in attrs and attrs["relation_type"] != self.instance.relation_type:
+                raise serializers.ValidationError(
+                    {"relation_type": "cannot be changed after creation."}
+                )
+
+        # Reject a self-link (belt-and-braces with the DB CheckConstraint) — a task
+        # cannot relate to itself.
+        if source is not None and target is not None and source.pk == target.pk:
+            raise serializers.ValidationError("A task cannot relate to itself.")
+
+        cross_project = bool(
+            source is not None and target is not None and source.project_id != target.project_id
+        )
+
+        if not cross_project:
+            # Same-project relation — the write authority is "can I edit the source
+            # task" (Member-may-annotate-own, PM+ any), enforced by running the
+            # view's object-permission set on the source. DRF skips
+            # has_object_permission on create, so this is the serializer's job on
+            # the create path; perform_create re-checks for defense in depth.
+            if request is not None and view is not None and source is not None:
+                view.check_object_permissions(request, source)
+        elif source is not None and target is not None:
+            # Cross-project relation within one program (ADR-0120 D1): authorize
+            # read on both endpoints, reject cross-PROGRAM links, and require write
+            # authority on the source (the annotated task).
+            self._authorize_cross_project(request, source, target)
+
+        # Duplicate dedupe on create (ADR-0455). The exact (source, target, type)
+        # direction is covered by the DB partial-unique constraint; guarding it here
+        # too turns what would be a raw IntegrityError 500 into a clean 400. For the
+        # symmetric ``relates_to`` type the reverse direction (B→A when A→B is live)
+        # is also a duplicate — the constraint cannot see that, so this closes it.
+        # ``blocks`` / ``duplicates`` are directional, so only the exact direction
+        # is a duplicate.
+        if self.instance is None and source is not None and target is not None:
+            from django.db.models import Q
+
+            dup_q = Q(source=source, target=target)
+            if relation_type == RelationType.RELATES_TO:
+                dup_q |= Q(source=target, target=source)
+            duplicate_exists = (
+                TaskRelation.objects.filter(relation_type=relation_type, is_deleted=False)
+                .filter(dup_q)
+                .exists()
+            )
+            if duplicate_exists:
+                raise serializers.ValidationError({"detail": "duplicate_relation"})
+        return attrs
+
+    def _authorize_cross_project(self, request: Any, source: Task, target: Task) -> None:
+        """Authorize a same-program cross-project relation (ADR-0455 / ADR-0120 D5).
+
+        Rejects cross-*program* links with a 400 ``{"detail": "cross_program_relation"}``
+        (Enterprise boundary, ADR-0070) and a caller lacking read on either endpoint
+        or write on the source with a 403. Mirrors
+        :meth:`DependencySerializer._resolve_cross_project_consent` but is simpler:
+        an inert relation has no consent gate and no pending state — the source is
+        always the write side (the annotated task), the target only needs read.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        from trueppm_api.apps.access.permissions import (
+            _is_project_archived,
+            can_user_edit_task,
+            effective_program_role,
+            effective_project_role,
+        )
+
+        if request is None:
+            # No request context (internal/scripted call) — refuse rather than guess
+            # authority. The API path always supplies a request.
+            raise serializers.ValidationError(
+                "Cross-project relations can only be created through the API."
+            )
+
+        src_proj = source.project_id
+        tgt_proj = target.project_id
+
+        # One query for both projects' program FKs (avoids a lazy task.project load
+        # per endpoint on the write path).
+        program_by_project: dict[Any, Any] = dict(
+            Project.objects.filter(id__in={src_proj, tgt_proj}).values_list("id", "program_id")
+        )
+        src_program = program_by_project.get(src_proj)
+        tgt_program = program_by_project.get(tgt_proj)
+
+        src_role = effective_project_role(request, src_proj)
+        tgt_role = effective_project_role(request, tgt_proj)
+
+        # D5 read-access widening — a member of the task's project, or of its
+        # program, may reference it. Checked FIRST (before the cross-PROGRAM 400) so
+        # a non-member submitting a foreign UUID gets a uniform 403 and cannot infer
+        # the project/program pairing from the error code (the #359 ordering).
+        def _can_read(project_role: int | None, program_id: Any) -> bool:
+            if project_role is not None:
+                return True
+            return bool(program_id) and effective_program_role(request, program_id) is not None
+
+        if not _can_read(src_role, src_program) or not _can_read(tgt_role, tgt_program):
+            raise PermissionDenied(
+                "You need access to both the source and target projects "
+                "(or to their shared program) to relate them."
+            )
+
+        # Cross-PROGRAM (or program-less) links stay rejected — portfolio
+        # coordination is Enterprise (ADR-0070).
+        if not src_program or not tgt_program or src_program != tgt_program:
+            raise serializers.ValidationError({"detail": "cross_program_relation"})
+
+        # Write authority on the SOURCE (the task the relation annotates): the
+        # task-edit predicate (Member-own, PO facet, PM+). The target only needs
+        # read (checked above).
+        if not can_user_edit_task(request, source):
+            raise PermissionDenied(
+                "You need write access to the source task to relate it to another task."
+            )
+
+        # Archived projects are read-only (#530) — mirror IsProjectNotArchived,
+        # which the cross-project create path otherwise skips.
+        if _is_project_archived(request, src_proj) or _is_project_archived(request, tgt_proj):
+            raise PermissionDenied("Cannot relate a task on an archived project.")
 
 
 # 5-column model per Claude Design handoff (issue #178).  Per ADR-0039 the
