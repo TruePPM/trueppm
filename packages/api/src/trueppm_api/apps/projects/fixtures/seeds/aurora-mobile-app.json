@@ -168,6 +168,32 @@
         "In Review",
         "Done"
       ],
+      "labels": [
+        {
+          "slug": "must-have",
+          "name": "Must-have",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "growth",
+          "name": "Growth",
+          "color": "green",
+          "position": 1
+        },
+        {
+          "slug": "polish",
+          "name": "Polish",
+          "color": "teal",
+          "position": 2
+        },
+        {
+          "slug": "a11y",
+          "name": "Accessibility",
+          "color": "blue",
+          "position": 3
+        }
+      ],
       "tasks": [
         {
           "wbs_path": "1",
@@ -202,7 +228,10 @@
           "sprint": "au-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "must-have"
+          ]
         },
         {
           "wbs_path": "1.3",
@@ -216,7 +245,10 @@
           "sprint": "au-sprint-3",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "must-have"
+          ]
         },
         {
           "wbs_path": "1.4",
@@ -230,7 +262,10 @@
           "sprint": "au-sprint-4",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "idea"
+          "dor": "idea",
+          "labels": [
+            "polish"
+          ]
         },
         {
           "wbs_path": "1.5",
@@ -244,7 +279,10 @@
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "must-have"
+          ]
         },
         {
           "wbs_path": "2",
@@ -435,7 +473,10 @@
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "a11y"
+          ]
         },
         {
           "wbs_path": "4.3",
@@ -464,7 +505,10 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 4
+          "remaining_points": 4,
+          "labels": [
+            "polish"
+          ]
         },
         {
           "wbs_path": "4.5",
@@ -499,7 +543,10 @@
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "growth"
+          ]
         },
         {
           "wbs_path": "5.2",
@@ -513,7 +560,10 @@
           "sprint": "au-sprint-2",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "labels": [
+            "growth"
+          ]
         },
         {
           "wbs_path": "5.3",
@@ -591,7 +641,10 @@
           "delivery_mode": "scrum",
           "governance_class": "flow",
           "dor": "ready",
-          "remaining_points": 2
+          "remaining_points": 2,
+          "labels": [
+            "polish"
+          ]
         },
         {
           "wbs_path": "6.3",

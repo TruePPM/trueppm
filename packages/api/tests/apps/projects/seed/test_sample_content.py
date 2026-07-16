@@ -382,10 +382,67 @@ def test_aurora_has_a_real_unassigned_backlog() -> None:
 
 
 def test_bayside_exercises_lag_and_all_dep_types() -> None:
-    deps = _load("bayside-civic-center")["projects"][0]["dependencies"]
+    # Bayside is a two-project waterfall PROGRAM (#2003): the four dependency types
+    # and both lead/lag are exercised across the program, not within one project —
+    # in particular the negative-lag lead lives on a cross-project MEP edge.
+    doc = _load("bayside-civic-center")
+    deps = [d for p in doc["projects"] for d in p.get("dependencies", [])]
     assert {d["dep_type"] for d in deps} == {"FS", "SS", "FF", "SF"}
     assert any((d.get("lag") or 0) > 0 for d in deps), "bayside: no positive lag anywhere"
     assert any((d.get("lag") or 0) < 0 for d in deps), "bayside: no lead (negative lag) anywhere"
+    # The program must actually be cross-project: at least one accepted edge whose
+    # predecessor is qualified with a different project slug.
+    cross = [d for d in deps if ":" in str(d.get("predecessor", ""))]
+    assert cross, "bayside: no cross-project dependency — the two-waterfall story is missing"
+
+
+def test_bayside_is_a_two_waterfall_program() -> None:
+    doc = _load("bayside-civic-center")
+    projects = doc["projects"]
+    assert len(projects) == 2, f"bayside: {len(projects)} projects, want a two-project program"
+    assert all(p["methodology"] == "WATERFALL" for p in projects), (
+        "bayside: both projects must be waterfall"
+    )
+
+
+def test_bayside_demonstrates_a_rebaseline() -> None:
+    # The change-order story needs an original baseline preserved (superseded) plus
+    # an active rebaseline — the plan-vs-plan record a claim relies on.
+    doc = _load("bayside-civic-center")
+    baselines = [b for p in doc["projects"] for b in p.get("baselines", [])]
+    active = [b for b in baselines if b.get("is_active")]
+    superseded = [b for b in baselines if not b.get("is_active")]
+    assert superseded, "bayside: no superseded baseline — the rebaseline story is missing"
+    assert active, "bayside: no active baseline"
+    # Some project carries both an active and a superseded baseline (the rebaseline).
+    by_project = {}
+    for p in doc["projects"]:
+        states = {b.get("is_active", False) for b in p.get("baselines", [])}
+        by_project[p["slug"]] = states
+    assert any(states >= {True, False} for states in by_project.values()), (
+        "bayside: no single project holds both a superseded and an active baseline"
+    )
+
+
+@pytest.mark.parametrize("stem,_min,_max", SAMPLES)
+def test_every_sample_uses_labels(stem: str, _min: int, _max: int) -> None:
+    # Labels (ADR-0400) are a first-class board/filter surface; every sample must
+    # ship a catalog and actually tag work with it, and no task may reference a
+    # label the project's catalog does not declare (#2003).
+    doc = _load(stem)
+    assert any(p.get("labels") for p in doc["projects"]), f"{stem}: no label catalog"
+    labeled = 0
+    for project in doc["projects"]:
+        catalog = {label["slug"] for label in project.get("labels", [])}
+        for task in project["tasks"]:
+            used = set(task.get("labels", []))
+            dangling = used - catalog
+            assert not dangling, (
+                f"{stem}/{project['slug']}:{task['wbs_path']} labels {dangling} not in catalog"
+            )
+            if used:
+                labeled += 1
+    assert labeled >= 3, f"{stem}: only {labeled} labeled tasks — the label surface reads empty"
 
 
 def test_helios_populates_the_program_rollup() -> None:

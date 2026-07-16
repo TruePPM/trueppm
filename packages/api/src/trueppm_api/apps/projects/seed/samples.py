@@ -70,8 +70,10 @@ SAMPLES: dict[str, Sample] = {
         key="bayside-civic-center",
         title="Bayside Civic Center",
         description=(
-            "Waterfall-only construction project — CPM with all four dependency types, "
-            "three-point estimates, a captured baseline, and a populated risk register."
+            "Waterfall-only construction program — two phased projects (structure + "
+            "fit-out) joined by cross-project dependencies, with all four dependency "
+            "types, three-point estimates, a contract baseline plus a change-order "
+            "rebaseline, and a populated risk register."
         ),
         filename="bayside-civic-center.json",
     ),

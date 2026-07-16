@@ -3,7 +3,7 @@
   "program": {
     "slug": "bayside-civic-center",
     "name": "Bayside Civic Center Construction",
-    "description": "Waterfall-only sample — CPM with all four dependency types, three-point estimates, a baseline, and a resource calendar.",
+    "description": "Waterfall-only sample — a two-project program (structure + fit-out) joined by cross-project dependencies, with all four dependency types, three-point estimates, a contract baseline plus a change-order rebaseline, and a resource calendar.",
     "methodology": "WATERFALL",
     "color": "#B5651D",
     "lead": "sam"
@@ -77,7 +77,7 @@
     {
       "slug": "sam",
       "name": "Sam Okafor",
-      "job_role": "Project Manager",
+      "job_role": "Program Manager",
       "max_units": 1.0,
       "account": "sam",
       "calendar": "site"
@@ -131,14 +131,71 @@
       "calendar": "site"
     }
   ],
+  "risks": [
+    {
+      "slug": "structure-cascade",
+      "title": "Structure slip cascades into fit-out",
+      "description": "Any framing-inspection slip pushes the entire interior fit-out project right, since every MEP and finish task is gated on the structure across the project boundary.",
+      "status": "MITIGATING",
+      "probability": 4,
+      "impact": 4,
+      "category": "ORGANIZATIONAL",
+      "response": "MITIGATE",
+      "owner": "sam",
+      "tasks": [
+        "bayside-sitework:3.4",
+        "bayside-building:1.1"
+      ]
+    },
+    {
+      "slug": "inspection-fail",
+      "title": "Framing inspection rework",
+      "status": "OPEN",
+      "probability": 2,
+      "impact": 4,
+      "category": "TECHNICAL",
+      "response": "ACCEPT",
+      "owner": "diego",
+      "tasks": [
+        "bayside-sitework:3.4"
+      ]
+    }
+  ],
   "projects": [
     {
-      "slug": "bayside",
-      "name": "Bayside Civic Center",
+      "slug": "bayside-sitework",
+      "name": "Sitework & Structure",
+      "description": "The below-grade and structural scope — site prep, foundation, and framing up to a topped-out structure.",
       "methodology": "WATERFALL",
       "start_date": "A-90",
       "calendar": "site",
       "default_view": "SCHEDULE",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "inspection",
+          "name": "Inspection gate",
+          "color": "amber",
+          "position": 1
+        },
+        {
+          "slug": "weather",
+          "name": "Weather-sensitive",
+          "color": "cyan",
+          "position": 2
+        },
+        {
+          "slug": "change-order",
+          "name": "Change order",
+          "color": "purple",
+          "position": 3
+        }
+      ],
       "tasks": [
         {
           "wbs_path": "1",
@@ -169,6 +226,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "labels": [
+            "critical-path"
+          ],
           "percent_complete": 100.0,
           "duration": 6,
           "planned_start": "A-82",
@@ -201,6 +261,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
+          "labels": [
+            "inspection"
+          ],
           "percent_complete": 100.0,
           "duration": 2,
           "planned_start": "A-64",
@@ -223,6 +286,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "labels": [
+            "critical-path"
+          ],
           "percent_complete": 100.0,
           "duration": 5,
           "planned_start": "A-60",
@@ -239,6 +305,10 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
+          "labels": [
+            "critical-path",
+            "inspection"
+          ],
           "percent_complete": 100.0,
           "duration": 6,
           "planned_start": "A-50",
@@ -255,6 +325,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
+          "labels": [
+            "weather"
+          ],
           "percent_complete": 100.0,
           "duration": 3,
           "planned_start": "A-38",
@@ -271,6 +344,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
+          "labels": [
+            "weather"
+          ],
           "percent_complete": 100.0,
           "duration": 3,
           "planned_start": "A-32",
@@ -287,6 +363,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "labels": [
+            "critical-path"
+          ],
           "percent_complete": 100.0,
           "duration": 4,
           "planned_start": "A-26",
@@ -309,6 +388,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "diego",
+          "labels": [
+            "critical-path"
+          ],
           "percent_complete": 55.0,
           "duration": 8,
           "planned_start": "A-18",
@@ -325,6 +407,9 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "tom",
+          "labels": [
+            "change-order"
+          ],
           "duration": 8,
           "planned_start": "A+5",
           "estimate": {
@@ -340,8 +425,11 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "nadia",
+          "labels": [
+            "weather"
+          ],
           "duration": 7,
-          "planned_start": "A+17",
+          "planned_start": "A+19",
           "estimate": {
             "optimistic": 5,
             "most_likely": 7,
@@ -355,8 +443,12 @@
           "governance_class": "gated",
           "delivery_mode": "waterfall",
           "assignee": "omar",
+          "labels": [
+            "critical-path",
+            "inspection"
+          ],
           "duration": 2,
-          "planned_start": "A+31",
+          "planned_start": "A+33",
           "estimate": {
             "optimistic": 1,
             "most_likely": 2,
@@ -365,160 +457,14 @@
         },
         {
           "wbs_path": "4",
-          "name": "MEP",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall"
-        },
-        {
-          "wbs_path": "4.1",
-          "name": "Rough-in electrical",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "tom",
-          "duration": 7,
-          "planned_start": "A+35",
-          "estimate": {
-            "optimistic": 5,
-            "most_likely": 7,
-            "pessimistic": 13
-          }
-        },
-        {
-          "wbs_path": "4.2",
-          "name": "Rough-in plumbing",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "nadia",
-          "duration": 6,
-          "planned_start": "A+49",
-          "estimate": {
-            "optimistic": 4,
-            "most_likely": 6,
-            "pessimistic": 11
-          }
-        },
-        {
-          "wbs_path": "4.3",
-          "name": "HVAC ductwork",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "omar",
-          "duration": 8,
-          "planned_start": "A+61",
-          "estimate": {
-            "optimistic": 6,
-            "most_likely": 8,
-            "pessimistic": 15
-          }
-        },
-        {
-          "wbs_path": "4.4",
-          "name": "MEP equipment delivery",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "diego",
-          "duration": 5,
-          "planned_start": "A+77",
-          "estimate": {
-            "optimistic": 4,
-            "most_likely": 5,
-            "pessimistic": 10
-          }
-        },
-        {
-          "wbs_path": "4.5",
-          "name": "MEP inspection",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "tom",
-          "duration": 3,
-          "planned_start": "A+87",
-          "estimate": {
-            "optimistic": 2,
-            "most_likely": 3,
-            "pessimistic": 6
-          }
-        },
-        {
-          "wbs_path": "5",
-          "name": "Finish-out",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall"
-        },
-        {
-          "wbs_path": "5.1",
-          "name": "Drywall & paint",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "nadia",
-          "duration": 8,
-          "planned_start": "A+93",
-          "estimate": {
-            "optimistic": 6,
-            "most_likely": 8,
-            "pessimistic": 15
-          }
-        },
-        {
-          "wbs_path": "5.2",
-          "name": "Flooring",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "omar",
-          "duration": 6,
-          "planned_start": "A+109",
-          "estimate": {
-            "optimistic": 4,
-            "most_likely": 6,
-            "pessimistic": 11
-          }
-        },
-        {
-          "wbs_path": "5.3",
-          "name": "Fixtures & casework",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "diego",
-          "duration": 5,
-          "planned_start": "A+121",
-          "estimate": {
-            "optimistic": 4,
-            "most_likely": 5,
-            "pessimistic": 10
-          }
-        },
-        {
-          "wbs_path": "5.4",
-          "name": "Commissioning start",
-          "status": "NOT_STARTED",
-          "governance_class": "gated",
-          "delivery_mode": "milestone",
-          "assignee": "tom",
+          "name": "Structure topped out",
           "is_milestone": true,
-          "planned_start": "A+131"
-        },
-        {
-          "wbs_path": "5.5",
-          "name": "Final inspection & handover",
-          "status": "NOT_STARTED",
+          "delivery_mode": "milestone",
           "governance_class": "gated",
-          "delivery_mode": "waterfall",
-          "assignee": "nadia",
-          "duration": 3,
-          "planned_start": "A+133",
-          "estimate": {
-            "optimistic": 2,
-            "most_likely": 3,
-            "pessimistic": 6
-          }
+          "planned_start": "A+37",
+          "labels": [
+            "critical-path"
+          ]
         }
       ],
       "dependencies": [
@@ -614,73 +560,7 @@
         },
         {
           "predecessor": "3.4",
-          "successor": "4.1",
-          "dep_type": "FS",
-          "lag": -3
-        },
-        {
-          "predecessor": "3.4",
-          "successor": "4.2",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "3.4",
-          "successor": "4.3",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "4.1",
-          "successor": "4.5",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "4.2",
-          "successor": "4.5",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "4.3",
-          "successor": "4.5",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "4.5",
-          "successor": "5.1",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "5.1",
-          "successor": "5.2",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "5.1",
-          "successor": "5.3",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "5.2",
-          "successor": "5.4",
-          "dep_type": "SF",
-          "lag": 0
-        },
-        {
-          "predecessor": "5.2",
-          "successor": "5.5",
-          "dep_type": "FS",
-          "lag": 0
-        },
-        {
-          "predecessor": "5.3",
-          "successor": "5.5",
+          "successor": "4",
           "dep_type": "FS",
           "lag": 0
         }
@@ -688,7 +568,7 @@
       "baselines": [
         {
           "name": "Contract baseline",
-          "is_active": true,
+          "is_active": false,
           "captured_at": "A-88",
           "tasks": [
             {
@@ -768,60 +648,91 @@
               "start": "A+24",
               "finish": "A+26",
               "duration": 2
+            }
+          ]
+        },
+        {
+          "name": "Rebaseline — mezzanine change order",
+          "is_active": true,
+          "captured_at": "A-13",
+          "tasks": [
+            {
+              "task": "1.1",
+              "start": "A-90",
+              "finish": "A-86",
+              "duration": 4
             },
             {
-              "task": "4.1",
-              "start": "A+28",
-              "finish": "A+35",
+              "task": "1.2",
+              "start": "A-82",
+              "finish": "A-76",
+              "duration": 6
+            },
+            {
+              "task": "1.3",
+              "start": "A-70",
+              "finish": "A-67",
+              "duration": 3
+            },
+            {
+              "task": "1.4",
+              "start": "A-64",
+              "finish": "A-62",
+              "duration": 2
+            },
+            {
+              "task": "2.1",
+              "start": "A-60",
+              "finish": "A-55",
+              "duration": 5
+            },
+            {
+              "task": "2.2",
+              "start": "A-50",
+              "finish": "A-44",
+              "duration": 6
+            },
+            {
+              "task": "2.3",
+              "start": "A-38",
+              "finish": "A-35",
+              "duration": 3
+            },
+            {
+              "task": "2.4",
+              "start": "A-32",
+              "finish": "A-29",
+              "duration": 3
+            },
+            {
+              "task": "2.5",
+              "start": "A-26",
+              "finish": "A-22",
+              "duration": 4
+            },
+            {
+              "task": "3.1",
+              "start": "A-18",
+              "finish": "A-10",
+              "duration": 8
+            },
+            {
+              "task": "3.2",
+              "start": "A+5",
+              "finish": "A+13",
+              "duration": 8
+            },
+            {
+              "task": "3.3",
+              "start": "A+17",
+              "finish": "A+24",
               "duration": 7
             },
             {
-              "task": "4.2",
-              "start": "A+42",
-              "finish": "A+48",
-              "duration": 6
-            },
-            {
-              "task": "4.3",
-              "start": "A+54",
-              "finish": "A+62",
-              "duration": 8
-            },
-            {
-              "task": "4.4",
-              "start": "A+70",
-              "finish": "A+75",
-              "duration": 5
-            },
-            {
-              "task": "4.5",
-              "start": "A+80",
-              "finish": "A+83",
-              "duration": 3
-            },
-            {
-              "task": "5.1",
-              "start": "A+86",
-              "finish": "A+94",
-              "duration": 8
-            },
-            {
-              "task": "5.2",
-              "start": "A+102",
-              "finish": "A+108",
-              "duration": 6
-            },
-            {
-              "task": "5.3",
-              "start": "A+114",
-              "finish": "A+119",
-              "duration": 5
-            },
-            {
-              "task": "5.5",
-              "start": "A+126",
-              "finish": "A+129",
-              "duration": 3
+              "task": "3.4",
+              "start": "A+31",
+              "finish": "A+33",
+              "duration": 2
             }
           ]
         }
@@ -842,42 +753,17 @@
           ]
         },
         {
-          "slug": "supply-chain",
-          "title": "MEP equipment supply delay",
-          "status": "MITIGATING",
-          "probability": 3,
-          "impact": 5,
-          "category": "EXTERNAL",
-          "response": "MITIGATE",
-          "owner": "nadia",
-          "tasks": [
-            "4.4"
-          ]
-        },
-        {
-          "slug": "inspection-fail",
-          "title": "Framing inspection rework",
+          "slug": "soil-conditions",
+          "title": "Unexpected soil conditions at excavation",
           "status": "OPEN",
           "probability": 2,
           "impact": 4,
           "category": "TECHNICAL",
           "response": "ACCEPT",
-          "owner": "diego",
-          "tasks": [
-            "3.4"
-          ]
-        },
-        {
-          "slug": "labor",
-          "title": "Concrete crew availability",
-          "status": "OPEN",
-          "probability": 3,
-          "impact": 3,
-          "category": "ORGANIZATIONAL",
-          "response": "MITIGATE",
           "owner": "tom",
+          "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
           "tasks": [
-            "2.3"
+            "2.1"
           ]
         },
         {
@@ -895,6 +781,19 @@
           ]
         },
         {
+          "slug": "labor",
+          "title": "Concrete crew availability",
+          "status": "OPEN",
+          "probability": 3,
+          "impact": 3,
+          "category": "ORGANIZATIONAL",
+          "response": "MITIGATE",
+          "owner": "tom",
+          "tasks": [
+            "2.3"
+          ]
+        },
+        {
           "slug": "design-change",
           "title": "Owner-requested design change order",
           "status": "OPEN",
@@ -905,60 +804,6 @@
           "owner": "diego",
           "tasks": [
             "3.1"
-          ]
-        },
-        {
-          "slug": "soil-conditions",
-          "title": "Unexpected soil conditions at excavation",
-          "status": "OPEN",
-          "probability": 2,
-          "impact": 4,
-          "category": "TECHNICAL",
-          "response": "ACCEPT",
-          "owner": "tom",
-          "notes": "Geotech survey confirmed bearing capacity; no remediation needed.",
-          "tasks": [
-            "2.1"
-          ]
-        },
-        {
-          "slug": "subcontractor-default",
-          "title": "MEP subcontractor financial risk",
-          "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
-          "status": "OPEN",
-          "probability": 2,
-          "impact": 5,
-          "category": "EXTERNAL",
-          "response": "TRANSFER",
-          "owner": "sam",
-          "tasks": [
-            "4.4"
-          ]
-        },
-        {
-          "slug": "electrical-inspection",
-          "title": "Electrical rough-in inspection rework",
-          "status": "MITIGATING",
-          "probability": 3,
-          "impact": 3,
-          "category": "TECHNICAL",
-          "response": "MITIGATE",
-          "owner": "nadia",
-          "tasks": [
-            "4.2"
-          ]
-        },
-        {
-          "slug": "material-escalation",
-          "title": "Steel & concrete price escalation",
-          "status": "ACCEPTED",
-          "probability": 4,
-          "impact": 3,
-          "category": "EXTERNAL",
-          "response": "ACCEPT",
-          "owner": "omar",
-          "tasks": [
-            "3.2"
           ]
         },
         {
@@ -976,6 +821,434 @@
           ]
         },
         {
+          "slug": "material-escalation",
+          "title": "Steel & concrete price escalation",
+          "status": "ACCEPTED",
+          "probability": 4,
+          "impact": 3,
+          "category": "EXTERNAL",
+          "response": "ACCEPT",
+          "owner": "omar",
+          "tasks": [
+            "3.2"
+          ]
+        }
+      ]
+    },
+    {
+      "slug": "bayside-building",
+      "name": "Building & Fit-out",
+      "description": "The interior scope — MEP rough-in, finishes, and commissioning through to a certificate of occupancy. Every task is gated on the structure passing framing inspection.",
+      "methodology": "WATERFALL",
+      "start_date": "A-90",
+      "calendar": "site",
+      "default_view": "SCHEDULE",
+      "labels": [
+        {
+          "slug": "critical-path",
+          "name": "Critical path",
+          "color": "rose",
+          "position": 0
+        },
+        {
+          "slug": "long-lead",
+          "name": "Long-lead procurement",
+          "color": "amber",
+          "position": 1
+        },
+        {
+          "slug": "inspection",
+          "name": "Inspection gate",
+          "color": "teal",
+          "position": 2
+        },
+        {
+          "slug": "commissioning",
+          "name": "Commissioning",
+          "color": "green",
+          "position": 3
+        }
+      ],
+      "tasks": [
+        {
+          "wbs_path": "1",
+          "name": "MEP",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "1.1",
+          "name": "Rough-in electrical",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "nadia",
+          "labels": [
+            "critical-path"
+          ],
+          "duration": 7,
+          "planned_start": "A+37",
+          "estimate": {
+            "optimistic": 5,
+            "most_likely": 7,
+            "pessimistic": 13
+          }
+        },
+        {
+          "wbs_path": "1.2",
+          "name": "Rough-in plumbing",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "omar",
+          "duration": 6,
+          "planned_start": "A+51",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          }
+        },
+        {
+          "wbs_path": "1.3",
+          "name": "HVAC ductwork",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "diego",
+          "duration": 8,
+          "planned_start": "A+63",
+          "estimate": {
+            "optimistic": 6,
+            "most_likely": 8,
+            "pessimistic": 15
+          }
+        },
+        {
+          "wbs_path": "1.4",
+          "name": "MEP equipment delivery",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "tom",
+          "labels": [
+            "long-lead"
+          ],
+          "duration": 5,
+          "planned_start": "A+79",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 10
+          }
+        },
+        {
+          "wbs_path": "1.5",
+          "name": "MEP inspection",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "nadia",
+          "labels": [
+            "inspection"
+          ],
+          "duration": 3,
+          "planned_start": "A+89",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 6
+          }
+        },
+        {
+          "wbs_path": "2",
+          "name": "Finish-out",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall"
+        },
+        {
+          "wbs_path": "2.1",
+          "name": "Drywall & paint",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "omar",
+          "labels": [
+            "critical-path"
+          ],
+          "duration": 8,
+          "planned_start": "A+95",
+          "estimate": {
+            "optimistic": 6,
+            "most_likely": 8,
+            "pessimistic": 15
+          }
+        },
+        {
+          "wbs_path": "2.2",
+          "name": "Flooring",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "diego",
+          "duration": 6,
+          "planned_start": "A+111",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 6,
+            "pessimistic": 11
+          }
+        },
+        {
+          "wbs_path": "2.3",
+          "name": "Fixtures & casework",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "tom",
+          "duration": 5,
+          "planned_start": "A+123",
+          "estimate": {
+            "optimistic": 4,
+            "most_likely": 5,
+            "pessimistic": 10
+          }
+        },
+        {
+          "wbs_path": "2.4",
+          "name": "Commissioning start",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "milestone",
+          "assignee": "nadia",
+          "labels": [
+            "commissioning"
+          ],
+          "is_milestone": true,
+          "planned_start": "A+133"
+        },
+        {
+          "wbs_path": "2.5",
+          "name": "Final inspection & handover",
+          "status": "NOT_STARTED",
+          "governance_class": "gated",
+          "delivery_mode": "waterfall",
+          "assignee": "omar",
+          "labels": [
+            "critical-path",
+            "inspection"
+          ],
+          "duration": 3,
+          "planned_start": "A+135",
+          "estimate": {
+            "optimistic": 2,
+            "most_likely": 3,
+            "pessimistic": 6
+          }
+        },
+        {
+          "wbs_path": "3",
+          "name": "Certificate of occupancy",
+          "is_milestone": true,
+          "delivery_mode": "milestone",
+          "governance_class": "gated",
+          "planned_start": "A+141",
+          "labels": [
+            "critical-path"
+          ]
+        }
+      ],
+      "dependencies": [
+        {
+          "predecessor": "bayside-sitework:3.4",
+          "successor": "1.1",
+          "dep_type": "FS",
+          "lag": -3
+        },
+        {
+          "predecessor": "bayside-sitework:3.4",
+          "successor": "1.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "bayside-sitework:3.4",
+          "successor": "1.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.1",
+          "successor": "1.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.2",
+          "successor": "1.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.3",
+          "successor": "1.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "1.5",
+          "successor": "2.1",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.1",
+          "successor": "2.2",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.1",
+          "successor": "2.3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.2",
+          "successor": "2.4",
+          "dep_type": "SF",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.2",
+          "successor": "2.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.3",
+          "successor": "2.5",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.5",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        },
+        {
+          "predecessor": "2.4",
+          "successor": "3",
+          "dep_type": "FS",
+          "lag": 0
+        }
+      ],
+      "baselines": [
+        {
+          "name": "Contract baseline",
+          "is_active": true,
+          "captured_at": "A-88",
+          "tasks": [
+            {
+              "task": "1.1",
+              "start": "A+28",
+              "finish": "A+35",
+              "duration": 7
+            },
+            {
+              "task": "1.2",
+              "start": "A+42",
+              "finish": "A+48",
+              "duration": 6
+            },
+            {
+              "task": "1.3",
+              "start": "A+54",
+              "finish": "A+62",
+              "duration": 8
+            },
+            {
+              "task": "1.4",
+              "start": "A+70",
+              "finish": "A+75",
+              "duration": 5
+            },
+            {
+              "task": "1.5",
+              "start": "A+80",
+              "finish": "A+83",
+              "duration": 3
+            },
+            {
+              "task": "2.1",
+              "start": "A+86",
+              "finish": "A+94",
+              "duration": 8
+            },
+            {
+              "task": "2.2",
+              "start": "A+102",
+              "finish": "A+108",
+              "duration": 6
+            },
+            {
+              "task": "2.3",
+              "start": "A+114",
+              "finish": "A+119",
+              "duration": 5
+            },
+            {
+              "task": "2.5",
+              "start": "A+126",
+              "finish": "A+129",
+              "duration": 3
+            }
+          ]
+        }
+      ],
+      "risks": [
+        {
+          "slug": "supply-chain",
+          "title": "MEP equipment supply delay",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 5,
+          "category": "EXTERNAL",
+          "response": "MITIGATE",
+          "owner": "nadia",
+          "tasks": [
+            "1.4"
+          ]
+        },
+        {
+          "slug": "electrical-inspection",
+          "title": "Electrical rough-in inspection rework",
+          "status": "MITIGATING",
+          "probability": 3,
+          "impact": 3,
+          "category": "TECHNICAL",
+          "response": "MITIGATE",
+          "owner": "nadia",
+          "tasks": [
+            "1.5"
+          ]
+        },
+        {
+          "slug": "subcontractor-default",
+          "title": "MEP subcontractor financial risk",
+          "description": "Primary MEP sub is over-extended; default would strand the rough-in.",
+          "status": "OPEN",
+          "probability": 2,
+          "impact": 5,
+          "category": "EXTERNAL",
+          "response": "TRANSFER",
+          "owner": "sam",
+          "tasks": [
+            "1.4"
+          ]
+        },
+        {
           "slug": "commissioning-delay",
           "title": "Building-systems commissioning slips occupancy",
           "status": "OPEN",
@@ -985,7 +1258,7 @@
           "response": "MITIGATE",
           "owner": "diego",
           "tasks": [
-            "5.2"
+            "2.4"
           ]
         }
       ]
@@ -995,7 +1268,7 @@
     {
       "at": "A-68T09:00",
       "action": "task.comment",
-      "target": "task:bayside:1.4",
+      "target": "task:bayside-sitework:1.4",
       "actor": "tom",
       "body": "Survey package is ready, but the municipal permit is still in review — that's gating the site-prep sign-off."
     },
@@ -1009,7 +1282,7 @@
     {
       "at": "A-59T09:00",
       "action": "task.comment",
-      "target": "task:bayside:2.1",
+      "target": "task:bayside-sitework:2.1",
       "actor": "tom",
       "body": "Hit a soft layer at the east footing — ordering a geotech survey before we set rebar."
     },
@@ -1030,91 +1303,91 @@
     {
       "at": "A-50T08:00",
       "action": "task.comment",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "body": "Rebar cage and formwork up for the east footing."
     },
     {
       "at": "A-50T09:00",
       "action": "task.status",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "to": "IN_PROGRESS"
     },
     {
       "at": "A-47T15:00",
       "action": "task.comment",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "body": "Tied and shimmed. Calling for inspection."
     },
     {
       "at": "A-47T15:30",
       "action": "task.status",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "to": "REVIEW"
     },
     {
       "at": "A-46T10:00",
       "action": "task.comment",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "omar",
       "body": "Inspection: bar spacing on the north face is out of tolerance per the spec. Failing it — needs a re-tie."
     },
     {
       "at": "A-46T10:30",
       "action": "task.status",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "omar",
       "to": "IN_PROGRESS"
     },
     {
       "at": "A-44T14:00",
       "action": "task.comment",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "body": "Re-tied to spec and re-shot the spacing. Ready for re-inspection."
     },
     {
       "at": "A-44T14:30",
       "action": "task.status",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "diego",
       "to": "REVIEW"
     },
     {
       "at": "A-43T09:00",
       "action": "task.comment",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "omar",
       "body": "Re-inspection passed. Cleared to pour."
     },
     {
       "at": "A-43T09:30",
       "action": "task.status",
-      "target": "task:bayside:2.2",
+      "target": "task:bayside-sitework:2.2",
       "actor": "omar",
       "to": "COMPLETE"
     },
     {
       "at": "A-40T07:00",
       "action": "task.comment",
-      "target": "task:bayside:2.3",
+      "target": "task:bayside-sitework:2.3",
       "actor": "diego",
       "body": "Rain moving in for the pour window — coordinating to pour ahead of the front so we don't lose the day."
     },
     {
       "at": "A-34T08:00",
       "action": "task.comment",
-      "target": "task:bayside:2.4",
+      "target": "task:bayside-sitework:2.4",
       "actor": "diego",
       "body": "The pours belong with the concrete crew — moving the west pour to Tom."
     },
     {
       "at": "A-34T08:05",
       "action": "task.assign",
-      "target": "task:bayside:2.4",
+      "target": "task:bayside-sitework:2.4",
       "actor": "diego",
       "assignee": "tom"
     },
@@ -1135,21 +1408,21 @@
     {
       "at": "A-18T08:00",
       "action": "task.comment",
-      "target": "task:bayside:3.1",
+      "target": "task:bayside-sitework:3.1",
       "actor": "diego",
       "body": "Crane is rigged and the first column line is bolted — steel erection is underway."
     },
     {
       "at": "A-18T08:30",
       "action": "task.status",
-      "target": "task:bayside:3.1",
+      "target": "task:bayside-sitework:3.1",
       "actor": "diego",
       "to": "IN_PROGRESS"
     },
     {
       "at": "A-16T09:00",
       "action": "task.comment",
-      "target": "task:bayside:3.1",
+      "target": "task:bayside-sitework:3.1",
       "actor": "diego",
       "body": "Steel is going up. Owner is still weighing a mezzanine design change — holding the final connections until it's resolved."
     },
@@ -1163,14 +1436,14 @@
     {
       "at": "A-13T09:00",
       "action": "task.comment",
-      "target": "task:bayside:3.2",
+      "target": "task:bayside-sitework:3.2",
       "actor": "diego",
-      "body": "Mezzanine change adds deck framing at grid C — re-estimating floor decking before we sequence the crews."
+      "body": "Mezzanine change adds deck framing at grid C — re-estimating floor decking and re-baselining so the contract dates stay on record."
     },
     {
       "at": "A-13T09:30",
       "action": "task.estimate",
-      "target": "task:bayside:3.2",
+      "target": "task:bayside-sitework:3.2",
       "actor": "diego",
       "estimate": {
         "optimistic": 6,
@@ -1179,18 +1452,32 @@
       }
     },
     {
-      "at": "A-3T07:30",
+      "at": "A-13T12:00",
+      "action": "baseline.capture",
+      "target": "project:bayside-sitework",
+      "actor": "sam",
+      "body": "Rebaseline — mezzanine change order"
+    },
+    {
+      "at": "A-6T07:00",
       "action": "task.comment",
-      "target": "task:bayside:3.1",
+      "target": "task:bayside-sitework:3.3",
       "actor": "tom",
-      "body": "Final steel delivery hit the laydown yard this morning — crane picks resume at first light."
+      "body": "High winds shut the crane two afternoons this week — roof steel and the framing inspection are running two days behind the rebaseline."
     },
     {
       "at": "A-2T14:00",
       "action": "task.comment",
-      "target": "task:bayside:3.4",
-      "actor": "omar",
-      "body": "Framing inspection is on the municipal calendar; electrical rough-in mobilizes three days ahead of the certificate."
+      "target": "task:bayside-building:1.1",
+      "actor": "nadia",
+      "body": "Framing inspection is on the municipal calendar; electrical rough-in mobilizes three days ahead of the certificate so the fit-out project doesn't lose the overlap."
+    },
+    {
+      "at": "A-3T07:30",
+      "action": "task.comment",
+      "target": "task:bayside-sitework:3.1",
+      "actor": "tom",
+      "body": "Final steel delivery hit the laydown yard this morning — crane picks resume at first light."
     },
     {
       "at": "A-1T11:00",

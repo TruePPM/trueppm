@@ -119,18 +119,28 @@ those roles live on.
 
 #### Bayside Civic Center — waterfall-only
 
-A construction program: CPM with **all four dependency types** (FS / SS / FF /
-SF), three-point estimates, a baseline, a 4-day concrete-crew calendar, and a
-**12-risk register** spanning the full status lifecycle (permits, supply chain,
-weather, inspections).
+A construction **program of two phased projects** — *Sitework & Structure* and
+*Building & Fit-out* — joined by hard **cross-project dependencies**: every
+interior task is gated on the structure passing framing inspection, including a
+negative-lag lead where electrical rough-in mobilizes three days before the
+inspection certificate. Between them the program exercises **all four dependency
+types** (FS / SS / FF / SF), three-point estimates, a 4-day concrete-crew
+calendar, and a **13-risk register** spanning the full status lifecycle (permits,
+supply chain, weather, inspections). Its baseline story is a **rebaseline**: a
+*Contract baseline* captured at award, superseded by a *change-order Rebaseline*
+after the owner's mezzanine change, with a residual weather slip drifting the
+current plan past even the rebaseline — and the fit-out project's baseline reads
+the cross-project slip cascade from the structure.
 
-**Look at first:** the critical path and the baseline-vs-actual slip.
+**Look at first:** the program schedule's cross-project critical path, and the
+baseline-vs-rebaseline-vs-current variance on the structure.
 
-**Personas:** Sam Okafor (Owner, the construction PM) — a single waterfall
-project, CPM with all four dependency types, a baseline to defend, and a risk
-register, with Raj Mehta (Scheduler) holding the plan and Diego Santos (Site
-Superintendent) on the ground. This is Sam's home turf: no sprints, no backlog,
-just the schedule and what moves when a task slips.
+**Personas:** Sam Okafor (Owner, the program manager) — two waterfall projects,
+CPM with all four dependency types across the project boundary, a contract
+baseline and a change-order rebaseline to defend, and a risk register, with Raj
+Mehta (Scheduler) holding the plan and Diego Santos (Site Superintendent) on the
+ground. This is Sam's home turf: no sprints, no backlog, just the schedule and
+what moves when a task slips — and how a structure slip cascades into fit-out.
 
 #### Helios CRM Replacement — hybrid-small
 
