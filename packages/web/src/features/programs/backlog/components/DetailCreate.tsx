@@ -21,7 +21,7 @@ import {
   useUnsavedChangesGuard,
 } from '@/components/dialog';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { BACKLOG_ITEM_TYPES, type BacklogItemType } from '../types';
+import { BACKLOG_ITEM_TYPES, itemTypeShowsPoints, type BacklogItemType } from '../types';
 import type { CreateBacklogItemInput } from '../hooks/useBacklogMutations';
 import { TagInput } from './TagInput';
 import { FOCUS_RING, INPUT_BASE } from './styles';
@@ -60,7 +60,7 @@ interface DetailCreateProps {
 }
 
 export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
-  const { draft, setField, dirty } = useDirtyDraft<CreateDraft>(EMPTY_DRAFT);
+  const { draft, setField, setDraft, dirty } = useDirtyDraft<CreateDraft>(EMPTY_DRAFT);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -152,7 +152,16 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           <select
             id="backlog-create-type"
             value={draft.itemType}
-            onChange={(e) => setField('itemType', e.target.value as BacklogItemType)}
+            onChange={(e) => {
+              // Switching to a container type (epic/feature) drops the now-hidden
+              // points so a leaf estimate never ships on a container (#2026).
+              const next = e.target.value as BacklogItemType;
+              setDraft((d) => ({
+                ...d,
+                itemType: next,
+                storyPoints: itemTypeShowsPoints(next) ? d.storyPoints : '',
+              }));
+            }}
             className={`mt-1 h-8 ${INPUT_BASE}`}
           >
             {BACKLOG_ITEM_TYPES.map((t) => (
@@ -163,25 +172,29 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           </select>
         </div>
 
-        <div>
-          <label
-            htmlFor="backlog-create-points"
-            className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
-          >
-            Story points
-          </label>
-          <input
-            id="backlog-create-points"
-            type="number"
-            inputMode="numeric"
-            min={0}
-            step={1}
-            value={draft.storyPoints}
-            onChange={(e) => setField('storyPoints', e.target.value)}
-            placeholder="Optional estimate"
-            className={`mt-1 h-8 w-32 ${INPUT_BASE}`}
-          />
-        </div>
+        {/* Points show only for estimable leaf types — Epics/Features hide them
+            (#2026). Gated on the live draft type so it toggles with the picker. */}
+        {itemTypeShowsPoints(draft.itemType) && (
+          <div>
+            <label
+              htmlFor="backlog-create-points"
+              className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+            >
+              Story points
+            </label>
+            <input
+              id="backlog-create-points"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              value={draft.storyPoints}
+              onChange={(e) => setField('storyPoints', e.target.value)}
+              placeholder="Optional estimate"
+              className={`mt-1 h-8 w-32 ${INPUT_BASE}`}
+            />
+          </div>
+        )}
 
         <div>
           <label

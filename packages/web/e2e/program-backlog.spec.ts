@@ -244,4 +244,43 @@ test.describe('Program backlog', () => {
 
     await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
   });
+
+  // #2026: story points are relevant only to estimable leaf work — Epics and
+  // Features are containers and hide the field.
+  test('create form hides story points for container types (Epic/Feature)', async ({ page }) => {
+    await setup(page, []);
+    await page.getByRole('button', { name: 'New item' }).click();
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
+
+    // Default type is Story → points visible.
+    await expect(page.getByLabel('Story points')).toBeVisible();
+
+    await page.getByLabel('Type').selectOption('epic');
+    await expect(page.getByLabel('Story points')).toHaveCount(0);
+
+    await page.getByLabel('Type').selectOption('feature');
+    await expect(page.getByLabel('Story points')).toHaveCount(0);
+
+    // Back to a leaf type → the field returns.
+    await page.getByLabel('Type').selectOption('task');
+    await expect(page.getByLabel('Story points')).toBeVisible();
+  });
+
+  // #2026: tags are entered through a searchable combobox that offers a
+  // "Create …" row for text that isn't already a tag.
+  test('tag combobox creates a new tag from typed text', async ({ page }) => {
+    await setup(page, []);
+    await page.getByRole('button', { name: 'New item' }).click();
+    await expect(page.getByRole('heading', { name: 'New backlog item' })).toBeVisible();
+
+    const tagInput = page.getByRole('combobox', { name: 'Add a tag' });
+    await tagInput.click();
+    await tagInput.fill('backend');
+    await page.getByRole('option', { name: 'Create "backend"' }).click();
+
+    // The tag is now a removable chip on the form.
+    await expect(page.getByRole('button', { name: 'Remove tag backend' })).toBeVisible();
+    // The input cleared and stays ready for the next tag.
+    await expect(tagInput).toHaveValue('');
+  });
 });
