@@ -50,7 +50,7 @@ export function EpicDeleteConfirmDialog({
       aria-modal="true"
       aria-labelledby="delete-epic-confirm-title"
       aria-describedby="delete-epic-confirm-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

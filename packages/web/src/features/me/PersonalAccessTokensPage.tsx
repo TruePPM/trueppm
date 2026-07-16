@@ -283,7 +283,7 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !create.isPending && !created) onClose();
       }}
@@ -528,7 +528,7 @@ function RevokeDialog({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

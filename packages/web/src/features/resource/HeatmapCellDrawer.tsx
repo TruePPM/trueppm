@@ -90,7 +90,7 @@ export function HeatmapCellDrawer({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-40 bg-neutral-overlay"
         aria-hidden="true"
         onClick={onClose}
       />

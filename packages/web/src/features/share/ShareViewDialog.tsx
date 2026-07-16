@@ -228,7 +228,7 @@ export function ShareViewDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="share-view-dialog-title"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !created) onClose();
       }}

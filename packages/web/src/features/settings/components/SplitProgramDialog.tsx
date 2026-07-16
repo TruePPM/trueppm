@@ -123,7 +123,7 @@ export function SplitProgramDialog({
       aria-modal="true"
       aria-labelledby="split-dialog-title"
       aria-describedby="split-dialog-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}

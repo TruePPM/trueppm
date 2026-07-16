@@ -104,7 +104,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
       role="dialog"
       aria-modal="true"
       aria-labelledby="webhook-editor-title"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay p-4 motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget && !saving) onClose();
       }}

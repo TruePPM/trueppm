@@ -89,7 +89,7 @@ export function UpdateStatusDialog({
       aria-modal="true"
       aria-labelledby="update-status-title"
       aria-describedby="update-status-body"
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

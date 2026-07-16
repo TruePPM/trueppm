@@ -36,7 +36,7 @@ export function ConfirmDiscardDialog({
       aria-labelledby="discard-changes-title"
       aria-describedby="discard-changes-body"
       tabIndex={-1}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 focus:outline-none motion-safe:animate-scrim-fade"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-overlay focus:outline-none motion-safe:animate-scrim-fade"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onKeepEditing();
       }}
