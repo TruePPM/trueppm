@@ -34,7 +34,7 @@ export function ScheduleViewModeToggle() {
   // group) so the keyboard contract works without making the group a tab stop.
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     const current = MODES.findIndex((m) => m.value === viewMode);
-    let next = current;
+    let next: number;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       next = (current + 1) % MODES.length;
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {

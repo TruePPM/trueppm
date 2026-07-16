@@ -94,6 +94,11 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
       // Allow _-prefixed params to signal intentionally unused arguments (e.g. stubs)
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // Catch dead initializers (`let x = init` where init is overwritten before
+      // any read) — no-unused-vars misses these because the variable IS read
+      // later. Mirrors CodeQL Code Quality's "initializer overwritten" finding so
+      // it never reaches the GitHub mirror. Core rule, ships in eslint 9.
+      'no-useless-assignment': 'error',
       // React 19: JSX transform does not require React in scope
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',

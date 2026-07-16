@@ -90,7 +90,7 @@ export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCale
 
       // Fetch all pages (calendar windows are date-bounded so page count is small).
       const allTasks: ApiTask[] = [];
-      let nextUrl: string | null = null;
+      let nextUrl: string | null;
       const firstPage = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', { params });
       allTasks.push(...firstPage.data.results);
       nextUrl = firstPage.data.next ?? null;

@@ -53,7 +53,7 @@ export function ExportSegmentedField<V extends string>({
   function onKeyDown(e: ReactKeyboardEvent, currentIdx: number) {
     const pos = enabledIdx.indexOf(currentIdx);
     if (pos < 0 || enabledIdx.length === 0) return;
-    let next = -1;
+    let next: number;
     switch (e.key) {
       case 'ArrowRight':
       case 'ArrowDown':

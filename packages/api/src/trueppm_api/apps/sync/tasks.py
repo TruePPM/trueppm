@@ -138,9 +138,6 @@ def _do_purge_board_events(*, dry_run: bool = False, override_value: int | None 
 #
 # Extend this list when new VersionedModel subclasses are added that carry
 # ``is_deleted`` tombstones in the projects domain.
-_TOMBSTONE_MODEL_REGISTRY: list[
-    tuple[Any, dict[str, Any], str | None]
-] = []  # populated lazily in _build_registry()
 
 
 def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
@@ -209,7 +206,7 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
 def reap_domain_tombstones(self: object) -> dict[str, int]:
     """Hard-delete per-row soft-deleted tombstones from live projects.
 
-    Runs nightly via Celery Beat. For each model in ``_TOMBSTONE_MODEL_REGISTRY``:
+    Runs nightly via Celery Beat. For each model in ``_build_registry()``:
     - Filters ``is_deleted=True`` rows in live (non-deleted, non-archived) projects.
     - For models with an ``age_field`` (``updated_at`` or ``deleted_at``), further
       restricts to rows older than the ``TRUEPPM_TOMBSTONE_RETENTION_DAYS`` cutoff
