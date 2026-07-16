@@ -382,6 +382,52 @@ export interface TaskLink {
 }
 
 /**
+ * Relative task links (#2068) — non-scheduling, human cross-references between
+ * two tasks. Deliberately DISTINCT from {@link TaskLink}/{@link LinkType}, which
+ * model CPM dependency edges (FS/SS/FF/SF) that drive scheduling. A relation
+ * carries no lag, no CPM effect, and no direction semantics on the wire beyond
+ * source→target; the UI derives the forward/inverse label from `relationType`.
+ */
+export type RelationType = 'relates_to' | 'blocks' | 'duplicates';
+
+/**
+ * Redacted cross-project counterpart card (ADR-0120 D5 shape), present on a
+ * relation whose other end lives in a project the viewer cannot fully open.
+ * `null` when the counterpart is in the same project (the UI resolves it from
+ * the local schedule cache instead).
+ */
+export interface RelationCard {
+  id: string;
+  title: string;
+  hexId: string;
+  projectId: string;
+  projectName: string;
+  isMilestone: boolean;
+  earlyStart: string | null;
+  earlyFinish: string | null;
+  isCritical: boolean;
+}
+
+/**
+ * A single relative task link. `source`/`target` are task UUIDs; the viewer's
+ * task is one end and the counterpart the other. `sourceCard`/`targetCard`
+ * carry the redacted card when that end is cross-project and unopenable, else
+ * `null`/absent. Wire keys are snake_case; mapped to camelCase in
+ * `useTaskRelations`.
+ */
+export interface TaskRelation {
+  id: string;
+  source: string;
+  target: string;
+  relationType: RelationType;
+  note: string;
+  createdBy: string | null;
+  createdAt: string;
+  sourceCard?: RelationCard | null;
+  targetCard?: RelationCard | null;
+}
+
+/**
  * Project planning methodology preset (ADR-0041).
  * Drives default tab visibility in the project workspace; does not gate API access.
  */

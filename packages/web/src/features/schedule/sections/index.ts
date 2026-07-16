@@ -7,7 +7,7 @@
  * `trueppm_enterprise`.
  *
  * Priority allocation (multiples of 100 reserved for OSS):
- *   100 Overview · 200 Dependencies · 300 Subtasks (#308)
+ *   100 Overview · 200 Dependencies · 225 Related tasks (#2068) · 300 Subtasks (#308)
  *   400 Attachments (#310) · 450 External links (#637) · 480 Notes (#740)
  *   500 Comments (issue 311) · 600 Activity (issue 307 + issue 874 history, unified issue 869) · 700 Recurring (issue 312)
  *   800 Estimates · 1000 Baseline  (900 History merged into 600 Activity, ADR-0096)
@@ -25,6 +25,7 @@ import { BlockerSection } from './BlockerSection';
 import { SprintSection } from './SprintSection';
 import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
+import { RelatedLinksSection } from './RelatedLinksSection';
 import { AttachmentSection } from './AttachmentSection';
 import { ExternalLinksSection } from './ExternalLinksSection';
 import { NotesSection } from './NotesSection';
@@ -88,6 +89,17 @@ export function registerOssDrawerSections(): void {
     title: 'Dependencies',
     component: DependenciesSection,
     priority: 200,
+    tab: 'details',
+  });
+
+  // Related links (#2068) — relative, non-scheduling cross-references
+  // (relates-to / blocks / duplicates). Sits just after Dependencies in the
+  // Details tab: dependencies drive the schedule, relations only cross-reference.
+  registry.register('task_detail.section', {
+    id: 'related-links',
+    title: 'Related tasks',
+    component: RelatedLinksSection,
+    priority: 225,
     tab: 'details',
   });
 

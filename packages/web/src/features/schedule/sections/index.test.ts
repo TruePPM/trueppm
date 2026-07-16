@@ -116,6 +116,23 @@ describe('registerOssDrawerSections — Attachments & Comments (ADR-0075, #310 #
   });
 });
 
+describe('registerOssDrawerSections — Related links (#2068)', () => {
+  it('registers at priority 225 in the details tab, just after Dependencies', () => {
+    const sections = registry.get('task_detail.section');
+    const related = sections.find((s) => s.id === 'related-links');
+    const dependencies = sections.find((s) => s.id === 'dependencies');
+    expect(related).toBeDefined();
+    expect(related!.priority).toBe(225);
+    expect(related!.tab).toBe('details');
+    expect(related!.priority).toBeGreaterThan(dependencies!.priority);
+  });
+
+  it('has no canRender gate (visible for every task type)', () => {
+    const sections = registry.get('task_detail.section');
+    expect(sections.find((s) => s.id === 'related-links')!.canRender).toBeUndefined();
+  });
+});
+
 describe('registerOssDrawerSections — Sprint canRender', () => {
   it('Sprint section renders for regular leaf tasks', () => {
     const sections = registry.get('task_detail.section');
