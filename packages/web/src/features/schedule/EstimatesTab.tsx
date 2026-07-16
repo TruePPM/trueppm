@@ -153,12 +153,20 @@ export function EstimatesTab({
   const pertExpected = allThreeSet ? (oN + 4 * mN + pN) / 6 : null;
   const pertStdDev = allThreeSet && !outOfOrder ? (pN - oN) / 6 : null;
 
-  // Accepting a velocity suggestion PATCHes most_likely immediately; disable it
+  // Accepting a velocity suggestion PATCHes most_likely immediately; block it
   // while the estimate draft is dirty to avoid a draft-vs-suggestion-vs-server
   // three-way conflict. On a clean accept, re-baseline Most Likely into the draft
   // so the bound input reflects the accepted value without going spuriously dirty.
+  //
+  // #1999: while dirty, Accept is *accessible-disabled* (aria-disabled) rather
+  // than real-`disabled`, so it stays focusable and screen readers can announce
+  // why it can't be used (via the sr-only reason node). Real `disabled` is
+  // reserved for the in-flight mutation case only, where clicking must be inert.
+  // Because the button is still clickable while dirty, the handler must
+  // early-return so a click can't fire the accept mutation.
   const velocityLocked = estimatesDirty;
   const onAcceptSuggestion = (suggestionId: string, suggested: number) => {
+    if (velocityLocked) return;
     acceptSuggestion.mutate(suggestionId, {
       onSuccess: () => {
         if (boundBinding) boundBinding.commitField('mostLikely', String(suggested));
@@ -212,11 +220,13 @@ export function EstimatesTab({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {/* #1999: Dismiss writes no estimate field, so there is no
+                draft-vs-server race — it stays fully actionable while the
+                estimate draft is dirty. Only an in-flight mutation disables it. */}
             <button
               type="button"
               onClick={() => dismissSuggestion.mutate(pendingSuggestion.id)}
-              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending || velocityLocked}
-              title={velocityLocked ? 'Save or discard your estimate edits first.' : undefined}
+              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending}
               className="h-8 px-3 rounded-control text-xs font-medium border border-neutral-border
                 text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
                 disabled:opacity-50 disabled:cursor-not-allowed
@@ -224,20 +234,32 @@ export function EstimatesTab({
             >
               {dismissSuggestion.isPending ? 'Dismissing…' : 'Dismiss'}
             </button>
+            {/* #1999: while the estimate draft is dirty, Accept is
+                accessible-disabled (aria-disabled) — focusable so a screen
+                reader lands on it and announces the reason via the sr-only
+                node — rather than real-`disabled`, which is reserved for the
+                in-flight mutation case. The onClick guards the dirty case, and
+                aria-disabled dims it via the [aria-disabled] Tailwind variant. */}
             <button
               type="button"
               onClick={() =>
                 onAcceptSuggestion(pendingSuggestion.id, pendingSuggestion.suggested_duration!)
               }
-              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending || velocityLocked}
+              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
+              aria-disabled={velocityLocked || undefined}
+              aria-describedby={velocityLocked ? `est-accept-blocked-${task.id}` : undefined}
               title={velocityLocked ? 'Save or discard your estimate edits first.' : undefined}
               className="h-8 px-3 rounded-control text-xs font-semibold border border-sage-600
                 text-navy-900 bg-sage-500 dark:bg-sage-400 dark:text-navy-900 hover:bg-sage-600
                 disabled:opacity-50 disabled:cursor-not-allowed
+                aria-disabled:opacity-50 aria-disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {acceptSuggestion.isPending ? 'Accepting…' : 'Accept'}
             </button>
+            <span id={`est-accept-blocked-${task.id}`} className="sr-only">
+              Save or discard your estimate edits first.
+            </span>
           </div>
         </div>
       )}
