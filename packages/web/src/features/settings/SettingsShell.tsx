@@ -402,10 +402,20 @@ export function SettingsShell({
             flex-1 item refuses to shrink, overflows the height chain, and lets
             <main> scroll past the content into empty canvas (issue 1618).
             scrollbar-gutter:stable keeps the track reserved so growing/shrinking
-            sections never shift the panel (issue 776). */}
+            sections never shift the panel (issue 776).
+            `relative` makes this scroll authority the containing block for its
+            absolutely-positioned descendants (issue 2008): the Inherit/Override
+            chips and Visibility radios wrap a visually-hidden `sr-only`
+            (position:absolute) radio, and clicking a label focuses it. Without a
+            positioned ancestor here, that focused radio's containing block
+            resolves to the initial containing block, so the browser scrolls the
+            WINDOW — not this container — to reveal it, pushing the h-screen app
+            up and exposing blank canvas below. Positioning the container keeps
+            focus-scroll-into-view inside it (already at the right place → no
+            visible jump). */}
         <div
           ref={scrollRef}
-          className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
+          className="relative flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
           data-testid="settings-content-scroll"
         >
           {children}
