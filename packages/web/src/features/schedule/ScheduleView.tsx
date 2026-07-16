@@ -11,6 +11,7 @@ import { useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
+import { computeInitialScrollLeft } from './scheduleUtils';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -697,19 +698,53 @@ export function ScheduleView() {
   // The canvas engine mounts only on the desktop branch (below `md` the
   // dedicated MobileSchedule surface renders instead, #1671/ADR-0348), so the
   // former #1787 mobile fitToProject special case is gone with the mobile canvas.
+  //
+  // Initial viewport framing (today at 25% from left, rule 81) is NOT done here.
+  // onEngineReady fires at engine-construction time — before the React-driven
+  // scroll spacer (`totalCanvasWidth`, from `scheduleScales`) has grown to its
+  // full width — so `scrollWidth ≈ clientWidth`, `maxScroll` is ~0, and the
+  // browser clamped the assignment to 0: the schedule opened at the project
+  // start with all current/upcoming work scrolled off the right edge (#2004).
+  // The framing now runs in a dedicated once-per-project effect below, gated on
+  // `scheduleScales` (i.e. the spacer at full width).
   const handleEngineReady = useCallback((eng: GanttEngine) => {
     setEngine(eng);
-
-    // Initial viewport: today at 25% from left (rule 81)
-    const scales = eng.scales;
-    const container = canvasScrollRef.current;
-    if (scales && container) {
-      const today = new Date().toISOString().slice(0, 10);
-      const todayX = dateToLeft(today, scales);
-      const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
-      container.scrollLeft = targetScrollLeft;
-    }
   }, []);
+
+  // Re-arm the one-shot initial framing whenever the project changes, so
+  // switching projects re-frames on today rather than inheriting the prior
+  // project's scroll (or a stale "already framed" flag).
+  const didInitialFrameRef = useRef(false);
+  useEffect(() => {
+    didInitialFrameRef.current = false;
+  }, [projectId]);
+
+  // Apply the rule-81 "today at 25% from left" framing exactly once, after the
+  // scale is built AND the scroll spacer has reached its full width. Keying on
+  // `scheduleScales` guarantees the container is scrollable before we assign
+  // `scrollLeft` (otherwise the browser clamps it to 0 — the #2004 race). The
+  // ref makes it one-shot per project, so later `scales-change` emits (zoom,
+  // pan) never yank the user back to today.
+  useEffect(() => {
+    if (didInitialFrameRef.current) return;
+    if (!engine || !scheduleScales) return;
+    const container = canvasScrollRef.current;
+    if (!container) return;
+    let todayX: number;
+    try {
+      todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
+    } catch {
+      return; // today out of the padded scale range — leave the default position
+    }
+    const target = computeInitialScrollLeft(
+      todayX,
+      container.clientWidth,
+      container.scrollWidth - container.clientWidth,
+    );
+    if (target === null) return; // whole chart fits — nothing to frame yet
+    container.scrollLeft = target;
+    didInitialFrameRef.current = true;
+  }, [engine, scheduleScales]);
 
   // Drag CPM preview — wires engine events + Web Worker (issue #19)
   useDragCpm({

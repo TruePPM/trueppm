@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatShortDate, nudgeWorkingDays } from './scheduleUtils';
+import {
+  formatShortDate,
+  nudgeWorkingDays,
+  computeInitialScrollLeft,
+} from './scheduleUtils';
 
 // ---------------------------------------------------------------------------
 // formatShortDate
@@ -87,5 +91,33 @@ describe('nudgeWorkingDays', () => {
   it('returns a YYYY-MM-DD string regardless of input length', () => {
     const result = nudgeWorkingDays('2025-03-17', 3);
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeInitialScrollLeft (rule 81 framing, #2004)
+// ---------------------------------------------------------------------------
+
+describe('computeInitialScrollLeft', () => {
+  it('places today at 25% from the left when there is room on both sides', () => {
+    // todayX 1507, viewport 1100 → 1507 - 275 = 1232, within [0, 2812].
+    expect(computeInitialScrollLeft(1507, 1100, 2812)).toBe(1232);
+  });
+
+  it('returns null when the whole chart fits (maxScroll <= 0)', () => {
+    // The #2004 regression: framing must NOT resolve to 0 here — a 0 would look
+    // "framed" while actually being the unscrollable project start.
+    expect(computeInitialScrollLeft(1507, 1100, 0)).toBeNull();
+    expect(computeInitialScrollLeft(1507, 1100, -50)).toBeNull();
+  });
+
+  it('clamps to 0 when today is near the project start (target would be negative)', () => {
+    // todayX 100 → 100 - 275 = -175 → clamped up to 0.
+    expect(computeInitialScrollLeft(100, 1100, 2812)).toBe(0);
+  });
+
+  it('clamps to maxScroll when today is past the project end', () => {
+    // todayX far right → target exceeds maxScroll → clamped down.
+    expect(computeInitialScrollLeft(9000, 1100, 2812)).toBe(2812);
   });
 });

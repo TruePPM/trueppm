@@ -32,3 +32,26 @@ export function nudgeWorkingDays(isoDate: string, days: number): string {
   }
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * Clamp the initial-viewport scroll offset so today lands ~25% from the left
+ * (design rule 81). Pure so it can be unit-tested without a canvas / DOM.
+ *
+ * `todayX` is the canvas-origin x of today's date; `viewportWidth` the visible
+ * scroll-container width; `maxScroll` the container's `scrollWidth - clientWidth`.
+ * The result is clamped to `[0, maxScroll]` so a today near either extreme
+ * (a project entirely in the future, or already finished) never overscrolls.
+ *
+ * Returns `null` when there is nothing to scroll (`maxScroll <= 0`) — the whole
+ * chart fits, so the caller should skip framing rather than force a 0 that would
+ * still leave the initial position "unframed" once more content loads (#2004).
+ */
+export function computeInitialScrollLeft(
+  todayX: number,
+  viewportWidth: number,
+  maxScroll: number,
+): number | null {
+  if (maxScroll <= 0) return null;
+  const target = todayX - viewportWidth * 0.25;
+  return Math.max(0, Math.min(maxScroll, target));
+}
