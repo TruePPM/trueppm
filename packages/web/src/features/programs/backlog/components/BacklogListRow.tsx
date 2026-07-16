@@ -33,6 +33,9 @@ interface BacklogListRowProps {
   onDragEnter?: () => void;
   onDrop?: () => void;
   onDragEnd?: () => void;
+  /** Keyboard reorder (Alt+ArrowUp/Down) — provided only for draggable rows. */
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }
 
 const MAX_INLINE_TAGS = 2;
@@ -52,11 +55,22 @@ export function BacklogListRow({
   onDragEnter,
   onDrop,
   onDragEnd,
+  onMoveUp,
+  onMoveDown,
 }: BacklogListRowProps) {
   const visibleTags = item.tags.slice(0, MAX_INLINE_TAGS);
   const overflowTags = item.tags.length - visibleTags.length;
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    // Alt+ArrowUp/Down is the keyboard-operable reorder alternative to native DnD
+    // (WCAG 2.1.1). Alt keeps it clear of the row's own Enter/Space select and of
+    // page/scroll arrow behavior.
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      if (e.key === 'ArrowUp') onMoveUp?.();
+      else onMoveDown?.();
+      return;
+    }
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onSelect();
@@ -69,6 +83,7 @@ export function BacklogListRow({
       tabIndex={0}
       aria-current={selected ? 'true' : undefined}
       aria-label={item.title}
+      aria-keyshortcuts={draggable ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       draggable={draggable}

@@ -7,7 +7,7 @@
 
 import { useState, type KeyboardEvent } from 'react';
 import { CloseIcon } from '@/components/Icons';
-import { FOCUS_RING } from './styles';
+import { FOCUS_RING_INPUT } from './styles';
 
 interface TagInputProps {
   tags: string[];
@@ -42,7 +42,7 @@ export function TagInput({ tags, onChange, suggestions = [], id }: TagInputProps
 
   return (
     <div
-      className={`flex flex-wrap items-center gap-1 rounded-control border border-neutral-border bg-neutral-surface px-1.5 py-1 ${FOCUS_RING}`}
+      className={`flex flex-wrap items-center gap-1 rounded-control border border-neutral-border bg-neutral-surface px-1.5 py-1 ${FOCUS_RING_INPUT}`}
     >
       {tags.map((tag) => (
         <span

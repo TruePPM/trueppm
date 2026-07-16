@@ -45,6 +45,8 @@ function apiItem(overrides: Partial<ApiBacklogItem> = {}): ApiBacklogItem {
     priority_rank: 1,
     story_points: null,
     pulled_task: null,
+    pulled_task_project_id: null,
+    pulled_task_project_name: null,
     pulled_at: null,
     pulled_by: null,
     created_by: null,
@@ -158,11 +160,18 @@ describe('useBacklogController pull choreography', () => {
 
     act(() => result.current.pullItem(item, PROJECT));
 
-    expect(result.current.toast).toEqual({ kind: 'success', message: 'Pulled to Avionics.' });
+    // projectId is set the instant the pull starts (the user picked it); taskId
+    // is filled in on success so the toast can deep-link to the task (#1994).
+    expect(result.current.toast).toMatchObject({
+      kind: 'success',
+      message: 'Pulled to Avionics.',
+      projectId: PROJECT.id,
+    });
     expect(result.current.pendingPullItemId).toBe(item.id);
     expect(result.current.liveMessage).toContain('Avionics');
 
     await waitFor(() => expect(result.current.pendingPullItemId).toBeNull());
+    expect(result.current.toast).toMatchObject({ kind: 'success', taskId: 't-42' });
     expect(pullFn).toHaveBeenCalledTimes(1);
   });
 
@@ -208,7 +217,9 @@ describe('useBacklogController pull choreography', () => {
     expect(result.current.toast?.kind).toBe('success');
 
     act(() => {
-      vi.advanceTimersByTime(4000);
+      // The pull toast lingers longer than a bare confirmation (PULL_TOAST_MS =
+      // 8000) because it offers a "Go to task" hop (#1994).
+      vi.advanceTimersByTime(8000);
     });
     expect(result.current.toast).toBeNull();
   });

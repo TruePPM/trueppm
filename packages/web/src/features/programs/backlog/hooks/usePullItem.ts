@@ -49,7 +49,7 @@ interface PullContext {
 export interface UsePullItemResult {
   pull: (
     args: PullArgs,
-    callbacks?: { onError?: (error: unknown) => void; onSuccess?: () => void },
+    callbacks?: { onError?: (error: unknown) => void; onSuccess?: (result: PullResult) => void },
   ) => void;
   isPulling: boolean;
 }
@@ -106,7 +106,7 @@ export function usePullItem(
     (args, callbacks) => {
       mutation.mutate(args, {
         onError: (error) => callbacks?.onError?.(error),
-        onSuccess: () => callbacks?.onSuccess?.(),
+        onSuccess: (result) => callbacks?.onSuccess?.(result),
       });
     },
     [mutation],

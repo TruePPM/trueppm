@@ -13,6 +13,32 @@ describe('DetailCreate', () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 
+  it('Cancel with no edits closes immediately, without the unsaved guard (#1996)', () => {
+    const onCancel = vi.fn();
+    render(<DetailCreate tagSuggestions={[]} onCancel={onCancel} onCreate={vi.fn()} />);
+
+    // Footer "Cancel" (index 0 is the header ✕, which shares the accessible name).
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
+
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('guards a typed draft on Cancel and discards only on confirm (#1996)', () => {
+    const onCancel = vi.fn();
+    render(<DetailCreate tagSuggestions={[]} onCancel={onCancel} onCreate={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Draft title' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
+
+    // The guard interrupts — the draft is not discarded yet.
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
   it('submits the form values when a title is provided', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined);
     render(<DetailCreate tagSuggestions={[]} onCancel={vi.fn()} onCreate={onCreate} />);

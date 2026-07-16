@@ -24,6 +24,8 @@ function makeApiItem(overrides: Partial<ApiBacklogItem> = {}): ApiBacklogItem {
     priority_rank: 3,
     story_points: 5,
     pulled_task: null,
+    pulled_task_project_id: null,
+    pulled_task_project_name: null,
     pulled_at: null,
     pulled_by: null,
     created_by: 'user-1',
@@ -97,6 +99,24 @@ describe('fromApiItem', () => {
       }),
     );
     expect(result.pulledTo).toEqual({ taskId: 'task-99', at: '2026-03-02T10:00:00Z' });
+  });
+
+  it('maps the pulled task project id + name onto pulledTo (#1994 wayfinding)', () => {
+    const result = fromApiItem(
+      makeApiItem({
+        status: 'pulled',
+        pulled_task: 'task-99',
+        pulled_at: '2026-03-05T12:00:00Z',
+        pulled_task_project_id: 'proj-7',
+        pulled_task_project_name: 'Avionics',
+      }),
+    );
+    expect(result.pulledTo).toEqual({
+      taskId: 'task-99',
+      at: '2026-03-05T12:00:00Z',
+      projectId: 'proj-7',
+      projectName: 'Avionics',
+    });
   });
 
   it('preserves a null storyPoints (unestimated item)', () => {

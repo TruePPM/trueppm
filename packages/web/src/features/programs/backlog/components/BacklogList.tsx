@@ -5,7 +5,10 @@
  * the controller.
  *
  * Reorder is native HTML5 DnD over PROPOSED rows: dropping onto a row hands its
- * priorityRank to the dragged item, and the mutation re-stripes ranks.
+ * priorityRank to the dragged item, and the mutation re-stripes ranks. Because
+ * DnD is not keyboard-operable (WCAG 2.1.1), each draggable row also accepts
+ * Alt+ArrowUp / Alt+ArrowDown to swap with its neighbor, and a polite aria-live
+ * region announces the move (web-rule 105 parallel / #1996).
  */
 
 import { useState } from 'react';
@@ -26,6 +29,18 @@ export function BacklogList({ controller }: BacklogListProps) {
     controller;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [reorderMsg, setReorderMsg] = useState('');
+
+  // Keyboard reorder (WCAG 2.1.1): swap the item with its neighbor in the ordered
+  // main list by handing it the neighbor's priorityRank (the same operation the
+  // drop path performs), then announce the move. A boundary move is a no-op.
+  function moveBy(item: BacklogItem, delta: -1 | 1) {
+    const index = mainItems.findIndex((i) => i.id === item.id);
+    const neighbor = mainItems[index + delta];
+    if (!neighbor) return;
+    void controller.reorderItem(item.id, neighbor.priorityRank);
+    setReorderMsg(`${item.title} moved ${delta === -1 ? 'up' : 'down'} to position ${index + delta + 1}.`);
+  }
 
   // Facets emptied the list, or search matched nothing → recovery state.
   const facetsEmpty = mainItems.length === 0 && pulledItems.length === 0;
@@ -64,12 +79,17 @@ export function BacklogList({ controller }: BacklogListProps) {
           setDraggingId(null);
           setDropTargetId(null);
         }}
+        onMoveUp={draggable ? () => moveBy(item, -1) : undefined}
+        onMoveDown={draggable ? () => moveBy(item, 1) : undefined}
       />
     );
   }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
+      <div aria-live="polite" role="status" className="sr-only">
+        {reorderMsg}
+      </div>
       <BacklogListHeader />
       {showNoResults ? (
         <NoResults

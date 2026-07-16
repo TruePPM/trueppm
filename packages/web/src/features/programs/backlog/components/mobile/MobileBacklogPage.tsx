@@ -5,7 +5,8 @@
  * controller verbatim with the desktop layout, so behavior never diverges.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { PlusIcon } from '@/components/Icons';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
@@ -58,6 +59,17 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
     isLoading,
   } = controller;
   const [filterSheet, setFilterSheet] = useState<'type' | 'tags' | null>(null);
+  const navigate = useNavigate();
+
+  // The create BottomSheet traps focus but leaves close-side restoration to the
+  // caller (web-rule 264/247), so refocus the "+" trigger when the sheet closes —
+  // otherwise focus falls to <body> (WCAG 2.4.3 / #1996).
+  const createTriggerRef = useRef<HTMLButtonElement>(null);
+  const wasCreating = useRef(false);
+  useEffect(() => {
+    if (wasCreating.current && !url.isNew) createTriggerRef.current?.focus();
+    wasCreating.current = url.isNew;
+  }, [url.isNew]);
 
   const typeOptions: FacetOption[] = BACKLOG_ITEM_TYPES.map((t) => ({
     value: t,
@@ -107,10 +119,11 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
         </div>
         {canEdit && (
           <button
+            ref={createTriggerRef}
             type="button"
             onClick={url.openCreate}
             aria-label="New backlog item"
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-primary text-white ${FOCUS_RING}`}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-primary text-neutral-text-inverse md:h-8 md:w-8 ${FOCUS_RING}`}
           >
             <PlusIcon aria-hidden="true" className="h-4 w-4" />
           </button>
@@ -118,7 +131,10 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
       </header>
 
       {isEmpty ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+        <div
+          role="status"
+          className="flex flex-1 flex-col items-center justify-center px-6 text-center"
+        >
           <h2 className="text-base font-semibold text-neutral-text-primary">
             The program backlog is empty
           </h2>
@@ -243,7 +259,15 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
               })
             }
             onPull={() => url.openPull(selectedItem.id)}
-            onOpenLinkedTask={url.closeDetail}
+            onOpenLinkedTask={() => {
+              // Deep-link to the created task (#1994), matching the desktop pane —
+              // previously this only closed the sheet, stranding the user.
+              const link = selectedItem.pulledTo;
+              if (link?.projectId && link.taskId) {
+                url.closeDetail();
+                void navigate(`/projects/${link.projectId}/tasks/${link.taskId}`);
+              }
+            }}
           />
         )}
       </BottomSheet>
