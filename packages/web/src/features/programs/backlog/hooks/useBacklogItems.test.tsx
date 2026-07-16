@@ -42,6 +42,8 @@ function apiItem(overrides: Partial<ApiBacklogItem> = {}): ApiBacklogItem {
     priority_rank: 2,
     story_points: 5,
     pulled_task: null,
+    pulled_task_project_id: null,
+    pulled_task_project_name: null,
     pulled_at: null,
     pulled_by: null,
     created_by: null,

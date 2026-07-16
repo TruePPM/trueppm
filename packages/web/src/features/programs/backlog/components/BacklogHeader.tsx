@@ -1,16 +1,17 @@
 /**
  * Program-backlog page header — eyebrow (program name), title, and the primary
- * Create action. Create requires edit rights; for viewers the button renders
- * disabled with an explanatory tooltip rather than disappearing (01-page-layout
- * RBAC: "don't hide"). The "Import CSV" action is hidden until CSV import ships
- * (#1045/#746) — a visible "coming soon" dead-end on a primary action signals
- * incompleteness on a new surface.
+ * Create action. Create requires edit rights; for viewers the button is hidden
+ * entirely so the treatment stays consistent with the empty states
+ * (EmptyBacklog / DetailEmpty also hide their CTA for viewers — #1996 ux-review
+ * §6.1). The "Import CSV" action is hidden until CSV import ships (#1045/#746) —
+ * a visible "coming soon" dead-end on a primary action signals incompleteness on
+ * a new surface.
  */
 
 import type { Program } from '@/api/types';
+import { Button } from '@/components/Button';
 import { PlusIcon } from '@/components/Icons';
 import { ProgramIdentitySquare } from '@/features/programs/ProgramIdentitySquare';
-import { BTN_PRIMARY } from './styles';
 
 interface BacklogHeaderProps {
   programName: string | undefined;
@@ -19,8 +20,6 @@ interface BacklogHeaderProps {
   canEdit: boolean;
   onCreate: () => void;
 }
-
-const NO_EDIT_TOOLTIP = 'Editing the backlog requires Admin role';
 
 export function BacklogHeader({ programName, program, canEdit, onCreate }: BacklogHeaderProps) {
   return (
@@ -39,16 +38,12 @@ export function BacklogHeader({ programName, program, canEdit, onCreate }: Backl
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className={BTN_PRIMARY}
-          onClick={onCreate}
-          disabled={!canEdit}
-          title={canEdit ? undefined : NO_EDIT_TOOLTIP}
-        >
-          <PlusIcon aria-hidden="true" className="h-3.5 w-3.5" />
-          New item
-        </button>
+        {canEdit && (
+          <Button variant="primary" onClick={onCreate}>
+            <PlusIcon aria-hidden="true" className="h-3.5 w-3.5" />
+            New item
+          </Button>
+        )}
       </div>
     </header>
   );

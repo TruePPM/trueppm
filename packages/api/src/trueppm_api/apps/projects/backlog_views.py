@@ -99,7 +99,11 @@ class BacklogItemViewSet(
         """
         program_pk = str(self.kwargs["program_pk"])
         qs = BacklogItem.objects.filter(program_id=program_pk, is_deleted=False).select_related(
-            "pulled_task", "created_by", "pulled_by"
+            # pulled_task__project powers the serializer's pulled_task_project_*
+            # wayfinding fields (#1994) without an extra query per pulled row.
+            "pulled_task__project",
+            "created_by",
+            "pulled_by",
         )
 
         if self.action != "list":
@@ -221,11 +225,12 @@ class BacklogItemViewSet(
         except BacklogItemNotPullable as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
-        # Re-fetch with the FK joins the serializer reads (pulled_task/by,
-        # created_by) so the pull response doesn't fire lazy per-FK queries.
-        item = BacklogItem.objects.select_related("pulled_task", "created_by", "pulled_by").get(
-            pk=pk
-        )
+        # Re-fetch with the FK joins the serializer reads (pulled_task__project,
+        # created_by, pulled_by) so the pull response doesn't fire lazy per-FK
+        # queries — including the pulled_task_project_* wayfinding fields (#1994).
+        item = BacklogItem.objects.select_related(
+            "pulled_task__project", "created_by", "pulled_by"
+        ).get(pk=pk)
         return Response(
             {
                 "task": TaskSerializer(task).data,

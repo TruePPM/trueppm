@@ -9,10 +9,12 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/Button';
 import { CloseIcon } from '@/components/Icons';
 import type { BacklogItem, MemberProject } from '../types';
 import { ProjectPickerRadioList } from './ProjectPickerRadioList';
-import { BTN_GHOST, BTN_PRIMARY, FOCUS_RING } from './styles';
+import { PullEffectList } from './PullEffectList';
+import { BTN_GHOST, FOCUS_RING } from './styles';
 
 interface DetailPullConfirmProps {
   item: BacklogItem;
@@ -67,7 +69,7 @@ export function DetailPullConfirm({
           <span className="truncate text-[13px] font-semibold text-neutral-text-primary">
             {item.title}
           </span>
-          <span className="tppm-mono shrink-0 text-xs text-neutral-text-disabled">{item.id}</span>
+          <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">{item.id}</span>
         </div>
         <button
           type="button"
@@ -103,12 +105,7 @@ export function DetailPullConfirm({
               <div className="text-xs font-semibold text-neutral-text-primary">
                 What will happen
               </div>
-              <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-neutral-text-secondary">
-                <li>• This item becomes Pulled</li>
-                <li>• New task in {selected ? `${selected.name}'s` : 'the project'} backlog</li>
-                <li>• Title, description, story points, tags, and type are copied over</li>
-                <li>• Closing the task closes this item</li>
-              </ul>
+              <PullEffectList projectName={selected?.name ?? null} className="mt-1.5" />
             </div>
           </>
         ) : (
@@ -116,9 +113,9 @@ export function DetailPullConfirm({
             <p className="text-xs text-neutral-text-secondary">
               This program has no projects yet. Add a project to enable pulling.
             </p>
-            <button type="button" className={`${BTN_PRIMARY} mt-3`} onClick={onAddProject}>
+            <Button variant="primary" className="mt-3" onClick={onAddProject}>
               Add a project →
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -128,9 +125,9 @@ export function DetailPullConfirm({
         <button type="button" className={BTN_GHOST} onClick={onCancel}>
           Cancel
         </button>
-        <button type="button" className={BTN_PRIMARY} onClick={confirm} disabled={!selected}>
+        <Button variant="primary" onClick={confirm} disabled={!selected}>
           {selected ? `Pull to ${selected.name}` : 'Pull to project'}
-        </button>
+        </Button>
       </div>
     </div>
   );

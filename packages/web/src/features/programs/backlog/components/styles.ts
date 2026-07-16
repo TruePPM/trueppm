@@ -4,9 +4,24 @@
  * element (the design system's 2px brand-primary ring, AA-compliant).
  */
 
-/** Standard keyboard focus ring — matches the app-wide `.focus-visible` style. */
+/**
+ * Standard keyboard focus ring for standalone interactive controls (buttons,
+ * radios, list rows). Uses `focus:` — NOT `focus-visible:` — because
+ * `focus-visible:` withholds the ring on pointer-driven focus in Firefox and
+ * desktop Safari (web-rule 214). The export name is kept as `FOCUS_RING` (only
+ * the value changed) because other modules import it by this name.
+ */
 export const FOCUS_RING =
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
+  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1';
+
+/**
+ * Focus ring for a bordered field WRAPPER that contains an `<input>` (or for a
+ * bare input/select/textarea). `focus-within:` so the ring surfaces when the
+ * inner control is focused, per web-rule 157 (a wrapper's `focus-visible:`
+ * never fires on a descendant's focus, leaving the field with no indicator).
+ */
+export const FOCUS_RING_INPUT =
+  'focus-within:outline-none focus-within:ring-2 focus-within:ring-brand-primary focus-within:ring-offset-1';
 
 /** Shared list grid template (# · Type · Title · Status · action), applied to
  *  both the column header and every row so they stay aligned. (The API has no
@@ -18,7 +33,7 @@ export const LIST_GRID = 'grid-cols-[20px_60px_1fr_140px_84px]';
 export const INPUT_BASE =
   'w-full rounded-control border border-neutral-border bg-neutral-surface px-2 text-xs text-neutral-text-primary ' +
   'placeholder:text-neutral-text-secondary ' +
-  FOCUS_RING;
+  FOCUS_RING_INPUT;
 
 /** Primary (brand-fill) button. */
 export const BTN_PRIMARY =

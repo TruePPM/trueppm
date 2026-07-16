@@ -5,8 +5,8 @@
  * invitation copy still orients read-only users.
  */
 
-import { ListIcon } from '@/components/Icons';
-import { BTN_PRIMARY } from './styles';
+import { Button } from '@/components/Button';
+import { ListIcon, PlusIcon } from '@/components/Icons';
 
 interface DetailEmptyProps {
   canEdit: boolean;
@@ -15,7 +15,10 @@ interface DetailEmptyProps {
 
 export function DetailEmpty({ canEdit, onCreate }: DetailEmptyProps) {
   return (
-    <div className="flex h-full flex-col items-center justify-center bg-neutral-surface-sunken px-6 text-center">
+    <div
+      role="status"
+      className="flex h-full flex-col items-center justify-center bg-neutral-surface-sunken px-6 text-center"
+    >
       <div className="flex h-12 w-12 items-center justify-center rounded-full border border-neutral-border bg-neutral-surface text-neutral-text-secondary">
         <ListIcon aria-hidden="true" className="h-5 w-5" />
       </div>
@@ -24,9 +27,10 @@ export function DetailEmpty({ canEdit, onCreate }: DetailEmptyProps) {
         Pick an item from the list to view its details, or create a new program backlog item.
       </p>
       {canEdit && (
-        <button type="button" className={`${BTN_PRIMARY} mt-4`} onClick={onCreate}>
-          + New item
-        </button>
+        <Button variant="primary" className="mt-4" onClick={onCreate}>
+          <PlusIcon aria-hidden="true" className="h-3.5 w-3.5" />
+          New item
+        </Button>
       )}
     </div>
   );

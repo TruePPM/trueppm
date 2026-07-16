@@ -34,10 +34,15 @@ import { useBacklogUrlState, type BacklogUrlState } from './useBacklogUrlState';
  *  hard delete requires Owner. UI affordances only — server enforcement lands
  *  with #737. */
 const SUCCESS_TOAST_MS = 4000;
+// A pull toast now offers a "Go to task" hop (#1994), so it lingers longer than a
+// bare confirmation — long enough to read and click before it auto-dismisses.
+const PULL_TOAST_MS = 8000;
 
 export type BacklogToast =
   | { kind: 'error'; item: BacklogItem; project: MemberProject; message: string; offline: boolean }
-  | { kind: 'success'; message: string }
+  // projectId is known the instant the pull starts (the user picked it); taskId
+  // is filled in on success so the toast can deep-link to the created task (#1994).
+  | { kind: 'success'; message: string; projectId?: string; taskId?: string }
   | null;
 
 function errorMessage(error: unknown): string {
@@ -149,8 +154,9 @@ export function useBacklogController(
     (item: BacklogItem, project: MemberProject) => {
       clearTimers();
       // The pull commits immediately and there is no un-pull endpoint, so this
-      // is a confirmation (auto-dismiss), not an undo.
-      setToast({ kind: 'success', message: `Pulled to ${project.name}.` });
+      // is a confirmation (auto-dismiss), not an undo. projectId is set now so the
+      // toast can offer wayfinding; taskId is patched in on success (#1994).
+      setToast({ kind: 'success', message: `Pulled to ${project.name}.`, projectId: project.id });
       setPendingPullItemId(item.id);
       setLiveMessage(`Pulled ${item.title} to ${project.name}.`);
       // Leaving pull mode in the URL returns the right pane to the item view.
@@ -158,13 +164,19 @@ export function useBacklogController(
 
       successTimer.current = setTimeout(
         () => setToast((prev) => (prev?.kind === 'success' ? null : prev)),
-        SUCCESS_TOAST_MS,
+        PULL_TOAST_MS,
       );
 
       pull.pull(
         { item, project },
         {
-          onSuccess: () => setPendingPullItemId(null),
+          onSuccess: (result) => {
+            setPendingPullItemId(null);
+            // Attach the created task id so "Go to task" can deep-link (#1994).
+            setToast((prev) =>
+              prev?.kind === 'success' ? { ...prev, taskId: result.taskId } : prev,
+            );
+          },
           onError: (error) => {
             clearTimers();
             setPendingPullItemId(null);

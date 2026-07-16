@@ -62,6 +62,8 @@ function apiItem(
     priority_rank: i,
     story_points: null,
     pulled_task: status === 'pulled' ? `task-${i}` : null,
+    pulled_task_project_id: status === 'pulled' ? PROJECTS[0].id : null,
+    pulled_task_project_name: status === 'pulled' ? PROJECTS[0].name : null,
     pulled_at: status === 'pulled' ? '2026-05-23T00:00:00Z' : null,
     pulled_by: null,
     created_by: ME_ID,
@@ -189,8 +191,11 @@ test.describe('Program backlog', () => {
     await page.getByRole('radio', { name: /Avionics/ }).click();
     await page.getByRole('button', { name: 'Pull to Avionics' }).click();
 
-    // Confirmation toast.
+    // Confirmation toast, with a deep-link to the created task (#1994).
     await expect(page.getByText('Pulled to Avionics.')).toBeVisible();
+    const goToTask = page.getByRole('link', { name: 'Go to task' });
+    await expect(goToTask).toBeVisible();
+    await expect(goToTask).toHaveAttribute('href', '/projects/proj-avionics/tasks/task-new');
   });
 
   test('no-results state offers recovery', async ({ page }) => {

@@ -4,7 +4,7 @@
  * and the whole row is the target. `tall` bumps the row height for touch.
  */
 
-import type { KeyboardEvent } from 'react';
+import { useRef, type KeyboardEvent } from 'react';
 import type { MemberProject } from '../types';
 import { FOCUS_RING } from './styles';
 
@@ -24,16 +24,28 @@ export function ProjectPickerRadioList({
   onSubmit,
   tall = false,
 }: ProjectPickerRadioListProps) {
+  // Roving-tabindex: arrow keys must move DOM focus onto the newly-selected
+  // radio, not merely flip `aria-checked`/`tabIndex` — otherwise the next Tab
+  // escapes the group (web-rule 167, WCAG 2.1.1). We hold a ref per option and
+  // focus it on arrow nav; arrow = focus move + select, never a side effect
+  // beyond selection.
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  function moveTo(nextIndex: number) {
+    const next = projects[nextIndex];
+    if (!next) return;
+    onChange(next.id);
+    btnRefs.current[nextIndex]?.focus();
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     const index = projects.findIndex((p) => p.id === value);
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      const next = projects[Math.min(index + 1, projects.length - 1)] ?? projects[0];
-      if (next) onChange(next.id);
+      moveTo(index < 0 ? 0 : Math.min(index + 1, projects.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      const prev = projects[Math.max(index - 1, 0)] ?? projects[0];
-      if (prev) onChange(prev.id);
+      moveTo(index < 0 ? 0 : Math.max(index - 1, 0));
     } else if (e.key === 'Enter' && value) {
       e.preventDefault();
       onSubmit?.();
@@ -51,6 +63,9 @@ export function ProjectPickerRadioList({
         return (
           <button
             key={project.id}
+            ref={(el) => {
+              btnRefs.current[index] = el;
+            }}
             type="button"
             role="radio"
             aria-checked={selected}

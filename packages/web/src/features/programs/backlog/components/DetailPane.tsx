@@ -81,7 +81,13 @@ export function DetailPane({ controller }: DetailPaneProps) {
         }
         onPull={() => url.openPull(selectedItem.id)}
         onOpenLinkedTask={() => {
-          if (selectedItem.pulledTo) void navigate(`/projects/${selectedItem.pulledTo.projectId}`);
+          // Deep-link to the created task itself, not just its project root, so a
+          // "Go to task" hop lands where the item went (#1994). Both ids now
+          // survive a reload (serializer pulled_task_project_id + pulled_task).
+          const link = selectedItem.pulledTo;
+          if (link?.projectId && link.taskId) {
+            void navigate(`/projects/${link.projectId}/tasks/${link.taskId}`);
+          }
         }}
       />
     );

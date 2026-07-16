@@ -38676,7 +38676,7 @@
             },
             "BacklogItem": {
                 "type": "object",
-                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.\n\n``pulled_task_project_*`` expose where a PULLED item landed (#1994): the list\nserializer returned only the task *id*, so the web client knew the project\nonly optimistically (from the pull the user just performed) and lost it after\na reload — the \"Pulled\" row could no longer say where the item went, and no\ndeep-link to the created task was reconstructable. These read-only fields\ncarry the target project id + name so wayfinding survives a refetch. Both are\n``None`` for a not-yet-pulled item (DRF short-circuits the source traversal\nwhen ``pulled_task`` is ``None``); ``get_queryset`` select_relates\n``pulled_task__project`` so they cost no extra query.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -38724,6 +38724,17 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "pulled_task_project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "pulled_task_project_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "pulled_at": {
                         "type": "string",
                         "format": "date-time",
@@ -38759,6 +38770,8 @@
                     "pulled_at",
                     "pulled_by",
                     "pulled_task",
+                    "pulled_task_project_id",
+                    "pulled_task_project_name",
                     "server_version",
                     "title",
                     "updated_at"
@@ -38766,7 +38779,7 @@
             },
             "BacklogItemRequest": {
                 "type": "object",
-                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.\n\n``pulled_task_project_*`` expose where a PULLED item landed (#1994): the list\nserializer returned only the task *id*, so the web client knew the project\nonly optimistically (from the pull the user just performed) and lost it after\na reload — the \"Pulled\" row could no longer say where the item went, and no\ndeep-link to the created task was reconstructable. These read-only fields\ncarry the target project id + name so wayfinding survives a refetch. Both are\n``None`` for a not-yet-pulled item (DRF short-circuits the source traversal\nwhen ``pulled_task`` is ``None``); ``get_queryset`` select_relates\n``pulled_task__project`` so they cost no extra query.",
                 "properties": {
                     "title": {
                         "type": "string",
@@ -44280,7 +44293,7 @@
             },
             "PatchedBacklogItemRequest": {
                 "type": "object",
-                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.\n\n``pulled_task_project_*`` expose where a PULLED item landed (#1994): the list\nserializer returned only the task *id*, so the web client knew the project\nonly optimistically (from the pull the user just performed) and lost it after\na reload — the \"Pulled\" row could no longer say where the item went, and no\ndeep-link to the created task was reconstructable. These read-only fields\ncarry the target project id + name so wayfinding survives a refetch. Both are\n``None`` for a not-yet-pulled item (DRF short-circuits the source traversal\nwhen ``pulled_task`` is ``None``); ``get_queryset`` select_relates\n``pulled_task__project`` so they cost no extra query.",
                 "properties": {
                     "title": {
                         "type": "string",

@@ -2149,7 +2149,27 @@ class BacklogItemSerializer(serializers.ModelSerializer[BacklogItem]):
     un-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct
     set to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.
     ``tags`` is a free-form list of short strings.
+
+    ``pulled_task_project_*`` expose where a PULLED item landed (#1994): the list
+    serializer returned only the task *id*, so the web client knew the project
+    only optimistically (from the pull the user just performed) and lost it after
+    a reload — the "Pulled" row could no longer say where the item went, and no
+    deep-link to the created task was reconstructable. These read-only fields
+    carry the target project id + name so wayfinding survives a refetch. Both are
+    ``None`` for a not-yet-pulled item (DRF short-circuits the source traversal
+    when ``pulled_task`` is ``None``); ``get_queryset`` select_relates
+    ``pulled_task__project`` so they cost no extra query.
     """
+
+    # allow_null so a not-yet-pulled item (pulled_task is None) serializes these
+    # as ``null`` rather than DRF dropping the keys via SkipField — the web client
+    # expects both keys present on every row (null until pulled).
+    pulled_task_project_id = serializers.UUIDField(
+        source="pulled_task.project_id", read_only=True, allow_null=True
+    )
+    pulled_task_project_name = serializers.CharField(
+        source="pulled_task.project.name", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = BacklogItem
@@ -2165,6 +2185,8 @@ class BacklogItemSerializer(serializers.ModelSerializer[BacklogItem]):
             "priority_rank",
             "story_points",
             "pulled_task",
+            "pulled_task_project_id",
+            "pulled_task_project_name",
             "pulled_at",
             "pulled_by",
             "created_by",
@@ -2176,6 +2198,8 @@ class BacklogItemSerializer(serializers.ModelSerializer[BacklogItem]):
             "server_version",
             "program",
             "pulled_task",
+            "pulled_task_project_id",
+            "pulled_task_project_name",
             "pulled_at",
             "pulled_by",
             "created_by",

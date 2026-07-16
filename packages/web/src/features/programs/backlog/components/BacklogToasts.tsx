@@ -1,8 +1,11 @@
 /**
  * Bottom-center toast stack for the pull flow (05-states).
  *
- * - undo:    "Pulled to X · Undo" — auto-dismisses after the 8s window.
- * - success: transient confirmation (undo done / retry ok) — 4s.
+ * - success: pull confirmation "Pulled to X." — auto-dismisses; once the pull
+ *            resolves it offers a "Go to task" deep-link to the created task so
+ *            the user can verify where the item went (#1994). No undo — there is
+ *            no un-pull endpoint (a pulled task is corrected by deleting it,
+ *            which resets the item to Proposed server-side).
  * - error:   critical-bordered, does NOT auto-dismiss; offers Details + Retry.
  *
  * The error toast is `role="alert"` so it's announced immediately; the others
@@ -10,6 +13,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { CloseIcon, WarningIcon } from '@/components/Icons';
 import type { BacklogController } from '../hooks/useBacklogController';
 import { FOCUS_RING } from './styles';
@@ -83,6 +87,12 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
     );
   }
 
+  // A pull success can deep-link to the task it created once the id is known.
+  const goToTask =
+    toast.projectId && toast.taskId
+      ? `/projects/${toast.projectId}/tasks/${toast.taskId}`
+      : null;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
       <div
@@ -90,6 +100,15 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
         className="pointer-events-auto flex items-center gap-3 rounded-card bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse border border-neutral-border"
       >
         <span>{toast.message}</span>
+        {goToTask && (
+          <Link
+            to={goToTask}
+            onClick={controller.dismissToast}
+            className={`shrink-0 font-semibold text-neutral-text-inverse underline underline-offset-2 hover:opacity-80 ${FOCUS_RING}`}
+          >
+            Go to task
+          </Link>
+        )}
       </div>
     </div>
   );

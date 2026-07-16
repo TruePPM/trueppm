@@ -19,6 +19,11 @@ export interface ApiBacklogItem {
   priority_rank: number;
   story_points: number | null;
   pulled_task: string | null;
+  // Where a PULLED item landed (#1994) — carried by the serializer so the
+  // "Pulled" destination + a deep-link to the created task survive a reload,
+  // not just the optimistic in-memory pull. Null for a not-yet-pulled item.
+  pulled_task_project_id: string | null;
+  pulled_task_project_name: string | null;
   pulled_at: string | null;
   pulled_by: string | null;
   created_by: string | null;
@@ -53,7 +58,14 @@ export function fromApiItem(raw: ApiBacklogItem): BacklogItem {
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
     pulledTo: raw.pulled_task
-      ? { taskId: raw.pulled_task, at: raw.pulled_at ?? raw.updated_at }
+      ? {
+          taskId: raw.pulled_task,
+          at: raw.pulled_at ?? raw.updated_at,
+          // Reconstructed from the server on every read (#1994), so the
+          // destination + deep-link no longer vanish after a refetch.
+          projectId: raw.pulled_task_project_id ?? undefined,
+          projectName: raw.pulled_task_project_name ?? undefined,
+        }
       : undefined,
   };
 }

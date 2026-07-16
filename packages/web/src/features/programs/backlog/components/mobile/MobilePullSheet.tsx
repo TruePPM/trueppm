@@ -10,6 +10,7 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { CloseIcon } from '@/components/Icons';
 import type { BacklogItem, MemberProject } from '../../types';
 import { ProjectPickerRadioList } from '../ProjectPickerRadioList';
+import { PullEffectList } from '../PullEffectList';
 import { BTN_PRIMARY, FOCUS_RING } from '../styles';
 
 interface MobilePullSheetProps {
@@ -93,12 +94,7 @@ export function MobilePullSheet({
             </button>
           </p>
           {showDetail && (
-            <ul className="mt-1.5 space-y-1 text-xs leading-relaxed text-neutral-text-secondary">
-              <li>• This item becomes Pulled</li>
-              <li>• New task in {selected ? `${selected.name}'s` : 'the project'} backlog</li>
-              <li>• Title, description, story points, tags, and type are copied over</li>
-              <li>• Closing the task closes this item</li>
-            </ul>
+            <PullEffectList projectName={selected?.name ?? null} className="mt-1.5" />
           )}
         </div>
 

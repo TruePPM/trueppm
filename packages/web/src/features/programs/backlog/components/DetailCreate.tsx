@@ -3,14 +3,28 @@
  * is required and auto-focused; everything else has a sensible default. Status
  * is implicit PROPOSED and priority lands at the bottom, so neither is a field.
  * Validation is reveal-on-submit (don't pre-disable Create) per the spec.
+ *
+ * The form collects new information, so it carries the shared unsaved-changes
+ * contract (web-rule 217): a typed-but-unsubmitted draft is guarded on Cancel /
+ * ✕ / desktop-Escape via `useDirtyDraft` + `useUnsavedChangesGuard` +
+ * `UnsavedChangesDialog`, never discarded silently. On mobile the wrapping
+ * `BottomSheet` owns Escape/scrim dismissal, so the desktop-only Escape guard
+ * keys off the viewport tier.
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/Button';
 import { CloseIcon } from '@/components/Icons';
+import {
+  UnsavedChangesDialog,
+  useDirtyDraft,
+  useUnsavedChangesGuard,
+} from '@/components/dialog';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { BACKLOG_ITEM_TYPES, type BacklogItemType } from '../types';
 import type { CreateBacklogItemInput } from '../hooks/useBacklogMutations';
 import { TagInput } from './TagInput';
-import { BTN_GHOST, BTN_PRIMARY, FOCUS_RING, INPUT_BASE } from './styles';
+import { FOCUS_RING, INPUT_BASE } from './styles';
 
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
@@ -22,6 +36,23 @@ const TYPE_LABELS: Record<BacklogItemType, string> = {
   bug: 'Bug',
 };
 
+interface CreateDraft {
+  title: string;
+  itemType: BacklogItemType;
+  /** Raw input string; '' = unestimated. Parsed to a number on submit. */
+  storyPoints: string;
+  description: string;
+  tags: string[];
+}
+
+const EMPTY_DRAFT: CreateDraft = {
+  title: '',
+  itemType: 'story',
+  storyPoints: '',
+  description: '',
+  tags: [],
+};
+
 interface DetailCreateProps {
   tagSuggestions: string[];
   onCancel: () => void;
@@ -29,14 +60,20 @@ interface DetailCreateProps {
 }
 
 export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
-  const [title, setTitle] = useState('');
-  const [itemType, setItemType] = useState<BacklogItemType>('story');
-  const [storyPoints, setStoryPoints] = useState('');
-  const [description, setDescription] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
+  const { draft, setField, dirty } = useDirtyDraft<CreateDraft>(EMPTY_DRAFT);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
+
+  // The wrapping mobile <BottomSheet> already handles Escape/scrim dismissal, so
+  // the desktop pane owns the Escape-to-cancel guard; on mobile it would double
+  // up with the sheet's own listener (web-rule 217 / #1996 item 8).
+  const isDesktop = useBreakpoint() !== 'sm';
+  const { requestClose, guardOpen, keepEditing, discard } = useUnsavedChangesGuard({
+    dirty,
+    onClose: onCancel,
+    escapeToClose: isDesktop,
+  });
 
   // Focus the title on open (programmatic — jsx-a11y forbids the autoFocus prop).
   useEffect(() => {
@@ -44,7 +81,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
   }, []);
 
   async function submit() {
-    if (!title.trim()) {
+    if (!draft.title.trim()) {
       setError('Give the item a title before creating it.');
       return;
     }
@@ -52,13 +89,13 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
     setSubmitting(true);
     try {
       await onCreate({
-        title,
-        itemType,
-        description: description || undefined,
-        tags,
+        title: draft.title,
+        itemType: draft.itemType,
+        description: draft.description || undefined,
+        tags: draft.tags,
         // Empty field → null (unestimated); otherwise the parsed points. The input
         // is number-typed with a 0 floor, so a non-empty value is a valid integer.
-        storyPoints: storyPoints.trim() === '' ? null : Number(storyPoints),
+        storyPoints: draft.storyPoints.trim() === '' ? null : Number(draft.storyPoints),
       });
     } catch {
       setError('Could not create the item. Try again.');
@@ -72,9 +109,9 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         <h2 className="text-sm font-semibold text-neutral-text-primary">New backlog item</h2>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={requestClose}
           aria-label="Cancel"
-          className={`flex h-8 w-8 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken ${FOCUS_RING}`}
+          className={`flex h-11 w-11 items-center justify-center rounded-control text-neutral-text-secondary hover:bg-neutral-surface-sunken md:h-8 md:w-8 ${FOCUS_RING}`}
         >
           <CloseIcon aria-hidden="true" className="h-4 w-4" />
         </button>
@@ -91,8 +128,8 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           <input
             id="backlog-create-title"
             ref={titleRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            value={draft.title}
+            onChange={(e) => setField('title', e.target.value)}
             placeholder="Short, action-oriented title…"
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? 'backlog-create-error' : undefined}
@@ -114,8 +151,8 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           </label>
           <select
             id="backlog-create-type"
-            value={itemType}
-            onChange={(e) => setItemType(e.target.value as BacklogItemType)}
+            value={draft.itemType}
+            onChange={(e) => setField('itemType', e.target.value as BacklogItemType)}
             className={`mt-1 h-8 ${INPUT_BASE}`}
           >
             {BACKLOG_ITEM_TYPES.map((t) => (
@@ -139,8 +176,8 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
             inputMode="numeric"
             min={0}
             step={1}
-            value={storyPoints}
-            onChange={(e) => setStoryPoints(e.target.value)}
+            value={draft.storyPoints}
+            onChange={(e) => setField('storyPoints', e.target.value)}
             placeholder="Optional estimate"
             className={`mt-1 h-8 w-32 ${INPUT_BASE}`}
           />
@@ -155,8 +192,8 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           </label>
           <textarea
             id="backlog-create-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            value={draft.description}
+            onChange={(e) => setField('description', e.target.value)}
             placeholder="What does this item entail?…"
             rows={5}
             className={`mt-1 resize-y py-1.5 ${INPUT_BASE}`}
@@ -169,8 +206,8 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           </span>
           <div className="mt-1">
             <TagInput
-              tags={tags}
-              onChange={setTags}
+              tags={draft.tags}
+              onChange={(next) => setField('tags', next)}
               suggestions={tagSuggestions}
               id="backlog-create-tags"
             />
@@ -183,19 +220,26 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
           Lands as Proposed, ranked at the bottom.
         </span>
         <div className="flex items-center gap-2">
-          <button type="button" className={BTN_GHOST} onClick={onCancel}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="min-h-[44px] md:min-h-0"
+            onClick={requestClose}
+          >
             Cancel
-          </button>
-          <button
-            type="button"
-            className={BTN_PRIMARY}
+          </Button>
+          <Button
+            variant="primary"
+            className="min-h-[44px] md:min-h-0"
             onClick={() => void submit()}
             disabled={submitting}
           >
-            Create item
-          </button>
+            {submitting ? 'Creating…' : 'Create item'}
+          </Button>
         </div>
       </div>
+
+      {guardOpen && <UnsavedChangesDialog onKeepEditing={keepEditing} onDiscard={discard} />}
     </div>
   );
 }

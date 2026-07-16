@@ -421,6 +421,82 @@ def test_pulled_task_is_in_project_backlog_read(
     assert item.title in names
 
 
+# ---------------------------------------------------------------------------
+# #1994 — pull wayfinding: serializer exposes the pulled task's project id + name
+# so the web "Pulled" row + deep-link survive a reload (not just the optimistic
+# in-memory pull).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_pull_response_carries_project_wayfinding(
+    member: object, program: Program, project: Project
+) -> None:
+    """The pull response's backlog_item names the target project (id + name)."""
+    item = _item(program)
+    resp = _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    body = resp.data["backlog_item"]
+    assert str(body["pulled_task_project_id"]) == str(project.pk)
+    assert body["pulled_task_project_name"] == project.name
+
+
+@pytest.mark.django_db
+def test_pulled_item_retains_project_wayfinding_on_reread(
+    member: object, program: Program, project: Project
+) -> None:
+    """A fresh read of a PULLED item still carries the destination (survives reload)."""
+    item = _item(program)
+    _client(member).post(
+        f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+        {"project_id": str(project.pk)},
+        format="json",
+    )
+    resp = _client(member).get(f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/")
+    assert resp.status_code == 200
+    assert str(resp.data["pulled_task_project_id"]) == str(project.pk)
+    assert resp.data["pulled_task_project_name"] == project.name
+
+
+@pytest.mark.django_db
+def test_proposed_item_has_null_project_wayfinding(member: object, program: Program) -> None:
+    """A not-yet-pulled item reports no destination (null, not an error)."""
+    item = _item(program)
+    resp = _client(member).get(f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["pulled_task_project_id"] is None
+    assert resp.data["pulled_task_project_name"] is None
+
+
+@pytest.mark.django_db
+def test_pulled_list_wayfinding_is_not_nplus1(
+    member: object,
+    program: Program,
+    project: Project,
+    django_assert_max_num_queries: Callable[..., Any],
+) -> None:
+    """Rendering the destination for many pulled rows stays a fixed query count
+    (pulled_task__project is select_related, not a per-row lazy join)."""
+    for i in range(4):
+        item = _item(program, title=f"Item {i}")
+        _client(member).post(
+            f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+            {"project_id": str(project.pk)},
+            format="json",
+        )
+    # ?status= (present-but-empty) returns all statuses incl. PULLED rows.
+    with django_assert_max_num_queries(12):
+        resp = _client(member).get(f"/api/v1/programs/{program.pk}/backlog-items/", {"status": ""})
+    assert resp.status_code == 200
+    pulled = [r for r in _list_payload(resp) if r["status"] == "pulled"]
+    assert len(pulled) == 4
+    assert all(r["pulled_task_project_name"] == project.name for r in pulled)
+
+
 @pytest.mark.django_db
 def test_pull_requires_project_membership(
     owner: object, program: Program, project: Project
