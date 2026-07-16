@@ -538,6 +538,26 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                 )
                 opt_days = ml_days = pess_days = None
 
+            # Ordering guard (#2002): even a complete triple is unusable if it
+            # violates optimistic <= most_likely <= pessimistic. The scheduler
+            # engine rejects it (engine._validate_project) and, because the
+            # importer marks estimates accepted, the invalid row would detonate
+            # the first CPM/Monte-Carlo run after import. Drop all three and warn
+            # — mirroring the all-or-none policy above — rather than importing
+            # data that breaks scheduling.
+            if (
+                opt_days is not None
+                and ml_days is not None
+                and pess_days is not None
+                and not opt_days <= ml_days <= pess_days
+            ):
+                project_data.warnings.append(
+                    f"Task '{name}': three-point estimate out of order "
+                    f"(optimistic ≤ most likely ≤ pessimistic required; got "
+                    f"{opt_days} ≤ {ml_days} ≤ {pess_days}), all three values skipped"
+                )
+                opt_days = ml_days = pess_days = None
+
             # Finite-guard + clamp to [0, 100] (#1720): MS Project PercentComplete
             # is 0-100. nan/inf/1e999 (and any out-of-range figure) is rejected/
             # clamped before it reaches progress + EVM math.

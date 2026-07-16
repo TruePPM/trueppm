@@ -144,6 +144,31 @@ def validate_project_span(
         )
 
 
+def three_point_estimates_ordered(
+    optimistic: int | None,
+    most_likely: int | None,
+    pessimistic: int | None,
+) -> bool:
+    """Whether a task's three-point PERT estimates satisfy the engine invariant.
+
+    Returns ``True`` when the triple is either incomplete — at least one value
+    unset, which the scheduler ignores under its all-or-none rule — or fully
+    present and ordered ``optimistic <= most_likely <= pessimistic``. Returns
+    ``False`` only for a *complete* triple that violates the ordering, which is
+    exactly the state ``trueppm_scheduler.engine._validate_project`` rejects at
+    compute time.
+
+    Centralizing the predicate keeps every write boundary consistent with the
+    engine so no ingress can persist a triple the scheduler will later detonate
+    on: an invalid triple in one member-project task fails the whole program's
+    background recompute (#2002). The REST serializer, velocity-suggestion
+    accept, and the MS Project importer all validate through this helper.
+    """
+    if optimistic is None or most_likely is None or pessimistic is None:
+        return True
+    return optimistic <= most_likely <= pessimistic
+
+
 # CPM output fields and sync internals — excluded from history tracking.
 # These are written by the scheduling engine via bulk_update (bypassing signals
 # entirely), but also excluded defensively so any accidental .save() call in a

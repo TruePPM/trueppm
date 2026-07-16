@@ -247,6 +247,37 @@ def test_partial_three_point_is_all_or_none_with_warning() -> None:
     )
 
 
+def test_out_of_order_three_point_is_dropped_with_warning() -> None:
+    """#2002: a complete but mis-ordered triple is dropped, not imported.
+
+    optimistic=9, most_likely=5, pessimistic=3 violates
+    optimistic <= most_likely <= pessimistic. The scheduler engine rejects such a
+    triple at compute time (and the importer would mark it accepted), so the
+    parser drops all three and warns — mirroring the all-or-none policy.
+    """
+    tasks = [
+        {
+            "UID": 1,
+            "Name": "Backwards estimate",
+            "Duration": "PT40H0M0S",
+            "OutlineLevel": 1,
+            "ExtendedAttributes": [
+                _ea(DURATION1_FIELD_ID, "PT72H0M0S"),  # optimistic = 9 days
+                _ea(DURATION2_FIELD_ID, "PT40H0M0S"),  # most_likely = 5 days
+                _ea(DURATION3_FIELD_ID, "PT24H0M0S"),  # pessimistic = 3 days
+            ],
+        }
+    ]
+    data = parse_xml(_pert_xml(pert_defs=_STANDARD_DEFS, tasks=tasks))
+    td = data.tasks[0]
+    assert (
+        td.optimistic_duration_days,
+        td.most_likely_duration_days,
+        td.pessimistic_duration_days,
+    ) == (None, None, None)
+    assert any("Backwards estimate" in w and "out of order" in w for w in data.warnings)
+
+
 def test_milestone_three_point_values_are_dropped() -> None:
     tasks = [
         {
