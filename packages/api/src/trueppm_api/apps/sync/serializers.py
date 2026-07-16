@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     Task,
     TaskRecurrenceRule,
+    TaskRelation,
     TaskSuggestedAssignee,
 )
 from trueppm_api.apps.projects.serializers import CalendarExceptionSerializer
@@ -152,6 +153,29 @@ class SyncDependencySerializer(serializers.ModelSerializer[Dependency]):
     class Meta:
         model = Dependency
         fields = ["id", "server_version", "predecessor", "successor", "dep_type", "lag"]
+
+
+class SyncTaskRelationSerializer(serializers.ModelSerializer[TaskRelation]):
+    """Sync payload for informational TaskRelation links (ADR-0455).
+
+    Pull-only, mirroring :class:`SyncDependencySerializer`: a relation is inert, so
+    the offline store needs only the endpoints, kind, and note plus the delta
+    bookkeeping (``server_version`` / ``is_deleted``) to reconcile. Not writable
+    from the client — it is deliberately absent from the sync-upload
+    WRITABLE_COLLECTIONS, exactly like Dependency.
+    """
+
+    class Meta:
+        model = TaskRelation
+        fields = [
+            "id",
+            "server_version",
+            "source",
+            "target",
+            "relation_type",
+            "note",
+            "is_deleted",
+        ]
 
 
 class SyncMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):

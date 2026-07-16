@@ -346,7 +346,14 @@
           "sprint": "au-sprint-1",
           "delivery_mode": "scrum",
           "governance_class": "flow",
-          "dor": "ready"
+          "dor": "ready",
+          "links": [
+            {
+              "target": "1.2",
+              "link_type": "relates_to",
+              "note": "Rides the same third-party messaging API as push — the vendor-instability risk spans both."
+            }
+          ]
         },
         {
           "wbs_path": "2.5",
@@ -546,6 +553,13 @@
           "dor": "ready",
           "labels": [
             "growth"
+          ],
+          "links": [
+            {
+              "target": "5.2",
+              "link_type": "relates_to",
+              "note": "Referral rewards settle through the payment sheet — align the flows."
+            }
           ]
         },
         {

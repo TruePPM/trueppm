@@ -892,7 +892,14 @@
             "optimistic": 5,
             "most_likely": 7,
             "pessimistic": 13
-          }
+          },
+          "links": [
+            {
+              "target": "bayside-sitework:3.4",
+              "link_type": "relates_to",
+              "note": "Electrical rough-in mobilizes three days ahead of this framing inspection — see the structural gate for the cert date."
+            }
+          ]
         },
         {
           "wbs_path": "1.2",
@@ -958,7 +965,14 @@
             "optimistic": 2,
             "most_likely": 3,
             "pessimistic": 6
-          }
+          },
+          "links": [
+            {
+              "target": "2.5",
+              "link_type": "duplicates",
+              "note": "If the AHJ allows a combined walk, the standalone MEP inspection folds into final handover — dedupe before scheduling."
+            }
+          ]
         },
         {
           "wbs_path": "2",

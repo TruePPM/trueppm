@@ -44,6 +44,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     Task,
     TaskLabel,
+    TaskRelation,
 )
 from trueppm_api.apps.projects.seed.forecast_backfill import backfill_forecast_history
 from trueppm_api.apps.projects.seed.reldates import (
@@ -179,6 +180,7 @@ class _SeedImporter:
             self._link_parent_epics(project_data)
             self._link_sprint_milestones(project_data)
             self._link_task_labels(project_data)
+            self._link_task_relations(project_data["slug"], project_data)
             self._assign_resources(project, project_data)
             self._capture_baselines(project, project_data)
             self._create_risks(project, project_data.get("risks", []), project_data["slug"])
@@ -651,6 +653,34 @@ class _SeedImporter:
                 label = self.labels.get((slug, label_slug))
                 if label is not None:
                     TaskLabel.objects.get_or_create(task=task, label=label)
+
+    def _link_task_relations(self, project_slug: str, data: dict[str, Any]) -> None:
+        """Materialize each task's informational ``links`` as ``TaskRelation`` rows (ADR-0455).
+
+        Runs in Pass B (after all tasks exist) so a relation's ``target`` may resolve
+        to a task in any project of the program — the ADR-0120 D1 envelope. A relation
+        is inert: unlike :meth:`_link_dependencies` it drives no CPM edge, no consent
+        gate, and no schedule recompute, so it is a plain ``create`` (the enclosing
+        program subtree is wiped on re-import, so there is nothing to upsert against).
+        Self-links are skipped defensively — validation (#614) rejects them first and
+        the model's ``task_relation_no_self`` CheckConstraint is the DB backstop.
+        """
+        for task_data in data.get("tasks", []):
+            links = task_data.get("links", [])
+            if not links:
+                continue
+            source = self.tasks[(project_slug, task_data["wbs_path"])]
+            for link in links:
+                target = self._resolve_task_ref(link["target"], project_slug)
+                if target.pk == source.pk:
+                    continue  # inert self-link; rejected by the DB constraint anyway
+                TaskRelation.objects.create(
+                    source=source,
+                    target=target,
+                    relation_type=link["link_type"],
+                    note=link.get("note", ""),
+                    created_by=self.owner,
+                )
 
     def _assign_resources(self, project: Project, data: dict[str, Any]) -> None:
         slug = data["slug"]

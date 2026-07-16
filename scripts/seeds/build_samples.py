@@ -337,6 +337,31 @@ def build_aurora() -> dict:
             }
         )
 
+    # Informational task-to-task relations (ADR-0455): non-scheduling "see also"
+    # cross-references. Authored by story name (resolved to wbs) and attached to
+    # the built task dicts. Kept few and meaningful.
+    aurora_links = {
+        "In-app chat": [
+            {
+                "target": wbs["Push notifications"],
+                "link_type": "relates_to",
+                "note": "Rides the same third-party messaging API as push — the "
+                "vendor-instability risk spans both.",
+            }
+        ],
+        "Referral program": [
+            {
+                "target": wbs["Payment sheet"],
+                "link_type": "relates_to",
+                "note": "Referral rewards settle through the payment sheet — align the flows.",
+            }
+        ],
+    }
+    _by_name = {t["name"]: t for t in tasks if "name" in t}
+    for _src_name, _links in aurora_links.items():
+        if _src_name in _by_name:
+            _by_name[_src_name]["links"] = _links
+
     # --- event timeline ----------------------------------------------------
     # Authored beats layer the human story on top of the synthesizer's status
     # fill: dated reassignments, review rework, standup comments, a mid-sprint
@@ -1128,6 +1153,33 @@ def build_bayside() -> dict:
     bd_deps.append({"predecessor": "2.5", "successor": "3", "dep_type": "FS", "lag": 0})
     bd_deps.append({"predecessor": "2.4", "successor": "3", "dep_type": "FS", "lag": 0})
 
+    # Informational relations (ADR-0455) on the fit-out project — non-scheduling
+    # cross-references. The electrical rough-in points back at the structural gate
+    # it mobilizes against (also a hard cross-project dependency); the standalone
+    # MEP inspection is flagged as a duplicate of the combined final walk.
+    bd_links = {
+        "1.1": [
+            {
+                "target": "bayside-sitework:3.4",
+                "link_type": "relates_to",
+                "note": "Electrical rough-in mobilizes three days ahead of this framing "
+                "inspection — see the structural gate for the cert date.",
+            }
+        ],
+        "1.5": [
+            {
+                "target": "2.5",
+                "link_type": "duplicates",
+                "note": "If the AHJ allows a combined walk, the standalone MEP inspection "
+                "folds into final handover — dedupe before scheduling.",
+            }
+        ],
+    }
+    for _t in bd_tasks:
+        _wl = bd_links.get(_t.get("wbs_path"))
+        if _wl:
+            _t["links"] = _wl
+
     # --- event timeline ----------------------------------------------------
     # Waterfall history across both projects: an inspection-fail-and-rework loop
     # the synthesizer can't produce, a crew reassignment, permit/weather field
@@ -1661,6 +1713,28 @@ def build_helios() -> dict:
         "2.17": ["migration"],  # Data migration run
         "2.18": ["migration"],  # Cutover rehearsal
     }
+    # Informational relations (ADR-0455): non-scheduling "see also" cross-references
+    # between build stories. Kept few and meaningful. wbs -> [{target, link_type, note}].
+    helios_task_links = {
+        # SSO-provisioned identities land on the role-permission model.
+        "2.14": [
+            {
+                "target": "2.6",
+                "link_type": "relates_to",
+                "note": "SSO-provisioned identities map onto the role-permission model — "
+                "design them together.",
+            }
+        ],
+        # The audit log captures the auth events SSO emits.
+        "2.13": [
+            {
+                "target": "2.14",
+                "link_type": "relates_to",
+                "note": "The audit log records the SSO authentication events — align the "
+                "event schema.",
+            }
+        ],
+    }
 
     # Anchor placed inside the active build sprint (#1253): the planning phase and
     # Build Sprint 1 sit in the past, Build Sprint 2 (days 74-87) brackets "today"
@@ -1881,6 +1955,8 @@ def build_helios() -> dict:
             del story["sprint"]
         if f"2.{i}" in helios_task_labels:
             story["labels"] = helios_task_labels[f"2.{i}"]
+        if f"2.{i}" in helios_task_links:
+            story["links"] = helios_task_links[f"2.{i}"]
         tasks.append(story)
     # cross-phase dependency: the data-migration story depends on the planning data-model task
     deps.append({"predecessor": "1.5", "successor": "2.17", "dep_type": "FS", "lag": 0})

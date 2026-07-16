@@ -249,6 +249,12 @@
           "description": "Slugs of project labels (ADR-0400) attached to this task, referencing project.labels.",
           "items": { "$ref": "#/$defs/slug" }
         },
+        "links": {
+          "type": "array",
+          "default": [],
+          "description": "Informational task-to-task relations (ADR-0455) authored on this task as the source, e.g. \"relates to\" / \"blocks\" / \"duplicates\". A relation is a non-scheduling cross-reference — distinct from a CPM `dependency` — so it carries no lag, dep_type, or schedule effect.",
+          "items": { "$ref": "#/$defs/taskRelation" }
+        },
         "assignments": {
           "type": "array",
           "description": "Resource allocations on this task. assignee is the responsible user; assignments are capacity (Resource + units fraction of max_units).",
@@ -276,6 +282,20 @@
           "type": "integer",
           "description": "Calendar days. Positive = delay, negative = lead."
         }
+      }
+    },
+    "taskRelation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "link_type"],
+      "description": "An informational task-to-task cross-reference (ADR-0455), authored on a task's `links` array with that task as the source. `target` is a task ref (bare wbs path for the enclosing project, or \"<project-slug>:<wbs-path>\" for a sibling project in the same program). Distinct from a scheduling `dependency`: inert, no CPM edge, no lag.",
+      "properties": {
+        "target": { "$ref": "#/$defs/taskRef" },
+        "link_type": {
+          "enum": ["relates_to", "blocks", "duplicates"],
+          "description": "RELATES_TO is symmetric; BLOCKS and DUPLICATES are directional (source → target)."
+        },
+        "note": { "type": "string", "maxLength": 280 }
       }
     },
     "sprint": {

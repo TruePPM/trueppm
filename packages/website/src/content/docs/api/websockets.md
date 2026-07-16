@@ -97,6 +97,10 @@ The set is open-ended and grows as features land; current event types include:
   `tasks_reordered`, `tasks_restructured`, `tasks_bulk_mutated`
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
   `dependency_accepted`, `dependency_rejected`
+- **Task relations**: `task_relation_created`, `task_relation_updated`,
+  `task_relation_deleted` (informational relates-to / blocks / duplicates links;
+  payload carries the relation `id`). A cross-project relation fans to both
+  endpoint projects. Inert — no schedule recompute follows.
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`
 - **Baselines**: `baseline_created`, `baseline_activated`, `baseline_deleted`
@@ -200,6 +204,9 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `dependency_updated` | **WS-only** |
 | `dependency_accepted` | **WS-only** |
 | `dependency_rejected` | **WS-only** |
+| `task_relation_created` | **WS-only** |
+| `task_relation_updated` | **WS-only** |
+| `task_relation_deleted` | **WS-only** |
 | `project_created` | `project.created` |
 | `project_updated` | **WS-only** |
 | `project_archived` | **WS-only** |

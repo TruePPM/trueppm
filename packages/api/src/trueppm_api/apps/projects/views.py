@@ -122,6 +122,7 @@ from trueppm_api.apps.projects.models import (
     TaskLabel,
     TaskNote,
     TaskRecurrenceRule,
+    TaskRelation,
     TaskStatus,
 )
 from trueppm_api.apps.projects.schema_migrations import (
@@ -187,6 +188,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskLabelChipSerializer,
     TaskNoteSerializer,
     TaskRecurrenceRuleSerializer,
+    TaskRelationSerializer,
     TaskReorderSerializer,
     TaskScopeRollupSerializer,
     TaskSerializer,
@@ -5573,6 +5575,152 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
 
         serializer = self.get_serializer(dependency)
         return Response(serializer.data)
+
+
+class TaskRelationViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRelation]):
+    """CRUD for informational task-to-task relations (ADR-0455).
+
+    A relation (``relates_to`` / ``blocks`` / ``duplicates``) is a cross-reference,
+    NOT a scheduling :class:`Dependency` — it is inert: no CPM effect, no lag, no
+    cycle check, and **no schedule recompute** on write (the one deliberate
+    divergence from :class:`DependencyViewSet`, which recalculates). Endpoints may
+    sit in the same project or in two projects of the same *program* (ADR-0120 D1);
+    cross-*program* is rejected in the serializer.
+
+    Permission shape mirrors ``TaskLabelView`` (annotate-my-own-task): reads need
+    project membership (Viewer+); writes need write authority on the **source**
+    task (Member-may-relate-own, Resource Manager read-only, PM+ any). The write
+    gate is evaluated against the *source task*, not the relation row (which carries
+    no assignee), so the Member-own rule resolves correctly.
+    """
+
+    serializer_class = TaskRelationSerializer
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["relation_type", "created_at"]
+    # Deterministic default so pagination over an unordered queryset can't drift.
+    ordering = ["created_at"]
+    queryset = TaskRelation.objects.select_related(
+        "source", "source__project", "target", "target__project"
+    ).filter(is_deleted=False)
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
+
+    def get_queryset(self) -> QuerySet[TaskRelation]:
+        # A relation is visible to members of EITHER endpoint's project — a
+        # cross-project relation (ADR-0120) must be readable from both sides. The
+        # membership-scoped queryset is the IDOR gate (this viewset is top-level, so
+        # ProjectScopedViewSet's project-FK scoping does not apply — TaskRelation
+        # reaches its project only through the source FK).
+        base = TaskRelation.objects.select_related(
+            "source", "source__project", "target", "target__project"
+        ).filter(is_deleted=False)
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return base.none()
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = base.filter(
+            Q(source__project_id__in=member_project_ids)
+            | Q(target__project_id__in=member_project_ids)
+        )
+        # ?project=<uuid> — the relations owned by that project (source side, which
+        # is the relation's .project_id). Layered on the member scope, so it can
+        # only narrow what the caller may already see.
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(source__project_id=project_id)
+        relation_type = self.request.query_params.get("relation_type")
+        if relation_type:
+            qs = qs.filter(relation_type=relation_type)
+        # ?task=<uuid> — every relation where the task is either endpoint (the task
+        # detail "Relations" panel click-through), covering the derived inverse.
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(Q(source_id=task_id) | Q(target_id=task_id))
+        return qs
+
+    def get_object(self) -> TaskRelation:
+        # Resolve within the membership-scoped queryset (the read IDOR gate), then
+        # authorize writes against the SOURCE task — like TaskLabelView. A relation
+        # has no assignee, so running IsProjectMemberWriteOrOwn against the relation
+        # row would wrongly deny a Member editing a relation on a task they own.
+        # Reads are already gated by the scoped queryset (either endpoint), and a
+        # per-object re-check would wrongly 403 a target-only member of a
+        # cross-project relation whose source project they cannot open.
+        queryset = self.filter_queryset(self.get_queryset())
+        obj = get_object_or_404(queryset, pk=self.kwargs["pk"])
+        if self.request.method not in SAFE_METHODS:
+            self.check_object_permissions(self.request, obj.source)
+        return obj
+
+    def perform_create(self, serializer: BaseSerializer[TaskRelation]) -> None:
+        # DRF skips has_object_permission on create — re-check write authority on
+        # the source task before saving, mirroring DependencyViewSet.perform_create.
+        # The source is always the write side (the annotated task), so this is
+        # unconditional (unlike the cross-project dependency exemption).
+        source = serializer.validated_data.get("source")
+        if source is not None:
+            self.check_object_permissions(self.request, source)
+        instance = serializer.save(created_by=self.request.user)
+        self._broadcast(instance, "task_relation_created")
+
+    def perform_update(self, serializer: BaseSerializer[TaskRelation]) -> None:
+        instance = serializer.save()
+        self._broadcast(instance, "task_relation_updated")
+
+    def perform_destroy(self, instance: TaskRelation) -> None:
+        instance.soft_delete()
+        self._broadcast(instance, "task_relation_deleted")
+
+    def _broadcast(self, instance: TaskRelation, event_type: str) -> None:
+        """Fan the relation event to both endpoint projects on commit.
+
+        A relation is inert, so — unlike DependencyViewSet — there is deliberately
+        NO ``_enqueue_recalculate`` here: the CPM input is unchanged. A cross-project
+        relation broadcasts to each endpoint project so a board open on either side
+        refreshes. Literal event_type strings (one direct ``broadcast_board_event``
+        call per branch) keep the WS freeze-test AST scanner able to register them —
+        see FROZEN_WS_EVENT_TYPES.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        source_pid = str(instance.source.project_id)
+        target_pid = str(instance.target.project_id)
+        rel_id = str(instance.pk)
+        if event_type == "task_relation_created":
+            transaction.on_commit(
+                lambda: broadcast_board_event(source_pid, "task_relation_created", {"id": rel_id})
+            )
+            if target_pid != source_pid:
+                transaction.on_commit(
+                    lambda: broadcast_board_event(
+                        target_pid, "task_relation_created", {"id": rel_id}
+                    )
+                )
+        elif event_type == "task_relation_updated":
+            transaction.on_commit(
+                lambda: broadcast_board_event(source_pid, "task_relation_updated", {"id": rel_id})
+            )
+            if target_pid != source_pid:
+                transaction.on_commit(
+                    lambda: broadcast_board_event(
+                        target_pid, "task_relation_updated", {"id": rel_id}
+                    )
+                )
+        else:
+            transaction.on_commit(
+                lambda: broadcast_board_event(source_pid, "task_relation_deleted", {"id": rel_id})
+            )
+            if target_pid != source_pid:
+                transaction.on_commit(
+                    lambda: broadcast_board_event(
+                        target_pid, "task_relation_deleted", {"id": rel_id}
+                    )
+                )
 
 
 class SlipConflictPagination(pagination.PageNumberPagination):

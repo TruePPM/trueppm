@@ -95,6 +95,7 @@ from trueppm_api.apps.projects.views import (
     TaskNoteViewSet,
     TaskOutdentView,
     TaskRecurrenceRuleViewSet,
+    TaskRelationViewSet,
     TaskReorderView,
     TaskReparentView,
     TaskSyncView,
@@ -107,6 +108,7 @@ router.register(r"projects", ProjectViewSet, basename="project")
 router.register(r"programs", ProgramViewSet, basename="program")
 router.register(r"tasks", TaskViewSet, basename="task")
 router.register(r"dependencies", DependencyViewSet, basename="dependency")
+router.register(r"task-relations", TaskRelationViewSet, basename="task-relation")
 router.register(r"slip-conflicts", CrossProjectSlipConflictViewSet, basename="slip-conflict")
 router.register(r"recurrence-rules", TaskRecurrenceRuleViewSet, basename="recurrence-rule")
 router.register(r"acceptance-criteria", AcceptanceCriterionViewSet, basename="acceptance-criterion")

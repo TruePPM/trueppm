@@ -465,6 +465,13 @@
           "governance_class": "flow",
           "labels": [
             "compliance"
+          ],
+          "links": [
+            {
+              "target": "2.14",
+              "link_type": "relates_to",
+              "note": "The audit log records the SSO authentication events — align the event schema."
+            }
           ]
         },
         {
@@ -482,6 +489,13 @@
           "labels": [
             "integration",
             "compliance"
+          ],
+          "links": [
+            {
+              "target": "2.6",
+              "link_type": "relates_to",
+              "note": "SSO-provisioned identities map onto the role-permission model — design them together."
+            }
           ]
         },
         {

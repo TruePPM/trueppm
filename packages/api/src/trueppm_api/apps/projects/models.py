@@ -2700,6 +2700,100 @@ class Dependency(VersionedModel):
 
 
 # ---------------------------------------------------------------------------
+# TaskRelation (informational task-to-task links)
+# ---------------------------------------------------------------------------
+
+
+class RelationType(models.TextChoices):
+    """Informational task-to-task relationship kinds (ADR-0455).
+
+    Distinct from a scheduling :class:`Dependency`: a relation is a
+    *cross-reference*, never a CPM edge — it does not constrain dates, carries no
+    lag, and cannot form a schedule cycle. ``RELATES_TO`` is symmetric; ``BLOCKS``
+    and ``DUPLICATES`` are directional and render an inverse label ("Blocked by" /
+    "Duplicated by") on the target's side.
+    """
+
+    RELATES_TO = "relates_to", "Relates to"
+    BLOCKS = "blocks", "Blocks"
+    DUPLICATES = "duplicates", "Duplicates"
+
+
+class TaskRelation(VersionedModel):
+    """An informational, non-scheduling cross-reference between two tasks (ADR-0455).
+
+    Extends :class:`VersionedModel` so relation changes/deletions reach the mobile
+    sync delta (pull-only, mirroring :class:`Dependency`). Stored as one directed
+    row; the inverse is derived when a task lists its relations. Endpoints may sit
+    in the same project or in two projects of the same *program* (the ADR-0120 D1
+    envelope); cross-*program* is rejected at the serializer. Because a relation is
+    inert (no CPM effect) there is deliberately NO consent gate and NO schedule
+    recompute — the two differences from Dependency's write path.
+    """
+
+    source = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="relations_out")
+    target = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="relations_in")
+    relation_type = models.CharField(
+        max_length=16, choices=RelationType.choices, default=RelationType.RELATES_TO
+    )
+    note = models.CharField(max_length=280, blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_task_relations",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Tombstone reap age field — mirrors Dependency.deleted_at (registered in
+    # sync/tasks.py so a soft-deleted relation survives the retention grace window).
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_DEPENDENCY)
+
+    class Meta:
+        db_table = "projects_task_relation"
+        constraints = [
+            # One live row per (source, target, type). Partial on is_deleted=False so
+            # a re-create after soft-delete is not blocked by the tombstone.
+            models.UniqueConstraint(
+                fields=["source", "target", "relation_type"],
+                condition=models.Q(is_deleted=False),
+                name="uniq_task_relation_live",
+            ),
+            # Self-link prevention at the DB level (belt-and-braces with the serializer).
+            models.CheckConstraint(
+                condition=~models.Q(source=models.F("target")),
+                name="task_relation_no_self",
+            ),
+        ]
+        indexes = [
+            # Sync delta pull: TaskRelation has no project FK, so the pull joins via
+            # source. Mirrors dep_pred_serverver_idx.
+            models.Index(fields=["source", "server_version"], name="taskrel_source_ver_idx"),
+            # Incoming-relations lookup for GET ?task=<id> (target side of the union).
+            models.Index(fields=["target"], name="taskrel_target_idx"),
+            # Tombstone reap seek — mirrors the Dependency deleted_at reap index.
+            models.Index(fields=["is_deleted", "deleted_at"], name="taskrel_isdel_del_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source_id} {self.relation_type} {self.target_id}"
+
+    @property
+    def project_id(self) -> Any:
+        """The owning project (via the source task) — lets RBAC object-permission
+        helpers reach the project the same way :class:`TaskLabel` does."""
+        return self.source.project_id
+
+    def soft_delete(self) -> None:
+        # Stamp deleted_at so the nightly tombstone reap applies the retention grace
+        # window, exactly as Dependency.soft_delete() does.
+        self.deleted_at = timezone.now()
+        super().soft_delete()
+
+
+# ---------------------------------------------------------------------------
 # Baseline
 # ---------------------------------------------------------------------------
 

@@ -149,7 +149,7 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
     Deferred so the function can be called safely after Django app setup
     completes, avoiding circular imports at module load time.
     """
-    from trueppm_api.apps.projects.models import Dependency, Risk, Sprint, Task
+    from trueppm_api.apps.projects.models import Dependency, Risk, Sprint, Task, TaskRelation
 
     return [
         # Task: deleted_at is stamped in Task.soft_delete() (mirrors Attachment) —
@@ -182,6 +182,18 @@ def _build_registry() -> list[tuple[Any, dict[str, Any], str | None]]:
             {
                 "predecessor__project__is_deleted": False,
                 "predecessor__project__is_archived": False,
+            },
+            "deleted_at",
+        ),
+        # TaskRelation (ADR-0455): no direct project FK — reap via the source task,
+        # mirroring Dependency. deleted_at is stamped in TaskRelation.soft_delete(),
+        # so the same retention grace window keeps a tombstone available long enough
+        # for an offline client to reconnect and receive it.
+        (
+            TaskRelation,
+            {
+                "source__project__is_deleted": False,
+                "source__project__is_archived": False,
             },
             "deleted_at",
         ),

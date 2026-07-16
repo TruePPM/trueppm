@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     Task,
     TaskRecurrenceRule,
+    TaskRelation,
     TaskSuggestedAssignee,
 )
 from trueppm_api.apps.sync.views import ProjectSyncView
@@ -140,6 +141,28 @@ def test_dependency_change_does_not_move_watermark(project: Project) -> None:
 
     # Column unchanged, and still equal to the union (which also ignores the
     # dependency's own server_version).
+    assert _column(project) == before
+    _assert_in_sync(project)
+
+
+@pytest.mark.django_db
+def test_task_relation_change_does_not_move_watermark(project: Project) -> None:
+    """The union tracks relations via the SOURCE task's version (ADR-0455, mirroring
+    Dependency: ``MAX(t.server_version)``, never ``taskrelation.server_version``), so a
+    relation-only change must not move the watermark — there is no receiver. The
+    accepted quirk: a relation-only edit re-delivers under upsert until an
+    accompanying task edit advances the watermark."""
+    a = Task.objects.create(project=project, name="A", duration=1)
+    b = Task.objects.create(project=project, name="B", duration=1)
+    before = _column(project)
+
+    rel = TaskRelation.objects.create(source=a, target=b, relation_type="relates_to")
+    # Even repeated relation-only edits (its own server_version climbs) must not
+    # move the watermark, since the union keys off the source task's version.
+    for i in range(4):
+        rel.note = f"n{i}"
+        rel.save()
+
     assert _column(project) == before
     _assert_in_sync(project)
 

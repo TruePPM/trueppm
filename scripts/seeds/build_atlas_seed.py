@@ -255,6 +255,40 @@ PC_STORY_LABELS = {
     "4.5": ["customer-request"],  # Tax engine — firming-up requirements
     "4.9": ["customer-request"],  # Usage-based invoicing v2
 }
+# Informational task-to-task relations (ADR-0455). Non-scheduling "see also" /
+# dedupe cross-references, distinct from the CPM dependencies below. Kept few and
+# meaningful. wbs -> [{target, link_type, note}].
+PC_STORY_LINKS = {
+    # The cutover hook's human "see also" pointer at its cross-project predecessor
+    # (also a hard FS dependency — the relation is the readable cross-reference).
+    "2.6": [
+        {
+            "target": "migration-tooling:3.2",
+            "link_type": "relates_to",
+            "note": "Gated on the migration team's Performance tuning — the cross-project "
+            "predecessor that must land before this hook can cut over.",
+        }
+    ],
+    # Audit log records the SSO auth events, so the two identity stories reference
+    # each other for context.
+    "1.5": [
+        {
+            "target": "1.1",
+            "link_type": "relates_to",
+            "note": "Audit log captures the authentication events emitted by SSO login.",
+        }
+    ],
+    # A near-duplicate backlog item: the email-sequence work overlaps the core
+    # dunning flow — flagged for dedupe before it is picked up.
+    "4.8": [
+        {
+            "target": "4.4",
+            "link_type": "duplicates",
+            "note": "Email-sequence scope overlaps the dunning flow story — consolidate "
+            "before Sprint 7 pickup.",
+        }
+    ],
+}
 
 # Epic grouping nodes (wbs "1".."5"); stories live beneath them.
 PC_EPICS = [
@@ -438,6 +472,8 @@ def build_platform_core() -> dict:
         )
         if wbs in PC_STORY_LABELS:
             story["labels"] = PC_STORY_LABELS[wbs]
+        if wbs in PC_STORY_LINKS:
+            story["links"] = PC_STORY_LINKS[wbs]
         if wbs == "2.6":
             # Near-infeasible commitment (#372): committed to the ACTIVE sprint
             # but gated by a cross-project FS predecessor — Migration Tooling's
@@ -665,6 +701,18 @@ MT_TASK_LABELS = {
     "5.2": ["cutover", "critical-path"],  # Final cutover
     "5.3": ["cutover"],  # Decommission legacy
 }
+# Informational relations (ADR-0455). The final cutover is the human blocker on
+# the program's public launch — a readable cross-project "blocks" pointer that
+# complements the CPM chain (migration-tooling:6 -> gtm-readiness:3).
+MT_TASK_LINKS = {
+    "5.2": [
+        {
+            "target": "gtm-readiness:3",
+            "link_type": "blocks",
+            "note": "Public launch cannot proceed until the production cutover completes.",
+        }
+    ],
+}
 
 
 def build_migration_tooling() -> dict:
@@ -720,6 +768,8 @@ def build_migration_tooling() -> dict:
                 task["planned_start"] = d(original + slip)
             if wbs in MT_TASK_LABELS:
                 task["labels"] = MT_TASK_LABELS[wbs]
+            if wbs in MT_TASK_LINKS:
+                task["links"] = MT_TASK_LINKS[wbs]
             tasks.append(task)
             # The baseline keeps the ORIGINAL (pre-slip) window.
             baseline_rows.append(

@@ -530,6 +530,13 @@
           "labels": [
             "security",
             "compliance"
+          ],
+          "links": [
+            {
+              "target": "1.1",
+              "link_type": "relates_to",
+              "note": "Audit log captures the authentication events emitted by SSO login."
+            }
           ]
         },
         {
@@ -659,6 +666,13 @@
           "governance_class": "flow",
           "labels": [
             "tech-debt"
+          ],
+          "links": [
+            {
+              "target": "migration-tooling:3.2",
+              "link_type": "relates_to",
+              "note": "Gated on the migration team's Performance tuning — the cross-project predecessor that must land before this hook can cut over."
+            }
           ],
           "notes": "Committed to the active sprint but gated on the migration team's Performance tuning task — a cross-project predecessor whose finish lands after this sprint closes. Demonstrates the dependency-reality at-risk indicator (#372)."
         },
@@ -921,7 +935,14 @@
           "assignee": "tom",
           "sprint": "pc-sprint-7",
           "delivery_mode": "scrum",
-          "governance_class": "flow"
+          "governance_class": "flow",
+          "links": [
+            {
+              "target": "4.4",
+              "link_type": "duplicates",
+              "note": "Email-sequence scope overlaps the dunning flow story — consolidate before Sprint 7 pickup."
+            }
+          ]
         },
         {
           "wbs_path": "4.9",
@@ -1708,6 +1729,13 @@
           "labels": [
             "cutover",
             "critical-path"
+          ],
+          "links": [
+            {
+              "target": "gtm-readiness:3",
+              "link_type": "blocks",
+              "note": "Public launch cannot proceed until the production cutover completes."
+            }
           ]
         },
         {
