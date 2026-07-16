@@ -6,7 +6,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN } from '@/lib/roles';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 
 /**
@@ -111,9 +111,11 @@ export function ProjectMethodologyPage() {
   // SUGGEST here and the picker stays editable. The effective methodology then
   // equals the workspace default regardless of the project's own value.
   const lockedByPolicy = ws?.methodologyOverridePolicy === 'inherit';
-  // Below Admin the picker is read-only too (writes are gated server-side); gate
-  // pessimistically while the role query loads.
-  const canEdit = !lockedByPolicy && role !== null && role >= ROLE_ADMIN;
+  // Below Scheduler the picker is read-only (writes are gated server-side); gate
+  // pessimistically while the role query loads. `methodology` is in the
+  // serializer's `_SCHEDULER_WRITABLE_FIELDS`, so Scheduler+ may change it under
+  // the ADR-0041 role model — the UI must not be stricter than the API (#2019).
+  const canEdit = !lockedByPolicy && role !== null && role >= ROLE_SCHEDULER;
 
   useDirtyForm({
     values: { methodology },

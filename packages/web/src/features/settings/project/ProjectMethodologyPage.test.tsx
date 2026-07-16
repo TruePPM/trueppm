@@ -98,7 +98,25 @@ describe('ProjectMethodologyPage', () => {
     expect(screen.getByRole('radio', { name: /Agile/i, checked: false })).toBeInTheDocument();
   });
 
-  it('renders read-only for a sub-Admin role', () => {
+  it('lets a Scheduler edit the picker — the API grants Scheduler+ (#2019)', async () => {
+    // methodology is in the serializer's _SCHEDULER_WRITABLE_FIELDS, so the UI
+    // must not gate stricter than the API (previously required Admin/300).
+    const user = userEvent.setup();
+    useCurrentUserRole.mockReturnValue({ role: 200, isLoading: false });
+    renderPage();
+
+    const waterfall = screen.getByRole('radio', { name: /Waterfall/i });
+    expect(waterfall).toBeEnabled();
+    await user.click(waterfall);
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith({ methodology: 'WATERFALL' });
+  });
+
+  it('renders read-only for a sub-Scheduler role', () => {
+    // A Member (100) is below Scheduler (200) and still sees a read-only picker.
     useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
     renderPage();
     expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
