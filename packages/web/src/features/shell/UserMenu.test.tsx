@@ -162,6 +162,7 @@ describe('UserMenu', () => {
     expect(items.map((i) => i.textContent)).toEqual([
       'General',
       'Notifications',
+      'Connected accounts',
       'Personal access tokens',
     ]);
   });

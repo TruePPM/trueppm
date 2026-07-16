@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PersonalAccessTokensPage } from './PersonalAccessTokensPage';
 import type { MyApiToken, CreatedMyApiToken } from '@/hooks/useMyApiTokens';
@@ -45,7 +46,11 @@ beforeEach(() => {
 describe('PersonalAccessTokensPage', () => {
   it('renders the empty state and a 0-of-10 cap indicator', () => {
     useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByText(/No personal access tokens yet/i)).toBeInTheDocument();
     expect(screen.getByLabelText('0 of 10 active tokens')).toBeInTheDocument();
   });
@@ -57,7 +62,11 @@ describe('PersonalAccessTokensPage', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByText('Power BI export')).toBeInTheDocument();
     expect(screen.getByText(/tppm_abc/)).toBeInTheDocument();
   });
@@ -70,7 +79,11 @@ describe('PersonalAccessTokensPage', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByRole('button', { name: 'Create token' })).toBeDisabled();
     expect(screen.getByLabelText('10 of 10 active tokens')).toBeInTheDocument();
   });
@@ -84,7 +97,11 @@ describe('PersonalAccessTokensPage', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByRole('button', { name: 'Create token' })).toBeEnabled();
     expect(screen.getByLabelText('9 of 10 active tokens')).toBeInTheDocument();
   });
@@ -97,7 +114,11 @@ describe('PersonalAccessTokensPage', () => {
         opts.onSuccess(created);
       },
     );
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'My token' } });
@@ -115,7 +136,11 @@ describe('PersonalAccessTokensPage', () => {
 
   it('choosing "Read-only for AI assistants" requires an expiry before submit', () => {
     useMyApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Claude' } });
@@ -139,7 +164,11 @@ describe('PersonalAccessTokensPage', () => {
         opts.onSuccess(created);
       },
     );
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }));
     const dialog = screen.getByRole('dialog', { name: /Create personal access token/i });
     fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'Claude' } });
@@ -169,7 +198,11 @@ describe('PersonalAccessTokensPage', () => {
       isError: false,
       refetch: vi.fn(),
     });
-    render(<PersonalAccessTokensPage />);
+    render(
+      <MemoryRouter>
+        <PersonalAccessTokensPage />
+      </MemoryRouter>,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
     const dialog = screen.getByRole('alertdialog');
     expect(dialog).toHaveTextContent('Revoke this token?');

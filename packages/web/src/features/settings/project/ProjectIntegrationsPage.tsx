@@ -30,7 +30,7 @@ export function ProjectIntegrationsPage() {
         subtitle="How this project connects to your stack. Per-user credentials live under User → Connected Accounts."
       />
 
-      <div className="px-6 py-5 space-y-6">
+      <div className="px-6 pb-8 space-y-6">
         <div className="grid gap-4 lg:grid-cols-2">
           <WebhooksManager scope={scope} />
           <ApiTokensManager scope={scope} />

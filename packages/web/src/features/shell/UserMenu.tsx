@@ -134,6 +134,17 @@ function MenuContent({
           Notifications
         </NavLink>
 
+        {/* Connected accounts row (#2023) — kept in the same order as the
+            /me/settings subnav so the two surfaces agree. */}
+        <NavLink
+          to="/me/settings/connected-accounts"
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Connected accounts
+        </NavLink>
+
         {/* Personal access tokens row (issue 648) */}
         <NavLink
           to="/me/settings/api-tokens"

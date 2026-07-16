@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotificationPreferencesPage } from './NotificationPreferencesPage';
 import type { NotificationPreferenceRow } from '@/hooks/useNotificationPreferences';
@@ -77,7 +78,11 @@ describe('NotificationPreferencesPage', () => {
       isLoading: false,
       error: null,
     });
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     const dndSwitch = screen.getByRole('switch', { name: 'Do Not Disturb' });
     expect(dndSwitch.getAttribute('aria-checked')).toBe('false');
     // Truthful helper copy + the safety guarantee are on screen.
@@ -103,7 +108,11 @@ describe('NotificationPreferencesPage', () => {
       isLoading: false,
       error: null,
     });
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     expect(
       screen.getByRole('switch', { name: 'Do Not Disturb' }).getAttribute('aria-checked'),
     ).toBe('true');
@@ -115,7 +124,11 @@ describe('NotificationPreferencesPage', () => {
       isLoading: false,
       error: null,
     });
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     // Desktop + mobile layouts both render in jsdom — use getAllByText.
     expect(screen.getAllByText('When a task is assigned to you').length).toBeGreaterThan(0);
     expect(
@@ -132,7 +145,11 @@ describe('NotificationPreferencesPage', () => {
       isLoading: false,
       error: null,
     });
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     // Exclude the always-present DND switch — this asserts a *matrix* channel toggle.
     const matrixSwitches = screen
       .getAllByRole('switch')
@@ -150,7 +167,11 @@ describe('NotificationPreferencesPage', () => {
       error: null,
     });
     useCurrentUser.mockReturnValue(contributorUser());
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     expect(screen.getByText('Signal-only')).toBeInTheDocument();
     // Matrix is collapsed behind the escape until requested — only the always-on
     // DND switch remains (the matrix channel toggles are hidden).
@@ -173,7 +194,11 @@ describe('NotificationPreferencesPage', () => {
       error: null,
     });
     useCurrentUser.mockReturnValue(adminUser());
-    render(<NotificationPreferencesPage />);
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
     expect(screen.queryByText('Signal-only')).not.toBeInTheDocument();
     expect(screen.getAllByRole('switch').length).toBeGreaterThan(0);
   });
