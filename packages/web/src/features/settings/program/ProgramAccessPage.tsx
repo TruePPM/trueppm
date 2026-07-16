@@ -173,6 +173,11 @@ export function ProgramAccessPage() {
 
   if (!programId) return null;
 
+  // Owner-only by design (#2017), NOT an oversight vs. Admin+ program config.
+  // Changing who is in a program and their roles is a sovereignty decision
+  // (granting/revoking another person's access), distinct from reconfiguring an
+  // already-scoped program. Mirrors the server gate on ProgramMembershipViewSet.
+  // Do not lower this to Admin+ to "match" the other program settings.
   const canManage = program?.my_role === ROLE_OWNER;
   const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
