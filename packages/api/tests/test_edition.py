@@ -37,6 +37,9 @@ class TestEditionEndpoint:
 
     def test_get_only(self) -> None:
         client = APIClient()
-        assert client.post("/api/v1/edition/").status_code == 405
-        assert client.put("/api/v1/edition/").status_code == 405
-        assert client.delete("/api/v1/edition/").status_code == 405
+        post_resp = client.post("/api/v1/edition/")
+        put_resp = client.put("/api/v1/edition/")
+        delete_resp = client.delete("/api/v1/edition/")
+        assert post_resp.status_code == 405
+        assert put_resp.status_code == 405
+        assert delete_resp.status_code == 405
