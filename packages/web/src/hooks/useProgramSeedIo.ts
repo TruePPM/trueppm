@@ -72,6 +72,7 @@ export function useImportProgramSeed(): UseMutationResult<Program, Error, File> 
       form.append('file', file, file.name);
       const res = await apiClient.post<Program>('/programs/import/', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0,
       });
       return res.data;
     },
@@ -171,6 +172,7 @@ export function useExportProgramSeed(): UseMutationResult<void, Error, ExportPro
     mutationFn: async ({ programId, code }) => {
       const res = await apiClient.get(`/programs/${programId}/export/`, {
         responseType: 'blob',
+        timeout: 0,
       });
       const url = URL.createObjectURL(res.data as Blob);
       const anchor = document.createElement('a');
@@ -203,6 +205,7 @@ export function useExportProjectSeed(): UseMutationResult<void, Error, ExportPro
       if (!projectId) throw new Error('projectId is required');
       const res = await apiClient.get(`/projects/${projectId}/export/`, {
         responseType: 'blob',
+        timeout: 0,
       });
       const url = URL.createObjectURL(res.data as Blob);
       const anchor = document.createElement('a');

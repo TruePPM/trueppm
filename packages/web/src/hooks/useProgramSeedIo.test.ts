@@ -123,7 +123,10 @@ describe('useExportProgramSeed download flow', () => {
     result.current.mutate({ programId: 'prog-1', code: 'ATLAS' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(getMock).toHaveBeenCalledWith('/programs/prog-1/export/', { responseType: 'blob' });
+    expect(getMock).toHaveBeenCalledWith('/programs/prog-1/export/', {
+      responseType: 'blob',
+      timeout: 0,
+    });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake');
@@ -170,7 +173,10 @@ describe('useExportProjectSeed download flow (#967)', () => {
     result.current.mutate({ projectId: 'proj-1', code: 'APOLLO' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/export/', { responseType: 'blob' });
+    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/export/', {
+      responseType: 'blob',
+      timeout: 0,
+    });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake');

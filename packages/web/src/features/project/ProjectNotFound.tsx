@@ -1,13 +1,16 @@
 import { Link } from 'react-router';
 
 /**
- * Shown by {@link ProjectShell} when the project record 404s — the project was
- * deleted, or the URL is stale/wrong (#1111).
+ * Shown by {@link ProjectShell} when the project record is unavailable — it was
+ * deleted, the URL is stale/wrong (#1111), or the caller lost access to it (a
+ * revoked membership, or a bookmark to a project they were removed from, #2040).
  *
- * Before #1111 a soft-deleted project still resolved on its API endpoints, so
- * the old URL rendered an empty "zombie" overview shell with placeholder dashes.
- * The deleted project now 404s server-side; this surfaces that honestly instead
- * of a blank dashboard, and points the user back to their projects.
+ * These cases are indistinguishable at the API boundary: the detail endpoint is
+ * queryset-scoped to the caller's memberships, so both a deleted project and one
+ * the caller can no longer see 404 identically. The copy therefore hedges across
+ * "deleted or no access" rather than asserting a cause it cannot know — surfacing
+ * an honest terminal state (with a way home) instead of a retry treadmill against
+ * a resource that will never load.
  */
 export function ProjectNotFound() {
   return (
@@ -22,8 +25,8 @@ export function ProjectNotFound() {
         This project isn&rsquo;t available
       </h2>
       <p className="text-sm text-neutral-text-secondary max-w-md">
-        It may have been deleted, or the link is out of date. Deleted projects are
-        removed from this view along with their tasks.
+        It may have been deleted, the link is out of date, or you no longer have access to it. If
+        you expected to see this project, ask a project owner to re-add you.
       </p>
       <Link
         to="/"

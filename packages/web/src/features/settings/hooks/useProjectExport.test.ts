@@ -106,15 +106,14 @@ describe('downloadProjectExport', () => {
     // jsdom lacks these; stub them for the anchor-download flow.
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = createObjectURL;
     (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = revokeObjectURL;
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const job = { id: 'job-1' } as ProjectExportJob;
     await downloadProjectExport('proj-1', job, 'apollo');
 
     expect(getMock).toHaveBeenCalledWith('/projects/proj-1/export/jobs/job-1/download/', {
       responseType: 'blob',
+      timeout: 0,
     });
     expect(createObjectURL).toHaveBeenCalledWith(blob);
     expect(clickSpy).toHaveBeenCalled();

@@ -46,7 +46,7 @@ describe('useImportMsProject', () => {
     expect(postMock).toHaveBeenCalledWith(
       '/projects/proj-1/import/msproject/',
       expect.any(FormData),
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
     );
     const sentForm = postMock.mock.calls[0][1] as FormData;
     expect((sentForm.get('file') as File).name).toBe('schedule.xml');
@@ -115,6 +115,7 @@ describe('useExportMsProject', () => {
 
     expect(getMock).toHaveBeenCalledWith('/projects/proj-1/export/msproject.xml', {
       responseType: 'blob',
+      timeout: 0,
     });
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(result.current.isExporting).toBe(false);

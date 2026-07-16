@@ -7,6 +7,16 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Bound every request so a stalled response (proxy black-hole, half-open
+  // connection — plausible on the flaky networks this product targets) surfaces
+  // as an error instead of an infinite `role="status"` skeleton (#2051). A
+  // timeout becomes an Axios error → a TanStack Query error → the existing
+  // QueryErrorState retry, rather than a spinner that never resolves. Long,
+  // user-initiated import/export and file-upload calls opt out per-request with
+  // an inline `timeout: 0` in their config — a large MSP import, an export
+  // bundle download, or an attachment upload legitimately exceeds this, and a
+  // hang there is already visible via that flow's own progress affordance.
+  timeout: 30_000,
   // Send the httpOnly refresh cookie on same-origin requests so the refresh
   // endpoint receives it (#897). The cookie is Path-scoped to the refresh
   // endpoint, so it is only actually attached to refresh requests.

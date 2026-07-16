@@ -41,7 +41,7 @@ export function useImportMsProject(projectId: string | null | undefined) {
       const res = await apiClient.post<ImportResponse>(
         `/projects/${projectId}/import/msproject/`,
         form,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
     },
@@ -91,7 +91,7 @@ export function useCreateProjectFromImport() {
       const res = await apiClient.post<CreateFromImportResponse>(
         '/projects/import/msproject/',
         form,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 0 },
       );
       return res.data;
     },
@@ -135,17 +135,16 @@ export function useExportMsProject(projectId: string | null | undefined): Export
     setIsExporting(true);
     setError(null);
     try {
-      const res = await apiClient.get<Blob>(
-        `/projects/${projectId}/export/msproject.xml`,
-        { responseType: 'blob' },
-      );
+      const res = await apiClient.get<Blob>(`/projects/${projectId}/export/msproject.xml`, {
+        responseType: 'blob',
+        timeout: 0,
+      });
       const blob = new Blob([res.data], { type: 'application/xml' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download =
-        filenameFromDisposition(res.headers['content-disposition']) ??
-        `project-${projectId}.xml`;
+        filenameFromDisposition(res.headers['content-disposition']) ?? `project-${projectId}.xml`;
       document.body.appendChild(link);
       link.click();
       link.remove();

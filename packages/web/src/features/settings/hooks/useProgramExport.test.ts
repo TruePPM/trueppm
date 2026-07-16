@@ -105,15 +105,14 @@ describe('downloadProgramExport', () => {
     const revokeObjectURL = vi.fn();
     (URL as unknown as { createObjectURL: unknown }).createObjectURL = createObjectURL;
     (URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = revokeObjectURL;
-    const clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {});
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
 
     const job = { id: 'job-1' } as ProgramExportJob;
     await downloadProgramExport('prog-1', job, 'atlas');
 
     expect(getMock).toHaveBeenCalledWith('/programs/prog-1/export/jobs/job-1/download/', {
       responseType: 'blob',
+      timeout: 0,
     });
     expect(createObjectURL).toHaveBeenCalledWith(blob);
     expect(clickSpy).toHaveBeenCalled();

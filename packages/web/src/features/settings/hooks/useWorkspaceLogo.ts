@@ -67,6 +67,7 @@ export function useUploadWorkspaceLogo() {
       body.append('file', file);
       const res = await apiClient.post<WorkspaceSettings>('/workspace/logo/', body, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0,
       });
       return res.data;
     },

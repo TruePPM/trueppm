@@ -19,24 +19,31 @@ import { RecalculatingBadge } from './RecalculatingBadge';
 export function ProjectShell() {
   const projectId = useProjectId() ?? null;
 
-  useProjectWebSocket(projectId);
+  // Gate every project route on the project record: a deleted (or missing)
+  // project 404s server-side (#1111), and losing access mid-session — a revoked
+  // membership, or a bookmark to a project you were removed from — resolves the
+  // same way, because the detail endpoint is queryset-scoped to the caller's
+  // memberships, so a non-member's project falls out of the queryset and 404s
+  // (the object-level 403 never runs). A 403 can still arrive on a future/edge
+  // path, so both are treated as "unavailable" here (#2040). React Query dedupes
+  // this against the same ['project', id] query the tab bar already issues, so it
+  // adds no extra request.
+  const { error: projectError } = useProject(projectId);
+  const status = axios.isAxiosError(projectError) ? projectError.response?.status : undefined;
+  const projectUnavailable = status === 404 || status === 403;
+
+  // Suppress the WebSocket once the project is unavailable: the WS ticket
+  // endpoint 403s for a non-member, so leaving the socket live would spin a dead
+  // reconnect loop against a project the user can no longer reach (#2040).
+  useProjectWebSocket(projectUnavailable ? null : projectId);
 
   // Record a real last-visited ping so the app's landing default lands the user
   // on the project they actually last opened (ADR-0150). Fire-and-forget.
-  useRecordProjectVisit(projectId);
-
-  // Gate every project route on the project record: a deleted (or missing)
-  // project 404s server-side (#1111), and we surface that as a single honest
-  // not-found state rather than letting each child view render an empty shell.
-  // React Query dedupes this against the same ['project', id] query the tab bar
-  // already issues, so it adds no extra request.
-  const { error: projectError } = useProject(projectId);
-  const projectNotFound =
-    axios.isAxiosError(projectError) && projectError.response?.status === 404;
+  useRecordProjectVisit(projectUnavailable ? null : projectId);
 
   const isRecalculating = useSchedulerStore((s) => s.isRecalculating);
 
-  if (projectNotFound) {
+  if (projectUnavailable) {
     return <ProjectNotFound />;
   }
 

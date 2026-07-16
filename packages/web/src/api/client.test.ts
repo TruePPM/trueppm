@@ -53,6 +53,11 @@ describe('apiClient', () => {
     expect(client.defaults.withCredentials).toBe(true);
   });
 
+  it('bounds every request with a 30s timeout so a hang surfaces as an error (#2051)', async () => {
+    const client = await getApiClient();
+    expect(client.defaults.timeout).toBe(30_000);
+  });
+
   describe('request interceptor', () => {
     it('attaches Authorization header when a token is present in the store', async () => {
       useAuthStore.getState().setAccessToken('test-access-token');
@@ -203,7 +208,11 @@ describe('apiClient', () => {
 
       await expect(bootstrapAccessToken()).resolves.toBe(true);
 
-      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/token/refresh/', {}, { withCredentials: true });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/api/v1/auth/token/refresh/',
+        {},
+        { withCredentials: true },
+      );
       expect(useAuthStore.getState().accessToken).toBe('boot-access');
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
     });
