@@ -28,6 +28,18 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 const PROJECT_ID = 'e2e-link-00000000-0000-0000-0000-000000001666';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
 
+// Pin "today" BEFORE the fixture window (bm1/bm2 span Apr 5–16). The Schedule
+// frames its initial viewport on today (rule 81, #2004); with today ahead of the
+// project the framing clamps to scrollLeft 0, so the canvas never scrolls
+// horizontally on mount. That matters because the aria overlay derives each bar's
+// on-screen x from the engine's scroll offset but only re-renders on *vertical*
+// scroll — a horizontal framing scroll would leave the gridcell geometry stale,
+// and the link gesture (read from that geometry) would land on the wrong canvas
+// coordinate. Without a pinned clock the real wall-clock is months past these
+// bars, so framing scrolls right and the drag misses. Noon UTC keeps the
+// browser-local date stable regardless of the runner's timezone.
+const CLOCK = new Date('2026-01-15T12:00:00Z');
+
 const FIXTURE_PROJECTS = [
   {
     id: PROJECT_ID,
@@ -133,6 +145,8 @@ test.describe('Drag-to-link on the Schedule canvas (#1666)', () => {
   test.beforeEach(async ({ page }) => {
     depPostAttempts = 0;
     depPostBody = null;
+    // Pin before any navigation so the Schedule's today-framing is deterministic.
+    await page.clock.setFixedTime(CLOCK);
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, {
