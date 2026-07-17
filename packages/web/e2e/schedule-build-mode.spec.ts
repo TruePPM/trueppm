@@ -383,6 +383,21 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
       }
       return route.fallback();
     });
+
+    // POST /tasks/ → the Undo recreate (parent row only — the honest scope).
+    await page.route('**/api/v1/tasks/', (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { name?: string };
+        const restored = { ...SUBTREE_TASKS[0], id: 'phase-restored', name: body.name };
+        currentTasks.push(restored);
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(restored),
+        });
+      }
+      return route.fallback();
+    });
   });
 
   test('deleting a phase row raises a confirm naming the descendant count', async ({ page }) => {
@@ -399,6 +414,23 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('Delete “Design Phase” and its 2 subtasks?');
+    expect(deleteCount).toBe(0);
+  });
+
+  test('Backspace on a focused phase row also confirms (the CRITICAL one-keypress case)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const phaseRow = page.locator('[data-row-id="phase"]');
+    await expect(phaseRow).toBeVisible();
+    await phaseRow.focus();
+    await page.keyboard.press('Backspace');
+
+    // The keybinding routes through the same guard as the menu — no immediate
+    // destroy; the confirm names the subtree.
+    await expect(page.getByRole('alertdialog')).toContainText(
+      'Delete “Design Phase” and its 2 subtasks?',
+    );
     expect(deleteCount).toBe(0);
   });
 
@@ -432,6 +464,14 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
     const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
     await expect(toast).toContainText('Deleted “Design Phase” and its 2 subtasks');
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
+
+    // Clicking Undo restores the parent row but must NOT claim the subtree came
+    // back — this is the "actively misleading" copy the issue called out.
+    await toast.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(1);
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Restored the row only' }),
+    ).toBeVisible();
   });
 });
 
