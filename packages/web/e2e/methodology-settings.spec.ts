@@ -243,8 +243,11 @@ test.describe('Project methodology', () => {
     const methodology = page.locator('[data-settings-section="methodology"]');
 
     // Methodology is locked read-only by workspace policy (ADR-0133): no disabled
-    // radios — effective value (Waterfall) + provenance instead.
-    await expect(methodology.getByRole('radio')).toHaveCount(0);
+    // radios — effective value (Waterfall) + provenance instead. Scoped to the
+    // methodology picker: the sibling estimation-scale field carries its own
+    // inherit/override radios (independent of the lock, #2027).
+    const methodPicker = methodology.locator('section[aria-labelledby="method-heading"]');
+    await expect(methodPicker.getByRole('radio')).toHaveCount(0);
     await expect(
       methodology.getByLabel('Methodology: Waterfall, locked by workspace policy. View only.'),
     ).toBeVisible();
@@ -277,8 +280,11 @@ test.describe('Project methodology', () => {
     ).toBeVisible();
 
     // The locked picker shows the workspace-resolved value (Waterfall) read-only —
-    // no disabled radios (ADR-0133): effective value + provenance instead.
-    await expect(methodology.getByRole('radio')).toHaveCount(0);
+    // no disabled radios (ADR-0133): effective value + provenance instead. Scoped to
+    // the methodology picker: the sibling estimation-scale field carries its own
+    // inherit/override radios (independent of the lock, #2027).
+    const methodPicker = methodology.locator('section[aria-labelledby="method-heading"]');
+    await expect(methodPicker.getByRole('radio')).toHaveCount(0);
     await expect(
       methodology.getByLabel('Methodology: Waterfall, locked by workspace policy. View only.'),
     ).toBeVisible();
