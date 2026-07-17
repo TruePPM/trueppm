@@ -185,14 +185,18 @@ A feature that **resolves** a tension cleanly (e.g. a notification model that sa
 **Title**: Senior Project Manager, Mid-size Construction Firm (200 employees)
 **Age**: 38 | **Tech comfort**: Moderate (uses MS Project reluctantly, loves mobile apps)
 
-> **Release-window note**: Sarah is a **0.4+/1.0 persona**. Her top evaluation
+> **Release-window note**: Sarah is a **0.6+/1.0 persona**. Her top evaluation
 > criterion and a hard NO both turn on a real native mobile editor that works
-> offline, and native mobile lands in **0.4** (Android phones first; iPhone/iPad
-> parity completes at **1.0**). Until then an honest VoC run returns Sarah 🔴,
-> and that is correct, not a gap to paper over. Weight pre-0.4 runs accordingly:
-> her web-only / no-real-native-mobile hard NO is *expected* to fire, so a 🔴
-> from Sarah before 0.4 is not a signal to rescope a feature — 0.1–0.3 are
-> Alex/Jordan/Priya releases. Treat her score as load-bearing only from 0.4 on.
+> offline. The installable PWA lands in **0.5** and answers her *functional*
+> offline need (add to home screen, time entry and reads with no signal, queued
+> writes on reconnect); the native Android editor lands in **0.6** (phones
+> first; iPhone/iPad parity completes at **1.0** — see #2091 for the 0.5 → 0.6
+> recharter). Until 0.6 an honest VoC run returns Sarah 🔴, and that is
+> correct, not a gap to paper over: her no-real-native-mobile hard NO is
+> *expected* to fire, so a 🔴 from Sarah before 0.6 is not a signal to rescope
+> a feature. From 0.5 the PWA should soften her offline/time-entry criteria
+> even while the native hard NO still fires. Treat her score as load-bearing
+> only from 0.6 on.
 
 **Goals**:
 - Keep projects on schedule and within budget
