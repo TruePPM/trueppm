@@ -221,9 +221,18 @@ class BacklogItemViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
         except CrossProgramPullError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # False positive: domain exception with a curated, client-safe message
+            # (single-program pull boundary, ADR-0069) — no server internals.
+            return Response(
+                {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except BacklogItemNotPullable as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+            # False positive: curated domain message (item no longer PROPOSED).
+            return Response(
+                {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Re-fetch with the FK joins the serializer reads (pulled_task__project,
         # created_by, pulled_by) so the pull response doesn't fire lazy per-FK

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, cast
 
@@ -23,6 +24,8 @@ from .models import (
     WorkspaceEmailSettings,
 )
 from .schema_migrations import SURFACE_PROJECT_NOTIFICATION_MATRIX
+
+logger = logging.getLogger(__name__)
 
 # DKIM selector: a single DNS label component set (letters, digits, dot, dash,
 # underscore), capped to the model's 63-char column. Restricting this prevents
@@ -417,7 +420,16 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
         try:
             assert_url_allowed(value)
         except EgressBlocked as exc:
-            raise serializers.ValidationError(str(exc)) from exc
+            # Return a curated message only. The underlying EgressBlocked can
+            # embed the DNS-resolved address (e.g. "resolves to non-public
+            # address 10.0.0.5"), which would turn this field into an SSRF
+            # oracle for internal network topology — log it server-side, never
+            # echo it to the client (CodeQL py/stack-trace-exposure).
+            logger.info("bounce_webhook_url rejected by egress guard: %s", exc)
+            raise serializers.ValidationError(
+                "This URL is not allowed. Use a public https:// URL that does not "
+                "resolve to an internal or private address."
+            ) from exc
         except EgressError:
             # Fail-open on unresolvable/transient host (see note above); delivery re-checks
             pass
@@ -477,7 +489,19 @@ class WorkspaceEmailSettingsSerializer(serializers.ModelSerializer[WorkspaceEmai
                 password=effective_pw,
             )
         except EmailTransportError as exc:
-            raise serializers.ValidationError({"non_field_errors": [str(exc)]}) from exc
+            # Curated message only — never surface the exception object. The
+            # SSRF-guarded host path can carry the DNS-resolved internal address
+            # (scrubbed from the client at email_backend._assert_host_public);
+            # log the detail server-side (CodeQL py/stack-trace-exposure).
+            logger.info("email transport probe failed (host=%s port=%s): %s", host, port, exc)
+            raise serializers.ValidationError(
+                {
+                    "non_field_errors": [
+                        "Could not connect to the mail server with these settings. "
+                        "Check the host, port, security, and credentials."
+                    ]
+                }
+            ) from exc
 
         return attrs
 

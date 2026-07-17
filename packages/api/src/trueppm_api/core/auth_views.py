@@ -252,8 +252,10 @@ class CookieTokenRefreshView(APIView):
             # only types the Token object form.
             refresh = RefreshToken(raw_token)  # type: ignore[arg-type]
         except TokenError as exc:
+            # False positive: simplejwt's TokenError carries a curated, client-safe
+            # reason ("Token is invalid or expired"), never a trace/path/internal.
             return Response(
-                {"detail": str(exc)},
+                {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 

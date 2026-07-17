@@ -628,7 +628,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 window_end = last if last is not None else window_start
 
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # False positive: the only ValueError raised in this block is the
+            # curated _parse_date message ("'start'/'end' must be ISO 8601 …").
+            return Response(
+                {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if window_start > window_end:
             return Response(
@@ -757,8 +762,12 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         try:
             program = load_sample(key, owner=request.user, create_users=True)
         except UnknownSampleError as exc:
-            # Standardized on the `detail` envelope (#1325).
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # Standardized on the `detail` envelope (#1325). False positive: the
+            # message only echoes the caller's own submitted sample key.
+            return Response(
+                {"detail": str(exc)},  # codeql[py/stack-trace-exposure]
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         landing_project = prepare_sample_for_user(program, request.user)
 
@@ -938,8 +947,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
                 new_lead=new_lead,
             )
         except DjangoValidationError as exc:
+            # False positive: surfaces the service's own curated validation
+            # message (role/membership reason), not a trace or internal.
+            detail = exc.messages[0] if exc.messages else str(exc)
             return Response(
-                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                {"detail": detail},  # codeql[py/stack-trace-exposure]
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1019,8 +1031,11 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         try:
             sub_programs = split_program(program=program, splits=splits, actor=request.user)
         except DjangoValidationError as exc:
+            # False positive: surfaces the service's own curated validation
+            # message (the offending project id is the caller's own input).
+            detail = exc.messages[0] if exc.messages else str(exc)
             return Response(
-                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                {"detail": detail},  # codeql[py/stack-trace-exposure]
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

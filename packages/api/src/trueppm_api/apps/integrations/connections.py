@@ -248,8 +248,14 @@ class ExternalConnectionView(IdempotencyMixin, APIView):
         try:
             providers.assert_base_url_allowed(source, base_url)
         except providers.BaseUrlNotAllowed as exc:
+            # False positive: BaseUrlNotAllowed carries a curated, user-facing
+            # message (#902); the only dynamic part is the caller's own submitted
+            # host, and it is an allow-list decision, not a DNS-resolved address.
             return Response(
-                {"detail": str(exc), "code": "base_url_not_allowed"},
+                {
+                    "detail": str(exc),  # codeql[py/stack-trace-exposure]
+                    "code": "base_url_not_allowed",
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
