@@ -24,10 +24,7 @@ import {
   type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
 import { formatRelative } from '@/lib/formatRelative';
-import {
-  milestoneVarianceAnnotation,
-  varianceToneTextClass,
-} from '@/lib/milestoneVariance';
+import { milestoneVarianceAnnotation, varianceToneTextClass } from '@/lib/milestoneVariance';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { GuardrailNotice } from './sections/GuardrailNotice';
 import { GuardrailBlock } from './sections/GuardrailBlock';
@@ -95,6 +92,12 @@ interface Props {
    * `engine.setHoverChain` so the canvas + task list dim non-chain rows.
    */
   onHoverChange?: (taskId: string | null) => void;
+  /**
+   * True when this row's task is the shared hovered id (from the table *or* the
+   * canvas) — applies a row wash so the table row and its bar read as one unit
+   * (#2096). Distinct from CSS `:hover`, which only fires for direct table hover.
+   */
+  isHovered?: boolean;
   /**
    * Open the dependency picker for this task in the given mode (#477).
    * Lifted to ScheduleView so the modal is a DOM sibling, not embedded in the row.
@@ -189,6 +192,7 @@ function TaskListRowInner({
   nameSuggestions,
   milestoneParents,
   onHoverChange,
+  isHovered = false,
   onAddDependencyRequest,
   siblingNames,
   sourceSprint,
@@ -458,7 +462,15 @@ function TaskListRowInner({
         },
       },
     );
-  }, [projectId, task.id, task.name, task.status, task.isMilestone, toggleComplete, setScheduleError]);
+  }, [
+    projectId,
+    task.id,
+    task.name,
+    task.status,
+    task.isMilestone,
+    toggleComplete,
+    setScheduleError,
+  ]);
 
   // ──────────────────────────────────────────────────────────────────────
   // Duplicate (#477) — frontend-only via POST /tasks/ with `(copy)` suffix,
@@ -646,7 +658,12 @@ function TaskListRowInner({
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
           ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
-          : 'hover:bg-white/5',
+          : // Shared hover wash (#2096) — the `--chrome-row-hover` DS token, which
+            // the canvas rowHover band mirrors pixel-for-pixel, so the table row
+            // and its bar read as one unit; falls back to CSS :hover otherwise.
+            isHovered
+            ? 'bg-chrome-row-hover'
+            : 'hover:bg-chrome-row-hover',
         dimmed ? 'opacity-[0.22] pointer-events-none' : '',
         isStructuralPending ? 'opacity-70 cursor-progress' : '',
       ].join(' ')}
@@ -963,7 +980,11 @@ function TaskListRowInner({
               <RecalcPercentChip
                 prompt={recalcPrompt}
                 onAccept={async (percent) => {
-                  await updateTask.mutateAsync({ id: task.id, projectId, percent_complete: percent });
+                  await updateTask.mutateAsync({
+                    id: task.id,
+                    projectId,
+                    percent_complete: percent,
+                  });
                 }}
                 onDismiss={() => setRecalcPrompt(null)}
               />
@@ -1423,9 +1444,7 @@ function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number 
             ? '0d'
             : `+${variance}d`;
     const varianceLabel =
-      baseVarianceLabel && annotation
-        ? `${baseVarianceLabel} · ${annotation}`
-        : baseVarianceLabel;
+      baseVarianceLabel && annotation ? `${baseVarianceLabel} · ${annotation}` : baseVarianceLabel;
     const varianceClass =
       variance == null || variance === 0
         ? 'text-neutral-text-secondary'

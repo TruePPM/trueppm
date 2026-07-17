@@ -19,7 +19,7 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 A `Grid | Timeline` toggle controls how much of the schedule the view devotes to the table versus the bars:
 
 - **Grid** (default) — the WBS task-list table (WBS, Task, Dur, Start, Finish, %, Owner) sits to the left of the timeline, with a draggable splitter between them.
-- **Timeline** — the task-list table is hidden and the timeline canvas spans the full width. Each bar still carries its task name inline, so rows stay identifiable; switch back to Grid whenever you need the tabular detail.
+- **Timeline** — the task-list table is hidden and the timeline canvas spans the full width. Each bar still carries its task name inline, so rows stay identifiable; switch back to Grid whenever you need the tabular detail. If you prefer the names lined up on the left rather than floating beside each bar, choose **Task names → Aligned left** in the Display menu's Chart section — names then render in a fixed, row-aligned gutter at the canvas edge.
 
 The choice is a per-user view preference saved in your browser, so the Schedule reopens in the layout you last used.
 
@@ -34,6 +34,13 @@ Filters are split into two clusters so they don't read as a "pick one of four" r
 **Render filters** — change which bars draw on the Gantt timeline:
 - **Critical path** — show only critical-path bars + summaries (other tasks render their list row but their bars are hidden).
 - **Milestones** — show only milestone diamonds + summaries.
+
+**Chart** — control what the timeline paints (presentation, not a data filter):
+- **Dependency lines** — show or hide all dependency arrows.
+- **Task names** — place on-bar names **Next to bar** (default), **Aligned left** (the Timeline-mode gutter described above), or **Hidden**.
+- **Progress %** — show or hide the on-bar completion pills.
+
+Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding any Chart element lights the Display trigger's badge so nothing disappears silently, and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.
 
 ## Summary chip
 

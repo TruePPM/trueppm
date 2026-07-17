@@ -85,6 +85,7 @@ function makeCtx(): CanvasRenderingContext2D {
     fillRect: noop(),
     clearRect: noop(),
     fillText: noop(),
+    strokeText: noop(),
     clip: noop(),
     setLineDash: noop(),
     measureText: vi.fn(() => ({ width: 20 }) as TextMetrics),

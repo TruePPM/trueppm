@@ -48,6 +48,7 @@ function makeCtxSpy() {
     stroke: record('stroke'),
     fillRect: record('fillRect'),
     fillText: record('fillText'),
+    strokeText: record('strokeText'),
     measureText: vi.fn(() => ({ width: 20 })),
     setLineDash: record('setLineDash'),
     set fillStyle(v: string) {
@@ -1578,5 +1579,91 @@ describe('forced-colors (Windows High Contrast) palette (#1742)', () => {
     expect(
       fills.some((f) => f === 'CanvasText' || f === 'GrayText' || f === 'Highlight' || f === 'Canvas'),
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #2096 / #2097 — label halo, name gutter, hover-row band, chart options
+// ---------------------------------------------------------------------------
+
+import {
+  drawTaskBarLabel as drawLabel2096,
+  drawTimelineNameGutter,
+  drawHoverRowBand,
+  setRendererChartOptions,
+  NAME_GUTTER_WIDTH,
+} from './GanttRenderer';
+
+const DEFAULT_CHART = {
+  taskNamePlacement: 'next' as const,
+  showProgressPills: true,
+  showNameGutter: false,
+};
+
+describe('drawTaskBarLabel — paper halo + placement gate (#2096/#2097)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  afterEach(() => setRendererChartOptions(DEFAULT_CHART));
+
+  it('strokes a paper-color halo immediately before filling the name', () => {
+    setRendererChartOptions(DEFAULT_CHART);
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'Dry-run migration' });
+    drawLabel2096(ctx, task, 0, scales, 0, VIEWPORT_W);
+    const seq = calls
+      .filter((c) => c.name === 'strokeText' || c.name === 'fillText')
+      .map((c) => c.name);
+    // A strokeText (halo) precedes the fillText (ink) for the name.
+    expect(seq[0]).toBe('strokeText');
+    expect(seq[1]).toBe('fillText');
+  });
+
+  it('draws nothing next to the bar when placement is "hidden"', () => {
+    setRendererChartOptions({ ...DEFAULT_CHART, taskNamePlacement: 'hidden' });
+    const { ctx, calls } = makeCtxSpy();
+    drawLabel2096(ctx, makeBarTask({ name: 'Freeze window prep' }), 0, scales, 0, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  });
+
+  it('suppresses the on-bar label when placement is "left" (gutter draws it instead)', () => {
+    setRendererChartOptions({ ...DEFAULT_CHART, taskNamePlacement: 'left' });
+    const { ctx, calls } = makeCtxSpy();
+    drawLabel2096(ctx, makeBarTask({ name: 'Cutover' }), 0, scales, 0, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  });
+});
+
+describe('drawTimelineNameGutter (#2096)', () => {
+  it('paints an opaque band, a right divider, and one name per visible row', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const tasks = [
+      makeBarTask({ id: 't1', name: 'Alpha' }),
+      makeBarTask({ id: 't2', name: 'Beta' }),
+    ];
+    drawTimelineNameGutter(ctx, tasks, 0, 1, 0, 600);
+    const names = calls.filter((c) => c.name === 'fillText').map((c) => c.args[0]);
+    expect(names).toContain('Alpha');
+    expect(names).toContain('Beta');
+    // Opaque background band drawn at gutter width, and a right divider stroke.
+    const rects = calls.filter((c) => c.name === 'fillRect');
+    expect(rects.some((c) => c.args[2] === NAME_GUTTER_WIDTH)).toBe(true);
+    expect(calls.some((c) => c.name === 'stroke')).toBe(true);
+  });
+});
+
+describe('drawHoverRowBand (#2096)', () => {
+  it('fills a full-width band for a visible row', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawHoverRowBand(ctx, 2, 0, 800, 600);
+    const rects = calls.filter((c) => c.name === 'fillRect');
+    expect(rects.some((c) => c.args[2] === 800)).toBe(true);
+  });
+
+  it('is a no-op for a row scrolled above the header fold', () => {
+    const { ctx, calls } = makeCtxSpy();
+    // Row 0 with a large scrollTop is entirely above the header band.
+    drawHoverRowBand(ctx, 0, 10_000, 800, 600);
+    expect(calls.filter((c) => c.name === 'fillRect')).toHaveLength(0);
   });
 });

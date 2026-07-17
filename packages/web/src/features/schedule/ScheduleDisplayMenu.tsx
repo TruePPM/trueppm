@@ -2,16 +2,19 @@
  * Schedule "Display" menu — the Show cluster of the Schedule toolbar (#1741).
  *
  * Houses the four view/render filters (CP only, Focus chain, Critical path,
- * Milestones) and the optional column-visibility toggles behind a single
- * `Display ▾` trigger, so the toolbar stays at ≤6 top-level affordances
+ * Milestones), the optional column-visibility toggles, and the "Chart" section
+ * (dependency lines, on-bar task-name placement, progress pills — #2097) behind a
+ * single `Display ▾` trigger, so the toolbar stays at ≤6 top-level affordances
  * (rules 110–114, ADR-0064). This is the *permanent home* for the filters at
  * every width — they never migrate into the `···` overflow (web rule 243).
  *
- * The filters are `menuitemcheckbox` rows (multi-toggle, menu stays open); the
- * trigger carries an active-filter count badge so "you are looking at a filtered
- * subset" stays glanceable while the controls are folded away. The badge counts
- * only the four *data* filters — hiding a table column is a layout preference,
- * not a data filter, so it never lights the badge.
+ * Filters and column/chart checkboxes are `menuitemcheckbox` rows (multi-toggle,
+ * menu stays open); the task-name placement is a `menuitemradio` group. The
+ * trigger carries an active-count badge so "you are looking at a non-default
+ * view" stays glanceable while the controls are folded away. The badge counts
+ * the four *data* filters plus any *hidden* chart element (#2097) — hiding a
+ * table column is a layout preference, not a data filter, so it never lights the
+ * badge.
  *
  * Keyboard contract mirrors {@link ToolbarOverflowMenu} (rule 112): ArrowUp/Down
  * rove the focusable rows (section headings are skipped), Home/End jump, Enter/
@@ -28,8 +31,9 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { ChevronDownIcon, SlidersIcon } from '@/components/Icons';
+import type { TaskNamePlacement } from './engine';
 
-/** A single toggle row inside the Display menu. */
+/** A single checkbox toggle row inside the Display menu. */
 export interface DisplayMenuRow {
   id: string;
   label: string;
@@ -44,6 +48,37 @@ export interface DisplayMenuSection {
   rows: DisplayMenuRow[];
 }
 
+/** Wiring for the "Chart" section (#2097) — what the canvas paints. */
+export interface ChartMenuConfig {
+  dependencyLinesVisible: boolean;
+  setDependencyLinesVisible: (v: boolean) => void;
+  taskNamePlacement: TaskNamePlacement;
+  setTaskNamePlacement: (v: TaskNamePlacement) => void;
+  progressPillsVisible: boolean;
+  setProgressPillsVisible: (v: boolean) => void;
+}
+
+const TASK_NAME_OPTIONS: ReadonlyArray<{ value: TaskNamePlacement; label: string }> = [
+  { value: 'next', label: 'Next to bar' },
+  { value: 'left', label: 'Aligned left' },
+  { value: 'hidden', label: 'Hidden' },
+];
+
+// Internal flattened, focusable menu item — checkbox or radio. Roving focus and
+// keyboard nav operate over this uniform list regardless of source section.
+type FlatItem =
+  | { kind: 'checkbox'; id: string; label: string; checked: boolean; activate: () => void }
+  | { kind: 'radio'; id: string; label: string; checked: boolean; activate: () => void };
+
+// A rendered section may contain a nested radio group with its own sub-label.
+interface RenderSection {
+  id: string;
+  label: string;
+  items: FlatItem[];
+  /** ids of items that begin a labeled radio sub-group, keyed to the sub-label. */
+  radioGroup?: { afterItemId: string; label: string; itemIds: string[] } | null;
+}
+
 export interface ScheduleDisplayMenuProps {
   showCpOnly: boolean;
   setShowCpOnly: (v: boolean) => void;
@@ -56,6 +91,10 @@ export interface ScheduleDisplayMenuProps {
   /** Column-visibility rows, or null when the columns surface is not applicable
    *  (Timeline mode, or mobile where the task-list panel is not rendered). */
   columns: DisplayMenuRow[] | null;
+  /** Chart-render toggles (#2097), or null when the canvas is not applicable. */
+  chart?: ChartMenuConfig | null;
+  /** How many chart elements are hidden — added to the trigger badge count. */
+  hiddenChartCount?: number;
   /** Collapse the trigger to icon-only (md/sm) — the "Display" label is dropped
    *  but the accessible name (with any active-filter count) is retained. */
   iconOnly: boolean;
@@ -71,6 +110,8 @@ export function ScheduleDisplayMenu({
   showMilestonesOnly,
   setShowMilestonesOnly,
   columns,
+  chart = null,
+  hiddenChartCount = 0,
   iconOnly,
 }: ScheduleDisplayMenuProps) {
   const [open, setOpen] = useState(false);
@@ -80,53 +121,104 @@ export function ScheduleDisplayMenu({
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const menuId = useId();
 
-  const sections: DisplayMenuSection[] = [
+  const sections: RenderSection[] = [
     {
       id: 'view-filters',
       label: 'View filters',
-      rows: [
-        { id: 'cp-only', label: 'CP only', checked: showCpOnly, onChange: setShowCpOnly },
+      items: [
         {
+          kind: 'checkbox',
+          id: 'cp-only',
+          label: 'CP only',
+          checked: showCpOnly,
+          activate: () => setShowCpOnly(!showCpOnly),
+        },
+        {
+          kind: 'checkbox',
           id: 'focus-chain',
           label: 'Focus chain',
           checked: focusModeEnabled,
-          onChange: setFocusModeEnabled,
+          activate: () => setFocusModeEnabled(!focusModeEnabled),
         },
       ],
     },
     {
       id: 'render-filters',
       label: 'Render filters',
-      rows: [
+      items: [
         {
+          kind: 'checkbox',
           id: 'critical-path',
           label: 'Critical path',
           checked: showCriticalOnly,
-          onChange: setShowCriticalOnly,
+          activate: () => setShowCriticalOnly(!showCriticalOnly),
         },
         {
+          kind: 'checkbox',
           id: 'milestones',
           label: 'Milestones',
           checked: showMilestonesOnly,
-          onChange: setShowMilestonesOnly,
+          activate: () => setShowMilestonesOnly(!showMilestonesOnly),
         },
       ],
     },
-    ...(columns && columns.length > 0
-      ? [{ id: 'columns', label: 'Columns', rows: columns }]
-      : []),
   ];
 
-  // Flatten to a single roving list — section headings are not focusable.
-  const rows = sections.flatMap((s) => s.rows);
+  if (columns && columns.length > 0) {
+    sections.push({
+      id: 'columns',
+      label: 'Columns',
+      items: columns.map((c) => ({
+        kind: 'checkbox' as const,
+        id: c.id,
+        label: c.label,
+        checked: c.checked,
+        activate: () => c.onChange(!c.checked),
+      })),
+    });
+  }
 
-  // Active-filter badge counts only the four data filters (not column visibility).
-  const activeFilterCount = [
-    showCpOnly,
-    focusModeEnabled,
-    showCriticalOnly,
-    showMilestonesOnly,
-  ].filter(Boolean).length;
+  if (chart) {
+    const radioIds = TASK_NAME_OPTIONS.map((o) => `task-name-${o.value}`);
+    sections.push({
+      id: 'chart',
+      label: 'Chart',
+      items: [
+        {
+          kind: 'checkbox',
+          id: 'dependency-lines',
+          label: 'Dependency lines',
+          checked: chart.dependencyLinesVisible,
+          activate: () => chart.setDependencyLinesVisible(!chart.dependencyLinesVisible),
+        },
+        ...TASK_NAME_OPTIONS.map((o) => ({
+          kind: 'radio' as const,
+          id: `task-name-${o.value}`,
+          label: o.label,
+          checked: chart.taskNamePlacement === o.value,
+          activate: () => chart.setTaskNamePlacement(o.value),
+        })),
+        {
+          kind: 'checkbox',
+          id: 'progress-pills',
+          label: 'Progress %',
+          checked: chart.progressPillsVisible,
+          activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
+        },
+      ],
+      radioGroup: { afterItemId: 'dependency-lines', label: 'Task names', itemIds: radioIds },
+    });
+  }
+
+  // Flatten to a single roving list — section headings are not focusable.
+  const items = sections.flatMap((s) => s.items);
+
+  // Active-count badge: the four data filters plus any *hidden* chart element
+  // (#2097) — a user who turned arrows/names/pills off isn't left wondering why
+  // the canvas looks different. Column visibility stays excluded (layout, not data).
+  const activeFilterCount =
+    [showCpOnly, focusModeEnabled, showCriticalOnly, showMilestonesOnly].filter(Boolean).length +
+    Math.max(0, hiddenChartCount);
 
   const triggerLabel =
     activeFilterCount > 0
@@ -162,25 +254,25 @@ export function ScheduleDisplayMenu({
       setOpen(true);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActiveIndex(Math.max(0, rows.length - 1));
+      setActiveIndex(Math.max(0, items.length - 1));
       setOpen(true);
     }
   }
 
   function onMenuKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (rows.length === 0) return;
+    if (items.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActiveIndex((i) => (i + 1) % rows.length);
+      setActiveIndex((i) => (i + 1) % items.length);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActiveIndex((i) => (i - 1 + rows.length) % rows.length);
+      setActiveIndex((i) => (i - 1 + items.length) % items.length);
     } else if (e.key === 'Home') {
       e.preventDefault();
       setActiveIndex(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setActiveIndex(rows.length - 1);
+      setActiveIndex(items.length - 1);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       close();
@@ -189,8 +281,34 @@ export function ScheduleDisplayMenu({
     }
   }
 
-  // Track the running flat index so each row can map to its roving position.
+  // Track the running flat index so each item can map to its roving position.
   let flatIndex = -1;
+
+  function renderItem(item: FlatItem) {
+    flatIndex += 1;
+    const index = flatIndex;
+    return (
+      <button
+        key={item.id}
+        ref={(el) => {
+          itemRefs.current[index] = el;
+        }}
+        type="button"
+        role={item.kind === 'radio' ? 'menuitemradio' : 'menuitemcheckbox'}
+        aria-checked={item.checked}
+        tabIndex={index === activeIndex ? 0 : -1}
+        onClick={item.activate}
+        className="flex items-center w-full px-3 py-1.5 gap-2 text-left text-xs
+          text-neutral-text-primary hover:bg-neutral-surface-raised
+          focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+      >
+        <span className="flex-1">{item.label}</span>
+        <span aria-hidden="true" className="text-brand-primary w-3 text-right">
+          {item.checked ? (item.kind === 'radio' ? '●' : '✓') : ''}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="relative shrink-0">
@@ -240,11 +358,14 @@ export function ScheduleDisplayMenu({
         >
           {sections.map((section, si) => {
             const headingId = `${menuId}-${section.id}`;
+            const radioGroup = section.radioGroup ?? null;
+            const radioIdSet = new Set(radioGroup?.itemIds ?? []);
+            const radioGroupId = `${menuId}-${section.id}-radio`;
+            // Items that belong to the radio sub-group are rendered together inside
+            // a role="group" so screen readers announce them as one radio set.
             return (
               <div key={section.id} role="group" aria-labelledby={headingId}>
-                {si > 0 && (
-                  <div role="separator" className="my-1 border-t border-neutral-border" />
-                )}
+                {si > 0 && <div role="separator" className="my-1 border-t border-neutral-border" />}
                 <div
                   id={headingId}
                   className="px-3 pt-1 pb-0.5 text-xs font-semibold uppercase tracking-[.06em]
@@ -252,33 +373,25 @@ export function ScheduleDisplayMenu({
                 >
                   {section.label}
                 </div>
-                {section.rows.map((row) => {
-                  flatIndex += 1;
-                  const index = flatIndex;
-                  return (
-                    <button
-                      key={row.id}
-                      ref={(el) => {
-                        itemRefs.current[index] = el;
-                      }}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={row.checked}
-                      tabIndex={index === activeIndex ? 0 : -1}
-                      onClick={() => row.onChange(!row.checked)}
-                      className="flex items-center w-full px-3 py-1.5 gap-2 text-left text-xs
-                        text-neutral-text-primary hover:bg-neutral-surface-raised
-                        focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
-                    >
-                      <span className="flex-1">{row.label}</span>
-                      <span
-                        aria-hidden="true"
-                        className="text-brand-primary w-3 text-right"
-                      >
-                        {row.checked ? '✓' : ''}
-                      </span>
-                    </button>
-                  );
+                {section.items.map((item) => {
+                  const isFirstRadio = radioGroup?.itemIds[0] === item.id;
+                  if (isFirstRadio && radioGroup) {
+                    return (
+                      <div key={`${item.id}-group`} role="group" aria-labelledby={radioGroupId}>
+                        <div
+                          id={radioGroupId}
+                          className="px-3 pt-1 pb-0.5 text-xs font-medium
+                            text-neutral-text-secondary"
+                        >
+                          {radioGroup.label}
+                        </div>
+                        {section.items.filter((it) => radioIdSet.has(it.id)).map(renderItem)}
+                      </div>
+                    );
+                  }
+                  // Skip radio items after the first — rendered inside the group above.
+                  if (radioIdSet.has(item.id)) return null;
+                  return renderItem(item);
                 })}
               </div>
             );

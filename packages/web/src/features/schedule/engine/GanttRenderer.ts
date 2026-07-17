@@ -82,6 +82,7 @@ const SAGE_400 = '#66B998'; // sage-400 — dark on-track / today / affordance, 
 export const COLOR = {
   surface: '#FFFFFF',
   rowBandAlt: 'rgba(0,0,0,0.02)',
+  rowHover: 'rgba(0,0,0,0.04)', // synced row-hover wash (#2096) — mirrors --chrome-row-hover exactly
   weekend: 'rgba(0,0,0,0.03)',
   gridLine: 'rgba(0,0,0,0.08)',
   todayLine: SAGE_600, // sage-600 — the "now" on the path (ADR-0103)
@@ -144,6 +145,7 @@ export type ColorPalette = Record<keyof typeof COLOR, string>;
 export const COLOR_DARK: ColorPalette = {
   surface: '#15223C', // neutral-surface dark — navy-800 (brand v1.0, ADR-0103)
   rowBandAlt: 'rgba(255,255,255,0.025)',
+  rowHover: 'rgba(255,255,255,0.05)', // synced row-hover wash (#2096) — mirrors --chrome-row-hover exactly
   weekend: 'rgba(255,255,255,0.03)',
   gridLine: 'rgba(255,255,255,0.08)',
   todayLine: SAGE_400, // sage-400 — the "now" on the path, holds on dark (ADR-0103)
@@ -199,6 +201,7 @@ export const COLOR_DARK: ColorPalette = {
 export const COLOR_FORCED: ColorPalette = {
   surface: 'Canvas',
   rowBandAlt: 'Canvas',
+  rowHover: 'Canvas', // forced-colors: no decorative wash — other cues carry hover
   weekend: 'Canvas',
   gridLine: 'GrayText',
   todayLine: 'Highlight',
@@ -244,6 +247,49 @@ export function setRendererColorMode(dark: boolean, forced = false): void {
   _palette = pickPalette(dark, forced);
 }
 
+/**
+ * Where the on-canvas task name renders relative to its bar (#2097 Chart menu):
+ * - `next`   — immediately right of the bar end (the default legacy behavior)
+ * - `left`   — suppressed on-canvas; names appear in the Timeline aligned-left
+ *              gutter overlay instead (see ScheduleView TimelineNameGutter)
+ * - `hidden` — not drawn at all
+ */
+export type TaskNamePlacement = 'next' | 'left' | 'hidden';
+
+/**
+ * Presentation toggles for what the canvas paints, controlled by the Schedule
+ * Display menu's "Chart" section (#2097). Dependency-line visibility is handled
+ * upstream by filtering the links array (so hidden arrows also drop out of
+ * hit-testing), so it is deliberately absent here — this struct covers only the
+ * per-bar decorations the engine draws internally.
+ */
+export interface ChartRenderOptions {
+  taskNamePlacement: TaskNamePlacement;
+  showProgressPills: boolean;
+  /** Draw the row-aligned left name gutter (#2096). Set by the host only when
+   *  placement is `left` AND the task table is hidden (Timeline mode) — in Grid
+   *  mode the table already carries the names, so no gutter is needed. */
+  showNameGutter: boolean;
+}
+
+// Active chart options — swapped by GanttEngineImpl before each paint pass,
+// mirroring the _palette module-state pattern. Synchronous access only.
+let _chartOptions: ChartRenderOptions = {
+  taskNamePlacement: 'next',
+  showProgressPills: true,
+  showNameGutter: false,
+};
+
+/** Set the chart presentation toggles for subsequent draw calls (#2097). */
+export function setRendererChartOptions(opts: ChartRenderOptions): void {
+  _chartOptions = opts;
+}
+
+/** Read the active chart options (for callers that must skip a whole draw pass). */
+export function getRendererChartOptions(): ChartRenderOptions {
+  return _chartOptions;
+}
+
 // ---------------------------------------------------------------------------
 // Helper: is a UTC date a weekend?
 // ---------------------------------------------------------------------------
@@ -281,6 +327,30 @@ export function drawRowBands(
       );
     }
   }
+}
+
+/**
+ * Draw the full-width hover-row wash for the hovered row (#2096).
+ *
+ * Painted on the bars layer at the start of the pass (behind the bars) so the
+ * hovered row reads as one unit across the task table and the canvas — the table
+ * side highlights the same row via `hoveredTaskId`. Clipped to below the header;
+ * a no-op when the row is scrolled out of view or above the fold.
+ */
+export function drawHoverRowBand(
+  ctx: CanvasRenderingContext2D,
+  rowIndex: number,
+  scrollTop: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): void {
+  const y = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+  if (y + ROW_HEIGHT <= HEADER_HEIGHT || y >= viewportHeight) return;
+  const top = Math.max(y, HEADER_HEIGHT);
+  const height = Math.min(y + ROW_HEIGHT, viewportHeight) - top;
+  if (height <= 0) return;
+  ctx.fillStyle = _palette.rowHover;
+  ctx.fillRect(0, top, viewportWidth, height);
 }
 
 /**
@@ -971,8 +1041,13 @@ export function drawTaskBar(
     ctx.stroke();
   }
 
-  // % chip inside bar — omit for very narrow bars and for 0% NOT_STARTED tasks
-  if (barWidth >= 32 && !(task.progress === 0 && task.status === 'NOT_STARTED')) {
+  // % chip inside bar — omit when the Chart menu hides progress pills (#2097),
+  // for very narrow bars, and for 0% NOT_STARTED tasks (no useful signal).
+  if (
+    _chartOptions.showProgressPills &&
+    barWidth >= 32 &&
+    !(task.progress === 0 && task.status === 'NOT_STARTED')
+  ) {
     drawTaskBarChip(ctx, task, barLeft, barTop, barWidth);
   }
 
@@ -1027,6 +1102,10 @@ export function drawTaskBarLabel(
 ): void {
   if (!task.start || !task.finish) return;
   if (!task.plannedStart && !task.sprintId) return;
+  // The Chart menu (#2097) can hide on-bar names entirely, or move them to the
+  // Timeline aligned-left gutter (#2096) — in both cases nothing draws next to
+  // the bar. Only the `next` placement paints here.
+  if (_chartOptions.taskNamePlacement !== 'next') return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   // finish is inclusive — the label hugs the true (exclusive) bar edge (#950).
   const barRight = dateToRight(task.finish, scales) - scrollLeft;
@@ -1047,17 +1126,113 @@ export function drawTaskBarLabel(
     ctx.beginPath();
     ctx.rect(rightOfBar, barTop - 2, viewportWidth - rightOfBar - 4, BAR_HEIGHT + 4);
     ctx.clip();
+    strokeLabelHalo(ctx, task.name, rightOfBar, nameY);
     ctx.fillText(task.name, rightOfBar, nameY);
   } else {
     // Flush right — draw left of the bar start, right-aligned
     const leftX = barLeft - 4 - nameWidth;
     if (leftX >= 0) {
+      strokeLabelHalo(ctx, task.name, leftX, nameY);
       ctx.fillText(task.name, leftX, nameY);
     }
     // If the bar is also flush left, the name is silently omitted — bar is too
     // wide for any label to fit. Acceptable at extreme zoom-out levels.
   }
 
+  ctx.restore();
+}
+
+/**
+ * Paint a paper-color halo behind an on-canvas label so crossing dependency
+ * lines pass *under* the glyphs instead of striking through them (#2096).
+ *
+ * A rounded, widened stroke of the active surface token laid down immediately
+ * before the fill reads as a soft knockout around the text — cheaper and
+ * crisper than a background rect, and it hugs the glyph outlines so it never
+ * masks an adjacent bar. Callers must have set font/baseline and be inside the
+ * same save()/clip() scope as the subsequent fillText. The fill color is left
+ * untouched (caller owns it).
+ */
+function strokeLabelHalo(ctx: CanvasRenderingContext2D, text: string, x: number, y: number): void {
+  const prevStroke = ctx.strokeStyle;
+  const prevWidth = ctx.lineWidth;
+  const prevJoin = ctx.lineJoin;
+  ctx.strokeStyle = _palette.surface;
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, x, y);
+  ctx.strokeStyle = prevStroke;
+  ctx.lineWidth = prevWidth;
+  ctx.lineJoin = prevJoin;
+}
+
+/** Fixed width (logical px) of the Timeline aligned-left name gutter (#2096). */
+export const NAME_GUTTER_WIDTH = 176;
+const GUTTER_TEXT_PAD = 10;
+
+/** Truncate `text` to fit `maxWidth` px, appending an ellipsis. `ctx.font` must be set. */
+function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = '…';
+  let lo = 0;
+  let hi = text.length;
+  // Binary-search the longest prefix that fits with the ellipsis appended.
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + ellipsis : ellipsis;
+}
+
+/**
+ * Draw the Timeline-mode aligned-left name gutter (#2096).
+ *
+ * When the task table is hidden (Timeline view) and the user chose "Aligned
+ * left" name placement, the on-bar labels are suppressed and task names render
+ * here instead: a fixed-width, row-aligned, opaque frozen column at canvas-left.
+ * Painted on the bars layer *after* bars and arrows so it reads as a frozen
+ * column the timeline scrolls under — the left-hand names line up with their row
+ * exactly as the old table did, without bringing back the full 7-column table.
+ *
+ * Drawn in absolute screen coordinates (scrollTop applied here) — the caller
+ * must NOT have translated the context. Rows outside the visible band are
+ * skipped by the caller via firstRow/lastRow.
+ */
+export function drawTimelineNameGutter(
+  ctx: CanvasRenderingContext2D,
+  tasks: Task[],
+  firstRow: number,
+  lastRow: number,
+  scrollTop: number,
+  viewportHeight: number,
+): void {
+  ctx.save();
+  // Opaque band so the timeline visibly scrolls *under* the names (frozen column).
+  ctx.fillStyle = _palette.surface;
+  ctx.fillRect(0, HEADER_HEIGHT, NAME_GUTTER_WIDTH, viewportHeight - HEADER_HEIGHT);
+
+  ctx.font = CANVAS_FONT;
+  ctx.textBaseline = 'middle';
+  const maxTextWidth = NAME_GUTTER_WIDTH - GUTTER_TEXT_PAD * 2;
+
+  for (let i = firstRow; i <= lastRow; i++) {
+    const task = tasks[i];
+    if (!task) continue;
+    const rowTop = i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
+    const centerY = rowTop + ROW_HEIGHT / 2;
+    // Summary rows read as structural headers; everything else is secondary text.
+    ctx.fillStyle = task.isSummary ? _palette.text : _palette.textSecondary;
+    ctx.fillText(truncateToWidth(ctx, task.name, maxTextWidth), GUTTER_TEXT_PAD, centerY);
+  }
+
+  // Right divider so the gutter delineates from the timeline field.
+  ctx.strokeStyle = _palette.gridLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(NAME_GUTTER_WIDTH + 0.5, HEADER_HEIGHT);
+  ctx.lineTo(NAME_GUTTER_WIDTH + 0.5, viewportHeight);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -2472,10 +2647,7 @@ export interface LinkPreviewParams {
  * filled arrowhead at the endpoint and (when snapped) a 2px ring around the
  * target bar. WCAG 1.4.11-compliant against both surfaces (sage vs. surface).
  */
-export function drawLinkPreview(
-  ctx: CanvasRenderingContext2D,
-  params: LinkPreviewParams,
-): void {
+export function drawLinkPreview(ctx: CanvasRenderingContext2D, params: LinkPreviewParams): void {
   const { originX, originY, endX, endY, snapped, targetRing } = params;
   const stroke = _palette.linkPreview;
 
@@ -2489,7 +2661,13 @@ export function drawLinkPreview(
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.roundRect(targetRing.left, targetRing.top, Math.max(2, targetRing.width), targetRing.height, 3);
+    ctx.roundRect(
+      targetRing.left,
+      targetRing.top,
+      Math.max(2, targetRing.width),
+      targetRing.height,
+      3,
+    );
     ctx.stroke();
   }
 

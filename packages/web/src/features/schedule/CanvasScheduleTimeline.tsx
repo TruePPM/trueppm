@@ -16,7 +16,7 @@
 
 import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
-import type { GanttEngine, ZoomLevel } from './engine';
+import type { ChartRenderOptions, GanttEngine, ZoomLevel } from './engine';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
@@ -27,14 +27,25 @@ interface CanvasScheduleTimelineProps {
   tasks: Task[];
   links: TaskLink[];
   zoomLevel: ZoomLevel;
+  /** Chart menu toggles — on-bar name placement + progress-pill visibility (#2097).
+   *  Defaults to everything-visible for hosts without a Display menu (e.g. the
+   *  read-only program schedule view). */
+  chartOptions?: ChartRenderOptions;
   containerRef: RefObject<HTMLDivElement | null>;
   onEngineReady: (engine: GanttEngine) => void;
 }
+
+const DEFAULT_CHART_OPTIONS: ChartRenderOptions = {
+  taskNamePlacement: 'next',
+  showProgressPills: true,
+  showNameGutter: false,
+};
 
 export function CanvasScheduleTimeline({
   tasks,
   links,
   zoomLevel,
+  chartOptions = DEFAULT_CHART_OPTIONS,
   containerRef,
   onEngineReady,
 }: CanvasScheduleTimelineProps) {
@@ -92,6 +103,12 @@ export function CanvasScheduleTimeline({
     engine.setLinks(links);
   }, [engine, links]);
 
+  // Push Chart menu toggles (name placement / progress pills) to the engine (#2097).
+  useEffect(() => {
+    if (!engine) return;
+    engine.setChartOptions(chartOptions);
+  }, [engine, chartOptions]);
+
   // Notify parent when engine becomes available (rule 55: no on() here)
   useEffect(() => {
     if (!engine) return;
@@ -129,7 +146,12 @@ export function CanvasScheduleTimeline({
         style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />
       {/* Layer 3: accessible ARIA grid overlay (pointer-events: none) */}
-      <ScheduleAriaOverlay engine={engine} tasks={tasks} links={links} containerRef={containerRef} />
+      <ScheduleAriaOverlay
+        engine={engine}
+        tasks={tasks}
+        links={links}
+        containerRef={containerRef}
+      />
     </div>
   );
 }

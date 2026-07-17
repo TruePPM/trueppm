@@ -33,6 +33,7 @@ export {
   leftToDate,
   parseUTCDate,
 } from './GanttScaleData';
+export type { ChartRenderOptions, TaskNamePlacement } from './GanttRenderer';
 export { GanttEngineStub } from './GanttEngineStub';
 export { GanttEngineImpl } from './GanttEngineImpl';
 export type { GanttEngineImplOptions } from './GanttEngineImpl';

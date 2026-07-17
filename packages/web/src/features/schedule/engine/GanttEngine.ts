@@ -13,6 +13,7 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { ChartRenderOptions } from './GanttRenderer';
 
 /**
  * Hover chain payload pushed from React via `engine.setHoverChain` (#475).
@@ -290,6 +291,16 @@ export interface GanttEngine {
    * Triggers a full repaint automatically — only the header is affected.
    */
   setFiscalConfig(config: FiscalConfig): void;
+
+  // ── Chart presentation toggles (#2097) ────────────────────────────────────
+
+  /**
+   * Set the Chart menu presentation toggles — on-bar task-name placement
+   * (`next`/`left`/`hidden`) and progress-pill visibility. Dependency-line
+   * visibility is controlled upstream by filtering the links passed to
+   * {@link setLinks}, not here. Triggers a full repaint automatically.
+   */
+  setChartOptions(options: ChartRenderOptions): void;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 

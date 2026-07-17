@@ -37,13 +37,16 @@ import {
   COLOR,
   COLOR_DARK,
   setRendererColorMode,
+  setRendererChartOptions,
   CANVAS_FONT,
   drawRowBands,
+  drawHoverRowBand,
   drawGridLines,
   drawTodayLine,
   drawTimelineHeader,
   drawTaskBar,
   drawTaskBarLabel,
+  drawTimelineNameGutter,
   drawSummaryBar,
   drawMilestone,
   prepareDependencyLayout,
@@ -54,7 +57,7 @@ import {
   drawActualDateBar,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
-import type { DependencyLayout } from './GanttRenderer';
+import type { ChartRenderOptions, DependencyLayout } from './GanttRenderer';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -127,6 +130,9 @@ export class GanttEngineImpl implements GanttEngine {
   // arrows (predecessor chain blue, successor chain green). React owns the
   // BFS compute; the engine just paints what it's told.
   private _hoverChain: import('./GanttEngine').HoverChain | null = null;
+  // Cached row index of _hoverChain.hoveredId so the per-frame hover-row band
+  // (#2096) never scans _tasks; recomputed only when the hovered id changes.
+  private _hoverRowIndex = -1;
   // Last hovered task id reported via `task-hover`. Used to debounce the
   // event to taskId transitions only (pointermove fires many times per row).
   private _lastHoveredTaskId: string | null = null;
@@ -239,6 +245,13 @@ export class GanttEngineImpl implements GanttEngine {
 
   // Color mode
   private _isDark = false;
+  // Chart menu presentation toggles (#2097). Applied to the module-level renderer
+  // state before each bar/label paint pass, mirroring the _isDark → palette flow.
+  private _chartOptions: ChartRenderOptions = {
+    taskNamePlacement: 'next',
+    showProgressPills: true,
+    showNameGutter: false,
+  };
 
   // Quarter/year header tier config (#755) — calendar quarters until the host
   // (ScheduleView) pushes the workspace fiscal config + the user's view pref.
@@ -349,6 +362,11 @@ export class GanttEngineImpl implements GanttEngine {
 
   setTasks(tasks: Task[]): void {
     this._tasks = tasks;
+    // Keep the cached hover-row index (#2096) valid across data changes — a
+    // reorder/insert could otherwise leave the band on the wrong row.
+    this._hoverRowIndex = this._hoverChain
+      ? tasks.findIndex((t) => t.id === this._hoverChain?.hoveredId)
+      : -1;
     this._updateProjectRange();
     this._rebuildScales();
     this._rebuildHitIndex();
@@ -522,6 +540,9 @@ export class GanttEngineImpl implements GanttEngine {
     // until the BFS result actually changes (useMemo in useDependencyHover).
     if (this._hoverChain === chain) return;
     this._hoverChain = chain;
+    // Cache the hovered row index for the hover-row band (#2096) — scanned here
+    // (on hover change), never per paint frame.
+    this._hoverRowIndex = chain ? this._tasks.findIndex((t) => t.id === chain.hoveredId) : -1;
     // Hover affects bars and arrows but NOT the bg layer (row bands, grid,
     // today line, header). Invalidating only the bars layer avoids the
     // visible flash on the bg canvas as the cursor sweeps across rows.
@@ -572,6 +593,18 @@ export class GanttEngineImpl implements GanttEngine {
     // Only the header tiers change, but a full repaint is the cheapest correct
     // path (header is redrawn on every full paint) and the call is rare.
     this._headerContentDirty = true; // header quarter/year labels change (issue 1523)
+    this._fullRepaintPending = true;
+    this._requestRepaint();
+  }
+
+  // ---------------------------------------------------------------------------
+  // GanttEngine — Chart presentation toggles (#2097)
+  // ---------------------------------------------------------------------------
+
+  setChartOptions(options: ChartRenderOptions): void {
+    this._chartOptions = options;
+    // Toggling names/pills changes only the bars layer, but a full repaint is the
+    // cheapest correct path and the call is user-driven (rare).
     this._fullRepaintPending = true;
     this._requestRepaint();
   }
@@ -669,25 +702,25 @@ export class GanttEngineImpl implements GanttEngine {
     if (this._tasks.length === 0) return;
     // Skip tasks with empty/missing dates — unscheduled tasks have no position
     const dated = this._tasks.filter((t) => t.start && t.finish);
-    const PAD_BEFORE_MS = 30 * 86_400_000;   // 30 days before earliest task
-    const PAD_AFTER_MS  = 90 * 86_400_000;   // 90 days after latest task
+    const PAD_BEFORE_MS = 30 * 86_400_000; // 30 days before earliest task
+    const PAD_AFTER_MS = 90 * 86_400_000; // 90 days after latest task
     if (dated.length === 0) {
       // All tasks unscheduled — default to ±90 days around today
       const today = new Date();
       this._projectStart = new Date(today.getTime() - PAD_BEFORE_MS).toISOString().slice(0, 10);
-      this._projectEnd   = new Date(today.getTime() + PAD_AFTER_MS).toISOString().slice(0, 10);
+      this._projectEnd = new Date(today.getTime() + PAD_AFTER_MS).toISOString().slice(0, 10);
       return;
     }
     let startMs = new Date(dated[0].start + 'T00:00:00Z').getTime();
-    let endMs   = new Date(dated[0].finish + 'T00:00:00Z').getTime();
+    let endMs = new Date(dated[0].finish + 'T00:00:00Z').getTime();
     for (const t of dated) {
       const s = new Date(t.start + 'T00:00:00Z').getTime();
       const e = new Date(t.finish + 'T00:00:00Z').getTime();
       if (s < startMs) startMs = s;
-      if (e > endMs)   endMs   = e;
+      if (e > endMs) endMs = e;
     }
     this._projectStart = new Date(startMs - PAD_BEFORE_MS).toISOString().slice(0, 10);
-    this._projectEnd   = new Date(endMs   + PAD_AFTER_MS).toISOString().slice(0, 10);
+    this._projectEnd = new Date(endMs + PAD_AFTER_MS).toISOString().slice(0, 10);
   }
 
   private _rebuildScales(): void {
@@ -940,8 +973,7 @@ export class GanttEngineImpl implements GanttEngine {
     // (issue 1523). On a pure vertical scroll scrollLeft is unchanged and no
     // header-affecting state is dirty, so the prior header band is retained and
     // the expensive drawTimelineHeader date-walk is skipped entirely.
-    const drawHeader =
-      this._headerContentDirty || this._scrollLeft !== this._lastHeaderScrollLeft;
+    const drawHeader = this._headerContentDirty || this._scrollLeft !== this._lastHeaderScrollLeft;
 
     if (drawHeader) {
       ctx.clearRect(0, 0, w, h);
@@ -970,15 +1002,7 @@ export class GanttEngineImpl implements GanttEngine {
     const { firstRow, lastRow } = this._visibleRange();
 
     drawRowBands(ctx, firstRow, lastRow, this._scrollLeft, this._scrollTop, w);
-    drawGridLines(
-      ctx,
-      this._scales,
-      this._scrollLeft,
-      this._scrollTop,
-      h,
-      firstRow,
-      lastRow,
-    );
+    drawGridLines(ctx, this._scales, this._scrollLeft, this._scrollTop, h, firstRow, lastRow);
     drawTodayLine(ctx, this._scales, this._scrollLeft, h);
 
     if (drawHeader) {
@@ -1000,11 +1024,21 @@ export class GanttEngineImpl implements GanttEngine {
     const w = this._viewportWidth;
     const h = this._viewportHeight;
 
+    // Apply Chart menu toggles (name placement / progress pills) for this pass —
+    // the bars layer reads them from module state, same as the palette (#2097).
+    setRendererChartOptions(this._chartOptions);
+
     ctx.clearRect(0, 0, w, h);
 
     if (!this._scales) return;
 
     const { firstRow, lastRow } = this._visibleRange();
+
+    // Hover-row wash first, so bars and labels paint on top (#2096). Drawn on the
+    // bars layer (not bg) because hover invalidates only this layer.
+    if (this._hoverRowIndex >= 0) {
+      drawHoverRowBand(ctx, this._hoverRowIndex, this._scrollTop, w, h);
+    }
 
     // Layer order on canvas-bars: bars (no labels) → arrows → labels.
     //
@@ -1041,11 +1075,34 @@ export class GanttEngineImpl implements GanttEngine {
       drawTaskBarLabel(ctx, task, i, this._scales, this._scrollLeft, this._viewportWidth);
       ctx.restore();
     }
+
+    // Aligned-left name gutter (#2096) — painted last so it reads as a frozen
+    // column the timeline scrolls under. Drawn in screen coords (no translate).
+    if (this._chartOptions.showNameGutter) {
+      drawTimelineNameGutter(
+        ctx,
+        this._tasks,
+        firstRow,
+        lastRow,
+        this._scrollTop,
+        this._viewportHeight,
+      );
+    }
   }
 
   private _paintRow(rowIndex: number): void {
     setRendererColorMode(this._isDark, this._forcedColors);
+    setRendererChartOptions(this._chartOptions);
     if (!this._scales) return;
+    // The frozen name gutter (#2096) spans the row's left edge; a single-row
+    // repaint would draw the bar back over its gutter cell. Promote to a full
+    // repaint (cheap, and only in Timeline aligned-left mode) so the gutter is
+    // repainted on top afterward.
+    if (this._chartOptions.showNameGutter) {
+      this._fullRepaintPending = true;
+      this._requestRepaint();
+      return;
+    }
     const ctx = this._barsCtx;
     const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
     const rowBottom = rowTop + ROW_HEIGHT;
@@ -1093,7 +1150,16 @@ export class GanttEngineImpl implements GanttEngine {
     } else if (task.isSummary) {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else {
-      drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected, this._viewportWidth, skipLabel);
+      drawTaskBar(
+        ctx,
+        task,
+        rowIndex,
+        this._scales,
+        this._scrollLeft,
+        isSelected,
+        this._viewportWidth,
+        skipLabel,
+      );
     }
 
     // Actual-date overlay: drawn after the planned bar so it renders on top.
@@ -1101,7 +1167,12 @@ export class GanttEngineImpl implements GanttEngine {
     if (!task.isSummary && !task.isMilestone && (task.actualStart || task.actualFinish)) {
       drawActualDateBar(ctx, task, rowIndex, this._scales, this._scrollLeft);
       drawScheduleVarianceBadge(
-        ctx, task, rowIndex, this._scales, this._scrollLeft, this._viewportWidth,
+        ctx,
+        task,
+        rowIndex,
+        this._scales,
+        this._scrollLeft,
+        this._viewportWidth,
       );
     }
 
@@ -1129,13 +1200,17 @@ export class GanttEngineImpl implements GanttEngine {
       const lc = this._linkFSM.context;
       const originX = lc.sourceBarRight - this._scrollLeft;
       const originY = lc.sourceBarCenterY - this._scrollTop;
-      const snapped =
-        lc.targetId != null && lc.targetBarLeft != null && lc.targetBarTop != null;
+      const snapped = lc.targetId != null && lc.targetBarLeft != null && lc.targetBarTop != null;
       let endX = lc.currentX - this._scrollLeft;
       let endY = lc.currentY - this._scrollTop;
-      let targetRing: { left: number; top: number; width: number; height: number } | null =
-        null;
-      if (snapped && lc.targetBarLeft != null && lc.targetBarTop != null && lc.targetBarBottom != null && lc.targetBarRight != null) {
+      let targetRing: { left: number; top: number; width: number; height: number } | null = null;
+      if (
+        snapped &&
+        lc.targetBarLeft != null &&
+        lc.targetBarTop != null &&
+        lc.targetBarBottom != null &&
+        lc.targetBarRight != null
+      ) {
         // Snap the endpoint to the target bar's START-edge midpoint.
         endX = lc.targetBarLeft - this._scrollLeft;
         endY = (lc.targetBarTop + lc.targetBarBottom) / 2 - this._scrollTop;
@@ -1172,7 +1247,8 @@ export class GanttEngineImpl implements GanttEngine {
     if (fsm.state === 'DRAGGING' || fsm.state === 'DRAG_STARTED') {
       // Subtract drag offset so the shadow's left edge tracks the bar's left edge,
       // not the cursor. Subtract scrollLeft to convert canvas-origin to viewport-relative.
-      const snappedX = snapToDayBoundary(currentX - this._dragOffsetX, this._scales) - this._scrollLeft;
+      const snappedX =
+        snapToDayBoundary(currentX - this._dragOffsetX, this._scales) - this._scrollLeft;
       drawDragShadow(ctx, task, snappedX, rowIndex, this._scales);
     } else if (fsm.state === 'RESIZING') {
       const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
@@ -1198,8 +1274,8 @@ export class GanttEngineImpl implements GanttEngine {
   private _pointerToCanvas(e: PointerEvent): { x: number; y: number } {
     const rect = this._ixCanvas.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left) + this._scrollLeft,
-      y: (e.clientY - rect.top) + this._scrollTop,
+      x: e.clientX - rect.left + this._scrollLeft,
+      y: e.clientY - rect.top + this._scrollTop,
     };
   }
 
@@ -1335,8 +1411,8 @@ export class GanttEngineImpl implements GanttEngine {
       // Update hover cursor when not dragging
       if (this._hitIndex && this._scales) {
         const isTouch = e.pointerType === 'touch';
-        const canvasX = (e.clientX - this._ixCanvas.getBoundingClientRect().left) + this._scrollLeft;
-        const canvasY = (e.clientY - this._ixCanvas.getBoundingClientRect().top) + this._scrollTop;
+        const canvasX = e.clientX - this._ixCanvas.getBoundingClientRect().left + this._scrollLeft;
+        const canvasY = e.clientY - this._ixCanvas.getBoundingClientRect().top + this._scrollTop;
         this._hoverZone = this._hitIndex.query(canvasX, canvasY, isTouch);
         this._updateCursor(this._hoverZone);
         // Emit task-hover transitions so React-side useDependencyHover can
@@ -1426,7 +1502,9 @@ export class GanttEngineImpl implements GanttEngine {
       (prevState === 'DRAGGING' || prevState === 'DRAG_STARTED' || prevState === 'RESIZING')
     ) {
       if (isDragType === 'move') {
-        const snappedX = this._scales ? snapToDayBoundary(currentX - this._dragOffsetX, this._scales) : currentX;
+        const snappedX = this._scales
+          ? snapToDayBoundary(currentX - this._dragOffsetX, this._scales)
+          : currentX;
         this._emit('drag-task-end', { id: taskId, left: snappedX });
       } else {
         this._emit('resize-task-end', { id: taskId, right: currentX });
@@ -1532,12 +1610,7 @@ export class GanttEngineImpl implements GanttEngine {
   private _isEditableTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     const tag = target.tagName;
-    return (
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      target.isContentEditable
-    );
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
   }
 
   // ---------------------------------------------------------------------------
@@ -1554,8 +1627,8 @@ export class GanttEngineImpl implements GanttEngine {
   private readonly _onDblClick = (e: MouseEvent): void => {
     if (!this._hitIndex || !this._scales) return;
     const rect = this._ixCanvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) + this._scrollLeft;
-    const y = (e.clientY - rect.top) + this._scrollTop;
+    const x = e.clientX - rect.left + this._scrollLeft;
+    const y = e.clientY - rect.top + this._scrollTop;
     const zone = this._hitIndex.query(x, y, false);
     if (zone) {
       this._emit('task-open', { id: zone.taskId });
