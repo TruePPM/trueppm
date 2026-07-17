@@ -110,10 +110,13 @@ export function BottomSheet({
   if (!isOpen) return null;
 
   const visibilityClass = mobileOnly ? 'md:hidden' : '';
+  // `large` fills to a fixed 85vh (a tall sheet for scrollable lists); `auto`
+  // grows to content up to the same 85vh cap. Previously both branches emitted
+  // the identical `max-h-[85vh]`, so `size="large"` was a silent no-op.
   const heightClass = size === 'full'
     ? 'inset-0 rounded-none'
     : size === 'large'
-      ? 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-card'
+      ? 'inset-x-0 bottom-0 h-[85vh] rounded-t-card'
       : 'inset-x-0 bottom-0 max-h-[85vh] rounded-t-card';
 
   return (
