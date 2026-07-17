@@ -90,7 +90,7 @@ And with the 0.4 beta, a seventh actor joins the six — not a human, and not on
 - **Is:** any Model Context Protocol (MCP) client — Claude Desktop, Cursor, Zed, an engineer's agent, a scripted assistant — connected **read-only** to your own instance
 - **Cares about:** the same truths the humans do — critical path, the P80 date, sprint status, the risk register, My Work — asked in natural language
 - **Won't tolerate:** a made-up number. It gets an engine-computed answer or none; the model translates the question and phrases the result, but never invents it (*computed, not guessed*)
-- **Not a demo login:** unlike the six above, this actor is a connection rather than a seeded persona; the read-only MCP server it talks to lands in the 0.4 beta, and write tools are deliberately held to 0.6
+- **Not a demo login:** unlike the six above, this actor is a connection rather than a seeded persona; the read-only MCP server it talks to lands in the 0.4 beta; plan mode (`dry_run` proposals — verdict and impact, nothing commits) follows at 0.5, and committing write tools are deliberately held to 0.6
 - **Reads next:** [Computed, not guessed](/architecture/overview/#computed-not-guessed)
 
 ## The hybrid flow — eight steps from charter to close
@@ -220,7 +220,7 @@ The single data model has a second payoff, and it is what the 0.4 beta leads wit
 
 The 0.4 beta lands a **read-only MCP server**: point any Model Context Protocol client (Claude Desktop, Cursor, Zed) at your self-hosted instance and ask the live schedule real questions — *"what's on the critical path?"*, *"slip the migration three days, do we still make Oct 15?"*, *"how is Sprint 7 tracking?"* Every answer is produced by the same CPM and Monte Carlo engine that draws Raj's Gantt and Maya's burndown. The language model translates the question into an engine call and the result into a sentence; it never invents the number. This is the principle we call **computed, not guessed**, and it is the rule for everything AI-facing on the roadmap.
 
-This is only possible because of the bridge. An "AI for project management" bolted onto two drifting systems has to guess which database is right and interpolate the fields neither one has. TruePPM has one row per task, one engine, and — with the provenance graph that also lands at 0.4 — a server-side derivation behind every computed value, so an agent's answer is not just fluent, it is *auditable*: it can cite how the date was reached, not assert a plausible one. Read-only by design in the beta; the write surface arrives at 0.6 with the engine as referee, so an agent can act on the plan without ever being able to create an impossible one.
+This is only possible because of the bridge. An "AI for project management" bolted onto two drifting systems has to guess which database is right and interpolate the fields neither one has. TruePPM has one row per task, one engine, and — with the provenance graph that also lands at 0.4 — a server-side derivation behind every computed value, so an agent's answer is not just fluent, it is *auditable*: it can cite how the date was reached, not assert a plausible one. Read-only by design in the beta; plan-mode dry runs arrive at 0.5 (an agent proposes, the engine answers with verdict and impact, nothing commits) and the committing write surface at 0.6 with the engine as referee, so an agent can act on the plan without ever being able to create an impossible one.
 
 → See [Computed, not guessed](/architecture/overview/#computed-not-guessed), [Scheduler engine](/features/scheduler/)
 

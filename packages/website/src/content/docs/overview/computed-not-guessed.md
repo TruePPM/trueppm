@@ -81,7 +81,8 @@ shipped-vs-planned status:
   is already in `main`; its governing decision, [ADR-0112](/architecture/decisions/), is
   Accepted. A signed engine-version + input-hash *answer stamp* follows at 0.9.
 - **Refuse** — feasibility refusal is in the engine today and applies to every caller; it
-  reaches the agent **write** path at 0.6 (plan-mode first, `dry_run` before any commit).
+  reaches the agent **write** path in two steps: plan mode at 0.5 (`dry_run` proposals —
+  verdict + impact, committing nothing) and the committing write surface at 0.6.
 - The natural-language query layer and local-model adapter are planned for 0.5.
 :::
 

@@ -17,8 +17,8 @@ You are designing UI/UX for the TruePPM React Native mobile app. The mobile app 
 
 ## Platform shipping order
 
-1. **Android phones (0.4)** — primary reference design. Material 3 conventions are the default; spec screens against Pixel-class hardware (Pixel 6/7 baseline).
-2. **Android tablets (0.4 → 0.5)** — second. Add split-view and two-pane layouts only after the phone shell stabilizes.
+1. **Android phones (0.6)** — primary reference design. Material 3 conventions are the default; spec screens against Pixel-class hardware (Pixel 6/7 baseline). The 0.5 installable PWA is the interim mobile story (see #2091 — the 0.5 → 0.6 recharter); it is a web surface and does not go through this skill.
+2. **Android tablets (0.6 → 0.7)** — second. Add split-view and two-pane layouts only after the phone shell stabilizes.
 3. **iPhone (1.0 GA)** — deferred. Do *not* design iOS-only flows or iPhone-first screens before 1.0. RN keeps the codebase portable, so designs should remain platform-fair, but Material 3 wins ties until iPhone is on the milestone.
 
 When a design choice forces a tradeoff between platforms, choose Android. Note iOS deltas inline so the 1.0 iPhone pass can pick them up without re-deriving the design.
@@ -89,6 +89,6 @@ Run the design through these filters before producing the spec:
 ## Out of scope
 
 - iPhone-specific flows or iOS-only affordances — deferred to 1.0 GA (see [[project_mobile_platform_priority]])
-- iPad layouts — deferred (iPad ships with iPhone in 1.0; Android tablet is the 0.4/0.5 tablet target)
+- iPad layouts — deferred (iPad ships with iPhone in 1.0; Android tablet is the 0.6/0.7 tablet target)
 - Watch-OS or wearable integrations (out of 1.0)
 - Web-mobile responsive (handled by `ux-design`, not this skill)

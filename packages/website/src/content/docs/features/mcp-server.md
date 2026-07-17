@@ -32,8 +32,10 @@ workflows) is an Enterprise overlay and is not part of this server.
 
 :::caution[Read-only by design]
 This server exposes **no write tools** and issues only `GET` requests. The write
-surface (create/update task, move card, log time) is deliberately held to a
-later release.
+surface arrives in two deliberate steps: **plan mode** lands in 0.5 (`dry_run`
+proposals — the engine returns the verdict and projected schedule impact,
+nothing commits), and committing write tools (create/update task, move card,
+log time) in 0.6, gated by the engine as referee.
 :::
 
 ## How it works

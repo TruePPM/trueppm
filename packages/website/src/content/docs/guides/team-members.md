@@ -92,7 +92,7 @@ Seed the demo (`seed_demo_project --with-personas`) and sign in as **`tom`** —
 2. **Move a card on the board.** That one action updates the burndown, the work package, the schedule, and every other open browser. You did one thing; everything else followed.
 3. **Notice what you don't have to do.** No status report, no Friday-afternoon timesheet, no project-management vocabulary to learn.
 
-The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and 15-second mobile time entry (lands in **0.5** with the native mobile app).
+The two things you'd want that aren't here yet — automatic Jira sync so you never double-enter (lands in **0.4**) and mobile time entry (offline-capable time entry via the installable PWA lands in **0.5**; the native app's 15-second capture in **0.6**).
 
 ## Getting started
 
