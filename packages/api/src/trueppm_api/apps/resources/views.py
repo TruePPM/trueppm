@@ -45,6 +45,7 @@ from trueppm_api.apps.resources.models import (
 )
 from trueppm_api.apps.resources.serializers import (
     ProjectResourceSerializer,
+    ResourceAssignmentSerializer,
     ResourceSerializer,
     ResourceSkillSerializer,
     SkillSerializer,
@@ -642,6 +643,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         to org admins (PM or Owner role on any project). The restore custom
         action uses POST so it correctly receives the IsOrgAdmin gate.
         """
+        # The `assignments` action exposes a resource's task/project *names* across
+        # every project (ADR-0499). Those are project-scoped confidential data, so
+        # it is gated on IsOrgAdmin even though it is a GET — it must NOT inherit
+        # the base catalog read's open IsAuthenticated gate, or any authenticated
+        # user could enumerate what anyone is working on (cross-project IDOR).
+        if getattr(self, "action", None) == "assignments":
+            return [IsAuthenticated(), IsOrgAdmin()]
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
             return [IsAuthenticated()]
         return [IsAuthenticated(), IsOrgAdmin()]
@@ -769,6 +777,54 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         transaction.on_commit(_on_commit)
 
         serializer = self.get_serializer(resource)
+        return Response(serializer.data)
+
+    @extend_schema(
+        responses=ResourceAssignmentSerializer(many=True),
+        description=(
+            "Cross-project task assignments for one resource — the org catalog's "
+            "'what is this person working on' view (#2047). Gated on IsOrgAdmin "
+            "because it carries task/project names across project boundaries. "
+            "Soft-deleted tasks are excluded; a deactivated resource still returns "
+            "its assignments. Ordered by project then task."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="assignments")
+    def assignments(self, request: Request, pk: str | None = None) -> Response:
+        """Return every task the resource is assigned to, across all projects.
+
+        Gated on IsOrgAdmin in ``get_permissions`` (this GET must not inherit the
+        base catalog read's open gate — see the note there). Unlike
+        ``/task-resources/?resource=`` this is NOT scoped to the caller's member
+        projects: a resource manager needs the *complete* picture, so it returns
+        the full cross-project set (the RBAC gate is what makes that safe).
+
+        The resource is looked up from the unfiltered manager so a deactivated
+        resource's detail panel still resolves (mirrors ``restore``). Soft-deleted
+        tasks are filtered out; completed tasks are included and sectioned client
+        side. ``select_related('task__project')`` keeps this a single query
+        regardless of assignment count (no N+1).
+        """
+        if pk is None or not Resource.objects.filter(pk=pk).exists():
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        assignments_qs = (
+            TaskResource.objects.filter(resource_id=pk, task__is_deleted=False)
+            .select_related("task__project")
+            .order_by("task__project__name", "task__name")
+        )
+
+        # Use the paginator directly rather than self.paginate_queryset(): the
+        # latter is typed to the viewset's Resource model, but this action returns
+        # TaskResource rows. The set is intrinsically bounded (one person's
+        # assignments) — pagination is a belt-and-suspenders guard.
+        paginator = self.paginator
+        if paginator is not None:
+            page = paginator.paginate_queryset(assignments_qs, request, view=self)
+            if page is not None:
+                serializer = ResourceAssignmentSerializer(page, many=True)
+                return paginator.get_paginated_response(serializer.data)
+        serializer = ResourceAssignmentSerializer(assignments_qs, many=True)
         return Response(serializer.data)
 
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:

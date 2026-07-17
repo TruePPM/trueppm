@@ -398,6 +398,7 @@ exceed the OSS simulation cap or the request returns `402`. See
 | GET | `/api/v1/resources/{id}/` | Retrieve |
 | PUT / PATCH | `/api/v1/resources/{id}/` | Update |
 | DELETE | `/api/v1/resources/{id}/` | Soft-delete |
+| GET | `/api/v1/resources/{id}/assignments/` | Cross-project task assignments for one resource (org admin only) |
 
 The resource catalog is readable by any authenticated user, so the `email` field
 is **gated** to prevent org-wide address harvesting: org admins (Admin or Owner
@@ -406,6 +407,26 @@ always sees their own email (`is_me: true`). For all other callers the `email`
 field is **omitted** from the payload entirely. A per-user throttle of **60 req/min**
 applies to the list endpoint to bound bulk scraping; exceeding it returns
 `429 Too Many Requests`.
+
+`assignments/` returns every task the resource is assigned to, across **all**
+projects, ordered by project then task name (soft-deleted tasks excluded;
+completed tasks included; a deactivated resource still returns its assignments).
+Because it carries task and project **names** — project-scoped confidential data
+that the base catalog read deliberately withholds — it requires **org-admin**
+(resource-manager: Admin or Owner on any project); other callers receive
+`403 Forbidden`. It is a read-only projection: no utilization score, no
+overallocation flag, and no cross-program rollup. Each row carries:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | Assignment (allocation) id |
+| `task` | UUID | Task id |
+| `task_name` | string | Task name |
+| `project` | UUID | Project id (client group key) |
+| `project_name` | string | Project name |
+| `status` | string | Task status |
+| `percent_complete` | number | Task completion percentage |
+| `units` | decimal | Allocated fraction of the resource's capacity (`0.5` = 50%) |
 
 ### Task-resource assignments
 

@@ -15,6 +15,7 @@ import {
 import { SkillChip } from '@/features/roster/SkillChip';
 import { CapacityInput } from '@/features/roster/CapacityInput';
 import { SkillCombobox } from '@/features/roster/SkillCombobox';
+import { ResourceAssignmentsSection } from './ResourceAssignmentsSection';
 import { PROFICIENCY_LABEL } from '@/types';
 import type { Proficiency } from '@/types';
 
@@ -205,6 +206,10 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
             />
           )}
         </div>
+
+        {/* Assignments — what this person is working on across projects (#2047).
+            Admin-gated inside the section; shown for deactivated resources too. */}
+        <ResourceAssignmentsSection resourceId={resource.id} />
       </div>
 
       {/* Footer actions */}

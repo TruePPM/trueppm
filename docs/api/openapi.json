@@ -28567,6 +28567,91 @@
                 "summary": "Delete resource"
             }
         },
+        "/api/v1/resources/{id}/assignments/": {
+            "get": {
+                "operationId": "v1_resources_assignments_list",
+                "description": "Cross-project task assignments for one resource — the org catalog's 'what is this person working on' view (#2047). Gated on IsOrgAdmin because it carries task/project names across project boundaries. Soft-deleted tasks are excluded; a deactivated resource still returns its assignments. Ordered by project then task.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource.",
+                        "required": true
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "resources"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedResourceAssignmentList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve assignment"
+            }
+        },
         "/api/v1/resources/{id}/restore/": {
             "post": {
                 "operationId": "v1_resources_restore_create",
@@ -43868,6 +43953,37 @@
                     }
                 }
             },
+            "PaginatedResourceAssignmentList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ResourceAssignment"
+                        }
+                    }
+                }
+            },
             "PaginatedResourceList": {
                 "type": "object",
                 "required": [
@@ -49413,6 +49529,60 @@
                     "name",
                     "server_version",
                     "skills"
+                ]
+            },
+            "ResourceAssignment": {
+                "type": "object",
+                "description": "Read-only projection of one resource's task assignments across all projects.\n\nBacks the org catalog's \"Assignments\" panel (#2047, ADR-0499): it answers the\nresource manager's daily question \"what is this person working on / are they\noverloaded?\". Purely read-only — assignment *writes* still go through\n``TaskResourceSerializer`` on the project-nested route. It carries the task and\nproject *names* (which ``TaskResourceSerializer`` deliberately omits), so the\naction that serves it is gated on ``IsOrgAdmin`` rather than the base catalog\nread gate — those names are project-scoped confidential data.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "percent_complete": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "units": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "percent_complete",
+                    "project",
+                    "project_name",
+                    "status",
+                    "task",
+                    "task_name",
+                    "units"
                 ]
             },
             "ResourceRequest": {
