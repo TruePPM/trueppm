@@ -30,7 +30,15 @@ vi.mock('@/hooks/useLabels', () => ({
 }));
 
 function label(over: Partial<Label> = {}): Label {
-  return { id: 'l-1', name: 'bug', color: LABEL_COLOR_KEYS[0], position: 0, serverVersion: 1, ...over };
+  return {
+    id: 'l-1',
+    name: 'bug',
+    color: LABEL_COLOR_KEYS[0],
+    position: 0,
+    serverVersion: 1,
+    taskCount: 0,
+    ...over,
+  };
 }
 
 function renderPage() {
@@ -98,6 +106,34 @@ describe('ProjectLabelsPage', () => {
     fireEvent.click(screen.getByTestId('label-delete-l-1'));
     fireEvent.click(screen.getByTestId('label-delete-confirm-l-1'));
     expect(deleteMutate).toHaveBeenCalledWith('l-1');
+  });
+
+  it('delete-confirm quantifies usage from task_count (pluralized, zero hidden)', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_ADMIN });
+    useLabels.mockReturnValue({
+      data: [
+        label({ id: 'l-1', name: 'bug', position: 0, taskCount: 3 }),
+        label({ id: 'l-2', name: 'debt', position: 1, taskCount: 1 }),
+        label({ id: 'l-3', name: 'idea', position: 2, taskCount: 0 }),
+      ],
+      isLoading: false,
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('label-delete-l-1'));
+    expect(screen.getByRole('alertdialog', { name: /Delete bug\?/ })).toHaveTextContent(
+      /Used on 3 tasks/,
+    );
+
+    fireEvent.click(screen.getByTestId('label-delete-l-2'));
+    expect(screen.getByRole('alertdialog', { name: /Delete debt\?/ })).toHaveTextContent(
+      /Used on 1 task —/,
+    );
+
+    fireEvent.click(screen.getByTestId('label-delete-l-3'));
+    expect(screen.getByRole('alertdialog', { name: /Delete idea\?/ })).toHaveTextContent(
+      /not used on any tasks/,
+    );
   });
 
   it('Member sees existing labels read-only (no rename/delete controls)', () => {

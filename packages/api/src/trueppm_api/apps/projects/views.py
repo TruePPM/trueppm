@@ -7208,7 +7208,16 @@ class LabelViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
         project_pk = self.kwargs.get("project_pk")
         if project_pk:
             qs = qs.filter(project_id=project_pk)
-        return qs
+        # Annotate usage so the settings delete-confirm can quantify blast radius
+        # ("Used on N tasks", #2070) without a per-row query. Count only live tasks
+        # — soft-deleted rows are not user-visible usage. distinct=True guards the
+        # through-join from double-counting under any future annotation join.
+        # Re-apply the palette order explicitly: the aggregate GROUP BY drops the
+        # model's Meta ordering, leaving the list unordered (UnorderedObjectListWarning).
+        annotated: QuerySet[Label] = qs.annotate(
+            task_count=Count("tasks", filter=Q(tasks__is_deleted=False), distinct=True)
+        ).order_by("position", "name")
+        return annotated
 
     def get_serializer_context(self) -> dict[str, Any]:
         # Feed project_id into the serializer so its case-insensitive uniqueness

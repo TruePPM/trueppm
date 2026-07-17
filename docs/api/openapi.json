@@ -41877,7 +41877,7 @@
             },
             "Label": {
                 "type": "object",
-                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.\n\n``task_count`` is the number of non-deleted tasks carrying the label, fed by\nthe ``task_count`` annotation on ``LabelViewSet.get_queryset`` (a single\n``Count`` — no N+1). ``default=0`` keeps it safe on bare-instance write paths\n(create/update serialize the un-annotated saved instance), so the field is\nmeaningful on list/retrieve where the annotation is present.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -41904,18 +41904,24 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
                     }
                 },
                 "required": [
                     "created_at",
                     "id",
                     "name",
-                    "server_version"
+                    "server_version",
+                    "task_count"
                 ]
             },
             "LabelRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.\n\n``task_count`` is the number of non-deleted tasks carrying the label, fed by\nthe ``task_count`` annotation on ``LabelViewSet.get_queryset`` (a single\n``Count`` — no N+1). ``default=0`` keeps it safe on bare-instance write paths\n(create/update serialize the un-annotated saved instance), so the field is\nmeaningful on list/retrieve where the annotation is present.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -44911,7 +44917,7 @@
             },
             "PatchedLabelRequest": {
                 "type": "object",
-                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.",
+                "description": "Read/write serializer for the project-scoped label catalog (ADR-0400).\n\n``color`` is validated against the fixed ``LabelColor`` enum by the choices\nfield. ``name`` is normalized (trimmed) and checked for case-insensitive\nuniqueness within the project so a clean 400 is returned instead of a raw\nIntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``\nand ``created_by`` are stamped by the viewset, never client-supplied.\n\n``task_count`` is the number of non-deleted tasks carrying the label, fed by\nthe ``task_count`` annotation on ``LabelViewSet.get_queryset`` (a single\n``Count`` — no N+1). ``default=0`` keeps it safe on bare-instance write paths\n(create/update serialize the un-annotated saved instance), so the field is\nmeaningful on list/retrieve where the annotation is present.",
                 "properties": {
                     "name": {
                         "type": "string",

@@ -2352,12 +2352,20 @@ class LabelSerializer(serializers.ModelSerializer[Label]):
     uniqueness within the project so a clean 400 is returned instead of a raw
     IntegrityError on the ``uniq_label_name_per_project`` constraint. ``project``
     and ``created_by`` are stamped by the viewset, never client-supplied.
+
+    ``task_count`` is the number of non-deleted tasks carrying the label, fed by
+    the ``task_count`` annotation on ``LabelViewSet.get_queryset`` (a single
+    ``Count`` — no N+1). ``default=0`` keeps it safe on bare-instance write paths
+    (create/update serialize the un-annotated saved instance), so the field is
+    meaningful on list/retrieve where the annotation is present.
     """
+
+    task_count = serializers.IntegerField(read_only=True, default=0)
 
     class Meta:
         model = Label
-        fields = ["id", "name", "color", "position", "server_version", "created_at"]
-        read_only_fields = ["id", "server_version", "created_at"]
+        fields = ["id", "name", "color", "position", "server_version", "created_at", "task_count"]
+        read_only_fields = ["id", "server_version", "created_at", "task_count"]
 
     def validate_name(self, value: str) -> str:
         cleaned = value.strip()

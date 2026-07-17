@@ -256,6 +256,42 @@ class TestLabelCatalogCrud:
         names = [row["name"] for row in r.data["results"]]
         assert names == ["a", "b"]
 
+    def test_list_annotates_task_count_excluding_deleted(
+        self,
+        member_client: APIClient,
+        project: Project,
+        label: Label,
+        member_user: object,
+        memberships: None,
+    ) -> None:
+        # Three tasks carry the label; one is soft-deleted and must not be counted.
+        for i in range(3):
+            t = Task.objects.create(project=project, name=f"t{i}", duration=1)
+            TaskLabel.objects.create(task=t, label=label)
+        deleted = Task.objects.create(project=project, name="gone", duration=1, is_deleted=True)
+        TaskLabel.objects.create(task=deleted, label=label)
+        # A second, unused label reports zero.
+        empty = Label.objects.create(project=project, name="unused", color=LabelColor.BLUE)
+
+        r = member_client.get(f"/api/v1/projects/{project.pk}/labels/")
+        assert r.status_code == 200
+        counts = {row["id"]: row["task_count"] for row in r.data["results"]}
+        assert counts[str(label.pk)] == 3
+        assert counts[str(empty.pk)] == 0
+
+    def test_task_count_is_read_only_on_create(
+        self, member_client: APIClient, project: Project, memberships: None
+    ) -> None:
+        # A client-supplied task_count is ignored; the response reflects the (zero) annotation.
+        with _no_broadcast():
+            r = member_client.post(
+                f"/api/v1/projects/{project.pk}/labels/",
+                {"name": "fresh", "color": LabelColor.BLUE, "task_count": 99},
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["task_count"] == 0
+
 
 # ---------------------------------------------------------------------------
 # Assignment: idempotent attach / detach
