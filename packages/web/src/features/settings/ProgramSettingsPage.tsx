@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useParams } from 'react-router';
 import type { ProgramHealth } from '@/api/types';
+import { useIsWorkspaceAdmin } from '@/hooks/useIsWorkspaceAdmin';
 import { useProgram } from '@/hooks/useProgram';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
@@ -64,6 +65,10 @@ export function ProgramSettingsPage() {
   const { data: program } = useProgram(programId);
   const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
+  // The Workspace scope tab links to `/settings`, which RequireWorkspaceAdmin
+  // bounces a non-workspace-admin away from (#2012). Disable the tab (rather than
+  // render a dead link) when the user is positively not a workspace admin.
+  const isWorkspaceAdmin = useIsWorkspaceAdmin();
 
   if (!programId) return null;
 
@@ -200,7 +205,12 @@ export function ProgramSettingsPage() {
     <SettingsShell
       scope="program"
       scopeLinks={[
-        { scope: 'workspace', label: 'Workspace', to: '/settings' },
+        {
+          scope: 'workspace',
+          label: 'Workspace',
+          to: isWorkspaceAdmin === false ? null : '/settings',
+          disabledReason: 'Requires workspace admin',
+        },
         { scope: 'program', label: 'Program', to: `/programs/${programId}/settings` },
         {
           scope: 'project',

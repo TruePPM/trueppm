@@ -23,6 +23,7 @@ const WS: WorkspaceSettings = {
   defaultProjectView: 'Overview',
   allowGuests: false,
   publicSharing: false,
+  publicSharingOverridePolicy: 'suggest',
   iterationLabel: 'Sprint',
   iterationLabelOverridePolicy: 'suggest',
   mcHistoryEnabled: true,
@@ -260,5 +261,29 @@ describe('WorkspaceGeneralPage — display fixes (#2013)', () => {
     expect(select).toHaveValue('board');
     expect(within(select).getByRole('option', { name: 'Board' })).toHaveValue('board');
     expect(within(select).getByRole('option', { name: 'Overview' })).toHaveValue('overview');
+  });
+});
+
+describe('WorkspaceGeneralPage — public-sharing override policy (#2014)', () => {
+  it('checks "May narrow or widen" when the stored policy is suggest', () => {
+    mockState.ws = { ...WS, publicSharingOverridePolicy: 'suggest' };
+    renderPage();
+    const mayOverride = screen.getByRole('radio', { name: /May narrow or widen this default/i });
+    expect(mayOverride).toBeChecked();
+  });
+
+  it('treats a stored `inherit` as "may override" (OSS honors inherit≡suggest)', () => {
+    mockState.ws = { ...WS, publicSharingOverridePolicy: 'inherit' };
+    renderPage();
+    expect(screen.getByRole('radio', { name: /May narrow or widen this default/i })).toBeChecked();
+  });
+
+  it('gates the sharing Enforce radio as an Enterprise affordance (disabled + EE badge + sr hint)', () => {
+    renderPage();
+    const enforce = screen.getByRole('radio', { name: /Enforce sharing workspace-wide/i });
+    expect(enforce).toBeDisabled();
+    const hintId = enforce.getAttribute('aria-describedby');
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId as string)?.textContent).toMatch(/Enterprise/i);
   });
 });

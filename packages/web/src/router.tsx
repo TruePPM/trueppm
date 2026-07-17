@@ -8,6 +8,7 @@ import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { RequireAdminSettings } from '@/features/settings/RequireAdminSettings';
+import { RequireWorkspaceAdmin } from '@/features/settings/RequireWorkspaceAdmin';
 import { SectionRedirect } from '@/features/settings/SectionRedirect';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { RouteTitle } from '@/components/RouteTitle';
@@ -991,13 +992,16 @@ export const router = createBrowserRouter([
               // own shell route below; everything else redirects to an anchor.
               {
                 // Consolidated single scrolling page (ADR-0146, #1248). No Outlet.
+                // Workspace-admin-gated specifically (#2012): every write here is
+                // `IsWorkspaceAdmin`, so a project-admin who is a plain workspace
+                // member is bounced rather than shown enabled-but-403 controls.
                 path: 'settings',
                 element: (
-                  <RequireAdminSettings>
+                  <RequireWorkspaceAdmin>
                     <Suspense fallback={<RouteLoadingFallback />}>
                       <WorkspaceSettingsPage />
                     </Suspense>
-                  </RequireAdminSettings>
+                  </RequireWorkspaceAdmin>
                 ),
                 handle: { title: 'Workspace Settings' } satisfies RouteHandle,
               },

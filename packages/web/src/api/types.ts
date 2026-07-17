@@ -461,6 +461,10 @@ export interface WorkspaceSettings {
   defaultProjectView: string;
   allowGuests: boolean;
   publicSharing: boolean;
+  /** Cascade policy for `publicSharing` (ADR-0135, #978). `inherit`/`suggest`
+   *  (OSS) let programs/projects narrow or widen freely; `enforce` is the
+   *  Enterprise hard lock (stored, never enforced in OSS). */
+  publicSharingOverridePolicy: 'inherit' | 'suggest' | 'enforce';
   /** Workspace-wide default iteration-container label (ADR-0116, #1106) — the
    *  root of the Workspace → Program → Project inheritance chain. */
   iterationLabel: string;

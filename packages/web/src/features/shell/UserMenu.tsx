@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { initialsForUser, labelForUser, accountAccessibleName } from '@/lib/userIdentity';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -27,8 +28,10 @@ interface MenuContentProps {
   isMobile: boolean;
   /** When set, renders a "Project settings" link in the menu. */
   projectId: string | undefined;
-  /** When true, renders a "Workspace settings" link in the menu. */
-  canAccessAdminSettings: boolean;
+  /** When true, renders a "Workspace settings" link in the menu. Gated on
+   *  workspace-admin (not any project-admin) so the row never leads to a page the
+   *  RequireWorkspaceAdmin route guard would bounce the user away from (#2012). */
+  canAccessWorkspaceSettings: boolean;
 }
 
 function MenuContent({
@@ -40,7 +43,7 @@ function MenuContent({
   onClose,
   isMobile,
   projectId,
-  canAccessAdminSettings,
+  canAccessWorkspaceSettings,
 }: MenuContentProps) {
   const rowBase = isMobile
     ? 'flex items-center px-4 min-h-[52px]'
@@ -106,12 +109,12 @@ function MenuContent({
       )}
 
       {/* Workspace settings — the ONLY always-available nav entry to /settings
-          (members + invites, calendars, email, SSO). Gated on the same
-          server-computed flag RequireAdminSettings enforces on the route, so
-          the row never leads somewhere the user would be redirected away from
+          (members + invites, calendars, email, SSO). Gated on workspace-admin,
+          the same threshold RequireWorkspaceAdmin enforces on the route (#2012),
+          so the row never leads somewhere the user would be redirected away from
           (#2033). Lands on #members: inviting the team is the primary
           getting-started action for a fresh workspace. */}
-      {canAccessAdminSettings && (
+      {canAccessWorkspaceSettings && (
         <NavLink
           to="/settings#members"
           role="menuitem"
@@ -367,7 +370,10 @@ export function UserMenu() {
     onOpenShortcuts: openShortcutsModal,
     onClose: close,
     projectId,
-    canAccessAdminSettings: user?.can_access_admin_settings === true,
+    // Workspace settings is workspace-admin-gated (RequireWorkspaceAdmin, #2012),
+    // not any-project-admin — a project-admin who is a plain workspace member
+    // would be redirected away, so the row must not appear for them.
+    canAccessWorkspaceSettings: (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE,
   };
 
   return (

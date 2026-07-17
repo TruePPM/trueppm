@@ -2,14 +2,11 @@ import { useMemo } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { WORKSPACE_ADMIN_ROLE } from '@/hooks/useIsWorkspaceAdmin';
 import { useBulkProgramFields } from '@/hooks/useBulkProgramFields';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { BulkFieldsMatrix, type FieldDescriptor } from '../components/BulkFieldsMatrix';
 import type { Program } from '@/api/types';
-
-// WorkspaceRole.ADMIN ordinal — the server gates POST /programs/bulk-fields/ at
-// IsWorkspaceAdmin (>= ADMIN). This is a render-gate only; the server is authoritative.
-const WORKSPACE_ADMIN_ROLE = 300;
 
 /**
  * Workspace → Programs settings section (issue 1283, ADR-0161). The second mount of the

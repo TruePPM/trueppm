@@ -144,9 +144,13 @@ test.describe('Workspace → Programs bulk matrix', () => {
     });
   });
 
-  test('read-only — a non-admin member sees the matrix without the edit action bar', async ({
+  test('a non-workspace-admin member is bounced off the workspace settings page (#2012)', async ({
     page,
   }) => {
+    // A plain workspace member (workspace_role 100) — even one who is a project
+    // admin — no longer reaches the workspace settings shell: RequireWorkspaceAdmin
+    // redirects them, so the Programs matrix (which is workspace-admin-only to edit
+    // and lives on the same consolidated page) is never shown.
     await baseSetup(page, { workspaceRole: 100 });
     await page.route('**/api/v1/programs/', (r) =>
       r.fulfill(json({ count: PROGRAMS.length, next: null, previous: null, results: PROGRAMS })),
@@ -154,10 +158,7 @@ test.describe('Workspace → Programs bulk matrix', () => {
 
     await page.goto('/settings/programs');
 
-    const section = page.locator('[data-settings-section="programs"]');
-    await expect(section.getByText('Apollo')).toBeVisible();
-    // No bulk action bar and no per-row selection without workspace-admin rights.
-    await expect(section.getByTestId('bulk-fields-action-bar')).toHaveCount(0);
-    await expect(section.getByLabel('Select Apollo')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/me\/settings\/notifications/);
+    await expect(page.getByText('Apollo')).toHaveCount(0);
   });
 });

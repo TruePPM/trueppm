@@ -29,6 +29,7 @@ const WS: WorkspaceSettings = {
   defaultProjectView: 'Overview',
   allowGuests: false,
   publicSharing: false,
+  publicSharingOverridePolicy: 'suggest',
   iterationLabel: 'Sprint',
   iterationLabelOverridePolicy: 'suggest',
   mcHistoryEnabled: true,
