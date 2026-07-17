@@ -670,6 +670,7 @@ class InviteAcceptView(IdempotencyMixin, APIView):
             # Return the 400 directly rather than raising: DRF's exception handler
             # calls set_rollback(), which would revert the expired-status write
             # accept_invite makes for an overdue token under ATOMIC_REQUESTS.
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"detail": "Invitation accepted.", "username": user.username})
 
@@ -1023,6 +1024,7 @@ class TransferOwnershipView(IdempotencyMixin, APIView):
             services.transfer_workspace_ownership(new_owner=new_owner, actor=request.user)
         except DjangoValidationError as exc:
             detail = exc.messages[0] if exc.messages else str(exc)
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(

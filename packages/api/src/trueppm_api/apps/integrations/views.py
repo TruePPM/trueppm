@@ -171,6 +171,7 @@ class IntegrationCredentialViewSet(
             providers.assert_base_url_allowed(provider, base_url)
         except providers.BaseUrlNotAllowed as exc:
             return Response(
+                # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 {"detail": str(exc), "code": "base_url_not_allowed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )

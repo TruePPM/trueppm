@@ -180,6 +180,27 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  // #37 (CodeQL js/unvalidated-dynamic-method-call): event_type is read straight
+  // off the wire frame and used to index the handler table. A frame whose
+  // event_type collides with an Object.prototype key must never resolve to a
+  // prototype method and be invoked — the Object.hasOwn guard makes it an inert
+  // no-op instead of a TypeError (__proto__) or a stray prototype-method call
+  // (hasOwnProperty / toString / valueOf / constructor).
+  it.each(['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'valueOf'])(
+    'ignores a frame whose event_type is the prototype key %p (no throw, no dispatch)',
+    (protoKey) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+      flushDebounce();
+      const callsBefore = invalidateSpy.mock.calls.length;
+
+      expect(() => dispatchEvent(protoKey)).not.toThrow();
+      flushDebounce();
+
+      expect(invalidateSpy.mock.calls.length).toBe(callsBefore);
+    },
+  );
+
   it('invalidates the decisions list and task-notes on task_note_decision_toggled (#748)', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

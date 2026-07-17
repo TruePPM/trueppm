@@ -442,6 +442,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             )
     except SimulationCapExceeded as exc:
         return Response(
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             {
                 "error": "simulation_cap_exceeded",
                 "tier": "team",
@@ -450,6 +451,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             status=status.HTTP_402_PAYMENT_REQUIRED,
         )
     except (CyclicDependencyError, ValueError) as exc:
+        # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     except OverflowError:
         # Defense in depth: the engine's MAX_PROJECT_SPAN_DAYS guard makes this
@@ -928,10 +930,12 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 )
         except SimulationCapExceeded as exc:
             return Response(
+                # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 {"error": "simulation_cap_exceeded", "tier": "team", "message": str(exc)},
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
         except (CyclicDependencyError, ValueError) as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OverflowError:
             return Response(
@@ -1911,6 +1915,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         except (CyclicDependencyError, ValueError) as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except OverflowError:
             return Response(

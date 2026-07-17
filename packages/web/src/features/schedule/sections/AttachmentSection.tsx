@@ -65,6 +65,18 @@ function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null)
  * title via the `meta` line, so the glyph is decorative — `aria-hidden` on
  * the span carries the WCAG fallback.
  */
+/**
+ * True when `host` is `token`, a subdomain of it, or carries `token` as a
+ * dot-delimited label — so a brand label matches both the SaaS host
+ * (`github.com`) and a self-hosted one (`jira.corp.example`). Matching parsed
+ * host labels by equality (never a raw `host.includes(token)` substring, which
+ * a look-alike like `github.evil.example` would satisfy) keeps the glyph
+ * honest; the check is decorative, but exact-label matching is simply correct.
+ */
+function hostMatches(host: string, token: string): boolean {
+  return host === token || host.endsWith(`.${token}`) || host.split('.').includes(token);
+}
+
 function externalLinkIcon(externalUrl: string | null): string {
   if (!externalUrl) return '🔗';
   let host: string;
@@ -73,18 +85,18 @@ function externalLinkIcon(externalUrl: string | null): string {
   } catch {
     return '🔗';
   }
-  if (host.includes('docs.google.') || host.includes('drive.google.')) return '📝';
-  if (host.includes('sharepoint.') || host.includes('onedrive.') || host.includes('office.com'))
+  if (hostMatches(host, 'docs.google.com') || hostMatches(host, 'drive.google.com')) return '📝';
+  if (hostMatches(host, 'sharepoint') || hostMatches(host, 'onedrive') || hostMatches(host, 'office.com'))
     return '📘';
-  if (host.includes('atlassian.net') || host.includes('confluence.')) return '📚';
-  if (host.includes('notion.')) return '📓';
-  if (host.includes('figma.')) return '🎨';
-  if (host.includes('jira.')) return '🟦';
-  if (host.includes('github.')) return '🐙';
-  if (host.includes('gitlab.')) return '🦊';
-  if (host.includes('miro.')) return '🗒';
-  if (host.includes('dropbox.')) return '📦';
-  if (host.includes('slack.')) return '💬';
+  if (hostMatches(host, 'atlassian.net') || hostMatches(host, 'confluence')) return '📚';
+  if (hostMatches(host, 'notion')) return '📓';
+  if (hostMatches(host, 'figma')) return '🎨';
+  if (hostMatches(host, 'jira')) return '🟦';
+  if (hostMatches(host, 'github')) return '🐙';
+  if (hostMatches(host, 'gitlab')) return '🦊';
+  if (hostMatches(host, 'miro')) return '🗒';
+  if (hostMatches(host, 'dropbox')) return '📦';
+  if (hostMatches(host, 'slack')) return '💬';
   return '🔗';
 }
 

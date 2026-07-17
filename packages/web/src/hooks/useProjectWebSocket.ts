@@ -840,8 +840,15 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       // O(1) dispatch. An unrecognized event_type has no handler and is a no-op
-      // (e.g. task_duration_changed, intentionally unregistered above).
-      eventHandlers[event_type]?.(payload, event_type);
+      // (e.g. task_duration_changed, intentionally unregistered above). Guard the
+      // dynamic lookup with Object.hasOwn so an inherited Object.prototype key
+      // arriving as event_type ("constructor", "toString", "__proto__", …) can
+      // never resolve to a prototype method and be invoked (CodeQL
+      // js/unvalidated-dynamic-method-call; event_type is off the wire frame).
+      const handler = Object.hasOwn(eventHandlers, event_type)
+        ? eventHandlers[event_type]
+        : undefined;
+      handler?.(payload, event_type);
     }
 
     function scheduleReconnect() {

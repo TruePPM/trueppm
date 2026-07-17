@@ -65,14 +65,34 @@ interface LinkRow {
   server_version: number;
 }
 
-/** Provider key for a URL — mirrors the server's host detection (#637, #571). */
+/**
+ * Provider key for a URL — mirrors the server's host detection (#637, #571).
+ * The server parses the host and matches it by exact/suffix equality, so the
+ * mock does the same (never a raw `url.includes('github.com')` substring, which
+ * a path segment like `.../github.com/...` would falsely satisfy). Callers pass
+ * an already-normalized `https://…` URL, so parsing succeeds for every provider
+ * case; an unparseable value falls through to `generic`, matching the server.
+ */
 function detectProviderForMock(url: string): string {
-  if (url.includes('github.com')) return 'github';
-  if (url.includes('gitlab.com')) return 'gitlab';
-  if (/(drive|docs|sheets|slides)\.google\.com/.test(url)) return 'google_drive';
-  if (url.includes('dropbox.com')) return 'dropbox';
-  if (url.includes('box.com')) return 'box';
-  if (url.includes('onedrive.live.com') || url.includes('sharepoint.com')) return 'onedrive';
+  let host: string;
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch {
+    return 'generic';
+  }
+  const isHost = (domain: string): boolean => host === domain || host.endsWith(`.${domain}`);
+  if (isHost('github.com')) return 'github';
+  if (isHost('gitlab.com')) return 'gitlab';
+  if (
+    isHost('drive.google.com') ||
+    isHost('docs.google.com') ||
+    isHost('sheets.google.com') ||
+    isHost('slides.google.com')
+  )
+    return 'google_drive';
+  if (isHost('dropbox.com')) return 'dropbox';
+  if (isHost('box.com')) return 'box';
+  if (isHost('onedrive.live.com') || isHost('sharepoint.com')) return 'onedrive';
   return 'generic';
 }
 
