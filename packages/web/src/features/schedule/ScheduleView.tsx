@@ -1685,8 +1685,9 @@ export function ScheduleView() {
 
           {/* Grid↔Timeline layout toggle (issue 1221) — standalone: Grid keeps the
             WBS table beside the timeline, Timeline hides it for a full-width canvas.
-            Hidden on mobile, which is forced to full-width Timeline (#1670). */}
-          {!isMobile && <ScheduleViewModeToggle />}
+            The whole toolbar is desktop-only (mobile is forced to full-width
+            Timeline, #1670), so no per-control mobile guard is needed here. */}
+          <ScheduleViewModeToggle />
 
           {/* Show cluster (#1741) — the Display popover is the single home for the
             four view/render filters plus (in Grid mode) column visibility, at every
