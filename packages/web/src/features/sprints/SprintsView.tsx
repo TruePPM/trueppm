@@ -257,6 +257,11 @@ export function SprintsView() {
     () => searchParams.get('task'),
   );
   useEffect(() => {
+    // Bail when the URL already reflects the selection. Without this guard the
+    // mount pass fires a redundant write that races the sprint-fallback's
+    // setSearchParams within one effect flush and clobbers `?sprint=` (both
+    // functional updaters read the pre-navigation location).
+    if (searchParams.get('task') === selectedTaskId) return;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -266,7 +271,7 @@ export function SprintsView() {
       },
       { replace: true },
     );
-  }, [selectedTaskId, setSearchParams]);
+  }, [selectedTaskId, searchParams, setSearchParams]);
   // Index the project task list by id so a clicked backlog row (which carries
   // only the lightweight SprintBacklogTask) can open the full Task in the
   // shared drawer — the same index the Board builds from useScheduleTasks.

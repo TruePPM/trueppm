@@ -1856,6 +1856,12 @@ export function BoardView() {
     () => searchParams.get('task'),
   );
   useEffect(() => {
+    // Bail when the URL already reflects the selection. Without this guard the
+    // mount pass fires a redundant write that, within a single effect flush,
+    // races the sprint smart-default's setSearchParams and clobbers `?sprint=`
+    // (both functional updaters read the pre-navigation location) — the sprint
+    // header never renders (#2031 regression).
+    if (searchParams.get('task') === selectedTaskId) return;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -1865,7 +1871,7 @@ export function BoardView() {
       },
       { replace: true },
     );
-  }, [selectedTaskId, setSearchParams]);
+  }, [selectedTaskId, searchParams, setSearchParams]);
   // Board activity feed panel (ADR-0160, issue 1261) — open state persisted per project,
   // mirroring the SprintPanel/FlowAnalyticsPanel disclosure convention.
   const activityStorageKey = `trueppm.board.${projectId}.activityPanel.open`;

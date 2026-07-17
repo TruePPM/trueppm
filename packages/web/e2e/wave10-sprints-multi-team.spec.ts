@@ -160,6 +160,6 @@ test.describe('Wave 10 — Multi-team Sprints lens', () => {
 
     // Card link to other project.
     const otherLink = lens.getByRole('link', { name: /Other Team Project/i });
-    await expect(otherLink).toHaveAttribute('href', '/projects/other-project/sprints');
+    await expect(otherLink).toHaveAttribute('href', '/projects/other-project/sprints?sprint=sp-other');
   });
 });
