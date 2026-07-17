@@ -1,9 +1,11 @@
 /**
- * E2E for sync conflict hardening (ADR-0217, #322).
+ * E2E for sync conflict hardening (ADR-0217, #322) and its #2036 follow-up.
  *
  * Two PMs edit the same task. When their edits are disjoint the server merges
- * (200) and the edit lands silently. When they overlap the server returns 409 and
- * the loser sees the "Someone else changed this" toast with a Reload action — no
+ * (200) and the edit lands silently. When they overlap the server returns 409.
+ * Before #2036 the modal closed and discarded the loser's edits; now it stays
+ * open with an inline banner that names the conflicting fields and offers
+ * "Keep my edits & save" (rebase onto the server version and re-save) — no
  * silent data loss. We drive one browser and mock the *other* PM's write as the
  * server response (200 merge / 409 conflict), which is the deterministic seam.
  */
@@ -184,14 +186,16 @@ async function openEditModal(page: Page) {
 }
 
 test.describe('Sync conflict — field-level merge (#322)', () => {
-  test('overlapping edit surfaces the conflict toast with a Reload action', async ({ page }) => {
+  test('overlapping edit keeps the modal open with an inline banner, not a toast (#2036)', async ({
+    page,
+  }) => {
     await setup(page, (route) =>
       route.fulfill({
         status: 409,
         contentType: 'application/json',
         body: JSON.stringify({
           code: 'sync_conflict',
-          detail: 'Someone else changed this. Reload to see their changes.',
+          detail: 'Someone else changed this.',
           conflict_fields: ['name'],
           server_value: { name: 'Their edit' },
           client_value: { name: 'My edit' },
@@ -201,11 +205,59 @@ test.describe('Sync conflict — field-level merge (#322)', () => {
     );
     const dialog = await openEditModal(page);
     await dialog.getByLabel(/Task name/).fill('My edit');
-    await dialog.getByRole('button', { name: /Save/ }).click();
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
 
-    // The loser sees the conflict toast + Reload affordance — no silent loss.
-    await expect(page.getByText('Someone else changed this. Reload to see their changes.')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Reload/ })).toBeVisible();
+    // New behavior: an inline banner inside the modal names the conflicting
+    // field; the modal stays open with the user's edit preserved.
+    const banner = dialog.getByRole('alert');
+    await expect(banner).toContainText(/Someone else changed/);
+    await expect(banner).toContainText('Name');
+    await expect(banner).toContainText('Their edit');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel(/Task name/)).toHaveValue('My edit');
+    // The old toast Reload affordance is gone — the banner is the single signal.
+    await expect(page.getByRole('button', { name: /^Reload$/ })).toHaveCount(0);
+  });
+
+  test('"Keep my edits & save" rebases onto the server version and re-saves (#2036)', async ({
+    page,
+  }) => {
+    let calls = 0;
+    await setup(page, (route) => {
+      calls += 1;
+      if (calls === 1) {
+        // First save: overlapping conflict.
+        route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            code: 'sync_conflict',
+            detail: 'Someone else changed this.',
+            conflict_fields: ['name'],
+            server_value: { name: 'Their edit' },
+            client_value: { name: 'My edit' },
+            server_version: 6,
+          }),
+        });
+      } else {
+        // Retry after rebase: accepted.
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...TASK, name: 'My edit', server_version: 7 }),
+        });
+      }
+    });
+    const dialog = await openEditModal(page);
+    await dialog.getByLabel(/Task name/).fill('My edit');
+    await dialog.getByRole('button', { name: 'Save changes' }).click();
+    await expect(dialog.getByRole('alert')).toContainText(/Someone else changed/);
+
+    await dialog.getByRole('button', { name: 'Keep my edits & save' }).click();
+
+    // The rebased retry is accepted → the modal closes with no lost work.
+    await expect(dialog).toBeHidden();
+    expect(calls).toBe(2);
   });
 
   test('disjoint edit merges (200) and closes the modal with no error', async ({ page }) => {

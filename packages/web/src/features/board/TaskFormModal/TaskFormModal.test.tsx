@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AxiosError, AxiosHeaders } from 'axios';
 import type { Task } from '@/types';
 import { TaskFormModal } from './index';
 
@@ -804,5 +805,101 @@ describe('TaskFormModal (issue #305)', () => {
   it('shows the Assignees group in create mode even though isEdit-only phase logic exists (no children yet)', () => {
     renderModal({ task: null });
     expect(screen.getByRole('group', { name: 'Assignees' })).toBeInTheDocument();
+  });
+});
+
+// ----- 409 sync conflict preserves edits (#2036) ---------------------------
+// A concurrent overlapping edit used to close the modal and discard every field
+// the user typed. It must now keep the modal open with an inline banner and let
+// the user rebase-and-resave with their edits intact.
+function makeConflictError(overrides: Record<string, unknown> = {}): AxiosError {
+  const err = new AxiosError('Conflict');
+  err.response = {
+    status: 409,
+    statusText: 'Conflict',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: {
+      code: 'sync_conflict',
+      detail: 'Someone else changed this.',
+      conflict_fields: ['name'],
+      server_value: { name: 'Their name' },
+      client_value: { name: 'My edited name' },
+      server_version: 7,
+      ...overrides,
+    },
+  };
+  return err;
+}
+
+describe('TaskFormModal 409 sync conflict (#2036)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockProjectAgile = false;
+    mockUserRole = 300;
+    mockResourcePool = [];
+    mockSprints = [];
+    mockHistory = [];
+    mockServerPredecessors = [];
+    mockPredsResolved = true;
+    mockPredsError = null;
+    mockParseProgressAnchorError.mockReturnValue(null);
+  });
+
+  it('keeps the modal open and shows a banner naming the conflicting field instead of closing', async () => {
+    updateMutate.mockRejectedValueOnce(makeConflictError());
+    const onClose = vi.fn();
+    renderModal({ task: baseTask({ serverVersion: 3 }), onClose });
+
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'My edited name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    const banner = await screen.findByRole('alert');
+    expect(banner).toHaveTextContent(/Someone else changed/i);
+    expect(banner).toHaveTextContent(/Name/);
+    expect(banner).toHaveTextContent(/Their name/);
+    // The modal stayed open — the user's edit is still in the field.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText<HTMLInputElement>('Task name *').value).toBe('My edited name');
+  });
+
+  it('"Keep my edits & save" rebases baseVersion to the server version and re-saves the edited value', async () => {
+    updateMutate.mockRejectedValueOnce(makeConflictError());
+    const onClose = vi.fn();
+    renderModal({ task: baseTask({ serverVersion: 3 }), onClose });
+
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'My edited name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByRole('alert');
+
+    // First attempt used the original base version.
+    expect(updateMutate).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ baseVersion: 3, name: 'My edited name', suppressConflictToast: true }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my edits & save' }));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+
+    // Retry rebased onto the server's current version, keeping the user's edit.
+    expect(updateMutate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ baseVersion: 7, name: 'My edited name' }),
+    );
+  });
+
+  it('"Keep editing" dismisses the banner but keeps the modal open for manual reconciliation', async () => {
+    updateMutate.mockRejectedValueOnce(makeConflictError());
+    const onClose = vi.fn();
+    renderModal({ task: baseTask({ serverVersion: 3 }), onClose });
+
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'My edited name' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await screen.findByRole('alert');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText<HTMLInputElement>('Task name *').value).toBe('My edited name');
   });
 });

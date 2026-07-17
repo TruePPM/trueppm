@@ -6,6 +6,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { AxiosError, AxiosHeaders } from 'axios';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
@@ -33,6 +34,39 @@ const { patchMock, postMock, deleteMock } = vi.hoisted(() => ({
 vi.mock('@/api/client', () => ({
   apiClient: { patch: patchMock, post: postMock, delete: deleteMock },
 }));
+
+// Spy on the conflict toast so the suppress-flag branch (#2036) is observable.
+const toastActionMock = vi.hoisted(() => vi.fn());
+vi.mock('@/components/Toast', () => ({
+  toast: {
+    action: toastActionMock,
+    success: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    warm: vi.fn(),
+    dismiss: vi.fn(),
+  },
+}));
+
+/** A structured 409 sync-conflict error (ADR-0217) for the toast-suppression tests. */
+function makeConflictError(): AxiosError {
+  const err = new AxiosError('Conflict');
+  err.response = {
+    status: 409,
+    statusText: 'Conflict',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: {
+      code: 'sync_conflict',
+      detail: 'Someone else changed this.',
+      conflict_fields: ['name'],
+      server_value: { name: 'Theirs' },
+      client_value: { name: 'Mine' },
+      server_version: 9,
+    },
+  };
+  return err;
+}
 
 const baseTask: Task = {
   id: 't1',
@@ -471,6 +505,48 @@ describe('useUpdateTask', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
     const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
     expect(t.progress).toBe(0); // restored from the pre-mutation snapshot
+  });
+
+  it('surfaces the conflict toast on a 409 by default', async () => {
+    patchMock.mockRejectedValueOnce(makeConflictError());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'X', baseVersion: 2 });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastActionMock).toHaveBeenCalled();
+  });
+
+  it('suppresses the conflict toast when suppressConflictToast is set (#2036)', async () => {
+    qc.setQueryData<Task[]>(['tasks', 'p1'], [baseTask]);
+    patchMock.mockRejectedValueOnce(makeConflictError());
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      name: 'X',
+      baseVersion: 2,
+      suppressConflictToast: true,
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    // The caller (TaskFormModal) renders its own banner instead.
+    expect(toastActionMock).not.toHaveBeenCalled();
+    // Rollback still runs.
+    const [t] = qc.getQueryData<Task[]>(['tasks', 'p1']) ?? [];
+    expect(t.name).toBe('Task 1');
+  });
+
+  it('never sends the suppressConflictToast flag to the API (#2036)', async () => {
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({
+      id: 't1',
+      projectId: 'p1',
+      name: 'X',
+      baseVersion: 2,
+      suppressConflictToast: true,
+    });
+    await waitFor(() => expect(patchMock).toHaveBeenCalled());
+    const body = patchMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('suppressConflictToast');
+    expect(body).not.toHaveProperty('baseVersion');
   });
 });
 

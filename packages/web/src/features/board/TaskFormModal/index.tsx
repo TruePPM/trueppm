@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Task, TaskStatus, TaskType, GovernanceClass, DeliveryMode } from '@/types';
 import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { Button } from '@/components/Button';
 import { FieldHelp } from '@/components/FieldHelp';
 import { toast } from '@/components/Toast';
-import { isSyncConflict } from '@/api/conflict';
+import { asSyncConflict, type SyncConflict } from '@/api/conflict';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
@@ -142,6 +143,48 @@ interface FormState {
   predecessors: PredecessorWorkingRow[];
 }
 
+// #2036: human-readable labels for the snake_case field names the API returns in
+// a 409 `conflict_fields` list, so the conflict banner reads in domain terms.
+const CONFLICT_FIELD_LABELS: Record<string, string> = {
+  name: 'Name',
+  notes: 'Notes',
+  status: 'Status',
+  duration: 'Duration',
+  percent_complete: 'Progress',
+  planned_start: 'Planned start',
+  type: 'Type',
+  governance_class: 'Governance class',
+  delivery_mode: 'Delivery mode',
+  story_points: 'Story points',
+  sprint: 'Sprint',
+};
+
+function conflictFieldLabel(field: string): string {
+  return (
+    CONFLICT_FIELD_LABELS[field] ??
+    field.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
+  );
+}
+
+/** Join field labels into a natural-language list ("Name, Notes and Status"). */
+function formatConflictFieldList(fields: string[]): string {
+  const labels = fields.map(conflictFieldLabel);
+  if (labels.length === 1) return labels[0];
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Render a server value from the 409 body for display, or null when there's
+ * nothing meaningful to show (RBAC-filtered fields arrive absent/null).
+ */
+function formatServerValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return null;
+}
+
 function initialState(task: Task | null, defaultStatus: TaskStatus): FormState {
   if (task === null) {
     return {
@@ -263,6 +306,14 @@ export function TaskFormModal({
   // the in-flight display. Normalized back to a valid number on blur.
   const [durationText, setDurationText] = useState<string>(() => String(form.duration));
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // #2036: a 409 sync conflict on edit-save keeps the modal open with an inline
+  // banner instead of closing and discarding the user's edits. `conflict` holds
+  // the structured 409 body (conflict_fields + server_value) driving that banner;
+  // `baseVersionOverride` is the server's current version to rebase on when the
+  // user chooses "Keep my edits & save" so the retry is accepted instead of
+  // 409ing again. Null means "no override — use the task prop's serverVersion".
+  const [conflict, setConflict] = useState<SyncConflict | null>(null);
+  const [baseVersionOverride, setBaseVersionOverride] = useState<number | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // #838: dirty-discard confirmation now uses the ARIA-managed ConfirmDiscardDialog
   // instead of window.confirm (which is unmanaged by the focus trap / screen reader).
@@ -298,6 +349,8 @@ export function TaskFormModal({
     error: predsError,
   } = useTaskDependencies(task?.id ?? null);
   const taskHistory = useTaskHistory(projectId, task?.id ?? '');
+
+  const queryClient = useQueryClient();
 
   // Mutations
   const createTask = useCreateTask(projectId);
@@ -507,8 +560,24 @@ export function TaskFormModal({
     }
   }
 
-  async function handleSubmit() {
+  /**
+   * Rebase onto the server's current version and re-save, keeping the user's
+   * edits (#2036). Called from the conflict banner's "Keep my edits & save".
+   * Invalidating the tasks query lets the board/drawer reflect the concurrent
+   * change; passing the version explicitly avoids racing the async setState.
+   */
+  async function resolveConflictKeepingEdits() {
+    if (!conflict) return;
+    const serverVersion = conflict.server_version;
+    setBaseVersionOverride(serverVersion);
+    setConflict(null);
+    void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
+    await handleSubmit(serverVersion);
+  }
+
+  async function handleSubmit(overrideBaseVersion?: number) {
     setSubmitError(null);
+    setConflict(null);
     // Duration is normalized on blur, but a keyboard submit (⌘+S) can fire while
     // the field still holds a transient sub-1/empty entry that never blurred, so
     // floor it here too — the committed value must always be a valid working-day
@@ -542,8 +611,12 @@ export function TaskFormModal({
           id: task.id,
           projectId,
           // Opt into field-level merge (ADR-0217, issue 322): if another editor changed a
-          // disjoint field the server merges; an overlapping edit 409s with a toast.
-          baseVersion: task.serverVersion,
+          // disjoint field the server merges; an overlapping edit 409s. #2036: after the
+          // user chooses "Keep my edits & save" on the conflict banner, rebase onto the
+          // server's current version so the retry is accepted rather than 409ing again.
+          baseVersion: overrideBaseVersion ?? baseVersionOverride ?? task.serverVersion,
+          // #2036: render our own inline conflict banner instead of the toast.
+          suppressConflictToast: true,
           name: form.name.trim(),
           duration: committedDuration,
           percent_complete: form.progress,
@@ -587,11 +660,15 @@ export function TaskFormModal({
       }
       onClose();
     } catch (err) {
-      // A sync conflict (ADR-0217) already surfaced the "Someone else changed this"
-      // toast with a Reload action via the mutation's onError; close the modal so the
-      // toast is unobstructed rather than stacking a redundant inline error.
-      if (isSyncConflict(err)) {
-        onClose();
+      // A sync conflict (ADR-0217) on the highest-collaboration surface used to
+      // close the modal and discard every field the user edited (#2036). Instead
+      // keep the modal open and surface an inline banner (rendered below) that
+      // names the conflicting fields and lets the user rebase-and-resave with
+      // their edits preserved. The mutation opts out of the toast (suppressed
+      // above) so the banner is the single signal.
+      const conflictErr = asSyncConflict(err);
+      if (conflictErr) {
+        setConflict(conflictErr);
         return;
       }
       const anchorErr = parseProgressAnchorError(err);
@@ -1096,6 +1173,53 @@ export function TaskFormModal({
             className="w-full px-3 py-2 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control resize-vertical focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
           />
         </div>
+
+        {conflict && (
+          <div
+            role="alert"
+            className="bg-semantic-at-risk-bg border border-semantic-at-risk/30 text-semantic-at-risk text-xs px-3 py-2.5 rounded-card space-y-2"
+          >
+            <p className="font-semibold">
+              Someone else changed{' '}
+              {conflict.conflict_fields.length > 0
+                ? formatConflictFieldList(conflict.conflict_fields)
+                : 'this task'}{' '}
+              while you were editing.
+            </p>
+            {conflict.conflict_fields.length > 0 && (
+              <ul className="list-disc pl-4 space-y-0.5">
+                {conflict.conflict_fields.map((field) => (
+                  <li key={field}>
+                    <span className="font-medium">{conflictFieldLabel(field)}</span>
+                    {formatServerValue(conflict.server_value[field]) !== null && (
+                      <> — now “{formatServerValue(conflict.server_value[field])}” on the server</>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p>Keep your edits (they’ll overwrite the changes above), or keep editing to reconcile them yourself.</p>
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void resolveConflictKeepingEdits()}
+                disabled={isPending}
+              >
+                Keep my edits &amp; save
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => setConflict(null)}
+                disabled={isPending}
+              >
+                Keep editing
+              </Button>
+            </div>
+          </div>
+        )}
 
         {submitError && (
           <div role="alert" className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded-card">

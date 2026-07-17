@@ -129,6 +129,30 @@ export function useSyncStatus(): SyncStatusView {
 }
 
 /**
+ * Count of un-drained writes that a tab close / reload would lose (#2028):
+ * paused (offline-queued) and in-flight mutations. Excludes 4xx client
+ * rejections — those are surfaced inline and never retried, so they're not
+ * pending work at risk. Drives the {@link PendingWritesGuard} beforeunload
+ * prompt. Cheap projection so it re-renders only on cache add/settle/pause.
+ */
+export function usePendingWriteCount(): number {
+  const mutations = useMutationState({
+    select: (m) => ({
+      status: m.state.status,
+      isPaused: m.state.isPaused,
+      clientRejected: isClientRejection(m.state.error),
+    }),
+  });
+  let count = 0;
+  for (const m of mutations) {
+    if (m.clientRejected) continue;
+    // `pending` covers both paused (offline-queued) and in-flight writes.
+    if (m.status === 'pending') count += 1;
+  }
+  return count;
+}
+
+/**
  * Manually drain the write queue: resume any offline-paused mutations and re-run
  * any that errored. Idempotent — resuming with nothing paused is a no-op and an
  * already-running mutation is not re-enqueued (ADR-0205).

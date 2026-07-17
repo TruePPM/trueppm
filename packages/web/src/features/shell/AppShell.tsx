@@ -9,6 +9,7 @@ import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { OfflineBanner } from './OfflineBanner';
+import { PendingWritesGuard } from './PendingWritesGuard';
 import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
@@ -90,6 +91,10 @@ export function AppShell() {
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
         <OfflineBanner />
+
+        {/* #2028: warn before a reload/close while writes are still un-drained
+            (in-memory queue would be lost). Renders nothing. */}
+        <PendingWritesGuard />
 
         {/* Body row: sidebar + main content */}
         <div className="flex flex-1 overflow-hidden">
