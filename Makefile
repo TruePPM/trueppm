@@ -4,7 +4,7 @@
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check migrations-numbering schema-check web-lint web-typecheck pre-push pre-push-checks \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
-        coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
+        coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-doctor
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
@@ -234,6 +234,9 @@ coverage-diff-web: ## Diff coverage for packages/web
 	else \
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
+
+sonar: ## Run a local SonarCloud scan with coverage import (needs SONAR_TOKEN; run `make coverage-diff` first)
+	scripts/sonar-scan.sh
 
 pre-push-collision-check: ## Block the push if this branch's issue already has an open MR from another branch (#2000)
 	@# Fail-fast duplicate-work guard: runs BEFORE the parallel code gates so a

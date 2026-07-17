@@ -75,6 +75,21 @@ Run the full pre-push gate before every push:
 make pre-push   # lint + typecheck + migrations-check + schema-check
 ```
 
+### Coverage and SonarCloud
+
+SonarCloud does not run tests — it **imports** coverage reports. The report paths
+are declared in `sonar-project.properties`. To refresh coverage on the SonarCloud
+dashboard, generate the reports and run the scanner:
+
+```bash
+make coverage-diff              # generates api/scheduler/web coverage reports
+SONAR_TOKEN=xxxxxxxx make sonar # rewrites the web LCOV for the root run, then scans
+```
+
+`make sonar` (via `scripts/sonar-scan.sh`) prefixes the web LCOV `SF:` paths with
+`packages/web/` so they resolve from the repo root — without it the web report
+imports as 0%.
+
 ## Changelog
 
 Every MR that changes behavior must include a fragment file in `changelog.d/`:
