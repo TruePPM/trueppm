@@ -84,3 +84,7 @@ packages/api/program-exports/
 .envrc
 .wt-owner
 .wt-reservation
+
+# SonarCloud / sonar-scanner scratch output
+.scannerwork/
+.sonar/
