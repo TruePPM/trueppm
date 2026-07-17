@@ -29,6 +29,7 @@ const { mockClearTokens, mockQueryClientClear, mockSetTheme, mockUserResult } = 
             initials: string;
             email: string;
             can_access_admin_settings?: boolean;
+            workspace_role?: number | null;
           }
         | undefined,
       isLoading: false,
@@ -159,7 +160,7 @@ describe('UserMenu', () => {
     expect(items[0].getAttribute('href')).toBe('/me/settings/general');
   });
 
-  it('admin user → renders "Workspace settings" linking to /settings#members (#2033)', () => {
+  it('workspace admin → renders "Workspace settings" linking to /settings#members (#2033)', () => {
     mockUserResult.value = {
       user: {
         id: '1',
@@ -168,6 +169,8 @@ describe('UserMenu', () => {
         initials: 'SC',
         email: 'sarah@example.com',
         can_access_admin_settings: true,
+        // WorkspaceRole.ADMIN — the threshold RequireWorkspaceAdmin enforces (#2012).
+        workspace_role: 300,
       },
       isLoading: false,
     };
@@ -179,7 +182,7 @@ describe('UserMenu', () => {
     expect(items[0].getAttribute('href')).toBe('/settings#members');
   });
 
-  it('non-admin user → no "Workspace settings" row (RequireAdminSettings would bounce them, #2033)', () => {
+  it('project-admin who is a plain workspace member → no "Workspace settings" row (RequireWorkspaceAdmin would bounce them, #2012)', () => {
     mockUserResult.value = {
       user: {
         id: '1',
@@ -187,7 +190,10 @@ describe('UserMenu', () => {
         display_name: 'Sarah Chen',
         initials: 'SC',
         email: 'sarah@example.com',
-        can_access_admin_settings: false,
+        // can_access_admin_settings is true (admin of some project) but the
+        // workspace role is below ADMIN — the exact #2012 profile.
+        can_access_admin_settings: true,
+        workspace_role: 100,
       },
       isLoading: false,
     };

@@ -28,6 +28,9 @@ const WORKSPACE = {
   default_project_view: 'Board',
   allow_guests: true,
   public_sharing: false,
+  // Public-sharing cascade policy (ADR-0135, #978 / #2014) — the General page
+  // renders "may override" vs the Enterprise ENFORCE lock seeded from this.
+  public_sharing_override_policy: 'suggest',
   // Iteration-label cascade (ADR-0116, #1106) — the real /workspace/ payload always
   // carries these; without them IterationLabelField crashes on `value.trim()`.
   iteration_label: 'Sprint',
@@ -108,6 +111,9 @@ async function setup(page: Page) {
         display_name: 'Alice',
         initials: 'AL',
         email: 'alice@truescope.io',
+        // Workspace admin — the threshold RequireWorkspaceAdmin gates on (#2012).
+        can_access_admin_settings: true,
+        workspace_role: 300,
       }),
     }),
   );
@@ -335,6 +341,66 @@ test.describe('Workspace General page', () => {
 
     // Unblock so the page can finish loading
     resolve(undefined);
+  });
+
+  test('public-sharing override policy — renders the "may override" + Enterprise-locked radios (#2014)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+
+    await page.goto('/settings/general');
+
+    // suggest (the seeded value) → "may override" is the checked, enabled option.
+    const mayOverride = page.getByRole('radio', { name: /May narrow or widen this default/i });
+    await expect(mayOverride).toBeChecked();
+    await expect(mayOverride).toBeEnabled();
+    // ENFORCE is the Enterprise lock — present but disabled on the OSS surface.
+    await expect(
+      page.getByRole('radio', { name: /Enforce sharing workspace-wide/i }),
+    ).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace-admin route gate (#2012)
+// ---------------------------------------------------------------------------
+
+test.describe('Workspace settings — workspace-admin gate (#2012)', () => {
+  test('a project-admin who is a plain workspace member is bounced off /settings', async ({
+    page,
+  }) => {
+    await setup(page);
+    // Re-mock /auth/me AFTER setup (last registration wins): admin of some project
+    // (can_access_admin_settings) but a sub-ADMIN workspace_role — the exact #2012
+    // profile that used to land on enabled-but-403 controls.
+    await page.route('**/api/v1/auth/me/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          id: 'u1',
+          username: 'alice',
+          display_name: 'Alice',
+          initials: 'AL',
+          email: 'alice@truescope.io',
+          can_access_admin_settings: true,
+          workspace_role: 100,
+        }),
+      }),
+    );
+    // Personal notifications is the redirect target — mock its prefs so it renders.
+    await page.route('**/api/v1/notification-preferences/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj({}) }),
+    );
+
+    await page.goto('/settings/general');
+
+    // RequireWorkspaceAdmin redirects; the workspace General heading never renders.
+    await expect(page).toHaveURL(/\/me\/settings\/notifications/);
+    await expect(page.getByRole('heading', { name: 'General' })).toHaveCount(0);
   });
 });
 
@@ -661,7 +727,9 @@ test.describe('Workspace settings nav entry (#2033)', () => {
   }) => {
     await setup(page);
     // Later route registrations win, so this admin-flavored /auth/me/ overrides
-    // the base one from setup(): the menu row is gated on can_access_admin_settings.
+    // the base one from setup(): the menu row is gated on workspace-admin
+    // (workspace_role >= 300), the same threshold RequireWorkspaceAdmin enforces
+    // on the /settings route (#2012).
     await page.route('**/api/v1/auth/me/', (r) =>
       r.fulfill({
         status: 200,
@@ -673,6 +741,7 @@ test.describe('Workspace settings nav entry (#2033)', () => {
           initials: 'AL',
           email: 'alice@truescope.io',
           can_access_admin_settings: true,
+          workspace_role: 300,
         }),
       }),
     );

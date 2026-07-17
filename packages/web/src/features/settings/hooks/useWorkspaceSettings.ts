@@ -26,6 +26,7 @@ interface WorkspaceSettingsRaw {
   default_project_view: string;
   allow_guests: boolean;
   public_sharing: boolean;
+  public_sharing_override_policy: 'inherit' | 'suggest' | 'enforce';
   iteration_label: string;
   iteration_label_override_policy: 'inherit' | 'suggest' | 'enforce';
   mc_history_enabled: boolean;
@@ -57,6 +58,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     defaultProjectView: raw.default_project_view,
     allowGuests: raw.allow_guests,
     publicSharing: raw.public_sharing,
+    publicSharingOverridePolicy: raw.public_sharing_override_policy,
     iterationLabel: raw.iteration_label,
     iterationLabelOverridePolicy: raw.iteration_label_override_policy,
     mcHistoryEnabled: raw.mc_history_enabled,
