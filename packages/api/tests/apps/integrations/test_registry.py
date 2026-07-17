@@ -121,7 +121,7 @@ class _Dummy(abc.ABC):
 
     @abc.abstractmethod
     def noop(self) -> None:  # pragma: no cover — never called
-        ...
+        """Abstract marker so ``_Dummy`` can't be instantiated directly."""
 
 
 # Ensure the type imports are referenced so mypy doesn't drop them.
