@@ -15,6 +15,7 @@ offending location is obvious.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -253,6 +254,22 @@ def _node_budget_errors(payload: dict[str, Any]) -> list[str]:
     return []
 
 
+@dataclass(frozen=True)
+class _RefContext:
+    """Global slug catalogs + the task index, resolved once per seed pass.
+
+    Bundling the document-wide sets (which every per-project and per-task check
+    reads but none mutates) keeps the helper signatures small — the alternative
+    is threading five ``set`` parameters through every extraction.
+    """
+
+    account_slugs: set[str]
+    calendar_slugs: set[str]
+    resource_slugs: set[str]
+    project_slugs: set[str]
+    task_index: dict[str, set[str]]
+
+
 def _referential_errors(payload: dict[str, Any]) -> list[str]:
     """Check duplicate slugs and dangling cross-references (ADR-0109 identity)."""
     errors: list[str] = []
@@ -261,18 +278,9 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
     calendar_slugs = _collect_slugs(payload.get("calendars", []), "$.calendars", errors)
     resource_slugs = _collect_slugs(payload.get("resources", []), "$.resources", errors)
 
-    # Build the global task index (project slug -> set of wbs paths) so task
-    # refs — bare or "<project>:<wbs>" qualified — can be resolved anywhere.
     projects = payload.get("projects", [])
-    project_slugs: set[str] = set()
-    task_index: dict[str, set[str]] = {}
-    for i, project in enumerate(projects):
-        slug: str = project.get("slug")
-        path = f"$.projects[{i}]"
-        if slug in project_slugs:
-            errors.append(f"{path}.slug: duplicate project slug {slug!r}")
-        project_slugs.add(slug)
-        task_index[slug] = {t.get("wbs_path") for t in project.get("tasks", [])}
+    project_slugs, task_index = _build_project_index(projects, errors)
+    ctx = _RefContext(account_slugs, calendar_slugs, resource_slugs, project_slugs, task_index)
 
     # program.lead -> account
     program = payload.get("program", {})
@@ -291,102 +299,191 @@ def _referential_errors(payload: dict[str, Any]) -> list[str]:
 
     # per-project references
     for i, project in enumerate(projects):
-        slug = project.get("slug")
-        base = f"$.projects[{i}]"
-        _check_ref(project.get("calendar"), calendar_slugs, f"{base}.calendar", "calendar", errors)
-        own_tasks = task_index.get(slug, set())
+        _project_reference_errors(i, project, ctx, errors)
 
-        sprint_slugs = _collect_slugs(project.get("sprints", []), f"{base}.sprints", errors)
-        # Project labels (ADR-0400, #1958): collect the label catalog so each
-        # task's label slug refs can be checked against it (dangling label ref).
-        label_slugs = _collect_slugs(project.get("labels", []), f"{base}.labels", errors)
-        for j, sprint in enumerate(project.get("sprints", [])):
-            milestone = sprint.get("target_milestone")
-            if milestone is not None and milestone not in own_tasks:
-                errors.append(
-                    f"{base}.sprints[{j}].target_milestone: no task {milestone!r} in this project"
-                )
+    return errors
 
-        seen_wbs: set[str] = set()
-        for j, task in enumerate(project.get("tasks", [])):
-            tpath = f"{base}.tasks[{j}]"
-            wbs = task.get("wbs_path")
-            if wbs in seen_wbs:
-                errors.append(f"{tpath}.wbs_path: duplicate path {wbs!r} in this project")
-            seen_wbs.add(wbs)
-            _check_ref(task.get("assignee"), account_slugs, f"{tpath}.assignee", "account", errors)
-            _check_ref(task.get("sprint"), sprint_slugs, f"{tpath}.sprint", "sprint", errors)
-            parent = task.get("parent_epic")
-            if parent is not None and parent not in own_tasks:
-                errors.append(f"{tpath}.parent_epic: no task {parent!r} in this project")
-            for k, label_ref in enumerate(task.get("labels", [])):
-                _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
-            # Informational task-to-task relations (ADR-0455). The target must
-            # resolve to a real task; a bare wbs is enclosing-project, a
-            # "<slug>:<wbs>" ref a sibling project. Because a seed document is a
-            # single program, _check_task_ref's "no project with slug" error is
-            # itself the cross-program guard — a resolvable target is always in the
-            # same program as the source (the ADR-0120 D1 envelope). Self-links are
-            # rejected here too (inert; the DB CheckConstraint is the backstop).
-            for k, link in enumerate(task.get("links", [])):
-                lpath = f"{tpath}.links[{k}].target"
-                target = link.get("target")
-                _check_task_ref(target, slug, task_index, lpath, errors)
-                if target is not None:
-                    if ":" in target:
-                        tproj, _, twbs = target.partition(":")
-                    else:
-                        tproj, twbs = slug, target
-                    if tproj == slug and twbs == wbs:
-                        errors.append(f"{lpath}: a task cannot link to itself")
-            # A complete three-point estimate must be ordered — the same invariant
-            # the engine, the REST serializer, and the DB CheckConstraint enforce
-            # (#2005). Caught here so a mis-authored seed fails loudly at build/CI
-            # time (test_sample_content runs validate_seed) rather than as a runtime
-            # IntegrityError on import.
-            est = task.get("estimate")
-            if isinstance(est, dict):
-                o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
-                if o is not None and m is not None and p is not None and not (o <= m <= p):
-                    errors.append(
-                        f"{tpath}.estimate: three-point estimate must satisfy "
-                        f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
-                    )
-            for k, assignment in enumerate(task.get("assignments", [])):
-                _check_ref(
-                    assignment.get("resource"),
-                    resource_slugs,
-                    f"{tpath}.assignments[{k}].resource",
-                    "resource",
-                    errors,
-                )
 
-        for j, dep in enumerate(project.get("dependencies", [])):
-            dpath = f"{base}.dependencies[{j}]"
-            _check_task_ref(
-                dep.get("predecessor"), slug, task_index, f"{dpath}.predecessor", errors
+def _build_project_index(
+    projects: list[dict[str, Any]], errors: list[str]
+) -> tuple[set[str], dict[str, set[str]]]:
+    """Index project slugs and their wbs paths so task refs resolve anywhere.
+
+    Builds the global task index (project slug -> set of wbs paths) so a task
+    ref — bare or ``<project>:<wbs>`` qualified — can be resolved from any
+    scope, and records duplicate project slugs while walking.
+    """
+    project_slugs: set[str] = set()
+    task_index: dict[str, set[str]] = {}
+    for i, project in enumerate(projects):
+        slug = project.get("slug", "")
+        path = f"$.projects[{i}]"
+        if slug in project_slugs:
+            errors.append(f"{path}.slug: duplicate project slug {slug!r}")
+        project_slugs.add(slug)
+        task_index[slug] = {t.get("wbs_path") for t in project.get("tasks", [])}
+    return project_slugs, task_index
+
+
+def _project_reference_errors(
+    i: int, project: dict[str, Any], ctx: _RefContext, errors: list[str]
+) -> None:
+    """Validate every cross-reference scoped to a single project."""
+    slug = project.get("slug", "")
+    base = f"$.projects[{i}]"
+    _check_ref(project.get("calendar"), ctx.calendar_slugs, f"{base}.calendar", "calendar", errors)
+    own_tasks = ctx.task_index.get(slug, set())
+
+    sprint_slugs = _collect_slugs(project.get("sprints", []), f"{base}.sprints", errors)
+    # Project labels (ADR-0400, #1958): collect the label catalog so each task's
+    # label slug refs can be checked against it (dangling label ref).
+    label_slugs = _collect_slugs(project.get("labels", []), f"{base}.labels", errors)
+    _check_sprint_milestones(project, base, own_tasks, errors)
+
+    seen_wbs: set[str] = set()
+    for j, task in enumerate(project.get("tasks", [])):
+        tpath = f"{base}.tasks[{j}]"
+        wbs = task.get("wbs_path", "")
+        if wbs in seen_wbs:
+            errors.append(f"{tpath}.wbs_path: duplicate path {wbs!r} in this project")
+        seen_wbs.add(wbs)
+        _task_reference_errors(
+            task, wbs, tpath, slug, sprint_slugs, label_slugs, own_tasks, ctx, errors
+        )
+
+    _check_dependencies(project, base, slug, ctx.task_index, errors)
+    _check_baselines(project, base, own_tasks, errors)
+    _check_risks(
+        project.get("risks", []),
+        f"{base}.risks",
+        slug,
+        ctx.account_slugs,
+        ctx.task_index,
+        ctx.project_slugs,
+        errors,
+    )
+
+
+def _check_sprint_milestones(
+    project: dict[str, Any], base: str, own_tasks: set[str], errors: list[str]
+) -> None:
+    """A sprint's ``target_milestone`` must name a task in the same project."""
+    for j, sprint in enumerate(project.get("sprints", [])):
+        milestone = sprint.get("target_milestone")
+        if milestone is not None and milestone not in own_tasks:
+            errors.append(
+                f"{base}.sprints[{j}].target_milestone: no task {milestone!r} in this project"
             )
-            _check_task_ref(dep.get("successor"), slug, task_index, f"{dpath}.successor", errors)
 
-        for j, bl in enumerate(project.get("baselines", [])):
-            for k, bt in enumerate(bl.get("tasks", [])):
-                ref = bt.get("task")
-                if ref not in own_tasks:
-                    errors.append(
-                        f"{base}.baselines[{j}].tasks[{k}].task: no task {ref!r} in this project"
-                    )
 
-        _check_risks(
-            project.get("risks", []),
-            f"{base}.risks",
-            slug,
-            account_slugs,
-            task_index,
-            project_slugs,
+def _task_reference_errors(
+    task: dict[str, Any],
+    wbs: str,
+    tpath: str,
+    project_slug: str,
+    sprint_slugs: set[str],
+    label_slugs: set[str],
+    own_tasks: set[str],
+    ctx: _RefContext,
+    errors: list[str],
+) -> None:
+    """Validate the cross-references a single task carries."""
+    _check_ref(task.get("assignee"), ctx.account_slugs, f"{tpath}.assignee", "account", errors)
+    _check_ref(task.get("sprint"), sprint_slugs, f"{tpath}.sprint", "sprint", errors)
+    parent = task.get("parent_epic")
+    if parent is not None and parent not in own_tasks:
+        errors.append(f"{tpath}.parent_epic: no task {parent!r} in this project")
+    for k, label_ref in enumerate(task.get("labels", [])):
+        _check_ref(label_ref, label_slugs, f"{tpath}.labels[{k}]", "label", errors)
+    _check_task_links(task, wbs, project_slug, ctx.task_index, tpath, errors)
+    _check_estimate_order(task, tpath, errors)
+    for k, assignment in enumerate(task.get("assignments", [])):
+        _check_ref(
+            assignment.get("resource"),
+            ctx.resource_slugs,
+            f"{tpath}.assignments[{k}].resource",
+            "resource",
             errors,
         )
 
-    return errors
+
+def _check_task_links(
+    task: dict[str, Any],
+    wbs: str,
+    project_slug: str,
+    task_index: dict[str, set[str]],
+    tpath: str,
+    errors: list[str],
+) -> None:
+    """Validate informational task-to-task relations (ADR-0455).
+
+    The target must resolve to a real task; a bare wbs is enclosing-project, a
+    ``<slug>:<wbs>`` ref a sibling project. Because a seed document is a single
+    program, ``_check_task_ref``'s "no project with slug" error is itself the
+    cross-program guard — a resolvable target is always in the same program as
+    the source (the ADR-0120 D1 envelope). Self-links are rejected here too
+    (inert; the DB CheckConstraint is the backstop).
+    """
+    for k, link in enumerate(task.get("links", [])):
+        lpath = f"{tpath}.links[{k}].target"
+        target = link.get("target")
+        _check_task_ref(target, project_slug, task_index, lpath, errors)
+        if target is not None:
+            if ":" in target:
+                tproj, _, twbs = target.partition(":")
+            else:
+                tproj, twbs = project_slug, target
+            if tproj == project_slug and twbs == wbs:
+                errors.append(f"{lpath}: a task cannot link to itself")
+
+
+def _check_estimate_order(task: dict[str, Any], tpath: str, errors: list[str]) -> None:
+    """A complete three-point estimate must be ordered.
+
+    This is the same invariant the engine, the REST serializer, and the DB
+    CheckConstraint enforce (#2005). Caught here so a mis-authored seed fails
+    loudly at build/CI time (``test_sample_content`` runs ``validate_seed``)
+    rather than as a runtime IntegrityError on import.
+    """
+    est = task.get("estimate")
+    if isinstance(est, dict):
+        o, m, p = est.get("optimistic"), est.get("most_likely"), est.get("pessimistic")
+        if o is not None and m is not None and p is not None and not (o <= m <= p):
+            errors.append(
+                f"{tpath}.estimate: three-point estimate must satisfy "
+                f"optimistic <= most_likely <= pessimistic (got {o} <= {m} <= {p})"
+            )
+
+
+def _check_dependencies(
+    project: dict[str, Any],
+    base: str,
+    project_slug: str,
+    task_index: dict[str, set[str]],
+    errors: list[str],
+) -> None:
+    """Both endpoints of every dependency edge must resolve to a task."""
+    for j, dep in enumerate(project.get("dependencies", [])):
+        dpath = f"{base}.dependencies[{j}]"
+        _check_task_ref(
+            dep.get("predecessor"), project_slug, task_index, f"{dpath}.predecessor", errors
+        )
+        _check_task_ref(
+            dep.get("successor"), project_slug, task_index, f"{dpath}.successor", errors
+        )
+
+
+def _check_baselines(
+    project: dict[str, Any], base: str, own_tasks: set[str], errors: list[str]
+) -> None:
+    """Every baselined task must name a task in the same project."""
+    for j, bl in enumerate(project.get("baselines", [])):
+        for k, bt in enumerate(bl.get("tasks", [])):
+            ref = bt.get("task")
+            if ref not in own_tasks:
+                errors.append(
+                    f"{base}.baselines[{j}].tasks[{k}].task: no task {ref!r} in this project"
+                )
 
 
 def _collect_slugs(items: list[dict[str, Any]], base: str, errors: list[str]) -> set[str]:
