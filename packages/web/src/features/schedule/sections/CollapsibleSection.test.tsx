@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CollapsibleSection } from './CollapsibleSection';
+import { useDrawerSectionStore } from '@/stores/drawerSectionStore';
 
 describe('CollapsibleSection', () => {
+  // The open/closed memory is a module-level session store (#2049); reset it so
+  // one test's toggle doesn't leak its override into the next.
+  beforeEach(() => useDrawerSectionStore.setState({ overrides: {} }));
+
   it('renders collapsed by default and exposes aria-expanded=false', () => {
     render(
       <CollapsibleSection id="overview" title="Overview">
@@ -58,5 +63,44 @@ describe('CollapsibleSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Overview' }));
     expect(calls).toBe(1);
     expect(screen.getByText('fetched')).toBeInTheDocument();
+  });
+
+  it('remembers an expanded section across remounts, keyed by id (#2049)', () => {
+    // First mount: user expands the Estimates section.
+    const first = render(
+      <CollapsibleSection id="estimates" title="Estimates">
+        <p>estimate body</p>
+      </CollapsibleSection>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Estimates' }));
+    expect(screen.getByRole('button', { name: 'Estimates' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+
+    // Drawer closes and reopens on the next task → the section unmounts and
+    // remounts. Its expanded state must survive because it's keyed by id.
+    first.unmount();
+    render(
+      <CollapsibleSection id="estimates" title="Estimates">
+        <p>estimate body</p>
+      </CollapsibleSection>,
+    );
+    expect(screen.getByRole('button', { name: 'Estimates' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    expect(screen.getByText('estimate body')).toBeInTheDocument();
+
+    // A different, never-touched section still honors its collapsed default.
+    render(
+      <CollapsibleSection id="activity" title="Activity">
+        <p>activity body</p>
+      </CollapsibleSection>,
+    );
+    expect(screen.getByRole('button', { name: 'Activity' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
   });
 });
