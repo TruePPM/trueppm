@@ -59,9 +59,13 @@ BASELINE_SHADOW=0
 # the count may not exceed the baseline.
 # Dropped 8 → 5 when ProgramScheduleLegend / AllocationSpan / ResourceView's
 # hatch fills moved to the mode-aware --hatch-limited-view /
-# --allocation-partial-stripe* tokens (issue #1914); the remaining 5 are all in
-# GanttRenderer.ts's light-only COLOR palette (each has a COLOR_DARK counterpart).
-BASELINE_BLACK=5
+# --allocation-partial-stripe* tokens (issue #1914); the remaining values are all in
+# GanttRenderer.ts's light-only COLOR palette (each has a COLOR_DARK counterpart) or
+# a fixed texture ink on a colored bar that reads in both modes.
+# Rose 5 → 6 for the synced row-hover wash `rowHover` (#2096): a light-only COLOR
+# value with its COLOR_DARK / forced-colors counterparts, same accepted pattern as
+# its palette siblings (rowBandAlt / weekend / gridLine).
+BASELINE_BLACK=6
 
 EXCLUDE='\.test\.|\.spec\.|\.stories\.'
 
