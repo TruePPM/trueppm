@@ -523,8 +523,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "effective_task_duration_change_percent_policy",
             "inherited_task_duration_change_percent_policy",
             # Estimation-scale OVERRIDE (ADR-0510, #2027). Nullable: NULL = inherit
-            # program/workspace. Admin+-gated write by the allowlist default (not in
-            # _SCHEDULER_WRITABLE_FIELDS, so the validate() gate blocks Scheduler).
+            # program/workspace. Scheduler+-writable — it is in _SCHEDULER_WRITABLE_FIELDS
+            # (PO/team territory, beside methodology + estimation_mode), so the validate()
+            # gate lets a Scheduler set it.
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",
@@ -1503,7 +1504,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "effective_task_duration_change_percent_policy",
             "inherited_task_duration_change_percent_policy",
             # Estimation-scale override for the program (ADR-0510, #2027). Nullable:
-            # NULL = inherit workspace. Scheduler+-gated write (PO/team territory).
+            # NULL = inherit workspace. Admin+-gated write (program update is
+            # IsProgramAdmin; ProgramSerializer has no Scheduler field seam — the
+            # Scheduler+ affordance is a project-scope decision, ProjectMethodologyPage).
             "estimation_scale",
             "effective_estimation_scale",
             "inherited_estimation_scale",

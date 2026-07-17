@@ -1024,7 +1024,9 @@ export function TaskFormModal({
                     scale={estimationScale}
                     value={form.storyPoints}
                     onChange={(next) => setForm({ ...form, storyPoints: next })}
-                    ariaLabel="Story points"
+                    // Match the visible "Pts" label (WCAG 2.5.3 label-in-name) rather
+                    // than overriding it with "Story points".
+                    ariaLabel="Pts"
                     className="w-full"
                   />
                 )}
