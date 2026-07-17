@@ -146,6 +146,63 @@ export function idealRemainingAt(committed: number, dayIndex: number, denom: num
   return committed * (1 - dayIndex / denom);
 }
 
+/**
+ * Value of a burn series (remaining / completed / scope) on one grid day, shared
+ * by all three lines so their extent stays identical. Day 0 anchors at `anchor`
+ * (the committed value, or 0 for the completed line) so the actual and ideal
+ * lines coincide at the start; a day WITH a snapshot uses the carried snapshot
+ * value; a gap day BEFORE the last snapshot holds the previous value forward; a
+ * day AFTER the last snapshot — or any day when there are no snapshots at all
+ * (`isAfterData`) — is null so the line ENDS with the data rather than
+ * flat-lining to the sprint-end/zero corner (issue 1249).
+ */
+function projectedDayValue(
+  hasSnap: boolean,
+  isFirstDay: boolean,
+  isAfterData: boolean,
+  anchor: number,
+  carried: number,
+): number | null {
+  if (hasSnap) return carried;
+  if (isFirstDay) return anchor;
+  if (isAfterData) return null;
+  return carried;
+}
+
+/** Add `days` to today and return the ISO (UTC) date string. */
+function isoDaysFromToday(days: number): string {
+  const fd = new Date();
+  fd.setUTCDate(fd.getUTCDate() + days);
+  return fd.toISOString().slice(0, 10);
+}
+
+/**
+ * "X ahead/behind" trend plus a linear finish-date forecast for a sprint
+ * burndown. Uses the SAME slope denominator as the plotted ideal line so the
+ * number matches the visual gap (issue 1249). `dayIndex` is 1-based
+ * (`sprintDayOf`); the grid is 0-based, so the elapsed grid row is `dayIndex - 1`.
+ */
+function computeSprintTrend(
+  sprint: ApiSprint,
+  committedVal: number,
+  denom: number,
+  totalDays: number,
+  points: NormPoint[],
+): { trendAhead: number; forecastDate: string | null } {
+  const { day: dayIndex } = sprintDayOf(sprint.start_date, sprint.finish_date, new Date());
+  const elapsedRow = Math.min(dayIndex - 1, totalDays - 1);
+  const idealNow = idealRemainingAt(committedVal, elapsedRow, denom);
+  const latestSnap = points[Math.max(0, elapsedRow)];
+  const actualNow = latestSnap?.remaining ?? committedVal;
+  const trendAhead = idealNow - actualNow;
+  const burnRate = dayIndex > 0 ? (committedVal - actualNow) / dayIndex : 0;
+  const forecastDays = burnRate > 0 ? Math.ceil(actualNow / burnRate) : null;
+  return {
+    trendAhead,
+    forecastDate: forecastDays !== null ? isoDaysFromToday(forecastDays) : null,
+  };
+}
+
 export function deriveSprintSeries(
   sprint: ApiSprint,
   snapshots: import('@/hooks/useSprints').SprintBurnSnapshot[],
@@ -197,22 +254,13 @@ export function deriveSprintSeries(
 
     // Anchor day 0 at the committed value even with no snapshot (sprint start =
     // full backlog). Beyond the last real snapshot, leave a gap so the actual
-    // line stops instead of flat-lining to the sprint-end corner.
+    // line stops instead of flat-lining to the sprint-end corner. `projectedDayValue`
+    // encodes this shared extent rule for all three lines (see its docstring).
     const pastLastSnap = lastSnapIso !== null && iso > lastSnapIso;
-    const remaining: number | null = snap
-      ? carriedRemaining
-      : i === 0
-        ? committedVal
-        : pastLastSnap || lastSnapIso === null
-          ? null
-          : carriedRemaining;
-    const completed: number | null = snap
-      ? carriedCompleted
-      : i === 0
-        ? 0
-        : pastLastSnap || lastSnapIso === null
-          ? null
-          : carriedCompleted;
+    const isFirstDay = i === 0;
+    const isAfterData = pastLastSnap || lastSnapIso === null;
+    const remaining = projectedDayValue(!!snap, isFirstDay, isAfterData, committedVal, carriedRemaining);
+    const completed = projectedDayValue(!!snap, isFirstDay, isAfterData, 0, carriedCompleted);
 
     const scopeDelta =
       metric === 'points' ? (snap?.scope_change_points ?? 0) : (snap?.scope_change_task_count ?? 0);
@@ -232,37 +280,18 @@ export function deriveSprintSeries(
     // scope creep the burnup exists to expose. Shares the completed line's extent
     // (anchored at committed on day 0, carried across gaps, null after the last
     // snapshot so it ends with the data, issue-1249 shape).
-    const scope: number | null = snap
-      ? carriedScope
-      : i === 0
-        ? committedVal
-        : pastLastSnap || lastSnapIso === null
-          ? null
-          : carriedScope;
+    const scope = projectedDayValue(!!snap, isFirstDay, isAfterData, committedVal, carriedScope);
 
     points.push({ date: iso, remaining, completed, scope, ideal });
   }
 
-  // Trend uses the SAME slope denominator as the plotted ideal so the
-  // "X ahead/behind" number matches the visual gap (issue 1249). dayIndex is
-  // 1-based from sprintDayOf; the grid is 0-based, so the elapsed grid row is
-  // dayIndex - 1.
-  const { day: dayIndex } = sprintDayOf(sprint.start_date, sprint.finish_date, new Date());
-  const elapsedRow = Math.min(dayIndex - 1, totalDays - 1);
-  const idealNow = idealRemainingAt(committedVal, elapsedRow, denom);
-  const latestSnap = points[Math.max(0, elapsedRow)];
-  const actualNow = latestSnap?.remaining ?? committedVal;
-  const trendAhead = idealNow - actualNow;
-  const burnRate = dayIndex > 0 ? (committedVal - actualNow) / dayIndex : 0;
-  const forecastDays = burnRate > 0 ? Math.ceil(actualNow / burnRate) : null;
-  const forecastDate =
-    forecastDays !== null
-      ? (() => {
-          const fd = new Date();
-          fd.setUTCDate(fd.getUTCDate() + forecastDays);
-          return fd.toISOString().slice(0, 10);
-        })()
-      : null;
+  const { trendAhead, forecastDate } = computeSprintTrend(
+    sprint,
+    committedVal,
+    denom,
+    totalDays,
+    points,
+  );
 
   return { points, scopeChanges: changes, trendAhead, forecastDate };
 }
