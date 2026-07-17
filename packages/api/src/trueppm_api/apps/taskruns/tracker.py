@@ -243,7 +243,8 @@ class TaskRunTracker:
             cancel_key = _CANCEL_KEY.format(task_run_id=self._task_run_id)
             self._redis.delete(debounce_key, cancel_key)
         except Exception:
-            pass  # Best-effort cleanup; both keys carry a TTL and expire on their own
+            # Best-effort cleanup; both keys carry a TTL and expire on their own.
+            pass
 
     def _broadcast(self, event_type: str, payload: dict[str, Any]) -> None:
         if self._project_id is None:
