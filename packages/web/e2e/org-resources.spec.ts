@@ -271,8 +271,21 @@ test('restore deactivated resource', async ({ page }) => {
   await mockResourceRoutes(page);
   await seedAuthAndNavigate(page);
 
+  // Spy on the restore call so we assert the outcome, not just that the click
+  // landed. Registered after mockResourceRoutes so this more-specific route wins.
+  let restorePosted = false;
+  await page.route('**/api/v1/resources/*/restore/', (route) => {
+    restorePosted = route.request().method() === 'POST';
+    return route.fulfill({
+      status: 200,
+      json: { ...FIXTURE_RESOURCES_WITH_DEACTIVATED[2], is_deleted: false },
+    });
+  });
+
   await page.getByRole('switch', { name: /show deactivated/i }).click();
   await page.getByRole('button', { name: /charlie lee/i }).click();
 
   await page.getByRole('button', { name: /restore resource/i }).click();
+
+  await expect.poll(() => restorePosted).toBe(true);
 });

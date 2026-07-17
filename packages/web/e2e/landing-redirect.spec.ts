@@ -221,6 +221,7 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     );
     await page.goto('/');
     await page.waitForURL(new RegExp(`/projects/${PROJECT_ID}/overview`), { timeout: 10_000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/overview`));
   });
 
   test('a saved preference overrides — landing.path is honored', async ({ page }) => {
