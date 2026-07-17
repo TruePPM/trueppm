@@ -23,4 +23,24 @@ describe('ReadinessChip', () => {
     const chip = screen.getByText('ready');
     expect(chip.querySelector('[aria-hidden="true"]')).not.toBeNull();
   });
+
+  describe('compact variant', () => {
+    it('renders the label for each state (uppercased via CSS)', () => {
+      const { rerender } = render(<ReadinessChip readiness="idea" variant="compact" />);
+      // The DOM text stays lowercase — the uppercase is a `text-transform` class,
+      // so the accessible name is still the plain state word.
+      expect(screen.getByText('idea')).toBeInTheDocument();
+
+      rerender(<ReadinessChip readiness="baselined" variant="compact" />);
+      expect(screen.getByText('baselined')).toBeInTheDocument();
+    });
+
+    it('applies the brand-primary-light inline background only for the ready state', () => {
+      const { rerender } = render(<ReadinessChip readiness="ready" variant="compact" />);
+      expect(screen.getByText('ready').style.backgroundColor).toBe('rgb(var(--brand-primary-light))');
+
+      rerender(<ReadinessChip readiness="idea" variant="compact" />);
+      expect(screen.getByText('idea').style.backgroundColor).toBe('');
+    });
+  });
 });
