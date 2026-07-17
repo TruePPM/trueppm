@@ -1781,6 +1781,7 @@ class ProjectViewSet(
             )
         except DjangoValidationError as exc:
             return Response(
+                # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 {"detail": exc.messages[0] if exc.messages else str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2066,6 +2067,7 @@ class ProjectViewSet(
                 window_end = _parse_date(end_str, "end") if end_str else min(anchor + window, last)
 
         except ValueError as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if window_start > window_end:
@@ -2194,6 +2196,7 @@ class ProjectViewSet(
                 window_end = last if last is not None else window_start
 
         except ValueError as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if window_start > window_end:
@@ -4249,6 +4252,7 @@ class TaskViewSet(
                 to_end=to_end,
             )
         except ReorderError as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         # Reuse the existing frozen `tasks_reordered` event (already handled on the
@@ -7100,6 +7104,7 @@ class RiskViewSet(
         try:
             plan = parse_risk_csv(upload.read(), owner_index)
         except RiskImportError as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         # IsAuthenticated + IsProjectMemberWrite guarantee a real user here; the
@@ -12814,6 +12819,7 @@ class ProjectBurnView(APIView):
                     metric=metric,
                 )
             except ValueError as exc:
+                # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
                 return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
             bu_by_date = {p["date"]: p for p in bu["series"]}
             payload = {
@@ -12843,6 +12849,7 @@ class ProjectBurnView(APIView):
                 metric=metric,
             )
         except ValueError as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(payload, status=status.HTTP_200_OK)
 

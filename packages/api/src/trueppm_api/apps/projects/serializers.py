@@ -4957,6 +4957,7 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             # it become an opaque 500. This is a pathological-structure guard, not
             # the cycle path, so it uses a plain ValidationError (not the
             # structured CycleDetectedError the frontend renders as a cycle toast).
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             raise serializers.ValidationError(str(exc)) from exc
         if cycle_ids is None:
             return

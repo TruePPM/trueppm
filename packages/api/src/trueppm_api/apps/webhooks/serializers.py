@@ -146,6 +146,7 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         try:
             assert_url_allowed(value)
         except EgressBlocked as exc:
+            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
             raise serializers.ValidationError(str(exc)) from exc
         except EgressError:
             # DNS resolution failed at registration; allow save — delivery re-checks.
