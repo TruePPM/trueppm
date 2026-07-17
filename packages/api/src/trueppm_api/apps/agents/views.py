@@ -13,11 +13,13 @@ import uuid
 from typing import TYPE_CHECKING
 
 from django.db.models import Q
+from django.utils.dateparse import parse_datetime
 from rest_framework import permissions, viewsets
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.agents.models import AgentAction
 from trueppm_api.apps.agents.serializers import AgentActionSerializer
+from trueppm_api.apps.projects.models import Project
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -26,9 +28,14 @@ if TYPE_CHECKING:
 class AgentActionViewSet(viewsets.ReadOnlyModelViewSet):  # type: ignore[type-arg]
     """Read-only, membership-scoped list/retrieve of audited agent actions.
 
-    Ordering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``, and
-    ``constraint`` is supported for the common "show me refusals" / "show me this project"
-    / "show me every graph_validation refusal" (ADR-0421, #1850) triage queries.
+    Ordering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``,
+    ``program``, ``since``, and ``constraint`` is supported for the common "show me
+    refusals" / "show me this project" / "show me this program's agents (last 7d)" /
+    "show me every graph_validation refusal" (ADR-0421, #1850) triage queries. The
+    ``program`` filter (#2020) powers the per-program agent-oversight panel: a program
+    groups projects, so a program's agent log is the union of the chain across the
+    program's member projects — always intersected with the caller's own membership
+    scope below, so the filter narrows what the caller may already see and never widens it.
     """
 
     serializer_class = AgentActionSerializer
@@ -69,6 +76,31 @@ class AgentActionViewSet(viewsets.ReadOnlyModelViewSet):  # type: ignore[type-ar
             except ValueError:
                 return AgentAction.objects.none()
             qs = qs.filter(project_id=project_id)
+
+        program_id = self.request.query_params.get("program")
+        if program_id:
+            try:
+                uuid.UUID(str(program_id))
+            except ValueError:
+                return AgentAction.objects.none()
+            # Resolve the program's project ids and filter with project_id__in so the query
+            # rides the existing (project, -occurred_at) index rather than joining through
+            # Project on every row (perf: one indexed IN vs. a per-row join). The result is
+            # still bounded by the membership/principal scope set above — a non-member gains
+            # nothing by naming a program they cannot see.
+            program_project_ids = Project.objects.filter(program_id=program_id).values_list(
+                "id", flat=True
+            )
+            qs = qs.filter(project_id__in=program_project_ids)
+
+        since = self.request.query_params.get("since")
+        if since:
+            # A malformed ?since= is ignored (the range simply doesn't narrow) rather than
+            # 500ing or emptying the list — a lenient time-window filter, unlike the strict
+            # UUID filters above where a bad id can only be a client bug.
+            parsed_since = parse_datetime(since)
+            if parsed_since is not None:
+                qs = qs.filter(occurred_at__gte=parsed_since)
 
         # Order by -occurred_at (the leading key of the (project|principal, -occurred_at)
         # indexes so the membership/principal filter and the sort share an index), with

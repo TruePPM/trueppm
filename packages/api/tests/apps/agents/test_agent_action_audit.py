@@ -370,3 +370,129 @@ def test_agent_action_detail_out_of_scope_returns_404(project: Project, owner: A
 def test_agent_action_endpoint_requires_auth() -> None:
     resp = APIClient().get("/api/v1/agent-actions/")
     assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Program / since filters — the per-program oversight panel projection (#2020)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_agent_action_filter_by_program(calendar: Calendar, owner: Any) -> None:
+    # A program is the union of the chain across its member projects. Two projects in
+    # one program, one project in another; ?program= returns only the first program's rows.
+    from trueppm_api.apps.projects.models import Program
+
+    prog_a = Program.objects.create(name="Program A")
+    prog_b = Program.objects.create(name="Program B")
+    proj_a1 = Project.objects.create(
+        name="A1", start_date=date(2026, 4, 1), calendar=calendar, program=prog_a
+    )
+    proj_a2 = Project.objects.create(
+        name="A2", start_date=date(2026, 4, 1), calendar=calendar, program=prog_a
+    )
+    proj_b1 = Project.objects.create(
+        name="B1", start_date=date(2026, 4, 1), calendar=calendar, program=prog_b
+    )
+    for proj in (proj_a1, proj_a2, proj_b1):
+        ProjectMembership.objects.create(project=proj, user=owner, role=Role.OWNER)
+    _record(principal=owner, project_id=proj_a1.pk, action="task-list")
+    _record(principal=owner, project_id=proj_a2.pk, action="task-list")
+    _record(principal=owner, project_id=proj_b1.pk, action="task-list")
+
+    client = APIClient()
+    client.force_login(owner)
+    resp = client.get(f"/api/v1/agent-actions/?program={prog_a.pk}")
+    assert resp.status_code == 200, resp.data
+    returned_projects = {str(row["project"]) for row in resp.data["results"]}
+    assert returned_projects == {str(proj_a1.pk), str(proj_a2.pk)}
+
+
+@pytest.mark.django_db
+def test_agent_action_program_filter_respects_membership(calendar: Calendar, owner: Any) -> None:
+    # ?program= narrows the caller's own scope; it never widens it. A user who is not a
+    # member of the program's projects (and not the principal) sees nothing.
+    from trueppm_api.apps.projects.models import Program
+
+    program = Program.objects.create(name="Locked")
+    hidden_project = Project.objects.create(
+        name="Hidden", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    other = User.objects.create_user(username="outsider", password="pw")
+    _record(principal=other, project_id=hidden_project.pk, action="task-list")
+
+    client = APIClient()
+    client.force_login(owner)  # owner is not a member of hidden_project
+    resp = client.get(f"/api/v1/agent-actions/?program={program.pk}")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_agent_action_program_filter_malformed_uuid_returns_empty(
+    project: Project, owner: Any
+) -> None:
+    # A malformed ?program= is a client bug — return an empty list, never a 500.
+    _record(principal=owner, project_id=project.pk, action="task-list")
+    client = APIClient()
+    client.force_login(owner)
+    resp = client.get("/api/v1/agent-actions/?program=not-a-uuid")
+    assert resp.status_code == 200
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_agent_action_program_and_verdict_combine(calendar: Calendar, owner: Any) -> None:
+    from trueppm_api.apps.projects.models import Program
+
+    program = Program.objects.create(name="Mixed")
+    proj = Project.objects.create(
+        name="P", start_date=date(2026, 4, 1), calendar=calendar, program=program
+    )
+    ProjectMembership.objects.create(project=proj, user=owner, role=Role.OWNER)
+    _record(principal=owner, project_id=proj.pk, action="allowed-read")
+    _record(
+        principal=owner,
+        project_id=proj.pk,
+        action="refused-read",
+        verdict=AgentActionVerdict.REFUSED,
+        refusal_reason=AgentActionRefusalReason.POLICY,
+    )
+
+    client = APIClient()
+    client.force_login(owner)
+    resp = client.get(f"/api/v1/agent-actions/?program={program.pk}&verdict=refused")
+    assert resp.status_code == 200, resp.data
+    assert len(resp.data["results"]) == 1
+    assert resp.data["results"][0]["verdict"] == "refused"
+
+
+@pytest.mark.django_db
+def test_agent_action_filter_since(project: Project, owner: Any) -> None:
+    # ?since= narrows by occurred_at; only rows at/after the boundary are returned.
+    old = timezone.now() - timedelta(days=10)
+    recent = timezone.now() - timedelta(hours=1)
+    _record(principal=owner, project_id=project.pk, action="old-read", occurred_at=old)
+    _record(principal=owner, project_id=project.pk, action="recent-read", occurred_at=recent)
+
+    client = APIClient()
+    client.force_login(owner)
+    boundary = (timezone.now() - timedelta(days=1)).isoformat()
+    # Pass via the params dict so the ISO offset's ``+`` is percent-encoded (a raw ``+``
+    # in a query string decodes to a space and would defeat parse_datetime) — this is how
+    # the axios client encodes it in the browser.
+    resp = client.get("/api/v1/agent-actions/", {"since": boundary})
+    assert resp.status_code == 200, resp.data
+    actions = {row["action"] for row in resp.data["results"]}
+    assert actions == {"recent-read"}
+
+
+@pytest.mark.django_db
+def test_agent_action_malformed_since_is_ignored(project: Project, owner: Any) -> None:
+    # A malformed ?since= is lenient — the range simply doesn't narrow, no 500.
+    _record(principal=owner, project_id=project.pk, action="task-list")
+    client = APIClient()
+    client.force_login(owner)
+    resp = client.get("/api/v1/agent-actions/?since=not-a-date")
+    assert resp.status_code == 200
+    assert len(resp.data["results"]) == 1

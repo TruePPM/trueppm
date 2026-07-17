@@ -850,7 +850,7 @@
         "/api/v1/agent-actions/": {
             "get": {
                 "operationId": "v1_agent_actions_list",
-                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``, and\n``constraint`` is supported for the common \"show me refusals\" / \"show me this project\"\n/ \"show me every graph_validation refusal\" (ADR-0421, #1850) triage queries.",
+                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``,\n``program``, ``since``, and ``constraint`` is supported for the common \"show me\nrefusals\" / \"show me this project\" / \"show me this program's agents (last 7d)\" /\n\"show me every graph_validation refusal\" (ADR-0421, #1850) triage queries. The\n``program`` filter (#2020) powers the per-program agent-oversight panel: a program\ngroups projects, so a program's agent log is the union of the chain across the\nprogram's member projects — always intersected with the caller's own membership\nscope below, so the filter narrows what the caller may already see and never widens it.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -925,7 +925,7 @@
         "/api/v1/agent-actions/{id}/": {
             "get": {
                 "operationId": "v1_agent_actions_retrieve",
-                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``, and\n``constraint`` is supported for the common \"show me refusals\" / \"show me this project\"\n/ \"show me every graph_validation refusal\" (ADR-0421, #1850) triage queries.",
+                "description": "Read-only, membership-scoped list/retrieve of audited agent actions.\n\nOrdering is by ``sequence`` (chain order); filtering by ``verdict``, ``project``,\n``program``, ``since``, and ``constraint`` is supported for the common \"show me\nrefusals\" / \"show me this project\" / \"show me this program's agents (last 7d)\" /\n\"show me every graph_validation refusal\" (ADR-0421, #1850) triage queries. The\n``program`` filter (#2020) powers the per-program agent-oversight panel: a program\ngroups projects, so a program's agent log is the union of the chain across the\nprogram's member projects — always intersected with the caller's own membership\nscope below, so the filter narrows what the caller may already see and never widens it.",
                 "parameters": [
                     {
                         "in": "path",

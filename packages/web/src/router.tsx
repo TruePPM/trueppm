@@ -152,6 +152,11 @@ const ProgramMembersTab = lazy(() =>
     default: m.ProgramMembersTab,
   })),
 );
+const ProgramAgentsPage = lazy(() =>
+  import('@/features/programs/agents/ProgramAgentsPage').then((m) => ({
+    default: m.ProgramAgentsPage,
+  })),
+);
 
 // ── Settings (ADR-0146, #1248) — ONE scrolling page per entity. Each shell
 //    renders every section inline; legacy `…/settings/<slug>` paths redirect to
@@ -887,6 +892,15 @@ export const router = createBrowserRouter([
                       </Suspense>
                     ),
                     handle: { title: 'Program Resources' } satisfies RouteHandle,
+                  },
+                  {
+                    path: 'agents',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramAgentsPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Program Agents' } satisfies RouteHandle,
                   },
                   {
                     path: 'members',

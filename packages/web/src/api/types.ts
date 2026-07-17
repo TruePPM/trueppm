@@ -612,3 +612,62 @@ export interface WorkspaceGroup {
   /** Project names this group has access to. */
   projects: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Agent-action audit log (ADR-0112, #1805) — the oversight-panel projection (#2020)
+// ---------------------------------------------------------------------------
+
+/** The decision outcome recorded for an agent action (AgentActionVerdict). */
+export type AgentActionVerdict = 'allowed' | 'refused' | 'requires_approval';
+
+/**
+ * Why a refused action was refused (AgentActionRefusalReason). Empty string for
+ * allowed actions. `identity` = no/invalid actor; `policy` = actor known but a
+ * capability/permission was denied.
+ */
+export type AgentActionRefusalReason = 'identity' | 'policy' | '';
+
+/** What kind of actor performed the action. Only `mcp_token` is recorded today. */
+export type AgentActorKind = 'mcp_token';
+
+/**
+ * Non-hashed refusal telemetry attached to a refused action (ADR-0421, #1850).
+ * `constraint` is the finer guard that fired; `projected_impact` is the durable
+ * slot the 0.6 gated-write surface populates (an empty object until then).
+ */
+export interface AgentActionRefusalDetail {
+  constraint: string;
+  projected_impact: Record<string, unknown>;
+}
+
+/**
+ * One append-only, hash-chained record of an MCP/agent decision, as read by the
+ * team-facing `GET /api/v1/agent-actions/` log. Maps 1:1 to AgentActionSerializer.
+ * The chain fields (`sequence`, `record_hash`, `payload_hash`) are integrity
+ * anchors, not secrets; only the 8-char `actor_token_prefix` is exposed, never
+ * token material. `refusal_detail` is null for allowed actions.
+ */
+export interface AgentAction {
+  id: string;
+  schema_version: number;
+  sequence: number;
+  actor_kind: AgentActorKind;
+  actor_token_prefix: string;
+  /** UUID of the accountable human who owns the acting token, or null. */
+  principal: string | null;
+  action: string;
+  method: string;
+  object_type: string;
+  object_id: string;
+  /** UUID of the project the action targeted, or null. */
+  project: string | null;
+  capability_used: string;
+  verdict: AgentActionVerdict;
+  refusal_reason: AgentActionRefusalReason;
+  refusal_detail: AgentActionRefusalDetail | null;
+  engine_version: string;
+  payload_hash: string;
+  record_hash: string;
+  summary: string;
+  occurred_at: string;
+}
