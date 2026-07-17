@@ -5,8 +5,41 @@ export interface DeleteConfirmDialogProps {
   taskName: string;
   /** True while the destructive mutation is running — disables both buttons. */
   isPending: boolean;
+  /**
+   * Number of drawer-created subtasks that cascade-delete with this task
+   * (see `Task.soft_delete`). Zero hides the clause. Default 0.
+   */
+  subtaskCount?: number;
+  /**
+   * Number of dependency links (predecessor or successor edges) that are
+   * soft-deleted with this task. Zero hides the clause. Default 0.
+   */
+  dependencyCount?: number;
   onCancel: () => void;
   onConfirm: () => void;
+}
+
+interface CascadeItem {
+  count: number;
+  singular: string;
+  plural: string;
+}
+
+/**
+ * Build an honest, comma-joined "N subtasks and M dependency links" phrase from
+ * the cascade counts the client already holds — dropping any zero-count clause
+ * and pluralizing each noun (web-rule 219: a destructive affordance must quantify
+ * its real blast radius, not over- or under-promise). Returns '' when nothing
+ * else cascades, so the caller falls back to the plain single-item copy.
+ */
+export function describeCascade(items: CascadeItem[]): string {
+  const parts = items
+    .filter((i) => i.count > 0)
+    .map((i) => `${i.count} ${i.count === 1 ? i.singular : i.plural}`);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
 }
 
 /**
@@ -26,10 +59,22 @@ export interface DeleteConfirmDialogProps {
 export function DeleteConfirmDialog({
   taskName,
   isPending,
+  subtaskCount = 0,
+  dependencyCount = 0,
   onCancel,
   onConfirm,
 }: DeleteConfirmDialogProps) {
   const trapRef = useFocusTrap<HTMLDivElement>(true, onCancel);
+
+  const cascade = describeCascade([
+    { count: subtaskCount, singular: 'subtask', plural: 'subtasks' },
+    { count: dependencyCount, singular: 'dependency link', plural: 'dependency links' },
+  ]);
+  // Assembled as a plain string (not literal JSX text) so the interpolated
+  // clause never introduces stray whitespace around its comma.
+  const body = cascade
+    ? `“${taskName}” will be permanently removed, along with its ${cascade}. This can’t be undone.`
+    : `“${taskName}” will be permanently removed. This can’t be undone.`;
 
   return (
     <div
@@ -52,7 +97,7 @@ export function DeleteConfirmDialog({
           Delete this task?
         </h2>
         <p id="delete-task-confirm-body" className="text-xs text-neutral-text-secondary mb-4">
-          “{taskName}” will be permanently removed. This can&apos;t be undone.
+          {body}
         </p>
         <div className="flex justify-end gap-2">
           <button

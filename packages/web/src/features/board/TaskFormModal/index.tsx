@@ -333,7 +333,7 @@ export function TaskFormModal({
   const [selectedParentId, setSelectedParentId] = useState<string | null>(parentId ?? null);
 
   // Dependent queries
-  const { tasks: allTasks } = useScheduleTasks(projectId);
+  const { tasks: allTasks, links: allLinks } = useScheduleTasks(projectId);
   // A phase never gets an assignee, mirroring the backend's `assignee_on_phase`
   // rejection (ADR-0293, #1753). Only meaningful in edit mode — a freshly
   // create-mode task has no children yet, so it can never already be a phase.
@@ -361,6 +361,27 @@ export function TaskFormModal({
   const removeAssignment = useRemoveAssignment(task?.id ?? '', projectId);
   const addDependency = useAddDependency(projectId);
   const removeDependency = useRemoveDependency(projectId);
+
+  // Blast radius for the delete confirm (#2055). Mirrors `Task.soft_delete`:
+  // the task cascade-deletes its drawer-created subtask descendants and
+  // soft-deletes every dependency edge on which it is predecessor or successor.
+  // Both counts come from data the schedule cache already holds — no extra
+  // fetch. WBS display codes are true hierarchical prefixes (computeWbsCodes),
+  // so a subtree prefix match reproduces the backend's `wbs_path__startswith`
+  // rule exactly. Comments/attachments/time entries are NOT in the cascade, so
+  // they are deliberately not claimed.
+  const deleteBlastRadius = useMemo(() => {
+    if (!task) return { subtaskCount: 0, dependencyCount: 0 };
+    const list = allTasks ?? [];
+    const selfWbs = list.find((t) => t.id === task.id)?.wbs ?? task.wbs;
+    const subtaskCount = selfWbs
+      ? list.filter((t) => t.isSubtask && t.wbs.startsWith(`${selfWbs}.`)).length
+      : 0;
+    const dependencyCount = (allLinks ?? []).filter(
+      (l) => l.sourceId === task.id || l.targetId === task.id,
+    ).length;
+    return { subtaskCount, dependencyCount };
+  }, [task, allTasks, allLinks]);
 
   // Hydrate predecessors once the dependency query resolves (edit mode only).
   // Comparing length + first id stabilises the effect against React Query's
@@ -1358,6 +1379,8 @@ export function TaskFormModal({
           <DeleteConfirmDialog
             taskName={task.name}
             isPending={deleteTask.isPending}
+            subtaskCount={deleteBlastRadius.subtaskCount}
+            dependencyCount={deleteBlastRadius.dependencyCount}
             onCancel={() => setShowDeleteConfirm(false)}
             onConfirm={() => { void handleDelete(); }}
           />
@@ -1406,6 +1429,8 @@ export function TaskFormModal({
         <DeleteConfirmDialog
           taskName={task.name}
           isPending={deleteTask.isPending}
+          subtaskCount={deleteBlastRadius.subtaskCount}
+          dependencyCount={deleteBlastRadius.dependencyCount}
           onCancel={() => setShowDeleteConfirm(false)}
           onConfirm={() => { void handleDelete(); }}
         />
