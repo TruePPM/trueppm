@@ -730,6 +730,7 @@ export function BurnChart({
           )}
           <div className="relative group" ref={exportMenuRef}>
             <button
+              type="button"
               className="h-9 px-3 rounded-control border border-neutral-border bg-neutral-surface text-xs font-medium text-neutral-text-primary flex items-center gap-1.5 hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
               disabled={isLoading || showEmpty || isError}
               aria-haspopup="menu"
@@ -753,6 +754,7 @@ export function BurnChart({
               ].join(' ')}
             >
               <button
+                type="button"
                 role="menuitem"
                 onClick={() => {
                   setExportMenuOpen(false);
@@ -763,6 +765,7 @@ export function BurnChart({
                 Download PNG
               </button>
               <button
+                type="button"
                 role="menuitem"
                 onClick={() => {
                   setExportMenuOpen(false);
@@ -787,6 +790,7 @@ export function BurnChart({
           {(['burndown', 'burnup', 'combined'] as BurnVariant[]).map((v) => (
             <button
               key={v}
+              type="button"
               role="radio"
               aria-checked={variant === v}
               onClick={() => setVariant(v)}
@@ -832,6 +836,7 @@ export function BurnChart({
           <span aria-hidden="true">ⓘ</span>
           Most tasks have no story point estimates.{' '}
           <button
+            type="button"
             onClick={() => setMetric('tasks')}
             className="underline text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
@@ -850,6 +855,7 @@ export function BurnChart({
           >
             <span>⚠ Couldn&apos;t load chart data.</span>
             <button
+              type="button"
               onClick={() => (isSprintCtx ? void sprintQuery.refetch() : void burnQuery.refetch())}
               className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >

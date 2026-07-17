@@ -47,7 +47,13 @@ export function evaluateSprintGoal(raw: string): GoalQuality {
   const text = raw.trim();
   if (text.length < 8) return { outcome: false, single: false, measurable: false };
   const lower = text.toLowerCase();
-  const hasBullets = /(^|\n)\s*[-*•]/.test(raw) || /(^|\n)\s*\d+[.)]/.test(raw);
+  // `[^\S\n]*` (horizontal whitespace only) rather than `\s*` after the `(^|\n)`
+  // line-start: `\s` matches `\n` too, so `\n|\s*` overlap makes the match
+  // ambiguous and backtrack super-linearly (S5852). A list marker is indented
+  // with spaces/tabs on its own line, never across a newline, so this is
+  // behavior-equivalent.
+  const hasBullets =
+    /(?:^|\n)[^\S\n]*[-*•]/.test(raw) || /(?:^|\n)[^\S\n]*\d+[.)]/.test(raw);
   const andCount = (lower.match(/\band\b/g) ?? []).length;
   const sentenceBreaks = (text.match(/[.;]/g) ?? []).length;
   const outcome = !hasBullets && andCount <= 1 && text.length >= 12;

@@ -54,7 +54,7 @@ export function AllocationSpan({
   const spanRef = useRef<HTMLButtonElement>(null);
   const spanPx = widthFraction * containerWidth;
   const showLabel = spanPx >= 48;
-  const unitsDisplay = `${Math.round(parseFloat(task.units) * 100)}%`;
+  const unitsDisplay = `${Math.round(Number.parseFloat(task.units) * 100)}%`;
 
   const tooltipLabel = [
     task.name,

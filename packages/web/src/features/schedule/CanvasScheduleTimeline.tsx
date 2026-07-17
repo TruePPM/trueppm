@@ -124,11 +124,15 @@ export function CanvasScheduleTimeline({
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* Layers are decorative (Rule 67) — the accessible representation is the
+          ScheduleAriaOverlay below. `tabIndex={-1}` keeps them out of the tab
+          order so `aria-hidden` never hides a focusable element (Sonar a11y). */}
       {/* Layer 0: row bands, grid lines, today line */}
       <canvas
         ref={bgCanvasRef}
         data-layer="bg"
         aria-hidden="true"
+        tabIndex={-1}
         style={{ ...canvasStyle, zIndex: 0 }}
       />
       {/* Layer 1: task bars, dependency arrows */}
@@ -136,6 +140,7 @@ export function CanvasScheduleTimeline({
         ref={barsCanvasRef}
         data-layer="bars"
         aria-hidden="true"
+        tabIndex={-1}
         style={{ ...canvasStyle, zIndex: 1 }}
       />
       {/* Layer 2: drag shadow, resize indicator — must receive pointer events */}
@@ -143,6 +148,7 @@ export function CanvasScheduleTimeline({
         ref={ixCanvasRef}
         data-layer="interaction"
         aria-hidden="true"
+        tabIndex={-1}
         style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />
       {/* Layer 3: accessible ARIA grid overlay (pointer-events: none) */}

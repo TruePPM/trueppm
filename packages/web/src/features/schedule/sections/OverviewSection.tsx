@@ -96,8 +96,8 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
 
   function handleProgressBlur() {
     if (localProgress === null) return;
-    const parsed = parseInt(localProgress, 10);
-    if (isNaN(parsed)) {
+    const parsed = Number.parseInt(localProgress, 10);
+    if (Number.isNaN(parsed)) {
       setLocalProgress(null);
       return;
     }
