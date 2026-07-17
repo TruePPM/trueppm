@@ -48,9 +48,11 @@ describe('useScheduleLegendCollapsed', () => {
     expect(result.current.collapsed).toBe(false);
     act(() => {
       localStorage.setItem(STORAGE_KEY, 'true');
+      // codeql suppression must sit on the alert's own line — a preceding-line
+      // comment is inert. StorageEvent's 2nd arg is the valid optional
+      // eventInitDict; js/superfluous-trailing-arguments mismodels the arity.
       window.dispatchEvent(
-        // codeql[js/superfluous-trailing-arguments] -- StorageEvent's 2nd arg is the valid optional eventInitDict; the query mismodels the constructor arity
-        new StorageEvent('storage', { key: STORAGE_KEY, newValue: 'true' }),
+        new StorageEvent('storage', { key: STORAGE_KEY, newValue: 'true' }), // codeql[js/superfluous-trailing-arguments]
       );
     });
     expect(result.current.collapsed).toBe(true);
@@ -59,9 +61,11 @@ describe('useScheduleLegendCollapsed', () => {
   it('ignores storage events for unrelated keys', () => {
     const { result } = renderHook(() => useScheduleLegendCollapsed());
     act(() => {
+      // codeql suppression must sit on the alert's own line — a preceding-line
+      // comment is inert. StorageEvent's 2nd arg is the valid optional
+      // eventInitDict; js/superfluous-trailing-arguments mismodels the arity.
       window.dispatchEvent(
-        // codeql[js/superfluous-trailing-arguments] -- StorageEvent's 2nd arg is the valid optional eventInitDict; the query mismodels the constructor arity
-        new StorageEvent('storage', { key: 'some.other.key', newValue: 'true' }),
+        new StorageEvent('storage', { key: 'some.other.key', newValue: 'true' }), // codeql[js/superfluous-trailing-arguments]
       );
     });
     expect(result.current.collapsed).toBe(false);
