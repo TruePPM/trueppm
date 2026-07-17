@@ -186,7 +186,8 @@ def test_delete_removes_credential_and_cached_items(
 
 
 def test_delete_is_idempotent(client: APIClient) -> None:
-    assert client.delete("/api/v1/me/connections/jira/").status_code == 204
+    resp = client.delete("/api/v1/me/connections/jira/")
+    assert resp.status_code == 204
 
 
 # ---------------------------------------------------------------------------

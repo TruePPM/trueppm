@@ -168,7 +168,8 @@ def test_delete_sticky_soft_deletes(project: Project, member: Any) -> None:
         text="x",
         author=member,
     )
-    assert _client(member).delete(f"/api/v1/retro-items/{item.pk}/").status_code == 204
+    resp = _client(member).delete(f"/api/v1/retro-items/{item.pk}/")
+    assert resp.status_code == 204
     item.refresh_from_db()
     assert item.is_deleted is True
 

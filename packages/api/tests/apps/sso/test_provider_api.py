@@ -163,9 +163,12 @@ def test_member_cannot_read_or_write(member: Any) -> None:
     # IsWorkspaceAdminStrict gates *every* method at ADMIN. The read shape leaks the
     # org's IdP config (issuer, client_id, allowed email domains), so a plain member
     # must be denied on GET too — not just on writes.
-    assert client.get(URL).status_code == 403
-    assert client.put(URL, _full_config(), format="json").status_code == 403
-    assert client.delete(URL).status_code == 403
+    get_resp = client.get(URL)
+    put_resp = client.put(URL, _full_config(), format="json")
+    delete_resp = client.delete(URL)
+    assert get_resp.status_code == 403
+    assert put_resp.status_code == 403
+    assert delete_resp.status_code == 403
 
 
 @pytest.mark.django_db
