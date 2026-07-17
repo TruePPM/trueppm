@@ -1,191 +1,263 @@
-import { useId, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router';
-import axios from 'axios';
-import { Button } from '@/components/Button';
-
-interface AcceptResponse {
-  detail: string;
-  username: string;
-}
+import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { AuthShell } from '@/features/auth/passwordReset/AuthShell';
+import {
+  PasswordVisibilityToggle,
+  RequirementsChecklist,
+  StrengthBar,
+} from '@/features/auth/passwordReset/passwordFields';
+import { checkRequirements, passwordScore } from '@/features/auth/passwordReset/passwordStrength';
+import { WarningIcon } from '@/components/Icons';
+import { acceptInvite } from './inviteApi';
 
 /**
- * Public invite-accept page — no authentication required.
+ * Public invite-accept page — no authentication required (#2035).
  *
- * Reads the `?token=` query param from the URL, allows a new user to set a
- * username + password, and POSTs to POST /workspace/invites/accept/. On
- * success the user is prompted to sign in.
+ * The first screen an invited teammate sees. It reads the one-time `?token=` from
+ * the URL and lets a new invitee create their account (username + password) with
+ * the same brand shell, strength meter, and requirements checklist as the rest of
+ * the auth flow (web rule 218 — reuse `AuthShell`, don't hand-roll a brand mark).
+ *
+ * The accept endpoint mints no session, so we cannot auto-login. On success we
+ * hand off to `/login` with the just-set username pre-filled and a one-shot
+ * `welcome` flag, so the user lands on a sign-in form that already knows who they
+ * are — never a dead-end "please sign in" screen with blank fields.
+ *
+ * The destination is a fixed relative path we build ourselves; we never forward a
+ * client-controlled `next` from this page's URL, so there is no open-redirect
+ * surface here.
  */
 export function InviteAcceptPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') ?? '';
+  const navigate = useNavigate();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  /** Terminal "this link is invalid or expired" state (no token, or server said so). */
+  const [linkInvalid, setLinkInvalid] = useState(!token);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const usernameId = useId();
   const passwordId = useId();
 
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!token) {
-      setError('No invite token found in the URL.');
-      return;
-    }
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      const body: Record<string, string> = { token };
-      if (username.trim()) body.username = username.trim();
-      if (password) body.password = password;
+  const score = useMemo(() => passwordScore(password), [password]);
+  const requirements = useMemo(() => checkRequirements(password), [password]);
+  const canSubmit =
+    username.trim().length > 0 &&
+    requirements.length &&
+    requirements.numberOrSymbol &&
+    !isSubmitting;
 
-      const res = await axios.post<AcceptResponse>('/api/v1/workspace/invites/accept/', body);
-      setSuccess(`Welcome, ${res.data.username}! Your account is ready — please sign in.`);
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.data) {
-        const data = err.response.data as Record<string, unknown>;
-        const msg = (data.detail as string) ?? Object.values(data).flat().join(' ');
-        setError(msg || 'Failed to accept the invite. The token may be expired or already used.');
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
-    } finally {
-      setIsSubmitting(false);
+  /** Send the user to a sign-in form that already knows their username. */
+  function goToLoginPrefilled(acceptedUsername: string) {
+    const dest = `/login?welcome=1&u=${encodeURIComponent(acceptedUsername)}`;
+    void navigate(dest, { replace: true });
+  }
+
+  /**
+   * Handle the discriminated accept outcome. Shared by the new-account form submit
+   * and the "I already have an account" token-only path so error placement is
+   * consistent across both.
+   */
+  function applyOutcome(outcome: Awaited<ReturnType<typeof acceptInvite>>) {
+    switch (outcome.kind) {
+      case 'success':
+        goToLoginPrefilled(outcome.username);
+        return;
+      case 'invalid_token':
+        setLinkInvalid(true);
+        return;
+      case 'weak_password':
+        setPasswordError(outcome.message);
+        return;
+      case 'username_taken':
+        setUsernameError('That username is already taken. Try another.');
+        return;
+      case 'account_required':
+        setFormError(
+          'No TruePPM account exists for this invitation yet. Create one with the form above.',
+        );
+        return;
+      case 'deactivated':
+        setFormError(outcome.message);
+        return;
+      case 'rate_limited':
+        setFormError('Too many attempts. Please wait a minute and try again.');
+        return;
+      default:
+        setFormError('Something went wrong. Please try again.');
     }
   }
 
+  function clearErrors() {
+    setUsernameError(null);
+    setPasswordError(null);
+    setFormError(null);
+  }
+
+  async function handleCreateAccount(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    clearErrors();
+    setIsSubmitting(true);
+    const outcome = await acceptInvite({ token, username, password });
+    applyOutcome(outcome);
+    setIsSubmitting(false);
+  }
+
+  /** Existing-account path: link the account matched by the invite email (token only). */
+  async function handleExistingAccount() {
+    clearErrors();
+    setIsSubmitting(true);
+    const outcome = await acceptInvite({ token });
+    applyOutcome(outcome);
+    setIsSubmitting(false);
+  }
+
+  if (linkInvalid) {
+    return (
+      <AuthShell
+        icon={<WarningIcon className="w-8 h-8 text-semantic-at-risk" />}
+        title="This invitation link isn't valid"
+        subtitle="The link may have expired or already been used. Ask your workspace admin to send a fresh invitation."
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-neutral-surface px-4">
-      <div className="w-full max-w-sm flex flex-col gap-6">
-        {/* Brand */}
-        <div className="flex items-center gap-2">
-          <div
-            className="w-9 h-9 rounded-card bg-sage-500 text-navy-900 flex items-center justify-center text-sm font-bold shrink-0"
-            aria-hidden="true"
-          >
-            tP
-          </div>
-          <span className="text-lg font-bold text-neutral-text-primary tracking-tight">
-            TruePPM
-          </span>
-        </div>
-
+    <AuthShell
+      title="Accept your invitation"
+      subtitle="Create your account to join the workspace."
+      backToSignIn={false}
+    >
+      <form
+        onSubmit={(e) => {
+          void handleCreateAccount(e);
+        }}
+        noValidate
+        className="flex flex-col gap-4"
+      >
+        {/* Username */}
         <div className="flex flex-col gap-1">
-          <h1 className="text-[26px] font-semibold text-neutral-text-primary tracking-tight leading-tight">
-            Accept workspace invite
-          </h1>
-          <p className="text-sm text-neutral-text-secondary leading-relaxed">
-            {token
-              ? 'Set a username and password to create your account, or leave them blank if your account already exists.'
-              : 'No invite token found. Please use the link from your invitation email.'}
-          </p>
+          <label htmlFor={usernameId} className="text-sm font-medium text-neutral-text-primary">
+            Username
+          </label>
+          <input
+            id={usernameId}
+            type="text"
+            autoComplete="username"
+            required
+            value={username}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setUsernameError(null);
+            }}
+            disabled={isSubmitting}
+            placeholder="anna_khoury"
+            className="
+              h-10 px-3 rounded border border-neutral-border
+              bg-neutral-surface text-neutral-text-primary text-sm
+              placeholder:text-neutral-text-secondary
+              focus-visible:outline-none focus-visible:border-brand-primary
+              focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
+              disabled:opacity-50 disabled:cursor-not-allowed
+            "
+          />
+          {usernameError !== null && (
+            <p role="alert" className="text-xs text-semantic-critical">
+              {usernameError}
+            </p>
+          )}
         </div>
 
-        {success !== null ? (
-          <div
-            role="status"
-            className="rounded-card border border-semantic-on-track bg-semantic-on-track-bg p-4 text-sm text-neutral-text-primary"
-          >
-            {success}
-            <div className="mt-3">
-              <a
-                href="/login"
-                className="font-semibold text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-              >
-                Sign in →
-              </a>
-            </div>
+        {/* Password */}
+        <div className="flex flex-col gap-1">
+          <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
+            Password
+          </label>
+          <div className="relative">
+            <input
+              id={passwordId}
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              required
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError(null);
+              }}
+              disabled={isSubmitting}
+              className="
+                h-10 w-full pl-3 pr-10 rounded border border-neutral-border
+                bg-neutral-surface text-neutral-text-primary text-sm font-mono
+                focus-visible:outline-none focus-visible:border-brand-primary
+                focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            />
+            <PasswordVisibilityToggle
+              shown={showPassword}
+              onToggle={() => setShowPassword((v) => !v)}
+            />
           </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              void handleSubmit(e);
-            }}
-            noValidate
-            className="flex flex-col gap-4"
-          >
-            {/* Username — optional for existing accounts */}
-            <div className="flex flex-col gap-1">
-              <label htmlFor={usernameId} className="text-sm font-medium text-neutral-text-primary">
-                Username{' '}
-                <span className="text-neutral-text-secondary font-normal text-xs">
-                  (new accounts only)
-                </span>
-              </label>
-              <input
-                id={usernameId}
-                type="text"
-                autoComplete="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={isSubmitting || !token}
-                placeholder="anna_khoury"
-                className="
-                  h-10 px-3 rounded-control border border-neutral-border
-                  bg-neutral-surface text-neutral-text-primary text-sm
-                  placeholder:text-neutral-text-disabled
-                  focus-visible:outline-none focus-visible:border-brand-primary
-                  focus-visible:ring-2 focus-visible:ring-brand-primary
-                  disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
-                "
-              />
-            </div>
+        </div>
 
-            {/* Password — optional for existing accounts */}
-            <div className="flex flex-col gap-1">
-              <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
-                Password{' '}
-                <span className="text-neutral-text-secondary font-normal text-xs">
-                  (new accounts only)
-                </span>
-              </label>
-              <input
-                id={passwordId}
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isSubmitting || !token}
-                className="
-                  h-10 px-3 rounded-control border border-neutral-border
-                  bg-neutral-surface text-neutral-text-primary text-sm font-mono
-                  focus-visible:outline-none focus-visible:border-brand-primary
-                  focus-visible:ring-2 focus-visible:ring-brand-primary
-                  disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
-                "
-              />
-            </div>
+        {/* Strength bar */}
+        {password.length > 0 && <StrengthBar score={score} />}
 
-            {error !== null && (
-              <p role="alert" className="text-sm text-semantic-critical">
-                {error}
-              </p>
-            )}
+        {/* Requirements checklist */}
+        <RequirementsChecklist
+          length={requirements.length}
+          numberOrSymbol={requirements.numberOrSymbol}
+        />
 
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              disabled={isSubmitting || !token}
-              className="w-full min-h-[44px]"
-            >
-              {isSubmitting ? 'Accepting invite…' : 'Accept invite'}
-            </Button>
-
-            <p className="text-xs text-neutral-text-secondary text-center">
-              Already have an account?{' '}
-              <a
-                href="/login"
-                className="font-medium text-brand-primary hover:text-brand-primary-dark"
-              >
-                Sign in
-              </a>
-            </p>
-          </form>
+        {passwordError !== null && (
+          <p role="alert" className="text-sm text-semantic-critical">
+            {passwordError}
+          </p>
         )}
+
+        {formError !== null && (
+          <p role="alert" className="text-sm text-semantic-critical">
+            {formError}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="
+            h-11 w-full rounded bg-brand-primary text-white
+            text-sm font-semibold
+            hover:bg-brand-primary-dark
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            disabled:opacity-50 disabled:cursor-not-allowed
+            transition-colors
+          "
+        >
+          {isSubmitting ? 'Creating your account…' : 'Create account & join'}
+        </button>
+      </form>
+
+      {/* Secondary affordance: an already-registered user links their existing
+          account by the invite email — no new username/password needed. Kept as a
+          quiet secondary path so it never confuses the common new-account case. */}
+      <div className="flex flex-col items-center gap-1 text-center">
+        <p className="text-xs text-neutral-text-secondary">Already have a TruePPM account?</p>
+        <button
+          type="button"
+          onClick={() => void handleExistingAccount()}
+          disabled={isSubmitting}
+          className="text-sm font-medium text-brand-primary hover:text-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Accept with your existing account
+        </button>
       </div>
-    </div>
+    </AuthShell>
   );
 }
