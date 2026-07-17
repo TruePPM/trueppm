@@ -228,8 +228,13 @@ class ProjectApiTokenScheme(OpenApiAuthenticationExtension):  # type: ignore[no-
             "scheme": "bearer",
             "bearerFormat": "tppm_<64-hex>",
             "description": (
-                "Project-scoped API token (ADR-0068). Send as "
-                "`Authorization: Bearer tppm_<64-hex>`. Mint one in project settings; "
-                "it is scoped to a single project and the task-sync surface."
+                "TruePPM API token. Send as `Authorization: Bearer tppm_<64-hex>`. "
+                "Three token types share this scheme: personal (owner-scoped) tokens "
+                "minted in personal settings; project-scoped tokens (ADR-0068) bound to "
+                "a single project's task-sync surface; and program-scoped tokens bound to "
+                "a program. A token also carries scopes: `legacy:full` (the historical "
+                "unrestricted superset) or `mcp:read` (the read-only MCP surface — "
+                "owner-scoped tokens only). MCP-token access can be disabled instance-wide "
+                "by the operator (TRUEPPM_MCP_ENABLED)."
             ),
         }

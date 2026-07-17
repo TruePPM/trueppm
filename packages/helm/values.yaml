@@ -291,6 +291,22 @@ env:
   #   TRUEPPM_THROTTLE_SHARE_ACCESS_RATE (public GET, default 60/min)
   #   TRUEPPM_THROTTLE_SHARE_MINT_RATE   (Admin create, default 20/min)
   TRUEPPM_PUBLIC_BOARD_SHARING_ENABLED: "true"
+  # MCP administration controls (#2021, ADR-0497). TRUEPPM_MCP_ENABLED is the
+  # instance-wide kill switch for read-only MCP (AI-agent) token access. "true"
+  # (default) lets personal tokens carrying the mcp:read scope read the MCP
+  # surface; set "false" to deny every MCP-token read (403) across the whole
+  # instance — the operator lever for "no agent access, period." Human
+  # JWT/session traffic on the same endpoints is unaffected either way.
+  TRUEPPM_MCP_ENABLED: "true"
+  # Per-token rate limits for the MCP read surface (#1808). These bound
+  # token-authenticated reads ONLY; human JWT/session traffic on the same views is
+  # unaffected. TRUEPPM_THROTTLE_MCP_READ_RATE is the baseline per-token cap on
+  # every MCP-readable view; TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE is the tighter
+  # bucket the four compute-heavy tools (whatif, monte-carlo/latest, forecast,
+  # sprint-forecast) stack on top, since each triggers a CPM + Monte Carlo
+  # recompute. Widen for a trusted agent fleet or tighten under load.
+  TRUEPPM_THROTTLE_MCP_READ_RATE: "120/min"
+  TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE: "12/min"
   # Outbound email / SMTP transport (#764). These bind Django's standard EMAIL_*
   # settings; they flow to the api AND celery worker/beat via `trueppm.envVars`,
   # so the Beat-driven notification drain has the same transport everywhere.

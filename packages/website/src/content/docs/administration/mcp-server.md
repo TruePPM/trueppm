@@ -196,6 +196,11 @@ may follow in a later release.
 - **Network exposure is opt-in.** The default bind is loopback. Put any network
   transport behind a reverse proxy that terminates TLS; the server speaks plain
   HTTP and must never face the public internet directly.
+- **Instance-wide kill switch.** Setting `TRUEPPM_MCP_ENABLED=false` on the API
+  denies every `mcp:read` token read across the whole instance (`403`), even for
+  tokens that already exist, while leaving human session/JWT traffic on the same
+  endpoints untouched. This is the "no agent access, period" operator lever; see
+  [Disabling MCP access entirely](/administration/configuration/#disabling-mcp-access-entirely).
 
 ## Agent-action audit log
 

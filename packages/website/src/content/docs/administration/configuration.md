@@ -49,6 +49,11 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_THROTTLE_SHARE_MINT_RATE` | `20/min` | Rate limit for an Admin minting public board links, per account, in DRF `<count>/<period>` form. |
 | `TRUEPPM_THROTTLE_MCP_READ_RATE` | `120/min` | Baseline rate limit for **API-token** reads on the [MCP read surface](/features/mcp-server/), per token, in DRF `<count>/<period>` form. Does not affect human session/JWT traffic. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
 | `TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE` | `12/min` | Tighter rate limit stacked on the four **compute-heavy** MCP tools (what-if, latest Monte Carlo, forecast, sprint-forecast), per token, in DRF `<count>/<period>` form. See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_MCP_ENABLED` | `true` | Instance-wide kill switch for [MCP (AI-agent) token access](/features/mcp-server/). When `false`, every `mcp:read` token read is denied (`403`) across the whole instance — even for tokens that already exist — while human session/JWT traffic on the same endpoints is unaffected. The operator lever for "no agent access on this instance, period." See [MCP read-surface rate limiting](#mcp-read-surface-rate-limiting) below. |
+| `TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS` | `10` | Maximum number of **active** [personal access tokens](/features/personal-access-tokens/) a single user may hold at once (not revoked, not expired). Bounds the blast radius of a leaked account. Once at the cap a user must revoke one before minting another. |
+| `TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE` | `5` | Per-account rate limit (requests per minute) on the token-mint endpoint. Caps the blast radius of a scripted attacker on a compromised admin session even when RBAC is satisfied. |
+| `TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT` | `100` | Per-project steady-state rate limit (requests per minute) for the inbound [task-sync](/features/jira-import/) endpoint, applied after the 60-minute backfill window. |
+| `TRUEPPM_TASK_SYNC_BACKFILL_LIMIT` | `1000` | Per-project rate limit (requests per minute) for inbound task-sync during the first 60 minutes after a token is minted, giving a large first import headroom before dropping to the steady-state limit. |
 | `TRUEPPM_SHARE_BOARD_MAX_CARDS` | `1000` | Maximum cards in a public board snapshot; a larger board is truncated (the viewer sees a "showing the first N cards" note). |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart, and `prod` refuses to boot on it (see `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE`). Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
@@ -173,6 +178,26 @@ A few behaviors are worth knowing:
 
 Both use Django REST Framework's `<count>/<period>` syntax. Widen them for a
 trusted internal agent fleet, or tighten them under load.
+
+### Disabling MCP access entirely
+
+Rate limits bound how fast agents read; the **`TRUEPPM_MCP_ENABLED`** kill switch
+decides *whether they can read at all*. Set it to `false` to deny every MCP token
+read across the whole instance:
+
+- Every request authenticated by an `mcp:read` token is refused with `403`, even
+  though the token still exists and carries the scope — the check is **fail-closed**
+  and lives at the single guard chokepoint every MCP-readable endpoint shares.
+- **Human session/JWT traffic on the same endpoints is unaffected.** The switch
+  gates only the API-token (agent) path, so interactive users and the web client
+  keep working normally.
+- Each denied read is still recorded in the [agent-action audit
+  log](/administration/mcp-server/#agent-action-audit-log) as a `policy` refusal,
+  so you retain a trail of what was attempted while access was off.
+
+The default is `true` for backward compatibility. Flip it to `false` when you want
+"no agent access on this instance, period" — for a locked-down or regulated
+deployment, or as an incident-response lever — then back to `true` to restore it.
 
 ## MS Project import limit
 
