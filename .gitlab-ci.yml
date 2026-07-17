@@ -100,10 +100,13 @@ workflow:
   auto_cancel:
     on_new_commit: interruptible
   rules:
-    # Scheduled pipelines are only for the Renovate runner (RENOVATE == "true").
-    # Block any other scheduled trigger so a stray schedule can't spin up a full
-    # pipeline. The Renovate schedule itself falls through to the branch rule.
-    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true"'
+    # Scheduled pipelines are permitted only for the Renovate runner
+    # (RENOVATE == "true") and the nightly SonarCloud scan (SONAR_SCHEDULED ==
+    # "true"). Block any other scheduled trigger so a stray schedule can't spin
+    # up a full pipeline. Both permitted schedules run on `main` and fall through
+    # to the branch rule below; sonar:scan is the only job gated to the Sonar
+    # schedule, so day-to-day MR/push pipelines are unaffected (#2092).
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $RENOVATE != "true" && $SONAR_SCHEDULED != "true"'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1870,6 +1873,55 @@ web:diff-coverage:
     - diff-cover coverage/lcov.info
         --compare-branch="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
         --fail-under="$COVERAGE_DIFF_MIN"
+
+sonar:scan:
+  # Nightly SonarCloud analysis WITH coverage import (#2090, #2092).
+  #
+  # Runs ONLY on the scheduled pipeline (SONAR_SCHEDULED == "true"), never on MR
+  # or push pipelines — so day-to-day pipeline latency is unchanged. SonarCloud
+  # does not run tests; it imports the coverage reports already produced by the
+  # test stage, via the reportPaths declared in sonar-project.properties.
+  #
+  # `needs:` the four coverage producers so their reports land in this job's
+  # workspace. On the scheduled-main pipeline every `if main` job runs, so these
+  # producers are present. allow_failure means a Sonar/network hiccup never turns
+  # the nightly pipeline red.
+  stage: security
+  image: sonarsource/sonar-scanner-cli:12.1.0.3233_8.0.1@sha256:23ca0f137965d9dff2198074043fd48d386280bc5d0ccac8c8349cea4cf096a9
+  needs:
+    - job: api:coverage
+      artifacts: true
+    - job: web:coverage
+      artifacts: true
+    - job: scheduler:test
+      artifacts: true
+    - job: mcp:test
+      artifacts: true
+  variables:
+    # Full history so SonarCloud's new-code detection and SCM blame are accurate
+    # (the default shallow clone makes Sonar warn and skip blame attribution).
+    GIT_DEPTH: "0"
+    # Keep the analysis cache inside the workspace so it can be cached below.
+    SONAR_USER_HOME: "$CI_PROJECT_DIR/.sonar"
+  cache:
+    key: sonar-scanner
+    paths:
+      - .sonar/cache
+  script:
+    # The web LCOV records `SF:src/...` paths relative to packages/web; the
+    # scanner runs from the checkout root, so rewrite them to
+    # `SF:packages/web/src/...` — the same prefix scripts/sonar-scan.sh and the
+    # Makefile diff-cover target apply. Python Cobertura reports resolve via
+    # their own <source> roots (the same /builds/... path this job checks out
+    # to), so they need no rewrite.
+    - sed 's|^SF:|SF:packages/web/|' packages/web/coverage/lcov.info > packages/web/coverage/lcov.sonar.info
+    # SONAR_TOKEN and SONAR_HOST_URL come from masked CI/CD variables and are
+    # read from the environment by sonar-scanner automatically. Don't block on
+    # the quality-gate compute task — this is a dashboard refresh, not a gate.
+    - sonar-scanner -Dsonar.qualitygate.wait=false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $SONAR_SCHEDULED == "true"'
+  allow_failure: true
 
 web:e2e:
   # End-to-end Playwright tests against the production build, sharded across
