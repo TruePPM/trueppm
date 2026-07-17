@@ -457,7 +457,7 @@ export function SettingsShell({
               height="14"
               viewBox="0 0 16 16"
               fill="currentColor"
-              className="text-white/80 shrink-0"
+              className="text-neutral-text-inverse/80 shrink-0"
               aria-hidden="true"
             >
               <path
@@ -468,7 +468,7 @@ export function SettingsShell({
                 fill="none"
               />
             </svg>
-            <span className="text-[13px] font-medium text-white" role="status">
+            <span className="text-[13px] font-medium text-neutral-text-inverse" role="status">
               {saveError ?? 'You have unsaved changes'}
             </span>
             <div className="flex-1" />
@@ -476,7 +476,7 @@ export function SettingsShell({
               type="button"
               onClick={triggerDiscard}
               disabled={isSaving}
-              className="text-[13px] text-white/85 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              className="text-[13px] text-neutral-text-inverse/85 hover:text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Discard
             </button>
