@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -209,6 +210,15 @@ export function ProjectMethodologyPage() {
           >
             {lockedByPolicy ? 'Workspace methodology' : 'Methodology for this project'}
           </h2>
+          {!canEdit ? (
+            <ReadOnlyIndicator
+              label="Methodology"
+              value={METHOD_LABEL[lockedByPolicy ? effective : methodology]}
+              provenance={
+                lockedByPolicy ? 'locked by workspace policy' : 'managed by the project scheduler'
+              }
+            />
+          ) : (
           <div
             className="grid grid-cols-3 gap-3.5"
             role="radiogroup"
@@ -290,6 +300,7 @@ export function ProjectMethodologyPage() {
               );
             })}
           </div>
+          )}
         </section>
 
         {/* Estimate governance (ADR-0041, #2018). Scheduler+-writable, independent of

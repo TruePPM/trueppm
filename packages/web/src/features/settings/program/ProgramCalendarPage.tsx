@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useProgram } from '@/hooks/useProgram';
@@ -124,6 +125,15 @@ export function ProgramCalendarPage() {
           ? summarizeWorkingCalendar(effective)
           : null;
 
+  // Below-role / policy-locked users get the effective value + provenance instead
+  // of a disabled picker (ADR-0133). "Inheriting" collapses to a single word; an
+  // active override reads out the resolved calendar name.
+  const readOnlyCalendarValue =
+    displayCalendarId === null
+      ? 'Inherited from workspace'
+      : (displayCalendarRow?.name ??
+        (effective && effective.id === displayCalendarId ? effective.name : 'Workspace calendar'));
+
   return (
     <div>
       <SettingsPageTitle
@@ -162,6 +172,16 @@ export function ProgramCalendarPage() {
           label="Working calendar"
           hint="Override the workspace default calendar for this program's projects. Inherit to follow the workspace default."
         >
+          {!canEdit ? (
+            <ReadOnlyIndicator
+              label="Working calendar"
+              value={readOnlyCalendarValue}
+              provenance={
+                lockedByPolicy ? 'locked by workspace policy' : 'managed by the program admin'
+              }
+              filled={displayCalendarId !== null}
+            />
+          ) : (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -222,6 +242,7 @@ export function ProgramCalendarPage() {
               </svg>
             </div>
           </div>
+          )}
           {summaryLine && (
             <p className="text-[12px] text-neutral-text-secondary mt-1.5">{summaryLine}</p>
           )}

@@ -93,10 +93,11 @@ describe('ProjectMethodologyPage', () => {
     renderPage();
 
     expect(screen.getByText(/requires every project to use its default methodology/i)).toBeInTheDocument();
-    // Locked: shows the workspace-resolved value (WATERFALL), not the project's own AGILE.
-    expect(screen.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Waterfall/i })).toBeDisabled();
-    expect(screen.getByRole('radio', { name: /Agile/i, checked: false })).toBeInTheDocument();
+    // Locked: no interactive radios — the workspace-resolved value (Waterfall) shows read-only.
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(
+      screen.getByLabelText('Methodology: Waterfall, locked by workspace policy. View only.'),
+    ).toBeInTheDocument();
   });
 
   it('lets a Scheduler edit the picker — the API grants Scheduler+ (#2019)', async () => {
@@ -117,10 +118,13 @@ describe('ProjectMethodologyPage', () => {
   });
 
   it('renders read-only for a sub-Scheduler role', () => {
-    // A Member (100) is below Scheduler (200) and still sees a read-only picker.
+    // A Member (100) is below Scheduler (200) and sees the effective value, not a picker.
     useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
     renderPage();
-    expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(
+      screen.getByLabelText('Methodology: Agile, managed by the project scheduler. View only.'),
+    ).toBeInTheDocument();
   });
 
   // ── Estimate governance (#2018) ─────────────────────────────────────────
@@ -150,8 +154,12 @@ describe('ProjectMethodologyPage', () => {
     useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'inherit' } });
     renderPage();
 
-    // The methodology picker is locked…
-    expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // The methodology picker is locked read-only by workspace policy (ADR-0133):
+    // no disabled radios — effective value + provenance instead.
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(
+      screen.getByLabelText('Methodology: Agile, locked by workspace policy. View only.'),
+    ).toBeInTheDocument();
     // …but estimate governance is still editable and saves on its own.
     const select = screen.getByRole('combobox', { name: 'Estimate governance' });
     expect(select).toBeEnabled();

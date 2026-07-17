@@ -137,9 +137,10 @@ describe('ProgramRollupPage (settings)', () => {
     expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
   });
 
-  it('non-admin sees disabled controls and a Read-only pill', () => {
+  it('non-admin sees read-only KPI values + policy (no disabled controls) and a Read-only pill', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_MEMBER } });
     useProgramRollupConfig.mockReturnValue({
+      // enabled: schedule_health + p80_completion; policy: worst.
       data: defaultConfig(),
       isLoading: false,
       isError: false,
@@ -148,10 +149,20 @@ describe('ProgramRollupPage (settings)', () => {
     renderPage();
 
     expect(screen.getByText(/Read-only/)).toBeInTheDocument();
-    expect(screen.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    // No interactive switch — the on/off value + provenance is shown instead (ADR-0133).
+    expect(screen.queryByRole('switch', { name: 'Schedule health' })).toBeNull();
+    expect(
+      screen.getByLabelText('Schedule health: On, managed by the program admin. View only.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('At-risk tasks: Off, managed by the program admin. View only.'),
+    ).toBeInTheDocument();
+    // Aggregation policy renders read-only too.
+    expect(
+      screen.getByLabelText(
+        'Aggregation policy: Worst-case (recommended), managed by the program admin. View only.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('toggling a KPI flips the switch immediately and PATCHes the new list after debounce', async () => {

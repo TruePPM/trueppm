@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
@@ -248,8 +249,18 @@ export function ProgramRiskPolicyPage() {
             </div>
           )}
 
-          {!isLoading && !isError && policy && (
-            <fieldset className="px-4 py-3 space-y-2" disabled={!canEdit}>
+          {!isLoading && !isError && policy && !canEdit && (
+            <div className="px-4 py-3">
+              <ReadOnlyIndicator
+                label="Slip policy"
+                value={SLIP_OPTIONS.find((o) => o.id === slip)?.label ?? slip}
+                provenance="managed by the program admin"
+              />
+            </div>
+          )}
+
+          {!isLoading && !isError && policy && canEdit && (
+            <fieldset className="px-4 py-3 space-y-2">
               <legend className="sr-only">Slip propagation policy</legend>
               {SLIP_OPTIONS.map((opt) => (
                 <label
@@ -296,27 +307,34 @@ export function ProgramRiskPolicyPage() {
             label="Auto-escalate after"
             hint="Days a blocked dependency can sit without resolution before escalating to the program manager."
           >
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={days}
-                disabled={!canEdit}
-                aria-invalid={!daysValid || undefined}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  setDays(Number.isFinite(n) ? n : 0);
-                }}
-                className="w-20 h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised tppm-mono text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+            {canEdit ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={days}
+                  aria-invalid={!daysValid || undefined}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setDays(Number.isFinite(n) ? n : 0);
+                  }}
+                  className="w-20 h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised tppm-mono text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+                />
+                <span className="text-[13px] text-neutral-text-secondary">days</span>
+                {!daysValid && (
+                  <span role="alert" className="text-[12px] text-semantic-critical">
+                    Must be 1–30.
+                  </span>
+                )}
+              </div>
+            ) : (
+              <ReadOnlyIndicator
+                label="Auto-escalate after"
+                value={`${days} days`}
+                provenance="managed by the program admin"
               />
-              <span className="text-[13px] text-neutral-text-secondary">days</span>
-              {!daysValid && (
-                <span role="alert" className="text-[12px] text-semantic-critical">
-                  Must be 1–30.
-                </span>
-              )}
-            </div>
+            )}
           </FieldRow>
         )}
       </div>

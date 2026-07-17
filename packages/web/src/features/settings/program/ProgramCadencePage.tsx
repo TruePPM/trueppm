@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams } from 'react-router';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramCeremonies } from '@/features/programs/hooks/useProgramCeremonies';
 import {
@@ -128,13 +129,23 @@ function CeremonyRow({
         {ceremony.owner_role || '—'}
       </span>
       <span className="flex justify-center">
-        <Toggle
-          on={ceremony.enabled}
-          disabled={!canEdit}
-          busy={isToggling}
-          onChange={onToggle}
-          label={`${ceremony.enabled ? 'Disable' : 'Enable'} ${ceremony.name}`}
-        />
+        {canEdit ? (
+          <Toggle
+            on={ceremony.enabled}
+            disabled={!canEdit}
+            busy={isToggling}
+            onChange={onToggle}
+            label={`${ceremony.enabled ? 'Disable' : 'Enable'} ${ceremony.name}`}
+          />
+        ) : (
+          <ReadOnlyIndicator
+            label={ceremony.name}
+            value={ceremony.enabled ? 'On' : 'Off'}
+            provenance="managed by the program admin"
+            filled={ceremony.enabled}
+            compact
+          />
+        )}
       </span>
       <div className="relative flex justify-end">
         {canEdit && !confirmDelete && (

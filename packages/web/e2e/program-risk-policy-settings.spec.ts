@@ -166,7 +166,14 @@ test.describe('Program Settings → Risk & deps policy', () => {
     const risk = page.locator('[data-settings-section="risk"]');
     await expect(risk.getByRole('heading', { name: /Risk & deps policy/ })).toBeVisible();
     await expect(risk.getByText(/Read-only/)).toBeVisible();
-    await expect(risk.getByRole('radio', { name: /Warn only/ })).toBeDisabled();
-    await expect(risk.getByRole('spinbutton')).toBeDisabled();
+    // No disabled controls (ADR-0133) — effective value + provenance instead.
+    await expect(risk.getByRole('radio', { name: /Warn only/ })).toHaveCount(0);
+    await expect(risk.getByRole('spinbutton')).toHaveCount(0);
+    await expect(
+      risk.getByLabel('Slip policy: Warn only, managed by the program admin. View only.'),
+    ).toBeVisible();
+    await expect(
+      risk.getByLabel('Auto-escalate after: 3 days, managed by the program admin. View only.'),
+    ).toBeVisible();
   });
 });

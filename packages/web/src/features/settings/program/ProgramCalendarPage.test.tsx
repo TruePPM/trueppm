@@ -110,7 +110,11 @@ describe('ProgramCalendarPage', () => {
     renderPage();
 
     expect(screen.getByText(/requires every program and project to use its default/i)).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: /Working calendar override/i })).toBeDisabled();
+    // No interactive picker — the effective calendar is shown read-only, locked by policy.
+    expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
+    expect(
+      screen.getByLabelText('Working calendar: EU Holidays, locked by workspace policy. View only.'),
+    ).toBeInTheDocument();
   });
 
   it('renders the picker read-only for a non-admin member', () => {
@@ -120,6 +124,11 @@ describe('ProgramCalendarPage', () => {
     } as unknown as ReturnType<typeof useProgram>);
 
     renderPage();
-    expect(screen.getByRole('combobox', { name: /Working calendar override/i })).toBeDisabled();
+    expect(screen.queryByRole('combobox', { name: /Working calendar override/i })).toBeNull();
+    expect(
+      screen.getByLabelText(
+        'Working calendar: Inherited from workspace, managed by the program admin. View only.',
+      ),
+    ).toBeInTheDocument();
   });
 });

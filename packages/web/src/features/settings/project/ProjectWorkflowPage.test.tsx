@@ -316,6 +316,18 @@ describe('ProjectWorkflowPage — Board cadence section (#410)', () => {
     expect(within(region).getByText(/preserved and return/i)).toBeInTheDocument();
   });
 
+  it('renders the cadence read-only (no radios) for a below-Scheduler MEMBER', () => {
+    useCurrentUserRole.mockReturnValue({ role: ROLE_MEMBER, isLoading: false });
+    renderPage();
+    const region = screen.getByRole('region', { name: /Board cadence/i });
+    expect(within(region).queryByRole('radio')).not.toBeInTheDocument();
+    expect(
+      within(region).getByLabelText(
+        'Board cadence: Sprint-based, managed by the project scheduler. View only.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('does not render the cadence picker for a WATERFALL project', () => {
     useProject.mockReturnValue({
       data: { board_cadence: 'sprint', methodology: 'WATERFALL' },

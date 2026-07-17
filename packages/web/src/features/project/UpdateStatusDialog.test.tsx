@@ -91,10 +91,14 @@ describe('UpdateStatusDialog', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('read-only for non-Admins — no Save, options disabled, PM note shown', () => {
+  it('read-only for non-Admins — no Save, value shown read-only, PM note shown', () => {
     renderDialog({ canEdit: false, currentHealth: 'ON_TRACK' });
     expect(screen.queryByRole('button', { name: /save status/i })).toBeNull();
-    expect(screen.getByRole('button', { name: 'At risk' })).toBeDisabled();
+    // No interactive health buttons — the reported status shows read-only (ADR-0133).
+    expect(screen.queryByRole('button', { name: 'At risk' })).toBeNull();
+    expect(
+      screen.getByLabelText('Reported status: On track, set by the Project Manager. View only.'),
+    ).toBeInTheDocument();
     expect(screen.getByText(/only a project manager can change/i)).toBeInTheDocument();
     // The safe control reads "Close" rather than "Cancel" when nothing can change.
     expect(screen.getByRole('button', { name: /close/i })).toBeInTheDocument();

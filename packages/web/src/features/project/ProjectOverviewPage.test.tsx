@@ -277,7 +277,12 @@ describe('ProjectOverviewPage', () => {
     fireEvent.click(btn);
     const dialog = await screen.findByRole('dialog', { name: /update project status/i });
     expect(dialog).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'At risk' })).toBeInTheDocument();
+    // Default membership is Member (role 100 < ADMIN), so the dialog opens
+    // read-only: the status value + provenance, not the editable status buttons.
+    expect(within(dialog).queryByRole('button', { name: 'At risk' })).toBeNull();
+    expect(
+      within(dialog).getByLabelText('Reported status: Auto, set by the Project Manager. View only.'),
+    ).toBeInTheDocument();
   });
 
   it('shows a "Reported" chip only when the manual health is non-AUTO', async () => {
