@@ -91,7 +91,7 @@ export function NotificationBell() {
             className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1
               flex items-center justify-center
               text-xs font-semibold tppm-mono rounded-full
-              bg-brand-primary text-white"
+              bg-brand-primary text-neutral-text-inverse"
           >
             {displayCount}
           </span>

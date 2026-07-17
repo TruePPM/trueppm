@@ -195,7 +195,7 @@ export function ProgramInviteForm({ programId }: Props) {
           type="submit"
           disabled={!selectedUser || isPending}
           className={[
-            'h-9 shrink-0 rounded-control border border-brand-primary bg-brand-primary px-4 text-sm font-medium text-white',
+            'h-9 shrink-0 rounded-control border border-brand-primary bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse',
             'hover:bg-brand-primary/90 transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             'disabled:opacity-50 disabled:cursor-not-allowed',

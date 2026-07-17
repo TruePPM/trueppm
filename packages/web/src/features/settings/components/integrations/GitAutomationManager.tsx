@@ -192,7 +192,7 @@ function SecretRow({ config, onRotate }: { config: GitAutomationConfig; onRotate
       <button
         type="button"
         onClick={onRotate}
-        className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-white hover:bg-brand-primary-dark shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         {config.secret_set ? 'Rotate secret' : 'Generate secret'}
       </button>
@@ -300,7 +300,7 @@ function RotateSecretModal({
               <button
                 type="button"
                 onClick={() => void copy()}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {copied ? 'Copied ✓' : 'Copy'}
               </button>
@@ -344,7 +344,7 @@ function RotateSecretModal({
                 type="button"
                 onClick={handleRotate}
                 disabled={rotate.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {rotate.isPending ? 'Working…' : hasSecret ? 'Rotate secret' : 'Generate secret'}
               </button>

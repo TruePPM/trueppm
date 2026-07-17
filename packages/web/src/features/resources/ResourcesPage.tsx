@@ -96,7 +96,7 @@ export function ResourcesPage() {
         <button
           type="button"
           onClick={handleAddClick}
-          className="shrink-0 h-7 px-3 rounded text-xs bg-brand-primary text-white hover:bg-brand-primary/90
+          className="shrink-0 h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           + Add resource
@@ -195,7 +195,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <button
         type="button"
         onClick={onAdd}
-        className="mt-1 h-8 px-4 rounded text-xs bg-brand-primary text-white hover:bg-brand-primary/90
+        className="mt-1 h-8 px-4 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         + Add your first resource

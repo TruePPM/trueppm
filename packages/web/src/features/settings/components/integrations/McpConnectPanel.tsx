@@ -185,7 +185,7 @@ export function CopyButton({
       type="button"
       onClick={() => void copy()}
       aria-label={accessibleName}
-      className="h-8 px-3 shrink-0 rounded bg-brand-primary text-white text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="h-8 px-3 shrink-0 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
       {copied ? 'Copied ✓' : label}
     </button>

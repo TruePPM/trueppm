@@ -99,7 +99,7 @@ export function SessionExpiredBanner() {
           <button
             type="button"
             onClick={handleSignIn}
-            className="h-9 min-h-[44px] md:min-h-0 px-4 rounded-control bg-brand-primary text-white text-sm font-medium border-none hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-brand-primary focus:outline-none"
+            className="h-9 min-h-[44px] md:min-h-0 px-4 rounded-control bg-brand-primary text-neutral-text-inverse text-sm font-medium border-none hover:bg-brand-primary-dark focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-brand-primary focus:outline-none"
           >
             Sign in
           </button>
@@ -183,7 +183,7 @@ export function SessionExpiredReadOnlyBar() {
         ref={signInRef}
         type="button"
         onClick={handleSignIn}
-        className="h-7 min-h-[44px] md:min-h-0 shrink-0 rounded-control bg-brand-primary px-3 text-xs font-medium text-white border-none hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+        className="h-7 min-h-[44px] md:min-h-0 shrink-0 rounded-control bg-brand-primary px-3 text-xs font-medium text-neutral-text-inverse border-none hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         Sign in again
       </button>

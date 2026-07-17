@@ -119,7 +119,7 @@ export function ResourceToolbar({
                 'px-3 h-7 text-xs font-medium border-r border-neutral-border last:border-r-0',
                 'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary focus-visible:outline-none',
                 viewMode === mode
-                  ? 'bg-brand-primary text-white'
+                  ? 'bg-brand-primary text-neutral-text-inverse'
                   : 'bg-neutral-surface text-neutral-text-secondary hover:text-neutral-text-primary',
               ].join(' ')}
             >

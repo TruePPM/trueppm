@@ -59,7 +59,7 @@ export function ConfirmDiscardDialog({
           <button
             type="button"
             onClick={onKeepEditing}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+            className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
           >
             Keep editing
           </button>

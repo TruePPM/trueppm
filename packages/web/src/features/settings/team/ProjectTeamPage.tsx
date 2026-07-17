@@ -120,7 +120,7 @@ export function ProjectTeamPage() {
               <button
                 type="button"
                 onClick={confirmReassign}
-                className="h-7 rounded bg-brand-primary px-3 text-[12px] font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-7 rounded bg-brand-primary px-3 text-[12px] font-medium text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Reassign
               </button>

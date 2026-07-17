@@ -248,7 +248,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving || !hasChanges}
-                className="h-7 px-3 rounded text-xs bg-brand-primary text-white hover:bg-brand-primary/90
+                className="h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
                   disabled:opacity-40 disabled:cursor-not-allowed
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
@@ -375,7 +375,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           type="button"
           onClick={handleCreate}
           disabled={!name.trim() || createMutation.isPending}
-          className="h-7 px-3 rounded text-xs bg-brand-primary text-white hover:bg-brand-primary/90
+          className="h-7 px-3 rounded text-xs bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary/90
             disabled:opacity-40 disabled:cursor-not-allowed
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >

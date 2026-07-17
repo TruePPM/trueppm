@@ -263,7 +263,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             type="button"
             onClick={handleSubmit}
             disabled={saving}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
           </button>

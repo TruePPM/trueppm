@@ -75,7 +75,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-white hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Create token
         </button>
@@ -293,7 +293,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 type="button"
                 onClick={handleCreate}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {create.isPending ? 'Creating…' : 'Create token'}
               </button>

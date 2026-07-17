@@ -83,7 +83,7 @@ export function AppShell() {
             keyboard users jump past the sidebar/topbar straight to content. */}
         <a
           href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-control focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-sm focus:text-white focus:ring-2 focus:ring-white"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded-control focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-sm focus:text-neutral-text-inverse focus:ring-2 focus:ring-white"
         >
           Skip to main content
         </a>

@@ -101,7 +101,7 @@ export function EstimationPokerCard({
               type="button"
               onClick={() => open.mutate({ sprintId, taskId: nextCandidate.id })}
               disabled={open.isPending}
-              className="self-start rounded-full bg-brand-primary text-white px-4 h-8 text-sm font-medium
+              className="self-start rounded-full bg-brand-primary text-neutral-text-inverse px-4 h-8 text-sm font-medium
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 disabled:opacity-50"
             >
@@ -223,7 +223,7 @@ function RevealBody({
               type="button"
               disabled={committing || commitChoice == null}
               onClick={() => commitChoice != null && onCommit(commitChoice)}
-              className="rounded-full bg-brand-primary text-white px-4 h-8 text-sm font-medium
+              className="rounded-full bg-brand-primary text-neutral-text-inverse px-4 h-8 text-sm font-medium
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 disabled:opacity-50"
             >

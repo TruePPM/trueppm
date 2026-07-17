@@ -113,7 +113,7 @@ export function RosterPage() {
         aria-label="Add team member"
         className="md:hidden fixed bottom-16 right-4 w-14 h-14 rounded-full
           bg-brand-primary border border-brand-primary
-          text-white flex items-center justify-center
+          text-neutral-text-inverse flex items-center justify-center
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2
           z-30"
       >

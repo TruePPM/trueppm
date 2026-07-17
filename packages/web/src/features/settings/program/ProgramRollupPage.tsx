@@ -594,7 +594,7 @@ export function ProgramRollupPage() {
                       type="button"
                       onClick={onSavePolicy}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-3 rounded-control bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+                      className="h-7 px-3 rounded-control bg-brand-primary text-xs font-semibold text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
                     >
                       {savePolicy.isPending ? 'Saving…' : 'Save'}
                     </button>

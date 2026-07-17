@@ -209,7 +209,7 @@ export function ScopePendingReviewPanel({
               disabled={controlsDisabled}
               title={offlineTitle}
               className="h-8 px-3 rounded text-xs font-medium
-                bg-brand-primary text-white hover:bg-brand-primary-dark
+                bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark
                 disabled:opacity-50 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -256,7 +256,7 @@ export function ScopePendingReviewPanel({
                 className={[
                   'h-8 px-3 rounded text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
                   confirm === 'accept-all'
-                    ? 'bg-brand-primary text-white hover:bg-brand-primary-dark focus-visible:ring-brand-primary'
+                    ? 'bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-brand-primary'
                     : 'border border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg focus-visible:ring-semantic-critical',
                 ].join(' ')}
               >

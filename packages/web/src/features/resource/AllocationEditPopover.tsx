@@ -192,7 +192,7 @@ export function AllocationEditPopover({
           type="button"
           onClick={handleSave}
           disabled={!isValid || mutation.isPending}
-          className="text-xs px-3 py-1 rounded bg-brand-primary text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-brand-primary focus-visible:ring-offset-1"
+          className="text-xs px-3 py-1 rounded bg-brand-primary text-neutral-text-inverse font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-brand-primary focus-visible:ring-offset-1"
         >
           {mutation.isPending ? 'Saving…' : 'Save changes'}
         </button>

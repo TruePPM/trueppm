@@ -69,7 +69,7 @@ export function FibonacciCardRow({
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               disabled:opacity-50 disabled:cursor-not-allowed ${
                 selected
-                  ? 'bg-brand-primary text-white border-brand-primary'
+                  ? 'bg-brand-primary text-neutral-text-inverse border-brand-primary'
                   : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface'
               }`}
           >

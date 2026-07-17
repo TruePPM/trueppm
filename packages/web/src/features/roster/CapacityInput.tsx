@@ -110,7 +110,7 @@ export function CapacityInput({
             'min-h-[44px] px-3 text-xs font-medium transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             unit === 'percent'
-              ? 'bg-brand-primary text-white'
+              ? 'bg-brand-primary text-neutral-text-inverse'
               : 'bg-neutral-surface text-neutral-text-secondary hover:text-neutral-text-primary',
           ].join(' ')}
         >
@@ -127,7 +127,7 @@ export function CapacityInput({
             'min-h-[44px] px-3 text-xs font-medium transition-colors border-l border-neutral-border',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
             unit === 'hours'
-              ? 'bg-brand-primary text-white'
+              ? 'bg-brand-primary text-neutral-text-inverse'
               : 'bg-neutral-surface text-neutral-text-secondary hover:text-neutral-text-primary',
           ].join(' ')}
         >

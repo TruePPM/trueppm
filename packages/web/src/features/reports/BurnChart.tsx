@@ -764,7 +764,7 @@ export function BurnChart({
               className={[
                 'px-3 h-8 text-xs font-medium focus-visible:outline-none focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-brand-primary',
                 variant === v
-                  ? 'bg-brand-primary text-white'
+                  ? 'bg-brand-primary text-neutral-text-inverse'
                   : 'bg-neutral-surface text-neutral-text-primary hover:bg-neutral-surface-raised',
               ].join(' ')}
             >

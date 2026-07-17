@@ -55,7 +55,7 @@ export function ModeToggle({ mode, onChange }: ModeToggleProps) {
               'px-3 text-xs font-medium transition-colors min-w-[64px]',
               i > 0 ? 'border-l border-neutral-border' : '',
               isActive
-                ? 'bg-brand-primary text-white'
+                ? 'bg-brand-primary text-neutral-text-inverse'
                 : 'bg-transparent text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-sunken',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:relative focus-visible:z-10',
             ].join(' ')}

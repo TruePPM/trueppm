@@ -456,7 +456,7 @@ function SingleAuthorSections({
           type="button"
           onClick={handleSave}
           disabled={save.isPending || readOnly}
-          className="ml-auto h-8 px-3 rounded text-xs font-medium bg-brand-primary text-white
+          className="ml-auto h-8 px-3 rounded text-xs font-medium bg-brand-primary text-neutral-text-inverse
             disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
             focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"

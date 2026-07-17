@@ -56,4 +56,17 @@ describe('WipLimitConfirmDialog', () => {
     renderDialog();
     expect(document.activeElement).toBe(screen.getByRole('button', { name: /Keep it here/i }));
   });
+
+  it('paints the brand-primary button with navy-on-sage ink, not white (#2041, WCAG 1.4.3)', () => {
+    // In dark mode --brand-primary flips to sage-400 (#66B998); white text on it
+    // is ≈2.3:1 — a WCAG 1.4.3 failure. Rule 144's sanctioned recipe pairs the
+    // sage fill with --neutral-text-inverse, which is near-black in dark mode
+    // (navy-on-sage) and white in light mode (zero visual change). This locks the
+    // fill in place while forbidding the old white-on-sage pairing.
+    renderDialog();
+    const brandButton = screen.getByRole('button', { name: /Keep it here/i });
+    expect(brandButton.className).toContain('bg-brand-primary');
+    expect(brandButton.className).toContain('text-neutral-text-inverse');
+    expect(brandButton.className).not.toContain('text-white');
+  });
 });

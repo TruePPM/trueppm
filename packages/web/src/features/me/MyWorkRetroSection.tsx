@@ -69,7 +69,7 @@ function SuggestedGroup({ items }: { items: MyWorkRetroActionItem[] }) {
                     accept.mutate({ taskId: it.task_id, suggestionId: it.suggestion_id! })
                   }
                   disabled={accept.isPending}
-                  className="h-9 px-3 rounded-control text-xs font-medium bg-brand-primary text-white
+                  className="h-9 px-3 rounded-control text-xs font-medium bg-brand-primary text-neutral-text-inverse
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                     focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"

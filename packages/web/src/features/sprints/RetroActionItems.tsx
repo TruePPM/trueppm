@@ -107,7 +107,7 @@ export function RetroActionItems({
                     onClick={() => onPromote(persisted.id)}
                     disabled={savePending || promotePending}
                     aria-label={`Promote action item ${idx + 1} to backlog`}
-                    className="h-8 px-2 rounded text-xs font-medium bg-brand-primary text-white
+                    className="h-8 px-2 rounded text-xs font-medium bg-brand-primary text-neutral-text-inverse
                       disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                       focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary

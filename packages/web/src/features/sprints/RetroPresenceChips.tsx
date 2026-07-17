@@ -75,7 +75,7 @@ export function RetroPresenceChips() {
           title={u.display_name}
           aria-hidden="true"
           className="inline-flex h-6 w-6 items-center justify-center rounded-full
-            border border-neutral-surface bg-brand-primary text-white text-xs font-semibold tppm-mono"
+            border border-neutral-surface bg-brand-primary text-neutral-text-inverse text-xs font-semibold tppm-mono"
         >
           {initials(u.display_name)}
         </span>
@@ -115,7 +115,7 @@ export function RetroPresenceChips() {
                     <span
                       aria-hidden="true"
                       className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full
-                        bg-brand-primary text-white text-xs font-semibold tppm-mono"
+                        bg-brand-primary text-neutral-text-inverse text-xs font-semibold tppm-mono"
                     >
                       {initials(u.display_name)}
                     </span>

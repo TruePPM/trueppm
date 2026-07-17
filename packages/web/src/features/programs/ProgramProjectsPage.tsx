@@ -94,7 +94,7 @@ export function ProgramProjectsPage() {
             <button
               type="button"
               onClick={() => setShowNewProjectModal(true)}
-              className="h-9 rounded-control bg-brand-primary px-3 text-xs font-medium text-white
+              className="h-9 rounded-control bg-brand-primary px-3 text-xs font-medium text-neutral-text-inverse
                 hover:bg-brand-primary/90
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
@@ -164,7 +164,7 @@ export function ProgramProjectsPage() {
               <button
                 type="button"
                 onClick={() => setShowNewProjectModal(true)}
-                className="h-9 rounded-control bg-brand-primary px-4 text-xs font-medium text-white
+                className="h-9 rounded-control bg-brand-primary px-4 text-xs font-medium text-neutral-text-inverse
                   hover:bg-brand-primary/90
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >

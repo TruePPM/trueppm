@@ -591,7 +591,7 @@ function ContextRow({
             />
           ) : (
             <span
-              className="w-3.5 h-3.5 rounded-chip bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
+              className="w-3.5 h-3.5 rounded-chip bg-brand-primary shrink-0 inline-flex items-center justify-center text-neutral-text-inverse text-[10px] font-bold"
               aria-hidden="true"
             >
               tP

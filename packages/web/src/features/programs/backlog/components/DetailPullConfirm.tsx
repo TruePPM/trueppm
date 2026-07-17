@@ -63,7 +63,7 @@ export function DetailPullConfirm({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-neutral-border px-5 py-4">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex h-[18px] items-center rounded-chip bg-brand-primary px-1.5 text-xs font-semibold uppercase text-white">
+          <span className="inline-flex h-[18px] items-center rounded-chip bg-brand-primary px-1.5 text-xs font-semibold uppercase text-neutral-text-inverse">
             Pull
           </span>
           <span className="truncate text-[13px] font-semibold text-neutral-text-primary">

@@ -249,7 +249,7 @@ export function AddProjectToProgramModal({ programId, programName, onClose }: Pr
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!selectedId || assignProject.isPending}
-            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
               hover:bg-brand-primary/90 disabled:opacity-50
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >

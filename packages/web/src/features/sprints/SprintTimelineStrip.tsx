@@ -351,7 +351,7 @@ function PlannedCardAction({
         type="button"
         onClick={() => onActivate(sprint.id)}
         className="self-start h-7 px-2 rounded text-xs font-medium
-          bg-brand-primary text-white hover:bg-brand-primary-dark
+          bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         Activate →

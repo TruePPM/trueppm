@@ -113,7 +113,7 @@ export function DecisionsPanel({ projectId }: { projectId: string }) {
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
                 disabled:opacity-40 disabled:cursor-not-allowed ${
                   selected
-                    ? 'bg-brand-primary text-white'
+                    ? 'bg-brand-primary text-neutral-text-inverse'
                     : 'text-neutral-text-secondary hover:bg-neutral-surface'
                 }`}
             >

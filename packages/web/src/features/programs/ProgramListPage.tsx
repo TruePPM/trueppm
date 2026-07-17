@@ -80,7 +80,7 @@ export function ProgramListPage() {
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-white
+            className="h-9 rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse
               hover:bg-brand-primary/90
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
@@ -160,7 +160,7 @@ export function ProgramListPage() {
               <button
                 type="button"
                 onClick={() => setShowCreate(true)}
-                className="h-10 rounded-control bg-brand-primary px-5 text-sm font-medium text-white
+                className="h-10 rounded-control bg-brand-primary px-5 text-sm font-medium text-neutral-text-inverse
                   hover:bg-brand-primary/90
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
