@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
-import { afterEach } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 // Silence jsdom's VirtualConsole noise from unmocked apiClient XHRs. When a
 // component leaks a request after unmount (TanStack Query polling, deferred
@@ -28,6 +28,18 @@ console.error = (...args: unknown[]) => {
 // stale DOM nodes that cause "Found multiple elements" errors.  Calling it
 // explicitly here in the global setup guarantees it always runs.
 afterEach(cleanup);
+
+// Restore real timers after every test. In singleFork mode all files share one
+// Node process, so a file that calls `vi.useFakeTimers()` without restoring
+// leaks fake timers into the *next* file. There, `userEvent`'s inter-keystroke
+// delay runs on setTimeout that never advances, so typed characters are silently
+// dropped — a nondeterministic flake that surfaces on the slower CI runner but
+// not locally (#2029/#2054 TaskDetailDrawer). Every fake-timer test re-arms
+// timers in its own beforeEach/inline block, so resetting here between tests is
+// safe and closes the leak class regardless of which file forgot to restore.
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // Stub Web Worker — jsdom does not implement the Worker API.
 // useDragCpm spawns a Worker only when ganttApi is non-null; in tests ganttApi

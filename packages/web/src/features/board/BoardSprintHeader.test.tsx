@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { BoardSprintHeader } from './BoardSprintHeader';
 import type { ApiSprint } from '@/types';
@@ -70,6 +70,12 @@ beforeEach(() => {
   // Mid-window so phase === 'during', Day 7 of 14.
   vi.setSystemTime(new Date('2026-03-10T12:00:00'));
   vi.clearAllMocks();
+});
+
+// Restore real timers so fake timers don't leak into the next file in the
+// shared single-fork process (see src/test/setup.ts).
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('BoardSprintHeader (#1138)', () => {

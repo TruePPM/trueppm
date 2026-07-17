@@ -29,6 +29,9 @@ export function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: C
     <div role="alertdialog" aria-label={`Confirm deletion of ${count} ${noun}`} className="flex items-center gap-3 w-full">
       <span className="flex-1 min-w-0">
         <span className="text-xs text-neutral-text-primary">Delete {count} {noun}?</span>
+        {/* Honest recovery scope (#2029): unlike a single build-mode delete,
+            bulk delete has no Undo, so say so before the irreversible action. */}
+        <span className="ml-1.5 text-xs text-neutral-text-secondary">This can’t be undone.</span>
         {!isDeleting && (
           <span aria-hidden="true" className="block h-0.5 mt-0.5 rounded-full bg-neutral-surface-sunken overflow-hidden">
             <span className="block h-full rounded-full bg-semantic-critical/60" style={{ animation: 'shrink-bar 5s linear forwards' }} />

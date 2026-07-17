@@ -28,6 +28,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { canEditTask } from '@/lib/roles';
+import { Button } from '@/components/Button';
 import { ReadinessChip } from '../board/ReadinessChip';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
@@ -241,12 +242,25 @@ export function TaskDetailDrawer({
   const [pendingTask, setPendingTask] = useState<Task | null>(null);
   const [swapGuardOpen, setSwapGuardOpen] = useState(false);
 
+  // Deleted-out-from-under-a-dirty-draft latch (#2054). A WebSocket
+  // `task_deleted` drops the task from the cache, so the host's `task` prop goes
+  // null while the user has half-written edits. Rather than blink the drawer
+  // away and discard them (the swap path is elaborately guarded; the delete path
+  // was not), we keep the current task + its draft on screen and raise a warning
+  // banner offering "Copy my text".
+  const [deletedExternally, setDeletedExternally] = useState(false);
+
   const taskId = task?.id;
 
   // Read the latest dirty flag from the identity effect without making it a
   // dependency (that would re-run the identity logic on every keystroke).
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  // Same trick for the task list: the prop→null branch needs the *current* task
+  // set to decide "was this a deliberate deselect (task still exists) or a
+  // delete out from under me (task gone)?" without re-running on every fetch.
+  const allTasksRef = useRef(allTasks);
+  allTasksRef.current = allTasks;
 
   // Reconcile the `task` prop into the rendered task on an IDENTITY change
   // (open / close / swap). A clean swap (or open) adopts the incoming task and
@@ -260,15 +274,35 @@ export function TaskDetailDrawer({
     const currentId = renderedTask?.id ?? null;
     if (propId === currentId) return; // same identity — freshness handled below
     if (taskProp === null) {
+      // A deliberate close (X / Esc / backdrop) runs the unsaved-changes guard
+      // first, which `reset()`s the draft before `onClose` clears the host
+      // selection — so a `taskProp→null` while `dirty` is still true can only
+      // mean the task was deleted out from under us (#2054). Confirm it's really
+      // gone from the cache (not merely deselected while somehow dirty) before
+      // hijacking the close: keep the task + draft on screen and raise the
+      // banner instead of discarding half-written edits.
+      const prev = renderedTask;
+      const currentTasks = allTasksRef.current ?? [];
+      const deleted =
+        prev !== null &&
+        dirtyRef.current &&
+        currentTasks.length > 0 &&
+        !currentTasks.some((t) => t.id === prev.id);
+      if (deleted) {
+        setDeletedExternally(true);
+        return;
+      }
       setRenderedTask(null);
       setPendingTask(null);
       setSwapGuardOpen(false);
+      setDeletedExternally(false);
       return;
     }
     if (renderedTask === null || !dirtyRef.current) {
       setRenderedTask(taskProp);
       commit(toDraft(taskProp));
       setActiveTab('details');
+      setDeletedExternally(false);
       return;
     }
     setPendingTask(taskProp);
@@ -400,6 +434,36 @@ export function TaskDetailDrawer({
     escapeToClose: isOpen && !expandGuardOpen && !swapGuardOpen,
   });
 
+  // Deleted-externally banner verbs (#2054). "Copy my text" lets the user
+  // rescue their unsaved draft to the clipboard before dismissing (the task is
+  // gone server-side, so there is nothing left to save into); Dismiss tears the
+  // now-orphaned drawer down via the normal close path (reset + focus restore).
+  const [copiedDraft, setCopiedDraft] = useState(false);
+  const handleCopyDeletedDraft = useCallback(() => {
+    const parts = [`Task: ${draft.name || 'Untitled task'}`];
+    if (draft.notes.trim()) parts.push('', 'Notes:', draft.notes);
+    const estimates = [
+      draft.optimistic.trim() && `Optimistic: ${draft.optimistic}`,
+      draft.mostLikely.trim() && `Most likely: ${draft.mostLikely}`,
+      draft.pessimistic.trim() && `Pessimistic: ${draft.pessimistic}`,
+    ].filter((line): line is string => Boolean(line));
+    if (estimates.length) parts.push('', 'Estimates:', ...estimates);
+    void navigator.clipboard?.writeText(parts.join('\n')).then(
+      () => {
+        setCopiedDraft(true);
+        setTimeout(() => setCopiedDraft(false), 2000);
+      },
+      () => {
+        /* Clipboard blocked (permissions/insecure origin) — the text is still on
+           screen for a manual copy; swallow rather than crash the banner. */
+      },
+    );
+  }, [draft.name, draft.notes, draft.optimistic, draft.mostLikely, draft.pessimistic]);
+  const handleDismissDeleted = useCallback(() => {
+    setDeletedExternally(false);
+    closeAndReset();
+  }, [closeAndReset]);
+
   const doExpand = useCallback(() => {
     if (!task) return;
     reset();
@@ -430,6 +494,7 @@ export function TaskDetailDrawer({
       setActiveTab('details');
       setPendingTask(null);
       setSwapGuardOpen(false);
+      setDeletedExternally(false);
     },
     [commit],
   );
@@ -481,14 +546,16 @@ export function TaskDetailDrawer({
     if (!isOpen) return undefined;
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) {
-        if (!dirty) return;
+        // Nothing to save (clean), or the task was deleted out from under us
+        // (#2054) so a PATCH would just 404 — let the browser shortcut through.
+        if (!dirty || deletedExternally) return;
         e.preventDefault();
         handleSave();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [isOpen, dirty, handleSave]);
+  }, [isOpen, dirty, deletedExternally, handleSave]);
 
   // Capture the element that had focus when the drawer opened, for the close-
   // time focus-restore ladder (web-rule 264d). Declared BEFORE the focus-in
@@ -603,6 +670,10 @@ export function TaskDetailDrawer({
         changedEstimates={changedEstimates}
         estimateInvalid={estimateInvalid}
         notesChangedElsewhere={notesChangedElsewhere}
+        deletedExternally={deletedExternally}
+        copiedDraft={copiedDraft}
+        onCopyDeletedDraft={handleCopyDeletedDraft}
+        onDismissDeleted={handleDismissDeleted}
         dirty={dirty}
         isSaving={isSaving}
         saveFailed={saveFailed}
@@ -726,6 +797,12 @@ interface DrawerContentProps {
   /** The staged estimate triple is complete but out of order — blocks Save (#1982). */
   estimateInvalid: boolean;
   notesChangedElsewhere: boolean;
+  /** The rendered task was deleted by someone else while the draft was dirty
+   * (#2054) — show the rescue banner and suppress the (now-futile) Save bar. */
+  deletedExternally: boolean;
+  copiedDraft: boolean;
+  onCopyDeletedDraft: () => void;
+  onDismissDeleted: () => void;
   dirty: boolean;
   isSaving: boolean;
   saveFailed: boolean;
@@ -759,6 +836,10 @@ function DrawerContent({
   changedEstimates,
   estimateInvalid,
   notesChangedElsewhere,
+  deletedExternally,
+  copiedDraft,
+  onCopyDeletedDraft,
+  onDismissDeleted,
   dirty,
   isSaving,
   saveFailed,
@@ -981,6 +1062,34 @@ function DrawerContent({
         </div>
       </div>
 
+      {/* Deleted-by-someone-else rescue banner (#2054). Raised only when the
+          task vanished from the cache while the name/notes/estimate draft was
+          dirty — the drawer keeps the draft on screen instead of blinking away,
+          and offers to copy the text to the clipboard before the (now orphaned)
+          drawer is dismissed. role="alert" so AT announces it immediately. */}
+      {deletedExternally && (
+        <div
+          role="alert"
+          className="shrink-0 mx-4 mt-3 rounded-control border border-semantic-warning/40 bg-semantic-warning-bg px-3 py-2.5"
+        >
+          <p className="text-sm font-medium text-neutral-text-primary">
+            This task was deleted by someone else.
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-text-secondary">
+            Your unsaved edits are still shown here but can no longer be saved. Copy your
+            text if you need it, then dismiss.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button variant="secondary" size="sm" onClick={onCopyDeletedDraft}>
+              {copiedDraft ? 'Copied' : 'Copy my text'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onDismissDeleted}>
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Active-tab body — labelled by the active tab so AT announces the
           panel/tab relationship (#1022). Only the active panel is rendered. */}
       <div
@@ -1058,7 +1167,7 @@ function DrawerContent({
           Name/description + the three-point estimate stage here (#1985); the
           immediate controls never raise it. `statusText` names which fields
           changed. An out-of-order estimate triple blocks Save (would 400, #1982). */}
-      {dirty ? (
+      {dirty && !deletedExternally ? (
         <div className="shrink-0 motion-safe:animate-save-bar-slide">
           <DialogFooter
             onSave={onSave}
