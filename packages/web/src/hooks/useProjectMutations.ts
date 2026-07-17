@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type {
   DurationChangePercentPolicy,
+  EstimationMode,
   MCAttributionAudience,
   PaginatedResponse,
+  PrioritizationModel,
   ProjectDefaultView,
   ProjectHealth,
   ProjectVisibility,
@@ -115,6 +117,11 @@ export interface UpdateProjectPayload {
    */
   board_cadence?: BoardCadence;
   /**
+   * Estimate-governance mode (ADR-0041, #2018). Scheduler+-writable server-side
+   * (in the serializer `_SCHEDULER_WRITABLE_FIELDS` allowlist alongside methodology).
+   */
+  estimation_mode?: EstimationMode;
+  /**
    * Iteration-container label override (ADR-0111/0116). Singular noun, ≤32 chars;
    * `null` clears the override so the project inherits the program/workspace default.
    * Admin+-only server-side (allowlist default in the serializer).
@@ -147,6 +154,15 @@ export interface UpdateProjectPayload {
   lead?: string | null;
   /** Project start date (ISO `YYYY-MM-DD`). Admin+-only server-side (#769). */
   start_date?: string;
+  /** Forecasting data date (ADR-0132, #2018). ISO `YYYY-MM-DD`, or `null` for
+   *  "today (dynamic)". Admin+-only server-side. */
+  status_date?: string | null;
+  /** Backlog prioritization scoring model (ADR-0105, #2018). Admin+-only server-side. */
+  prioritization_model?: PrioritizationModel;
+  /** Stale-task notification threshold in days (ADR-0200, #2018). 1–365. Admin+-only. */
+  stale_task_threshold_days?: number;
+  /** End-date-shift notification threshold in days (#1911, #2018). 1–365. Admin+-only. */
+  end_date_shift_threshold_days?: number;
   /**
    * Independent leaf-surface visibility overrides (ADR-0193, issue 956). `null`
    * clears the override so the project inherits the methodology default. Admin+-only

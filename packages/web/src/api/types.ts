@@ -189,6 +189,20 @@ export const MC_HISTORY_RETENTION_MAX = 500;
 export type DurationChangePercentPolicy = 'keep' | 'prorate' | 'confirm';
 
 /**
+ * Product-backlog prioritization scoring model for a project (ADR-0105 §3, #922).
+ * `none` hides the scoring surface (pure manual drag); the others drive which
+ * distinct Task input columns feed the computed prioritization score.
+ */
+export type PrioritizationModel = 'none' | 'wsjf' | 'rice' | 'value_effort';
+
+/**
+ * Estimate-governance mode for a project (ADR-0041, #769). `open` = any member
+ * writes estimates; `suggest_approve` = members propose, a Scheduler approves;
+ * `pm_only` = only Schedulers write. Scheduler+-writable server-side.
+ */
+export type EstimationMode = 'open' | 'suggest_approve' | 'pm_only';
+
+/**
  * One row of a task's duration-change audit trail (ADR-0151, issue 1254), read
  * from `GET /api/v1/tasks/{id}/duration-events/`. Append-only;
  * `percent_complete_after` is set only when the policy mutated the % (prorate).
