@@ -2,7 +2,7 @@
  * Tests for BoardSearchControl (issue 323, ADR-0145) — the board card search box:
  * collapse/expand, the result-count chip, clear (×), and Escape-to-clear.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createRef } from 'react';
@@ -32,10 +32,11 @@ describe('BoardSearchControl', () => {
   });
 
   it('typing forwards the query to onChange', async () => {
-    const user = userEvent.setup();
+    // `delay: null` + waitFor guard the CI keystroke-drop flake (#2084).
+    const user = userEvent.setup({ delay: null });
     const { onChange } = setup();
     await user.type(screen.getByRole('searchbox'), 'a');
-    expect(onChange).toHaveBeenCalledWith('a');
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith('a'));
   });
 
   it('shows the match count chip and a clear button only when a query is present', () => {
