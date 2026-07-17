@@ -277,6 +277,32 @@ rather than looping forever if CI hangs. Terminal-failure states (`failed`,
 `canceled`) stop the whole run — do not merge a red pipeline, and do not silently
 wait through a crash.
 
+**Before treating a `failed` as terminal, triage the failing job — a known
+flake is retried once, not a stop.** A rebased branch re-runs the full suite,
+which includes the flaky `web:e2e` specs (`task-collaboration.spec.ts` `?task=`
+deep-link, `board-space-pan.spec.ts`, `schedule` dep-milestone row — see the
+`feedback_flaky_e2e_*` memories). Pull the failed jobs and read the trace:
+
+```bash
+PID=<pipeline id for $SHA>
+glab api "projects/:id/pipelines/$PID/jobs?per_page=100" \
+  | python3 -c "import sys,json;[print(j['status'],j['name'],j['id']) for j in json.load(sys.stdin) if j['status']=='failed' and not j['allow_failure']]"
+glab api "projects/:id/jobs/<job-id>/trace" | grep -iE "failed|✘|\.spec\.ts|Error:" | tail -40
+```
+
+- If the only failures are **known-flaky e2e specs** (assertion on a deep-link
+  URL / pan / timing race, hundreds passed, unrelated to this MR's diff), retry
+  that job **once** and keep polling the same pipeline:
+  `glab api -X POST "projects/:id/jobs/<job-id>/retry"`. If the retry also fails,
+  treat it as a real stop.
+- If the failure is a **real test/lint/type/build error**, or touches this MR's
+  own changed surface, stop the run and hand it to the user — the rebase onto the
+  MRs already landed this batch may have introduced a genuine semantic conflict
+  (exactly the stale-base class this skill exists to catch).
+
+Never blanket-retry a red pipeline to make it green — retry only a job you have
+positively identified as a known flake.
+
 Rules for Phase B:
 
 - **Serial, never parallel.** Serializing is the fix. Do not push the next MR
@@ -348,8 +374,12 @@ Step 2 suite.
 - **Poll-to-green then merge, serially.** No batch MWPS, no parallel merges.
 - **Poll the exact pushed full sha by MR ref** — never the `?sha=<short>` filter
   (returns `[]`, loops forever) and never `head_pipeline` (stale after a
-  force-push). `failed`/`canceled` = hard stop; cap the wait so CI hangs don't
-  loop forever.
+  force-push). Cap the wait so CI hangs don't loop forever.
+- **Triage a `failed` before stopping.** A rebased branch re-runs the flaky
+  `web:e2e` specs. If the only failures are known flakes (see `feedback_flaky_e2e_*`
+  memories) and hundreds passed, retry that job once and keep polling. A real
+  test/type/lint/build failure — or one on this MR's own diff — is a hard stop.
+  Never blanket-retry to force green.
 - **Drive worktree-held branches with `git -C "$WT"`** — `glab mr checkout` fails
   (git 128) on a branch already checked out in a worktree and silently leaves you
   on the wrong branch. The batch's own branches being in worktrees is expected.
