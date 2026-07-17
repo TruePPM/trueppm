@@ -33,19 +33,6 @@ vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({ members: [], isLoading: false }),
 }));
 
-// The calendar override picker fetches the org-level calendar list (#968); stub it
-// so the test makes no network call and can drive the loaded / error states.
-const useCalendars = vi.fn();
-vi.mock('@/hooks/useCalendars', () => ({
-  useCalendars: () =>
-    useCalendars() as { calendars: unknown[]; isLoading: boolean; error: unknown },
-}));
-// working_days is a single integer bitmask (Mon=1…Sun=64): 31 = Mon–Fri, 63 = Mon–Sat.
-const DEFAULT_CALENDARS = [
-  { id: 'cal-1', name: 'Standard 5-day', working_days: 31, hours_per_day: 8 },
-  { id: 'cal-2', name: 'Six-day site week', working_days: 63, hours_per_day: 10 },
-];
-
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -65,7 +52,11 @@ const SEED_PROJECT = {
   name: 'Atlas Migration',
   description: 'Migrate the data warehouse to the new platform.',
   start_date: '2026-01-01',
+  // Own base override set (calendar_source 'project'): the read-only summary names
+  // the resolved calendar and tags it "Override" (ADR-0441, #2009).
   calendar: 'cal-1',
+  calendar_source: 'project',
+  effective_calendar: { id: 'cal-1', name: 'Standard 5-day', working_days: 31, hours_per_day: 8 },
   estimation_mode: 'open',
   agile_features: false,
   methodology: 'HYBRID',
@@ -108,7 +99,6 @@ beforeEach(() => {
   // Default to Admin so the existing editable-field expectations hold; the
   // read-only tests override this with a sub-Admin role (#1084).
   useCurrentUserRole.mockReturnValue({ role: 300, isLoading: false });
-  useCalendars.mockReturnValue({ calendars: DEFAULT_CALENDARS, isLoading: false, error: null });
 });
 
 describe('ProjectGeneralPage', () => {
@@ -192,54 +182,48 @@ describe('ProjectGeneralPage', () => {
     expect(code).toHaveValue('ENG-2026');
   });
 
-  it('clears calendar to null when the Inherit toggle is pressed', () => {
+  // The working calendar is read-only here now (ADR-0441, #2009): the base FK +
+  // holiday overlays are composed on the Working calendars sub-page, the single
+  // write surface. This page shows a summary and links there — no picker, no toggle.
+  // The "Override"/"Inherited" chip words also appear on the inheritable forecast
+  // controls, so scope calendar assertions to the "Working calendar" FieldRow.
+  function calendarRow() {
+    return screen.getByText('Working calendar').closest('.grid') as HTMLElement;
+  }
+
+  it('renders the working calendar as a read-only summary with an override tag (#2009)', () => {
     renderPage();
-
-    const inherit = screen.getByRole('button', { name: /inherit from workspace/i });
-    // Seed has calendar set, so Inherit starts unpressed.
-    expect(inherit).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(inherit);
-    expect(inherit).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('lists working calendars in the override picker and reflects the current override (#968)', () => {
-    renderPage();
-    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
-    // Seed override is cal-1 → the picker shows it and Inherit starts unpressed.
-    expect(picker).toHaveValue('cal-1');
-    // Every fetched calendar is offered as an option.
-    expect(within(picker).getByRole('option', { name: 'Standard 5-day' })).toBeInTheDocument();
-    expect(within(picker).getByRole('option', { name: 'Six-day site week' })).toBeInTheDocument();
-  });
-
-  it('selecting a calendar sets the project override (#968)', () => {
-    renderPage();
-    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
-    fireEvent.change(picker, { target: { value: 'cal-2' } });
-    expect(picker).toHaveValue('cal-2');
-    // Choosing an override clears the Inherit pressed state.
+    const row = within(calendarRow());
+    // The resolved calendar name, tagged as the project's own override.
+    expect(row.getByText('Standard 5-day')).toBeInTheDocument();
+    expect(row.getByText('Override')).toBeInTheDocument();
+    // No editable picker or inherit toggle survives on this page.
     expect(
-      screen.getByRole('button', { name: /inherit from workspace/i }),
-    ).toHaveAttribute('aria-pressed', 'false');
+      screen.queryByRole('combobox', { name: 'Working calendar override' }),
+    ).not.toBeInTheDocument();
+    expect(row.queryByRole('button', { name: /inherit from workspace/i })).not.toBeInTheDocument();
   });
 
-  it('inherit toggle clears the picker back to the workspace default (#968)', () => {
+  it('links to the Working calendars sub-page as the single write surface (#2009)', () => {
     renderPage();
-    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
-    fireEvent.click(screen.getByRole('button', { name: /inherit from workspace/i }));
-    // Empty value = the "Override with a calendar…" placeholder (calendar = null).
-    expect(picker).toHaveValue('');
+    const link = within(calendarRow()).getByRole('link', { name: /manage in working calendars/i });
+    expect(link).toHaveAttribute('href', '/projects/p-1/settings/calendars');
   });
 
-  it('disables the picker with a "couldn\'t load" placeholder when the calendar fetch fails (#968)', () => {
-    // A failed fetch must not read as "no calendars exist" — the enabled empty
-    // picker would be indistinguishable. Disable it and signal the error.
-    useCalendars.mockReturnValue({ calendars: [], isLoading: false, error: new Error('boom') });
+  it('shows the inherited provenance breadcrumb when the project has no own override (#2009)', () => {
+    useProject.mockReturnValue({
+      data: {
+        ...SEED_PROJECT,
+        calendar: null,
+        calendar_source: 'workspace',
+        effective_calendar: { id: 'cal-ws', name: 'Workspace default', working_days: 31, hours_per_day: 8 },
+      },
+    });
     renderPage();
-    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
-    expect(picker).toBeDisabled();
-    expect(screen.getByRole('option', { name: "Couldn't load calendars" })).toBeInTheDocument();
+    const row = within(calendarRow());
+    expect(row.getByText('Workspace default')).toBeInTheDocument();
+    expect(row.getByText('Inherited')).toBeInTheDocument();
+    expect(row.getByText(/Inherited from workspace \(Workspace default\)/i)).toBeInTheDocument();
   });
 
   it('wires the project-lead picker — an enabled trigger opens the member listbox (#966)', () => {
@@ -280,9 +264,10 @@ describe('ProjectGeneralPage', () => {
         visibility: 'WORKSPACE',
         timezone: 'Europe/London',
         default_view: 'TABLE',
-        calendar: 'cal-1',
       }),
     );
+    // The calendar FK is no longer written from the General page (ADR-0441, #2009).
+    expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('calendar');
   });
 
   it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {

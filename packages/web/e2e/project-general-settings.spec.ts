@@ -7,12 +7,12 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * Verifies the page is wired to the real `/api/v1/projects/:id/` endpoint
  * for the extended fields beyond name + description:
  * - Initial values seed from the GET response (code, health, visibility,
- *   timezone, default_view, calendar).
+ *   timezone, default_view).
  * - Editing fields arms the save bar.
  * - Clicking Save issues a PATCH carrying every dirty field in one payload.
  * - Server validation errors (e.g. lowercase code) surface back to the user.
- * - The working-calendar override picker (#968) seeds the current calendar,
- *   PATCHes a new selection, and clears to null via "Inherit from workspace".
+ * - The working calendar is a read-only summary linking to the Working calendars
+ *   sub-page — the single write surface for the base FK + overlays (ADR-0441, #2009).
  */
 
 const ME_ID = 'user-alice';
@@ -32,7 +32,12 @@ const FIXTURE_PROJECT = {
   name: 'Atlas Migration',
   description: 'Migrate the data warehouse to the new platform.',
   start_date: '2026-03-02',
+  // Own base override set → source 'project'; the General page shows a read-only
+  // summary of the resolved calendar and links to the Working calendars page,
+  // which is the single write surface (ADR-0441, #2009).
   calendar: 'cal-default',
+  calendar_source: 'project',
+  effective_calendar: { id: 'cal-default', name: 'Workspace standard', working_days: 31, hours_per_day: 8 },
   estimation_mode: 'OPEN',
   agile_features: false,
   methodology: 'HYBRID',
@@ -271,9 +276,11 @@ test.describe('Project Settings → General', () => {
     });
   });
 
-  // #968: the working-calendar override picker. Seeds the current calendar id,
-  // lists the org calendars, and PATCHes the chosen id on save.
-  test('override picker seeds the current calendar and PATCHes a new selection on save', async ({
+  // #2009: the working calendar is read-only here now — the base FK plus holiday
+  // overlays are composed on the Working calendars sub-page (the single write
+  // surface, ADR-0441). This page shows a summary and links across; it must not
+  // expose a picker or PATCH the calendar field.
+  test('shows the working calendar as a read-only summary that links to Working calendars (#2009)', async ({
     page,
   }) => {
     const captures: Captures = {};
@@ -283,18 +290,19 @@ test.describe('Project Settings → General', () => {
     const section = page.locator('[data-settings-section="general"]');
     await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
 
-    // Seeds from FIXTURE_PROJECT.calendar = 'cal-default'.
-    const picker = section.getByLabel('Working calendar override');
-    await expect(picker).toHaveValue('cal-default');
+    // Resolved calendar name + provenance summary — no editable picker or toggle.
+    await expect(section.getByText('Workspace standard')).toBeVisible();
+    await expect(section.getByLabel('Working calendar override')).toHaveCount(0);
+    await expect(
+      section.getByRole('button', { name: 'Inherit from workspace' }),
+    ).toHaveCount(0);
 
-    await picker.selectOption('cal-site');
-    await page.getByRole('button', { name: /Save changes/i }).click();
-
-    await expect.poll(() => captures.patch).toBeDefined();
-    expect(captures.patch).toMatchObject({ calendar: 'cal-site' });
+    // The link points at the Working calendars sub-page.
+    const link = section.getByRole('link', { name: /Manage in Working calendars/i });
+    await expect(link).toHaveAttribute('href', `/projects/${PROJECT_ID}/settings/calendars`);
   });
 
-  test('Inherit from workspace clears the calendar override to null on save (#968)', async ({
+  test('never PATCHes the calendar field when other General fields are saved (#2009)', async ({
     page,
   }) => {
     const captures: Captures = {};
@@ -304,17 +312,13 @@ test.describe('Project Settings → General', () => {
     const section = page.locator('[data-settings-section="general"]');
     await expect(section.getByRole('heading', { name: 'General' })).toBeVisible();
 
-    // Gate on the seeded override before clicking Inherit — the heading renders
-    // before the project GET resolves, and clicking pre-seed would set null over
-    // an already-null initial value (no dirty change, save bar never arms).
-    const picker = section.getByLabel('Working calendar override');
-    await expect(picker).toHaveValue('cal-default');
-
-    await section.getByRole('button', { name: 'Inherit from workspace' }).click();
+    // Arm the save bar via an unrelated edit, then save.
+    await section.getByRole('textbox', { name: /project name/i }).fill('Atlas Migration v2');
     await page.getByRole('button', { name: /Save changes/i }).click();
 
     await expect.poll(() => captures.patch).toBeDefined();
-    expect(captures.patch).toMatchObject({ calendar: null });
+    expect(captures.patch).not.toHaveProperty('calendar');
+    expect(captures.patch).toMatchObject({ name: 'Atlas Migration v2' });
   });
 
   // (c) Edge / read-only: a Member (role 100 < ADMIN) cannot override sharing.

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Link } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { MemberPicker } from '../components/MemberPicker';
 import { StubFieldset } from '../components/StubFieldset';
@@ -6,7 +7,6 @@ import { DangerZoneLink } from '../components/DangerZoneLink';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
-import { useCalendars } from '@/hooks/useCalendars';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_ADMIN } from '@/lib/roles';
@@ -74,7 +74,6 @@ const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: st
 export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
-  const { calendars, isLoading: calendarsLoading, error: calendarsError } = useCalendars();
   const updateProject = useUpdateProject(projectId);
   const { role } = useCurrentUserRole(projectId);
 
@@ -85,7 +84,6 @@ export function ProjectGeneralPage() {
   const [visibility, setVisibility] = useState<ProjectVisibility>('WORKSPACE');
   const [timezone, setTimezone] = useState('');
   const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
-  const [calendarId, setCalendarId] = useState<string | null>(null);
   // null = Unassigned. User id of the project lead (#966).
   const [lead, setLead] = useState<string | null>(null);
   // null = inherit the program/workspace default (ADR-0116, #1106).
@@ -118,7 +116,6 @@ export function ProjectGeneralPage() {
   const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('WORKSPACE');
   const [initialTimezone, setInitialTimezone] = useState('');
   const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
-  const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
   const [initialLead, setInitialLead] = useState<string | null>(null);
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
@@ -144,7 +141,6 @@ export function ProjectGeneralPage() {
     setVisibility(project.visibility);
     setTimezone(project.timezone);
     setDefaultView(project.default_view);
-    setCalendarId(project.calendar);
     setLead(project.lead ?? null);
     setIterationLabel(project.iteration_label ?? null);
     setPublicSharing(project.public_sharing ?? null);
@@ -160,7 +156,6 @@ export function ProjectGeneralPage() {
     setInitialVisibility(project.visibility);
     setInitialTimezone(project.timezone);
     setInitialDefaultView(project.default_view);
-    setInitialCalendarId(project.calendar);
     setInitialLead(project.lead ?? null);
     setInitialIterationLabel(project.iteration_label ?? null);
     setInitialPublicSharing(project.public_sharing ?? null);
@@ -180,7 +175,6 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       default_view: defaultView,
-      calendar: calendarId,
       lead,
       iteration_label: iterationLabel,
       public_sharing: publicSharing,
@@ -198,7 +192,6 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       defaultView,
-      calendarId,
       lead,
       iterationLabel,
       publicSharing,
@@ -218,7 +211,6 @@ export function ProjectGeneralPage() {
       visibility: initialVisibility,
       timezone: initialTimezone,
       default_view: initialDefaultView,
-      calendar: initialCalendarId,
       lead: initialLead,
       iteration_label: initialIterationLabel,
       public_sharing: initialPublicSharing,
@@ -236,7 +228,6 @@ export function ProjectGeneralPage() {
       initialVisibility,
       initialTimezone,
       initialDefaultView,
-      initialCalendarId,
       initialLead,
       initialIterationLabel,
       initialPublicSharing,
@@ -257,7 +248,6 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       default_view: defaultView,
-      calendar: calendarId,
       lead,
       // null clears the override (inherit); a blank custom string normalizes to null
       // too — "inherit" is the explicit null and the serializer rejects empty strings
@@ -282,7 +272,6 @@ export function ProjectGeneralPage() {
     setInitialVisibility(visibility);
     setInitialTimezone(timezone);
     setInitialDefaultView(defaultView);
-    setInitialCalendarId(calendarId);
     setInitialLead(lead);
     setInitialIterationLabel(savedIterationLabel);
     setInitialPublicSharing(publicSharing);
@@ -300,7 +289,6 @@ export function ProjectGeneralPage() {
     visibility,
     timezone,
     defaultView,
-    calendarId,
     lead,
     iterationLabel,
     publicSharing,
@@ -319,7 +307,6 @@ export function ProjectGeneralPage() {
     setVisibility(initialVisibility);
     setTimezone(initialTimezone);
     setDefaultView(initialDefaultView);
-    setCalendarId(initialCalendarId);
     setLead(initialLead);
     setIterationLabel(initialIterationLabel);
     setPublicSharing(initialPublicSharing);
@@ -336,7 +323,6 @@ export function ProjectGeneralPage() {
     initialVisibility,
     initialTimezone,
     initialDefaultView,
-    initialCalendarId,
     initialLead,
     initialIterationLabel,
     initialPublicSharing,
@@ -355,17 +341,19 @@ export function ProjectGeneralPage() {
     apiReady: !!project,
   });
 
-  const calendarInherited = calendarId === null;
-  // The true resolved source of the inherited calendar (ADR-0441, issue #1987) —
-  // may be the program, the workspace, or nothing above the project (system
-  // default). Reads the SAVED project record (not the dirty `calendarId` local
-  // state), so the breadcrumb only appears while the project's own override is
-  // actually null server-side. `calendar_source` is optional (a stale cached
-  // response from before #1987), so its absence yields no breadcrumb rather than
-  // guessing "workspace" the way the pre-#1987 copy assumed.
+  // The working calendar is now read-only here (ADR-0441, #2009): the base FK plus
+  // holiday overlays are composed on the Working calendars sub-page, the single
+  // write surface. This row is a summary that names the resolved calendar and its
+  // provenance, and links there. `effective_calendar` is the resolved calendar
+  // (the override itself when `calendar_source === 'project'`, else the inherited
+  // one); `calendar_source` is optional (a stale cached read from before #1987),
+  // so its absence yields no breadcrumb rather than guessing a scope.
+  const calendarSource = project?.calendar_source ?? null;
+  const calendarIsOverride = calendarSource === 'project';
+  const calendarName = project?.effective_calendar?.name ?? null;
   const calendarBreadcrumb =
-    project && project.calendar === null && project.calendar_source
-      ? calendarSourceCopy(project.calendar_source, project.effective_calendar ?? null)
+    calendarSource && !calendarIsOverride
+      ? calendarSourceCopy(calendarSource, project?.effective_calendar ?? null)
       : null;
   // The whole General page is editable only at Admin+ (issue 1084). Reads are open;
   // writes are gated server-side (ProjectSerializer.validate / _SCHEDULER_WRITABLE_FIELDS),
@@ -664,74 +652,34 @@ export function ProjectGeneralPage() {
 
           <FieldRow
             label="Working calendar"
-            hint="Override the work-week and holidays for this project. Inherit to follow the program or workspace default."
+            hint="The base calendar and holiday overlays are composed on the Working calendars page — the single place they're edited (ADR-0441)."
           >
-            {/* Inherit (calendar = null) ↔ override (calendar = chosen id). Both the
-                toggle and the picker are native form controls, so the enclosing
-                StubFieldset disables them below Admin (issue 1084) — no per-control
-                canEdit gate needed. Selecting a calendar arms the save bar like any
-                other field; the PATCH path landed in #520. */}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCalendarId(null)}
-                aria-pressed={calendarInherited}
-                className={[
-                  'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  calendarInherited
-                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-                ].join(' ')}
-              >
-                Inherit from workspace
-              </button>
-              <div className="relative inline-block w-[240px]">
-                <select
-                  value={calendarId ?? ''}
-                  onChange={(e) => setCalendarId(e.target.value === '' ? null : e.target.value)}
-                  aria-label="Working calendar override"
-                  // Disable while loading or if the fetch failed — an enabled empty
-                  // picker would be indistinguishable from "no calendars exist".
-                  disabled={calendarsLoading || !!calendarsError}
-                  className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
-                >
-                  <option value="">
-                    {calendarsLoading
-                      ? 'Loading calendars…'
-                      : calendarsError
-                        ? "Couldn't load calendars"
-                        : 'Override with a calendar…'}
-                  </option>
-                  {/* Keep the current override selectable even if it isn't in the
-                      fetched list yet (still loading, or the calendar was removed),
-                      so the <select> stays controlled without a value/option mismatch. */}
-                  {calendarId && !calendars.some((c) => c.id === calendarId) && (
-                    <option value={calendarId}>Current override</option>
-                  )}
-                  {calendars.map((cal) => (
-                    <option key={cal.id} value={cal.id}>
-                      {cal.name}
-                    </option>
-                  ))}
-                </select>
-                <svg
-                  className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
-                  width="11"
-                  height="11"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+            {/* Read-only summary + link (#2009). The base FK used to be editable here
+                AND on the Working calendars page, so a save here could silently clobber
+                that page's overlay composition. The base is now written only there;
+                this row names the resolved calendar and its provenance and links across.
+                A <Link> is not a form control, so the enclosing StubFieldset (which
+                disables inputs below Admin) leaves it navigable for every role. */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium text-neutral-text-primary">
+                  {calendarName ?? 'System default (Mon–Fri, 8h/day)'}
+                </span>
+                <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+                  {calendarIsOverride ? 'Override' : 'Inherited'}
+                </span>
               </div>
+              {calendarBreadcrumb && (
+                <p className="text-[12px] text-neutral-text-secondary">{calendarBreadcrumb}</p>
+              )}
+              <Link
+                to={`/projects/${projectId}/settings/calendars`}
+                className="inline-flex w-fit items-center gap-1 text-[12.5px] font-medium text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-control"
+              >
+                Manage in Working calendars
+                <span aria-hidden="true">→</span>
+              </Link>
             </div>
-            {calendarBreadcrumb && (
-              <p className="text-[12px] text-neutral-text-secondary mt-1.5">
-                {calendarBreadcrumb}
-              </p>
-            )}
           </FieldRow>
 
           <FieldRow label="Default view">

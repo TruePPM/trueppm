@@ -40,7 +40,9 @@ const LIB_UK = {
   exceptions: [{ id: 'x-uk', exc_start: '2026-08-31', exc_end: '2026-08-31', description: 'Summer bank holiday' }],
 };
 
-const LIBRARY = [LIB_UK];
+// The base calendar is an org-library calendar too, so the base picker (#2009)
+// shows it by name (not the "Current override" fallback).
+const LIBRARY = [BASE_CAL, LIB_UK];
 
 const CAL_LOOKUP: Record<string, typeof BASE_CAL> = {
   'base-cal': BASE_CAL,
@@ -58,13 +60,17 @@ interface AppliedOverlay {
   calendar: typeof BASE_CAL;
 }
 
-/** Build the GET /calendars/ object shape from the current overlay state. */
-function appliedResponse(overlays: AppliedOverlay[]) {
-  const baseEntry = { layer_id: null, role: 'project', sort_order: 0, calendar: BASE_CAL };
+/** Build the GET /calendars/ object shape from the current base + overlay state.
+ *  `baseId` is null when the project inherits (no own override, #2009). */
+function appliedResponse(overlays: AppliedOverlay[], baseId: string | null = 'base-cal') {
+  const baseCal = baseId ? (CAL_LOOKUP[baseId] ?? BASE_CAL) : null;
+  const baseEntry = baseCal
+    ? [{ layer_id: null, role: 'project', sort_order: 0, calendar: baseCal }]
+    : [];
   return {
-    base: BASE_CAL,
+    base: baseCal,
     overlays,
-    applied: [baseEntry, ...overlays],
+    applied: [...baseEntry, ...overlays],
   };
 }
 
@@ -99,7 +105,12 @@ interface SetupOptions {
   previewFails?: boolean; // GET /calendars/preview/ returns 500
 }
 
-async function setup(page: Page, opts: SetupOptions = {}) {
+/** Captured PUT bodies, so base/overlay writes can be asserted. */
+interface CalendarState {
+  puts: { base_calendar_id?: string | null; overlays: { calendar_id: string; role: string }[] }[];
+}
+
+async function setup(page: Page, opts: SetupOptions = {}): Promise<CalendarState> {
   const { role = 300, appliedFails = false, previewFails = false } = opts;
 
   await setupAuth(page);
@@ -119,8 +130,10 @@ async function setup(page: Page, opts: SetupOptions = {}) {
     return route.fulfill(json([{ id: 'mem-self', role }]));
   });
 
-  // Stateful overlay set — starts base-only so the empty nudge shows.
+  // Stateful base + overlay set — starts base-only so the empty nudge shows.
   let overlays: AppliedOverlay[] = [];
+  let baseId: string | null = 'base-cal';
+  const state: CalendarState = { puts: [] };
 
   // Library list (override the fixture's empty default).
   await page.route('**/api/v1/calendars/', (route: Route) => route.fulfill(json(LIBRARY)));
@@ -145,20 +158,24 @@ async function setup(page: Page, opts: SetupOptions = {}) {
     }
     if (req.method() === 'PUT') {
       const body = JSON.parse(req.postData() ?? '{}') as {
+        base_calendar_id?: string | null;
         overlays: { calendar_id: string; role: 'holidays' | 'workspace' }[];
       };
+      state.puts.push(body);
+      if ('base_calendar_id' in body) baseId = body.base_calendar_id ?? null;
       overlays = body.overlays.map((o, i) => ({
         layer_id: `L${i + 1}`,
         role: o.role,
         sort_order: i + 1,
         calendar: CAL_LOOKUP[o.calendar_id] ?? BASE_CAL,
       }));
-      return route.fulfill(json(appliedResponse(overlays)));
+      return route.fulfill(json(appliedResponse(overlays, baseId)));
     }
-    return route.fulfill(json(appliedResponse(overlays)));
+    return route.fulfill(json(appliedResponse(overlays, baseId)));
   });
 
   await page.goto(`/projects/${PROJECT_ID}/settings/calendars`);
+  return state;
 }
 
 /** The calendars section region, gated on its "panel rendered" signal. */
@@ -185,8 +202,11 @@ test('golden path: adding a holiday overlay updates the stack and the summary', 
   await picker.getByRole('option', { name: /UK Bank Holidays 2026/ }).click();
   await picker.getByRole('button', { name: /Add 1 calendar/ }).click();
 
-  // The overlay now appears in the applied stack…
-  await expect(panel.getByText('UK Bank Holidays 2026')).toBeVisible();
+  // The overlay now appears in the applied stack (assert via its Remove control —
+  // the name also appears as a base-picker option, so plain text is ambiguous)…
+  await expect(
+    panel.getByRole('button', { name: /Remove UK Bank Holidays 2026/ }),
+  ).toBeVisible();
   // …and the summary reflects the newly-blocked working day.
   await expect(panel.getByText(/loses\s+1\s+working day\b/i)).toBeVisible();
 });
@@ -197,6 +217,11 @@ test('read-only: a Viewer sees the view-only note and no edit controls', async (
 
   await expect(panel.getByText(/You have view-only access/)).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Add calendar' })).toHaveCount(0);
+  // The base editor is read-only too — no picker or inherit toggle (#2009).
+  await expect(panel.getByRole('combobox', { name: 'Working calendar override' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Inherit from workspace' })).toHaveCount(0);
+  // The base name still shows read-only.
+  await expect(panel.getByText('Project calendar')).toBeVisible();
 });
 
 test('error: a failed load shows the branded error surface, not a blank panel', async ({ page }) => {
@@ -218,6 +243,27 @@ test('preview error: a failed preview shows an inline retry, not a blank pane', 
   await expect(previewAlert).toBeVisible();
   await expect(previewAlert).toContainText("Couldn't load the working-time preview");
   await expect(previewAlert.getByRole('button', { name: 'Retry' })).toBeVisible();
-  // The applied stack is unaffected — the base row still renders.
-  await expect(panel.getByText('Project calendar')).toBeVisible();
+  // The applied stack is unaffected — the editable base row still renders.
+  await expect(panel.getByRole('combobox', { name: 'Working calendar override' })).toBeVisible();
+});
+
+test('Scheduler+ owns the base calendar here — Inherit PUTs base_calendar_id null (#2009)', async ({
+  page,
+}) => {
+  const state = await setup(page);
+  const panel = await calendarsPanel(page);
+
+  // The base editor is the single write surface for the base FK (ADR-0441). It
+  // seeds the project's current base and lets a Scheduler+ inherit or override.
+  const picker = panel.getByRole('combobox', { name: 'Working calendar override' });
+  await expect(picker).toBeVisible();
+  await expect(picker).toHaveValue('base-cal');
+
+  await panel.getByRole('button', { name: 'Inherit from workspace' }).click();
+
+  await expect.poll(() => state.puts.at(-1) ?? null).not.toBeNull();
+  const last = state.puts.at(-1)!;
+  // Base cleared to inherit; the (empty) overlay set is preserved, not dropped.
+  expect(last.base_calendar_id).toBeNull();
+  expect(last.overlays).toEqual([]);
 });
