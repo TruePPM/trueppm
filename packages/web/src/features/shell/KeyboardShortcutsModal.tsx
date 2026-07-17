@@ -1,5 +1,5 @@
 import { useFocusTrap } from '@/hooks/useFocusTrap';
-import { modifierKeyLabel } from '@/lib/platform';
+import { modifierKeyLabel, altKeyLabel } from '@/lib/platform';
 
 interface Props {
   onClose: () => void;
@@ -16,20 +16,32 @@ interface ShortcutGroup {
 }
 
 /**
- * The app's real, wired keyboard bindings — each entry maps to a live handler:
- * the command palette hotkey (useCommandPaletteHotkey), the sidebar toggle
- * (useSidebarCollapseHotkey), the command-palette navigation (CommandPalette),
- * and the board roving-focus keys (useBoardKeyboard). Nothing here is aspirational;
- * grep the handlers before adding a row (issue 1556).
+ * The app's real, wired keyboard bindings — each entry maps to a live handler.
+ * Nothing here is aspirational; grep the handlers before adding a row (#1556).
+ * The map of handler → row:
+ *   ⌘K command palette         → useCommandPaletteHotkey
+ *   ⌘B sidebar toggle          → useSidebarCollapseHotkey
+ *   ? this modal               → useHelpShortcut
+ *   command-palette nav        → CommandPalette
+ *   ⌘S save                    → SettingsShell + TaskDetailDrawer (rules 115/217)
+ *   board roving focus         → useBoardKeyboard
+ *   Schedule reschedule/nudge  → useKeyboardReschedule (#1742)
+ *   ⌘= / ⌘− / ⌘0 zoom & fit    → ScheduleView keyBindings (rules 127/129)
+ *   Space / middle-drag pan    → GanttEngineImpl pan FSM (rules 130/131)
+ *   ⌥/Alt + ↑/↓ reorder        → TaskListRow build-mode reorder (#347)
+ * Board view and Build mode each own a fuller, surface-specific cheatsheet
+ * (press `?` on those surfaces) — the cross-link note below points users there.
  */
 function useShortcutGroups(): ShortcutGroup[] {
   const mod = modifierKeyLabel();
+  const alt = altKeyLabel();
   return [
     {
       heading: 'Global',
       shortcuts: [
         { keys: [`${mod}K`], label: 'Open the command palette' },
         { keys: [`${mod}B`], label: 'Show or hide the sidebar' },
+        { keys: ['?'], label: 'Show keyboard shortcuts' },
         { keys: ['Esc'], label: 'Close an open dialog or menu' },
       ],
     },
@@ -42,6 +54,12 @@ function useShortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
+      // ⌘S / Ctrl+S saves a dirty form on the surfaces that own a save bar: the
+      // settings shell (rule 115) and the task detail drawer (rule 217).
+      heading: 'Editing',
+      shortcuts: [{ keys: [`${mod}S`], label: 'Save your changes' }],
+    },
+    {
       heading: 'Board',
       shortcuts: [
         { keys: ['J', 'K'], label: 'Move focus between cards' },
@@ -49,15 +67,20 @@ function useShortcutGroups(): ShortcutGroup[] {
       ],
     },
     {
-      // Schedule (Gantt) keyboard reschedule — the pointer-free equivalent of
-      // dragging a bar (useKeyboardReschedule, #1742). All keys are wired; the
-      // in-canvas instruction strip (rule 51) shows the same bindings live.
+      // Schedule (Gantt): keyboard reschedule (useKeyboardReschedule, #1742 —
+      // the in-canvas instruction strip, rule 51, shows the same bindings live),
+      // continuous zoom / fit (rules 127/129), drag-to-pan (rules 130/131), and
+      // the build-mode sibling reorder (#347).
       heading: 'Schedule (Gantt)',
       shortcuts: [
         { keys: ['↵'], label: 'Reschedule the selected task' },
         { keys: ['←', '→'], label: 'Nudge by one working day' },
         { keys: ['⇧', '←', '→'], label: 'Nudge by five working days' },
         { keys: ['D'], label: 'Enter an exact date' },
+        { keys: [`${mod}=`, `${mod}−`], label: 'Zoom in or out' },
+        { keys: [`${mod}0`], label: 'Fit the schedule to the project' },
+        { keys: ['Space'], label: 'Hold and drag to pan (or middle-drag)' },
+        { keys: [alt, '↑', '↓'], label: 'Reorder a task among siblings (build mode)' },
         { keys: ['Esc'], label: 'Cancel the reschedule' },
       ],
     },
@@ -85,7 +108,7 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
       <div
         ref={trapRef}
         tabIndex={-1}
-        className="relative z-10 bg-neutral-surface border border-neutral-border rounded-card p-6 w-80 flex flex-col gap-4 focus:outline-none"
+        className="relative z-10 bg-neutral-surface border border-neutral-border rounded-card p-6 w-80 max-h-[85vh] overflow-y-auto flex flex-col gap-4 focus:outline-none"
       >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-neutral-text-primary">Keyboard shortcuts</h2>
@@ -128,6 +151,17 @@ export function KeyboardShortcutsModal({ onClose }: Props) {
               </dl>
             </section>
           ))}
+          {/* Cross-link to the surface-specific cheatsheets (issue #2058). The
+              Board view and Schedule build mode each bind `?` to their own,
+              fuller list; this note tells users where those live rather than
+              duplicating them here. */}
+          <p className="border-t border-neutral-border pt-3 text-xs text-neutral-text-secondary">
+            The Board and Schedule build mode have more shortcuts — press{' '}
+            <kbd className="tppm-mono rounded-chip border border-neutral-border px-1 py-0.5 text-neutral-text-secondary">
+              ?
+            </kbd>{' '}
+            while using them to see the full list.
+          </p>
         </div>
       </div>
     </div>

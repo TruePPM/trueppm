@@ -20,3 +20,8 @@ export function isMacPlatform(): boolean {
 export function modifierKeyLabel(): string {
   return isMacPlatform() ? '⌘' : 'Ctrl';
 }
+
+/** The OS-correct secondary (Alt/Option) modifier label: '⌥' on Mac, 'Alt' elsewhere. */
+export function altKeyLabel(): string {
+  return isMacPlatform() ? '⌥' : 'Alt';
+}

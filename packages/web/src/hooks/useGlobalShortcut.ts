@@ -40,3 +40,35 @@ export function isTypingInInput(target: EventTarget | null): boolean {
 
   return target.closest('[role="combobox"]') !== null;
 }
+
+/**
+ * Surface `?`-ownership registry.
+ *
+ * The Board and the Schedule build-mode surface bind `?` to their own,
+ * fuller cheatsheets. While such a surface is mounted it "claims" `?` so the
+ * global help hotkey ({@link useHelpShortcut}) yields to it and the two never
+ * both fire. This is deterministic precedence — it does NOT depend on
+ * window-listener registration order (which flips as surfaces mount/unmount on
+ * navigation) nor on the timing of a `preventDefault` (a surface's board-level
+ * listener can call it a tick *after* the global handler has already run).
+ *
+ * Usage: call {@link claimHelpShortcut} on mount and invoke the returned
+ * release in the effect cleanup.
+ */
+let helpShortcutClaims = 0;
+
+/** Register a surface as owning `?`. Returns an idempotent release function. */
+export function claimHelpShortcut(): () => void {
+  helpShortcutClaims += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    helpShortcutClaims = Math.max(0, helpShortcutClaims - 1);
+  };
+}
+
+/** True when a surface currently owns the `?` shortcut. */
+export function isHelpShortcutClaimed(): boolean {
+  return helpShortcutClaims > 0;
+}

@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react';
-import { isTypingInInput } from '@/hooks/useGlobalShortcut';
+import { isTypingInInput, claimHelpShortcut } from '@/hooks/useGlobalShortcut';
 
 export interface BoardKeyboardHandlers {
   onMoveCardFocus?: (direction: 'up' | 'down') => void;
@@ -135,4 +135,12 @@ export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [enabled, handleKey]);
+
+  // While the board keyboard registry is active, the board owns `?` (it opens
+  // the board cheatsheet). Claim it so the global help hotkey (useHelpShortcut)
+  // yields on this surface and the two cheatsheets never both open (#2058).
+  useEffect(() => {
+    if (!enabled) return;
+    return claimHelpShortcut();
+  }, [enabled]);
 }

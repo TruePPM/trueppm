@@ -14,6 +14,9 @@ import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { useCommandPaletteHotkey } from './commandPalette/useCommandPaletteHotkey';
 import { useSidebarCollapseHotkey } from './useSidebarCollapseHotkey';
+import { useHelpShortcut } from '@/hooks/useHelpShortcut';
+import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
+import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
@@ -28,6 +31,12 @@ export function AppShell() {
   useCommandPaletteHotkey();
   // ⌘B / Ctrl+B toggles the sidebar rail (v2 collapse affordance, ADR-0127).
   useSidebarCollapseHotkey();
+  // `?` opens the app-wide keyboard-shortcuts modal from anywhere (#2058). It
+  // yields to a surface that already binds `?` (Board / Schedule build mode).
+  const openShortcutsModal = useShortcutsModalStore((s) => s.openModal);
+  const shortcutsModalOpen = useShortcutsModalStore((s) => s.open);
+  const closeShortcutsModal = useShortcutsModalStore((s) => s.closeModal);
+  useHelpShortcut(openShortcutsModal);
   // Flush any offline-queued blocker writes on reconnect (ADR-0247). Mounted here,
   // not in the blocker drawer, so a queued flag syncs even if the drawer is closed.
   useBlockerOffline();
@@ -154,6 +163,11 @@ export function AppShell() {
       {/* App-wide task drawer (ADR-0138, issue 647) — opened by the ⌘K palette so a
           task can be edited inline from any route; null until a task is set. */}
       <GlobalTaskDrawer />
+
+      {/* App-wide keyboard-shortcuts modal (#2058) — a single instance driven by
+          the shortcutsModalStore, opened by the UserMenu row and the global `?`
+          hotkey (useHelpShortcut). Rendered once here so both triggers share it. */}
+      {shortcutsModalOpen && <KeyboardShortcutsModal onClose={closeShortcutsModal} />}
 
       {/* Global toast host (ADR-0126, issue 1225) — bottom-center ink-pill stack
           for app-wide confirmations (create/complete/save/pin/theme). Board-local

@@ -34,6 +34,7 @@ import { ScheduleAddPhaseButton } from './ScheduleAddPhaseButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
+import { claimHelpShortcut } from '@/hooks/useGlobalShortcut';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useCreateBaseline } from '@/hooks/useBaselines';
@@ -1529,6 +1530,15 @@ export function ScheduleView() {
     setSelectedTaskId,
   ]);
   useScheduleKeyboard(keyBindings);
+
+  // In build mode the Schedule binds `?` to its own cheatsheet; claim `?` so the
+  // global help hotkey (useHelpShortcut) yields here and the two never both open
+  // (#2058). Outside build mode the Schedule has no `?` binding, so the global
+  // modal remains reachable.
+  useEffect(() => {
+    if (!buildModeActive) return;
+    return claimHelpShortcut();
+  }, [buildModeActive]);
 
   const handleAddFirstTask = useCallback(() => {
     if (!projectId) return;

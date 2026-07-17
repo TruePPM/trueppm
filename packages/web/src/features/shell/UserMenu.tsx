@@ -9,7 +9,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { RoleContextMenuRow } from '@/features/shell/RoleContextMenuRow';
-import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
+import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 
 // ---------------------------------------------------------------------------
 // Menu content — shared between desktop dropdown and mobile bottom sheet
@@ -276,7 +276,10 @@ function AvatarChip({
 
 export function UserMenu() {
   const [isOpen, setIsOpen] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
+  // The keyboard-shortcuts modal is a single shell-level instance (#2058);
+  // opening it just flips the shared store, so the modal survives this menu's
+  // close() and is also reachable via the global `?` hotkey.
+  const openShortcutsModal = useShortcutsModalStore((s) => s.openModal);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   // Mobile bottom sheet is a modal dialog (role="dialog" aria-modal="true"): trap
@@ -361,7 +364,7 @@ export function UserMenu() {
     displayName: labelForUser(user),
     email: user?.email,
     onSignOut: handleSignOut,
-    onOpenShortcuts: () => setShowShortcuts(true),
+    onOpenShortcuts: openShortcutsModal,
     onClose: close,
     projectId,
     canAccessAdminSettings: user?.can_access_admin_settings === true,
@@ -425,9 +428,6 @@ export function UserMenu() {
           </>
         )}
       </div>
-
-      {/* Keyboard shortcuts modal — rendered outside the menu so it survives close() */}
-      {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </>
   );
 }
