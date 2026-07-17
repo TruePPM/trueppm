@@ -23,6 +23,9 @@ resources:
   requests:
     cpu: 100m
     memory: 256Mi
+    # AOF lives on the PVC; ephemeral covers /tmp scratch only.
+    ephemeral-storage: 128Mi
   limits:
     cpu: "1"
     memory: 1Gi
+    ephemeral-storage: 512Mi

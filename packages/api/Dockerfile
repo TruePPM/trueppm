@@ -17,7 +17,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # code execution via a malicious wheel, fixed in 0.46.2). Patch it forward before
 # the package installs so the published image scans clean (#1388); the upgraded
 # wheel persists in /venv through the COPY into the runtime stage.
-RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2"
+# --only-binary :all: keeps this a wheel-only install so no sdist setup script
+# ever executes during the build (wheel ships a manylinux wheel, so the flag is
+# safe here — unlike the local source/[c] installs below).
+RUN pip install --only-binary :all: --no-cache-dir --upgrade "wheel>=0.46.2"
 
 # Install the scheduler package first so the api package can find it on the path.
 COPY packages/scheduler/src /build/scheduler/src

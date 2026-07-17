@@ -150,33 +150,44 @@ resources:
     requests:
       cpu: 250m
       memory: 512Mi
+      # /tmp scratch for MS Project parse, workspace export, and Django's
+      # buffering of >2.5 MB request bodies (emptyDir, so it counts as ephemeral).
+      ephemeral-storage: 256Mi
     limits:
       cpu: "1"
       memory: 2Gi
+      ephemeral-storage: 1Gi
   worker:
     requests:
       cpu: 250m
       memory: 512Mi
+      ephemeral-storage: 256Mi
     limits:
       cpu: "1"
       memory: 2Gi
+      ephemeral-storage: 1Gi
   # Celery Beat is the single scheduler process — light CPU, small memory. It only
   # dispatches; the actual work runs on the worker.
   beat:
     requests:
       cpu: 50m
       memory: 128Mi
+      ephemeral-storage: 64Mi
     limits:
       cpu: 250m
       memory: 256Mi
+      ephemeral-storage: 256Mi
   # Web tier is static nginx — very light.
   web:
     requests:
       cpu: 25m
       memory: 64Mi
+      # nginx PID file, temp bodies, and cache (all emptyDir scratch).
+      ephemeral-storage: 64Mi
     limits:
       cpu: 250m
       memory: 256Mi
+      ephemeral-storage: 256Mi
 
 # Health probes (#1904, #1894). The API uses HTTP probes; the Celery worker and
 # beat use a `celery inspect ping` exec probe (a control-plane round-trip catches a

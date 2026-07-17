@@ -29,7 +29,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # Patch the venv-seeded build tooling forward before installing so the published
 # image scans clean (mirrors the api image hardening, #1388): 3.11's ensurepip
 # seeds an old `wheel` that trips Trivy on CVE-2026-24049.
-RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2"
+# --only-binary :all: keeps this a wheel-only install so no sdist setup script
+# runs during the build (wheel ships a manylinux wheel, so the flag is safe here
+# — unlike the local source install of /build/mcp below).
+RUN pip install --only-binary :all: --no-cache-dir --upgrade "wheel>=0.46.2"
 
 COPY . /build/mcp
 RUN pip install --no-cache-dir /build/mcp

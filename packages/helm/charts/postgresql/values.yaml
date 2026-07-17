@@ -27,6 +27,10 @@ resources:
   requests:
     cpu: 250m
     memory: 1Gi
+    # Persistent data lives on the PVC; ephemeral covers runtime sockets/locks
+    # under /var/run/postgresql and /tmp.
+    ephemeral-storage: 256Mi
   limits:
     cpu: "2"
     memory: 4Gi
+    ephemeral-storage: 1Gi

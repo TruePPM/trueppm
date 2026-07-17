@@ -38,7 +38,7 @@ RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
       libpq-dev gcc git curl ca-certificates gnupg \
  && install -d /usr/share/postgresql-common/pgdg \
- && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && curl --proto '=https' --tlsv1.2 -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
  && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" | sha256sum -c - \
  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
@@ -73,5 +73,14 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
  && pip install --no-cache-dir -e "./scheduler[dev]" -e "./api[dev]" \
  && pip uninstall --yes trueppm-scheduler trueppm-api \
  && rm -rf /opt/ci-deps
+
+# Run the CI jobs as a non-root user (Sonar dockerfile:S6471, defense-in-depth
+# for a build container that pulls the repo + third-party deps). uid 1000 owns
+# the system site-packages and bin so the job-time
+# `pip install -e packages/scheduler[dev] packages/api[dev]` editable re-link
+# still writes without root.
+RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
+ && chown -R ci /usr/local/lib/python3.11 /usr/local/bin
+USER ci
 
 WORKDIR /
