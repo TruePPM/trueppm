@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 
 import type { Task } from '@/types';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
+
+// `delay: null` dispatches keystrokes with no inter-event setTimeout so the
+// whole `user.type()` resolves within one flush. With the default delay, the
+// last keystroke's React 19 state commit can race the following synchronous
+// assert/rerender on a CPU-loaded CI runner and the trailing character is
+// silently dropped — the "web:test 6/6" flake (#2084). Assertions that snapshot
+// the typed value additionally settle with `waitFor` before reading it.
 
 // Capture the mutation call args so we can assert the drawer opts into ADR-0217
 // field-level merge by declaring baseVersion (#2038).
@@ -61,7 +68,7 @@ afterEach(() => {
 
 describe('TaskDetailDrawer save concurrency (#2038)', () => {
   it('passes baseVersion from the task serverVersion when saving a name edit', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const task = makeTask({ serverVersion: 7 });
     TASKS = [task];
     renderDrawer(task);
@@ -86,7 +93,7 @@ describe('TaskDetailDrawer save concurrency (#2038)', () => {
   });
 
   it('carries baseVersion even when serverVersion is undefined (legacy rows)', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const task = makeTask({ serverVersion: undefined });
     TASKS = [task];
     renderDrawer(task);
@@ -110,7 +117,7 @@ describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
   const bannerText = /deleted by someone else/i;
 
   it('keeps a dirty draft on screen with a rescue banner when the task is deleted', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const task = makeTask({ id: 't1', name: 'Foundation' });
     const sibling = makeTask({ id: 't2', name: 'Framing' });
     TASKS = [task, sibling];
@@ -118,6 +125,10 @@ describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
 
     const dialog = within(screen.getAllByRole('dialog')[0]);
     await user.type(dialog.getByLabelText('Task name'), ' reworked'); // draft is now dirty
+    // Let the draft fully commit before the delete rerender snapshots it.
+    await waitFor(() =>
+      expect(dialog.getByLabelText('Task name')).toHaveValue('Foundation reworked'),
+    );
 
     // Someone else deletes t1: it drops from the cache and the host prop goes null.
     TASKS = [sibling];
@@ -154,7 +165,7 @@ describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
   });
 
   it('does not fire the banner on a deliberate deselect (task still exists)', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const task = makeTask({ id: 't1', name: 'Foundation' });
     TASKS = [task];
     const { rerender } = renderDrawer(task);
@@ -176,7 +187,7 @@ describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
   it('copies the dirty draft to the clipboard from the banner', async () => {
     // userEvent.setup() installs a functional clipboard stub; let the component
     // write through it and assert on what landed there.
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const task = makeTask({ id: 't1', name: 'Foundation' });
     const sibling = makeTask({ id: 't2', name: 'Framing' });
     TASKS = [task, sibling];
@@ -186,6 +197,12 @@ describe('TaskDetailDrawer deleted-while-dirty guard (#2054)', () => {
     await user.type(
       within(screen.getAllByRole('dialog')[0]).getByLabelText('Task name'),
       'Rescue me',
+    );
+    // Let the draft fully commit before the delete rerender snapshots it.
+    await waitFor(() =>
+      expect(within(screen.getAllByRole('dialog')[0]).getByLabelText('Task name')).toHaveValue(
+        'Rescue me',
+      ),
     );
 
     TASKS = [sibling];

@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -438,12 +438,15 @@ describe('TaskListRow', () => {
   });
 
   it('keyboard events are ignored during edit mode', async () => {
+    // `delay: null` + waitFor guard the CI keystroke-drop flake (#2084): with the
+    // default delay the last typed character can be dropped on a loaded runner.
+    const user = userEvent.setup({ delay: null });
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
-    await userEvent.dblClick(screen.getByRole('row'));
+    await user.dblClick(screen.getByRole('row'));
     const input = screen.getByLabelText(/Rename task/i);
     // Enter in input commits, Space types a space
-    await userEvent.type(input, ' extra');
-    expect(input).toHaveValue('Design Phase extra');
+    await user.type(input, ' extra');
+    await waitFor(() => expect(input).toHaveValue('Design Phase extra'));
   });
 
   it('renders expand chevron for summary tasks with children', () => {

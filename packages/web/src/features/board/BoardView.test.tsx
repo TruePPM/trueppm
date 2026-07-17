@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -1293,7 +1293,8 @@ describe('BoardView', () => {
   // -------------------------------------------------------------------------
   describe('saved view filter facets (issue #1918)', () => {
     it('saving the current view includes the active facets in config.filters', async () => {
-      const user = userEvent.setup();
+      // `delay: null` guards the CI keystroke-drop flake (#2084).
+      const user = userEvent.setup({ delay: null });
       renderBoard();
 
       // Activate an assignee facet via the filter panel.
@@ -1305,6 +1306,10 @@ describe('BoardView', () => {
       await user.click(screen.getByRole('button', { name: /board view/i }));
       await user.click(screen.getByText('+ Save current view…'));
       await user.type(screen.getByLabelText('View name'), 'My filtered view');
+      // Let the name field fully commit before Save reads it (#2084).
+      await waitFor(() =>
+        expect(screen.getByLabelText('View name')).toHaveValue('My filtered view'),
+      );
       await user.click(screen.getByRole('button', { name: /^save$/i }));
 
       // Assert on the captured call args directly rather than a nested
@@ -1322,7 +1327,8 @@ describe('BoardView', () => {
     });
 
     it('saving with no active facets includes an explicit empty filter set', async () => {
-      const user = userEvent.setup();
+      // `delay: null` guards the CI keystroke-drop flake (#2084).
+      const user = userEvent.setup({ delay: null });
       renderBoard();
 
       await user.click(screen.getByRole('button', { name: /board view/i }));
