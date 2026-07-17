@@ -15,8 +15,10 @@ describe('SubtreeDeleteConfirmDialog (#2029)', () => {
     );
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     expect(screen.getByText(/Delete “Phase 3” and its 14 subtasks\?/i)).toBeInTheDocument();
-    // Honesty about what Undo can and cannot recover.
-    expect(screen.getByText(/subtasks, dependencies, and resource\s+assignments are not recovered/i)).toBeInTheDocument();
+    // #2078: Undo faithfully restores the whole subtree — the copy says so.
+    expect(
+      screen.getByText(/the whole subtree, its dependencies, and assignments come back/i),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Delete 15 rows/i })).toBeInTheDocument();
   });
 

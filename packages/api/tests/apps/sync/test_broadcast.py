@@ -419,6 +419,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "task_relation_created",
         "task_relation_deleted",
         "task_relation_updated",
+        "task_restored",
         "task_run_cancelled",
         "task_run_completed",
         "task_run_failed",

@@ -234,14 +234,14 @@ test.describe('Schedule build-mode — delete does not block subsequent right-cl
 // ───────────────────────────────────────────────────────────────────────────
 test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', () => {
   let currentTasks: Array<Record<string, unknown>>;
-  let createBodies: Array<{ name?: string }>;
+  let restoreCalls: string[];
 
   test.beforeEach(async ({ page }) => {
     await enableBuildMode(page);
     await setupAuth(page);
     await setupCatchAll(page);
     currentTasks = FIXTURE_TASKS.map((t) => ({ ...t }));
-    createBodies = [];
+    restoreCalls = [];
     await setupApiMocks(page, {
       projects: FIXTURE_PROJECTS,
       projectId: FIXTURE_PROJECT_ID,
@@ -259,17 +259,17 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
       return route.fallback();
     });
 
-    // POST /tasks/ → the Undo recreate. Push the restored task back into the
-    // shared list (id 'bm1-restored') so the refetch re-renders it, and record
-    // the create body so the test can assert the snapshot fields were sent.
-    await page.route('**/api/v1/tasks/', (route) => {
+    // POST /tasks/bm1/restore/ → the faithful Undo (#2078). Push the SAME task
+    // back into the shared list under its original id so the refetch re-renders it,
+    // and record the restore call so the test can assert the endpoint (not a
+    // create-a-new-row) was hit.
+    await page.route('**/api/v1/tasks/bm1/restore/', (route) => {
       if (route.request().method() === 'POST') {
-        const body = route.request().postDataJSON() as { name?: string };
-        createBodies.push(body);
-        const restored = { ...FIXTURE_TASKS[0], id: 'bm1-restored', name: body.name };
+        restoreCalls.push('bm1');
+        const restored = { ...FIXTURE_TASKS[0] };
         currentTasks.push(restored);
         return route.fulfill({
-          status: 201,
+          status: 200,
           contentType: 'application/json',
           body: JSON.stringify(restored),
         });
@@ -298,7 +298,9 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
   });
 
-  test('clicking Undo recreates the deleted task from its snapshot', async ({ page }) => {
+  test('clicking Undo restores the deleted task via the restore endpoint (#2078)', async ({
+    page,
+  }) => {
     await page.goto(BASE_URL);
     await expect(page.getByText('Foundation')).toBeVisible();
 
@@ -312,19 +314,22 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
 
     await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
 
-    // Undo POSTs a create with the deleted task's name, and the row returns.
+    // Undo POSTs to the restore endpoint (not a create), and the row returns; the
+    // faithful-recovery toast is a plain "Restored".
     await expect(foundationRow).toHaveCount(1);
-    expect(createBodies).toHaveLength(1);
-    expect(createBodies[0].name).toBe('Foundation');
+    expect(restoreCalls).toEqual(['bm1']);
+    await expect(page.getByRole('status').filter({ hasText: 'Restored' })).toBeVisible();
   });
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// #2029 — deleting a SUMMARY/phase row takes its whole subtree, and Undo can
-// only recover the parent, so that specific delete is gated behind a confirm
-// naming the descendant count. Leaf deletes (above) stay confirm-free.
+// #2029 — deleting a SUMMARY/phase row takes its whole subtree, so that specific
+// delete is gated behind a confirm naming the descendant count (leaf deletes,
+// above, stay confirm-free). Since #2078 the Undo faithfully restores the whole
+// subtree, so the confirm is a "you're about to move a lot" heads-up, not a
+// point-of-no-return — but still worth surfacing the blast radius.
 // ───────────────────────────────────────────────────────────────────────────
-test.describe('Schedule build-mode — subtree delete confirms and is honest (#2029)', () => {
+test.describe('Schedule build-mode — subtree delete confirms, Undo restores it (#2029/#2078)', () => {
   const SUBTREE_TASKS = [
     {
       id: 'phase', wbs_path: '1', name: 'Design Phase',
@@ -384,16 +389,16 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
       return route.fallback();
     });
 
-    // POST /tasks/ → the Undo recreate (parent row only — the honest scope).
-    await page.route('**/api/v1/tasks/', (route) => {
+    // POST /tasks/phase/restore/ → the faithful Undo (#2078): the whole subtree
+    // comes back (phase + both children), not just the parent row. Push all three
+    // back under their original ids and return the restored summary.
+    await page.route('**/api/v1/tasks/phase/restore/', (route) => {
       if (route.request().method() === 'POST') {
-        const body = route.request().postDataJSON() as { name?: string };
-        const restored = { ...SUBTREE_TASKS[0], id: 'phase-restored', name: body.name };
-        currentTasks.push(restored);
+        currentTasks.push(...SUBTREE_TASKS.map((t) => ({ ...t })));
         return route.fulfill({
-          status: 201,
+          status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(restored),
+          body: JSON.stringify(SUBTREE_TASKS[0]),
         });
       }
       return route.fallback();
@@ -448,7 +453,7 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
     expect(deleteCount).toBe(0);
   });
 
-  test('confirming deletes the subtree and the Undo toast is honest about scope', async ({ page }) => {
+  test('confirming deletes the subtree and Undo faithfully restores it (#2078)', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.getByText('Design Phase').click({ button: 'right' });
     await page
@@ -460,18 +465,18 @@ test.describe('Schedule build-mode — subtree delete confirms and is honest (#2
 
     await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(0);
     expect(deleteCount).toBe(1);
-    // Toast names the blast radius and, crucially, does not promise the subtree back.
+    // Toast names the blast radius and offers Undo.
     const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
     await expect(toast).toContainText('Deleted “Design Phase” and its 2 subtasks');
     await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
 
-    // Clicking Undo restores the parent row but must NOT claim the subtree came
-    // back — this is the "actively misleading" copy the issue called out.
+    // Clicking Undo now faithfully restores the WHOLE subtree (#2078) — the parent
+    // AND both children come back — so the copy is a plain "Restored", no caveat.
     await toast.getByRole('button', { name: 'Undo' }).click();
     await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(1);
-    await expect(
-      page.getByRole('status').filter({ hasText: 'Restored the row only' }),
-    ).toBeVisible();
+    await expect(page.getByRole('row').filter({ hasText: 'Wireframes' })).toHaveCount(1);
+    await expect(page.getByRole('row').filter({ hasText: 'Mockups' })).toHaveCount(1);
+    await expect(page.getByRole('status').filter({ hasText: 'Restored' })).toBeVisible();
   });
 });
 

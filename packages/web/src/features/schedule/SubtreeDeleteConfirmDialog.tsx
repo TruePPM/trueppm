@@ -13,13 +13,14 @@ interface SubtreeDeleteConfirmDialogProps {
 /**
  * Destructive confirm for deleting a summary/phase row that carries a WBS
  * subtree (#2029). Build-mode leaf deletes stay confirm-free for speed, but a
- * single Backspace on a phase would otherwise take its whole subtree with it and
- * the Undo toast can only recover the parent row — so this names the blast
- * radius before the delete.
+ * single Backspace on a phase would otherwise take its whole subtree with it — so
+ * this names the blast radius before the delete. Since #2078 the Undo faithfully
+ * restores the whole subtree, so this is a "you're moving a lot" heads-up, not a
+ * point of no return.
  *
- * A real `role="alertdialog"` (not `dialog`) because the action is destructive
- * and irreversible for the descendants. Self-traps focus (web-rule 206/245); the
- * launching surface disables its own trap while this is open.
+ * A real `role="alertdialog"` (not `dialog`) because the action is far-reaching.
+ * Self-traps focus (web-rule 206/245); the launching surface disables its own trap
+ * while this is open.
  */
 export function SubtreeDeleteConfirmDialog({
   name,
@@ -54,8 +55,7 @@ export function SubtreeDeleteConfirmDialog({
         </h2>
         <p id="subtree-delete-body" className="text-xs text-neutral-text-secondary">
           This removes the row and all {count} nested {count === 1 ? 'row' : 'rows'} beneath it.
-          Undo can bring back this row only — its subtasks, dependencies, and resource
-          assignments are not recovered.
+          You can undo it — the whole subtree, its dependencies, and assignments come back.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>

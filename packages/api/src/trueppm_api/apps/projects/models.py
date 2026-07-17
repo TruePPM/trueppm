@@ -1527,6 +1527,72 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
         risk.restore()
 
 
+def cascade_task_children_restore(task: Task) -> None:
+    """Restore a task's tombstoned subtree and dependency edges — inverse of
+    :meth:`Task.soft_delete`'s cascade (#2078).
+
+    The subtree-scoped analog of :func:`cascade_project_children_restore`. The single
+    point where it is NOT a copy of the project cascade: it restores only
+    ``is_subtask=True`` descendants, matching the ``is_subtask`` scope of the delete
+    cascade exactly — WBS-structure children are never auto-restored because the delete
+    never auto-tombstones them (the PM deletes/restores those explicitly). Restores, in
+    order (tasks before edges, so an un-tombstoned task is a live endpoint the edge pass
+    relies on):
+
+    1. **Descendants** — ``is_deleted=True, is_subtask=True`` tasks under
+       ``wbs_path__startswith=task.wbs_path + "."``.
+    2. **Dependency edges** — tombstoned edges touching the restored subtree, restored
+       only when BOTH endpoints are now live and no already-live duplicate exists on the
+       non-partial ``unique_dependency (predecessor, successor, dep_type)`` constraint
+       (``.exclude(Exists(...))``), avoiding an ``IntegrityError``.
+    3. **Assignments** need no action — the delete never tombstones them, so they return
+       for free with the row.
+
+    Idempotent: every pass filters ``is_deleted=True``, so a re-run touches only still-
+    tombstoned rows and bumps no versions. Every restored row bumps ``server_version`` so
+    the offline pull re-materializes it (ADR-0202). Caller MUST be inside ``atomic()``.
+
+    Errs toward completeness like the project cascade: per-row ``server_version`` /
+    ``deleted_version`` are counters, not a global clock, so there is no reliable marker
+    distinguishing "tombstoned by this delete cascade" from "a subtask individually deleted
+    earlier, then its parent deleted". Restoring the parent may resurrect that earlier-
+    deleted subtask — the same bounded, accepted tradeoff ("half-restore is worse than
+    none"), with a narrower blast radius (one task's ``is_subtask`` subtree, not a project).
+    """
+    if task.wbs_path:
+        Task.objects.filter(
+            is_deleted=True,
+            is_subtask=True,
+            wbs_path__startswith=str(task.wbs_path) + ".",
+        ).update(
+            is_deleted=False,
+            server_version=F("server_version") + 1,
+            deleted_version=None,
+            deleted_at=None,
+        )
+
+    # Edges touching the restored subtree (the task itself or any wbs descendant), gated
+    # on both endpoints live + no live duplicate — mirrors the project cascade's edge pass.
+    subtree = Task.objects.filter(Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."))
+    live_duplicate = Dependency.objects.filter(
+        is_deleted=False,
+        predecessor=OuterRef("predecessor"),
+        successor=OuterRef("successor"),
+        dep_type=OuterRef("dep_type"),
+    )
+    Dependency.objects.filter(
+        Q(predecessor__in=subtree) | Q(successor__in=subtree),
+        is_deleted=True,
+        predecessor__is_deleted=False,
+        successor__is_deleted=False,
+    ).exclude(Exists(live_duplicate)).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+        deleted_at=None,
+    )
+
+
 def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> None:
     """Tombstone every board-scoped child of a (soft-deleted) project.
 
@@ -2437,6 +2503,19 @@ class Task(VersionedModel):
                 child.soft_delete()
         self.deleted_at = timezone.now()
         super().soft_delete()
+
+    def restore(self) -> None:
+        """Un-tombstone this single task, clearing ``deleted_at`` (#2078).
+
+        The symmetric inverse of :meth:`soft_delete`'s ``deleted_at`` stamping, mirroring
+        :meth:`Project.restore`. The base :meth:`VersionedModel.restore` clears ``is_deleted``
+        / ``deleted_version`` and bumps ``server_version``; ``deleted_at`` (the tombstone-reap
+        clock) must be cleared too or a nightly reap could still consider the live row eligible.
+        The subtree + dependency-edge cascade is a separate module function
+        (:func:`cascade_task_children_restore`); this covers only the single top row.
+        """
+        self.deleted_at = None
+        super().restore()
 
 
 class AcceptanceCriterion(VersionedModel):
