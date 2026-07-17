@@ -209,7 +209,7 @@ test.describe('Program Settings → Rollup KPIs', () => {
     expect(body?.aggregation_policy).toBe('average');
   });
 
-  test('Team Member caller sees the Read-only pill and disabled controls', async ({ page }) => {
+  test('Team Member caller sees the Read-only pill and read-only KPI values', async ({ page }) => {
     const captures: Captures = { patchCount: 0 };
     await setup(page, captures, { myRole: 100 });
     await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
@@ -219,10 +219,12 @@ test.describe('Program Settings → Rollup KPIs', () => {
     const rollup = page.locator('[data-settings-section="rollup"]');
     await expect(rollup.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
     await expect(rollup.getByText(/Read-only/)).toBeVisible();
-    await expect(rollup.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
+    // Below-role users no longer see disabled switches (dead furniture); each KPI
+    // renders its effective value + provenance (ReadOnlyIndicator, ADR-0133).
+    await expect(rollup.getByRole('switch', { name: 'Schedule health' })).toHaveCount(0);
+    await expect(
+      rollup.getByLabel('Schedule health: On, managed by the program admin. View only.'),
+    ).toBeVisible();
   });
 
   test('the live preview renders the program health and a deferred KPI (#673)', async ({ page }) => {
