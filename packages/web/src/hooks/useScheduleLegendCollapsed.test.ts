@@ -49,6 +49,7 @@ describe('useScheduleLegendCollapsed', () => {
     act(() => {
       localStorage.setItem(STORAGE_KEY, 'true');
       window.dispatchEvent(
+        // codeql[js/superfluous-trailing-arguments] -- StorageEvent's 2nd arg is the valid optional eventInitDict; the query mismodels the constructor arity
         new StorageEvent('storage', { key: STORAGE_KEY, newValue: 'true' }),
       );
     });
@@ -59,6 +60,7 @@ describe('useScheduleLegendCollapsed', () => {
     const { result } = renderHook(() => useScheduleLegendCollapsed());
     act(() => {
       window.dispatchEvent(
+        // codeql[js/superfluous-trailing-arguments] -- StorageEvent's 2nd arg is the valid optional eventInitDict; the query mismodels the constructor arity
         new StorageEvent('storage', { key: 'some.other.key', newValue: 'true' }),
       );
     });
