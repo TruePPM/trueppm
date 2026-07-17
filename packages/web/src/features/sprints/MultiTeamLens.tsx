@@ -79,7 +79,7 @@ function TeamCard({ entry }: { entry: MyActiveSprintEntry }) {
   return (
     <li>
       <Link
-        to={`/projects/${entry.project_id}/sprints`}
+        to={`/projects/${entry.project_id}/sprints?sprint=${entry.sprint.id}`}
         className="block rounded-card border border-neutral-border bg-neutral-surface p-4 hover:border-brand-primary/40
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >

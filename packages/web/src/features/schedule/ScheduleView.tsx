@@ -7,7 +7,7 @@ import {
   type PointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
@@ -345,14 +345,46 @@ export function ScheduleView() {
     }
   }, [hoveredTaskId, allTasks]);
 
-  // Focus mode and CP-only filter (issue #131)
-  const [focusModeEnabled, setFocusModeEnabled] = useState(false);
-  const [showCpOnly, setShowCpOnly] = useState(false);
+  // URL-synced view state (issue #2046). Zoom/view-mode/column-widths already
+  // persist (rule 43) but the display filters below were session-ephemeral — so
+  // "send the stakeholder the critical-path-only view" was impossible as a link.
+  // The display filters are mirrored into shareable query params; `?task=` (the
+  // open drawer, issue #2031) round-trips through the same params object below.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Focus mode and CP-only filter (issue #131) — seeded from / mirrored to URL.
+  const [focusModeEnabled, setFocusModeEnabled] = useState(
+    () => searchParams.get('focus') === '1',
+  );
+  const [showCpOnly, setShowCpOnly] = useState(() => searchParams.get('cp') === '1');
 
   // Render filters (#248) — toggle which bar types are drawn on the canvas.
   // Both keep summary tasks visible so the WBS hierarchy doesn't collapse.
-  const [showCriticalOnly, setShowCriticalOnly] = useState(false);
-  const [showMilestonesOnly, setShowMilestonesOnly] = useState(false);
+  const [showCriticalOnly, setShowCriticalOnly] = useState(
+    () => searchParams.get('crit') === '1',
+  );
+  const [showMilestonesOnly, setShowMilestonesOnly] = useState(
+    () => searchParams.get('ms') === '1',
+  );
+  // Mirror the display filters back into the URL so the filtered view is
+  // shareable. Booleans are presence-encoded (`?cp=1`); false drops the key.
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const setFlag = (key: string, on: boolean) => {
+          if (on) next.set(key, '1');
+          else next.delete(key);
+        };
+        setFlag('focus', focusModeEnabled);
+        setFlag('cp', showCpOnly);
+        setFlag('crit', showCriticalOnly);
+        setFlag('ms', showMilestonesOnly);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [focusModeEnabled, showCpOnly, showCriticalOnly, showMilestonesOnly, setSearchParams]);
 
   // Filter links to critical-path only when showCpOnly is active
   const links = useMemo(
@@ -458,6 +490,7 @@ export function ScheduleView() {
   const zoomLevel = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const viewMode = useScheduleStore((s) => s.viewMode);
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
@@ -1376,6 +1409,50 @@ export function ScheduleView() {
       }
     }
   }, [hash, engine, scheduleScales, visibleTasks, allTasks]);
+
+  // `?task=<id>` deep-link ⇄ open-drawer round-trip (issue #2031). Notifications
+  // and My Work rows navigate to `/projects/:id/schedule?task=<id>`; previously
+  // nothing read the param, so the user landed on the schedule with nothing
+  // selected. Here the query param is the source of truth for the schedule's own
+  // drawer: on mount we open + scroll to the linked task; from then on the drawer
+  // selection is mirrored back into the URL so a refresh or link-copy round-trips.
+  // Capture the incoming param on first render — the emit effect below rewrites
+  // the URL, so we must read the deep-link value before it can be overwritten.
+  const initialTaskParamRef = useRef(searchParams.get('task'));
+  const taskParamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (taskParamConsumedRef.current) return;
+    const id = initialTaskParamRef.current;
+    if (!id) {
+      taskParamConsumedRef.current = true;
+      return;
+    }
+    // Wait for the task tree to load before deciding the id is unknown.
+    if (allTasks.length === 0) return;
+    const exists = allTasks.some((t) => t.id === id);
+    taskParamConsumedRef.current = true;
+    if (exists) {
+      setSelectedTaskId(id);
+      scrollToTask(id);
+    }
+    // If the linked task no longer exists, latch without selecting: the drawer
+    // stays closed. The (now dead) `?task=` param is left as-is — harmless URL
+    // residue on an already-stale link, not worth an extra strip-on-mount write.
+  }, [allTasks, setSelectedTaskId, scrollToTask]);
+  // Mirror drawer selection into `?task=` once the initial param is consumed, so
+  // the two never race on mount (the consume effect wins first).
+  useEffect(() => {
+    if (!taskParamConsumedRef.current) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedTaskId) next.set('task', selectedTaskId);
+        else next.delete('task');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedTaskId, setSearchParams]);
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};

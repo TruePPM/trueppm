@@ -1848,7 +1848,30 @@ export function BoardView() {
   // mount (folded #265 in via the popover's "Open detail" CTA).
   const [popoverTask, setPopoverTask] = useState<Task | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<HTMLElement | null>(null);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // Drawer selection is seeded from `?task=` so a `/board?task=<id>` deep-link
+  // opens the card, and mirrored back into the URL on every open/close so drawer
+  // state round-trips a refresh or link-copy (issue #2031). Seeding in the
+  // initializer (not an effect) avoids racing the emit effect on mount.
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
+    () => searchParams.get('task'),
+  );
+  useEffect(() => {
+    // Bail when the URL already reflects the selection. Without this guard the
+    // mount pass fires a redundant write that, within a single effect flush,
+    // races the sprint smart-default's setSearchParams and clobbers `?sprint=`
+    // (both functional updaters read the pre-navigation location) — the sprint
+    // header never renders (#2031 regression).
+    if (searchParams.get('task') === selectedTaskId) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedTaskId) next.set('task', selectedTaskId);
+        else next.delete('task');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedTaskId, searchParams, setSearchParams]);
   // Board activity feed panel (ADR-0160, issue 1261) — open state persisted per project,
   // mirroring the SprintPanel/FlowAnalyticsPanel disclosure convention.
   const activityStorageKey = `trueppm.board.${projectId}.activityPanel.open`;

@@ -1,5 +1,6 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderWithRouter } from '@/test/utils';
 import { FlatMode } from './FlatMode';
 import { emptyFilters } from './filters';
 import type { Task } from '@/types';
@@ -67,7 +68,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 function renderFlat() {
-  return render(<FlatMode filters={emptyFilters()} onClearFilters={vi.fn()} />);
+  return renderWithRouter(<FlatMode filters={emptyFilters()} onClearFilters={vi.fn()} />);
 }
 
 describe('FlatMode — sortable column headers', () => {
@@ -105,8 +106,20 @@ describe('FlatMode — sortable column headers', () => {
     expect(rows[0]).toHaveTextContent('Build');
   });
 
+  it('seeds the sort column and direction from the URL (#2046)', () => {
+    // `?sort=name&dir=desc` → alphabetical descending, so 'Discover' precedes 'Build'.
+    renderWithRouter(<FlatMode filters={emptyFilters()} onClearFilters={vi.fn()} />, {
+      initialEntries: ['/projects/proj-1/grid?sort=name&dir=desc'],
+    });
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name$/i });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'descending');
+    const rows = screen.getAllByRole('row').filter((r) => r.querySelector('input[type="checkbox"]'));
+    expect(rows[0]).toHaveTextContent('Discover');
+    expect(rows[1]).toHaveTextContent('Build');
+  });
+
   it('renders the filtered-empty state when no tasks match', () => {
-    render(
+    renderWithRouter(
       <FlatMode
         filters={{ search: 'no-such-task', ownerFilter: '', statusFilter: '', dueFilter: 'all' as const }}
         onClearFilters={vi.fn()}

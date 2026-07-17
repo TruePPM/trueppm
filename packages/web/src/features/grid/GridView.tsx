@@ -94,19 +94,49 @@ export function GridView() {
     [projectId],
   );
 
-  // Filter state — search, owner, status, due. Owner+status set programmatically;
-  // chip strip exposes the active set with × to clear individual filters.
-  const [search, setSearch] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
-  const [ownerFilter, setOwnerFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
+  // URL is the source of truth for the working set (issue #2046): search, owner,
+  // and status filters, the `?due=overdue` drill-down, and the flat-mode sort
+  // (in FlatMode) all round-trip through the query string so a filtered/sorted
+  // grid survives a reload and can be shared as a link — matching the Board's
+  // URL-authoritative pattern. `?task=` (the open drawer, #2031) rides the same
+  // params object.
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Filter state — search, owner, status, due. Seeded from the URL; owner+status
+  // also set programmatically; the chip strip exposes the active set with × to
+  // clear individual filters.
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '');
+  const [searchDraft, setSearchDraft] = useState(() => searchParams.get('q') ?? '');
+  const [ownerFilter, setOwnerFilter] = useState(() => searchParams.get('owner') ?? '');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>(
+    () => (searchParams.get('status') as TaskStatus | null) ?? '',
+  );
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mirror the applied filters into the URL. Empty values drop their key so a
+  // clean grid has a clean URL. `search` (not the debounced `searchDraft`) is the
+  // authoritative value, so the link reflects what the grid is actually showing.
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        const setParam = (key: string, value: string) => {
+          if (value) next.set(key, value);
+          else next.delete(key);
+        };
+        setParam('q', search);
+        setParam('owner', ownerFilter);
+        setParam('status', statusFilter);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [search, ownerFilter, statusFilter, setSearchParams]);
 
   // `?due=overdue` deep-link — the Overview "Tasks late" card drills in here so
   // the count it shows and the rows the grid shows use the same late definition
   // (filters.ts `isTaskOverdue` mirrors the server's `tasks_late_count`). The URL
   // param is the source of truth so the filter is shareable and survives reload.
-  const [searchParams, setSearchParams] = useSearchParams();
   const overdue = searchParams.get('due') === 'overdue';
 
   const setOverdue = useCallback(
@@ -145,12 +175,46 @@ export function GridView() {
   // Open a task's detail in the app-wide drawer (mounted in AppShell) when a
   // grid row is clicked — the grid otherwise had no click-through to detail.
   const openTaskDrawer = useTaskDrawerStore((s) => s.openTask);
+  const drawerTask = useTaskDrawerStore((s) => s.task);
   const handleOpenDetail = useCallback(
     (task: Task) => {
       if (projectId) openTaskDrawer(task, projectId);
     },
     [openTaskDrawer, projectId],
   );
+
+  // `?task=<id>` deep-link ⇄ open-drawer round-trip (issue #2031). On mount we
+  // open the grid's app-wide drawer on the linked task once the task list loads;
+  // from then on the open task id is mirrored back into the URL so a refresh or
+  // link-copy round-trips. Grid is the only drawer host on this route, so there
+  // is no double-open with the Schedule/Board/Sprints drawers.
+  const initialGridTaskRef = useRef(searchParams.get('task'));
+  const gridTaskConsumedRef = useRef(false);
+  useEffect(() => {
+    if (gridTaskConsumedRef.current) return;
+    const id = initialGridTaskRef.current;
+    if (!id) {
+      gridTaskConsumedRef.current = true;
+      return;
+    }
+    if (!projectId || !tasks || tasks.length === 0) return; // task list not loaded yet
+    const match = tasks.find((t) => t.id === id);
+    gridTaskConsumedRef.current = true;
+    if (match) openTaskDrawer(match, projectId);
+  }, [tasks, projectId, openTaskDrawer]);
+  useEffect(() => {
+    if (!gridTaskConsumedRef.current) return;
+    const id = drawerTask?.id ?? null;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) next.set('task', id);
+        else next.delete('task');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [drawerTask, setSearchParams]);
 
   const handleSearchChange = (v: string) => {
     setSearchDraft(v);

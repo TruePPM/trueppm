@@ -148,7 +148,9 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
           group: 'current',
           tag: 'Sprint',
           keywords: 'retrospective sprint',
-          run: go(`/projects/${tier2Id}/sprints`),
+          // Deep-link the active sprint so the view selects it directly (#2046),
+          // rather than landing on the default selection.
+          run: go(`/projects/${tier2Id}/sprints?sprint=${activeSprint.id}`),
         });
       }
       // Role/facet-gated: backlog grooming is Product-Owner-facet or Admin+ only,

@@ -79,9 +79,12 @@ export function clickThroughPath(projectId: string, entry: ChangelogEntry): stri
     case 'task':
       return `${base}/tasks/${entry.object_id}`;
     case 'risk':
-      return `${base}/risk`;
+      // Deep-link the specific risk so the register opens its drawer (#2046),
+      // instead of landing on the list and forcing the reader to re-find it.
+      return `${base}/risk?risk=${entry.object_id}`;
     case 'sprint':
-      return `${base}/sprints`;
+      // Deep-link the specific sprint so the sprints view selects it (#2046).
+      return `${base}/sprints?sprint=${entry.object_id}`;
     case 'dependency':
     case 'task_recurrence':
       return `${base}/schedule`;

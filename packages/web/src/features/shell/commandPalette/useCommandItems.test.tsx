@@ -188,7 +188,11 @@ describe('useCommandItems — tier assembly', () => {
     expect(jump?.group).toBe('sprint');
     expect(jump?.detail).toBe('Atlas');
     // …the retro jump stays as an in-context `current` target.
-    expect(items.get('current:retro:p1')?.label).toBe('Open Sprint 14 retro');
+    const retro = items.get('current:retro:p1');
+    expect(retro?.label).toBe('Open Sprint 14 retro');
+    // …and deep-links the active sprint so the view selects it directly (#2046).
+    retro?.run();
+    expect(navigate).toHaveBeenCalledWith('/projects/p1/sprints?sprint=s1');
     expect(items.has('current:active-sprint:p1')).toBe(false);
   });
 

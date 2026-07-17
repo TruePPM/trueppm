@@ -65,8 +65,13 @@ describe('clickThroughPath', () => {
   });
 
   it('routes each non-task object type to its closest surface', () => {
-    expect(clickThroughPath('p1', entry({ object_type: 'risk' }))).toBe('/projects/p1/risk');
-    expect(clickThroughPath('p1', entry({ object_type: 'sprint' }))).toBe('/projects/p1/sprints');
+    // risk/sprint deep-link to the specific item so the surface opens it (#2046).
+    expect(clickThroughPath('p1', entry({ object_type: 'risk', object_id: 'obj-1' }))).toBe(
+      '/projects/p1/risk?risk=obj-1',
+    );
+    expect(clickThroughPath('p1', entry({ object_type: 'sprint', object_id: 'obj-1' }))).toBe(
+      '/projects/p1/sprints?sprint=obj-1',
+    );
     expect(clickThroughPath('p1', entry({ object_type: 'dependency' }))).toBe(
       '/projects/p1/schedule',
     );

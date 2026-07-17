@@ -110,10 +110,43 @@ export function RiskRegisterView() {
   // client-side over the loaded list. Composed with the matrix-cell
   // facet below via AND. Seeded once from `?severity=high` so the Overview
   // "Open risks" card drills straight into the High segment (#1691).
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState<RiskFilter>(
     searchParams.get('severity') === 'high' ? 'high' : 'all',
   );
+  // `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046). Activity rows
+  // for a risk change and the register's own drill-in navigate to
+  // `/projects/:id/risk?risk=<id>`; on mount we open the drawer on that risk once
+  // the register loads, and mirror the open risk back into the URL so a refresh
+  // or link-copy round-trips. Create mode (`selectedRisk === undefined`) carries
+  // no id, so the param is stripped.
+  const initialRiskParamRef = useRef(searchParams.get('risk'));
+  const riskParamConsumedRef = useRef(false);
+  useEffect(() => {
+    if (riskParamConsumedRef.current) return;
+    const id = initialRiskParamRef.current;
+    if (!id) {
+      riskParamConsumedRef.current = true;
+      return;
+    }
+    if (risks.length === 0) return; // register not loaded yet — retry next render
+    const match = risks.find((r) => r.id === id);
+    riskParamConsumedRef.current = true;
+    if (match) setSelectedRisk(match);
+  }, [risks]);
+  const selectedRiskId = selectedRisk ? selectedRisk.id : null;
+  useEffect(() => {
+    if (!riskParamConsumedRef.current) return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (selectedRiskId) next.set('risk', selectedRiskId);
+        else next.delete('risk');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [selectedRiskId, setSearchParams]);
   const [severitySort, setSeveritySort] = useState<SeveritySort>('none');
   // "Newest" sort (issue 1230) — created_at descending. Mutually exclusive with
   // the severity column sort: turning one on resets the other, so the table is
