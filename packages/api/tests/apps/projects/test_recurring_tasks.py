@@ -393,8 +393,6 @@ def test_committed_manager_excludes_recurring_tasks(project: Project, template: 
 @pytest.mark.django_db
 def test_beat_task_isolates_per_rule_failures(project: Project, template: Task) -> None:
     """One malformed rule must not starve the rest of the sweep."""
-    from trueppm_api.apps.projects.tasks import generate_recurring_occurrences
-
     good = _make_rule(template, frequency=TaskRecurrenceFrequency.DAILY)
     bad_task = Task.objects.create(project=project, name="bad", duration=1, planned_start=MONDAY)
     _make_rule(bad_task, frequency=TaskRecurrenceFrequency.DAILY)
