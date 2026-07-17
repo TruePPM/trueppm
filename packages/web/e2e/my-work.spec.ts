@@ -405,6 +405,47 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
     await expect(page.getByRole('link', { name: /Learn more/i })).toBeVisible();
   });
 
+  test('empty state — no projects — leads with a create CTA that opens the new-project modal (#2034)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await setupAuthenticatedPage(page);
+    await page.route('**/api/v1/projects/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.route('**/api/v1/me/active-sprints/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    await page.route('**/api/v1/me/work/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: [],
+          next: null,
+          previous: null,
+          active_sprints: [],
+          due_today_count: 0,
+          server_version_high_water: 0,
+        }),
+      }),
+    );
+
+    await page.goto('/me/work');
+
+    await expect(page.getByRole('heading', { name: /get you started/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Browse programs/i })).toBeVisible();
+
+    // The primary CTA opens the multi-step create modal in place (#2034).
+    await page.getByRole('button', { name: 'Create your first project' }).click();
+    await expect(page.getByRole('dialog', { name: /New project/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Project details/i })).toBeVisible();
+  });
+
   test('empty state — loading the demo lands the contributor on a board (#1054)', async ({
     page,
   }) => {

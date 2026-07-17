@@ -21,6 +21,7 @@ import { Button } from '@/components/Button';
 import { InboxIcon } from '@/components/Icons';
 import { docsUrl } from '@/lib/docsUrl';
 import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
+import { NewProjectModal } from '@/features/shell/NewProjectModal';
 
 interface Props {
   hasProjects: boolean;
@@ -48,6 +49,21 @@ function ConnectJiraNudge() {
   );
 }
 
+/** "Browse programs" link — a next step for an evaluator who wants to look
+ *  around before creating anything (#2034). */
+function BrowseProgramsLink() {
+  return (
+    <Link
+      to="/programs"
+      className="inline-flex items-center gap-1 text-sm text-brand-primary hover:underline
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 rounded-control"
+    >
+      Browse programs →
+    </Link>
+  );
+}
+
 /** Shared "Learn more" docs link, refreshed (no emoji). */
 function LearnMoreLink() {
   return (
@@ -63,7 +79,13 @@ function LearnMoreLink() {
 }
 
 /** "Explore a demo project" CTA — loads the bundled sample, then navigates to it. */
-function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
+function ExploreDemoButton({
+  disabled,
+  variant = 'primary',
+}: {
+  disabled?: boolean;
+  variant?: 'primary' | 'secondary';
+}) {
   const navigate = useNavigate();
   const loadSample = useLoadSampleProgram();
   const [failed, setFailed] = useState(false);
@@ -88,7 +110,7 @@ function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
   return (
     <div className="flex flex-col items-center gap-2">
       <Button
-        variant="primary"
+        variant={variant}
         size="lg"
         onClick={explore}
         disabled={disabled === true || loadSample.isPending}
@@ -108,6 +130,8 @@ function ExploreDemoButton({ disabled }: { disabled?: boolean }) {
 export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = false }: Props) {
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
   const showConnectJira = !hasConnectedExternalSource;
+  const navigate = useNavigate();
+  const [showNewProject, setShowNewProject] = useState(false);
 
   if (offline) {
     return (
@@ -137,11 +161,28 @@ export function MyWorkEmptyState({ hasProjects, hasConnectedExternalSource = fal
           Welcome to TruePPM — let&rsquo;s get you started
         </h2>
         <p className="max-w-md text-sm text-neutral-text-secondary">
-          This is My Work — your home for everything assigned to you across projects. There&rsquo;s
-          nothing here yet. Spin up a demo project to see how it all fits together.
+          This is My Work — your home for everything assigned to you across projects. Create your
+          first project to start planning, or spin up a demo to see how it all fits together.
         </p>
-        <ExploreDemoButton />
-        <LearnMoreLink />
+        {/* Highest-intent evaluators are here to do real work — lead with create,
+            keep the demo as the low-commitment secondary path (#2034). */}
+        <Button variant="primary" size="lg" onClick={() => setShowNewProject(true)}>
+          Create your first project
+        </Button>
+        <ExploreDemoButton variant="secondary" />
+        <div className="flex items-center gap-4">
+          <BrowseProgramsLink />
+          <LearnMoreLink />
+        </div>
+        {showNewProject && (
+          <NewProjectModal
+            onClose={() => setShowNewProject(false)}
+            onCreated={(projectId) => {
+              setShowNewProject(false);
+              void navigate(`/projects/${projectId}/overview`);
+            }}
+          />
+        )}
       </div>
     );
   }

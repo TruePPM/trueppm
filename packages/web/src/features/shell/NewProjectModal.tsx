@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import { useProjects } from '@/hooks/useProjects';
 import { RolePicker } from '@/features/settings/members/RolePicker';
+import { toast } from '@/components/Toast';
 import { ROLE_MEMBER } from '@/lib/roles';
 import type { Methodology } from '@/types';
 
@@ -163,6 +164,10 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
           if (programId) {
             void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'projects'] });
           }
+          // Confirm the create like every other creation moment (rule 185, #2048) —
+          // the modal closes on navigation, so without this the user's first
+          // commitment lands silently on an empty Overview.
+          toast.success(`Created ${name.trim()}`);
           onCreated(data.id);
         },
       },

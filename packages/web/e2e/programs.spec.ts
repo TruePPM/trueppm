@@ -302,7 +302,10 @@ test.describe('Programs — "Use program defaults" on project create (#1909)', (
     await expect(page.getByRole('heading', { name: /good morning|good afternoon|good evening/i })).toBeVisible();
     await page.getByRole('button', { name: /Browse projects and programs/i }).click();
 
-    await page.getByRole('button', { name: /\+ New project/i }).click();
+    // Scope to the browse popover: a zero-project sidebar now also renders a
+    // "+ New project" fallback action (#2034), so the bare role+name matches two
+    // buttons. We want the popover's entry point, per this test's intent.
+    await page.locator('#rail-browse-panel').getByRole('button', { name: /\+ New project/i }).click();
     const dialog = page.getByRole('dialog', { name: /new project/i });
     await dialog.getByLabel(/^name/i).fill('Standalone Project');
     await dialog.getByRole('button', { name: /^next$/i }).click(); // step 1 → 2

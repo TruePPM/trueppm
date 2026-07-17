@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
+import { Button } from '@/components/Button';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_OWNER, ROLE_SCHEDULER } from '@/lib/roles';
 import { apiClient } from '@/api/client';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import type { PaginatedResponse, ProjectHealth } from '@/api/types';
@@ -960,6 +961,7 @@ function buildOverviewMetrics(
  */
 export function ProjectOverviewPage() {
   const projectId = useProjectId();
+  const navigate = useNavigate();
 
   const {
     data: overview,
@@ -1011,6 +1013,11 @@ export function ProjectOverviewPage() {
   // 403). Pessimistic while the role loads (role null → not linkable).
   const { role } = useCurrentUserRole(projectId);
   const canSeeResources = role !== null && role >= ROLE_SCHEDULER;
+  // The invite form on settings#access is Owner-only (MembersTab renders it
+  // behind `myRole === ROLE_OWNER`), so gate the first-run invite CTA on OWNER —
+  // an ADMIN who clicked it would land on a members page with no invite form,
+  // the exact soft dead-end this CTA is meant to avoid (#2048).
+  const canInvite = role !== null && role >= ROLE_OWNER;
 
   // Build the six overview metrics once, then rank them worst-first and split
   // into a 3-card focus row + a 3-card secondary strip. Plain-language
@@ -1024,6 +1031,64 @@ export function ProjectOverviewPage() {
   const focus = ranked.slice(0, 3);
   const secondary = ranked.slice(3);
   const focusHeadingText = focusHeading(focus);
+
+  // First-run handoff (#2048): a project with zero tasks lands on six zero-value
+  // KPI cards and widgets whose empty copy assumes existing work ("Run the
+  // scheduler…") — a dead dashboard right after the user's most important
+  // commitment. Swap the whole body for a focused "add your first task" moment;
+  // the KPIs return automatically the instant there's work to measure.
+  const isFirstRun =
+    !overviewLoading && !overviewError && overview !== undefined && overview.total_tasks === 0;
+  if (isFirstRun && projectId) {
+    // Scheduling-first app: land authoring on Schedule wherever it's visible,
+    // falling back to Board for an agile-only project (schedule tab hidden).
+    const workSurface = showCriticalPath ? 'schedule' : 'board';
+    const workSurfaceLabel = showCriticalPath ? 'Schedule' : 'Board';
+    return (
+      <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
+        {overview && <ProjectHeader overview={overview} projectId={projectId} />}
+        <section
+          aria-labelledby="first-run-heading"
+          className="rounded-card border border-neutral-border bg-neutral-surface p-6 flex flex-col gap-4"
+        >
+          <div className="flex flex-col gap-1">
+            <h2 id="first-run-heading" className="text-base font-semibold text-neutral-text-primary">
+              Your project is ready — add your first task
+            </h2>
+            <p className="max-w-xl text-sm text-neutral-text-secondary">
+              This Overview fills in with health, forecast, and critical-path insights as soon as
+              there&rsquo;s work to plan. Start by adding a task, then invite the people who&rsquo;ll
+              help deliver it.
+            </p>
+          </div>
+          {/* Route the CTAs through the shared DS Button so the primary keeps the
+              brand navy-on-sage recipe (white-on-sage fails AA in dark mode) — same
+              pattern as ScheduleEmptyState. In-app navigation via router push. */}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => void navigate(`/projects/${projectId}/${workSurface}`)}
+            >
+              Add your first task
+            </Button>
+            {canInvite && (
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => void navigate(`/projects/${projectId}/settings#access`)}
+              >
+                Invite teammates
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-neutral-text-secondary">
+            Prefer the timeline? Head to the {workSurfaceLabel} to lay out your schedule.
+          </p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">

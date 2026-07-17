@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from 'react-router';
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useProjects } from '@/hooks/useProjects';
 import { usePrograms } from '@/hooks/usePrograms';
+import { useLoadSampleProgram } from '@/hooks/useProgramSeedIo';
 import { useMyWork } from '@/hooks/useMyWork';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -314,6 +315,25 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const go = (to: string) => {
     void navigate(to);
     dismissSwitcher();
+  };
+  // Zero-project rail fallback (#2034): the "load a demo" action mirrors
+  // MyWorkEmptyState — load the bundled sample, then land the user on the board
+  // holding their freshly-assigned sprint (falling back to program overview).
+  const loadSample = useLoadSampleProgram();
+  const loadDemo = () => {
+    loadSample.mutate(undefined, {
+      onSuccess: (result) => {
+        dismissSwitcher();
+        onClose?.();
+        void navigate(
+          result.landing_project_id
+            ? `/projects/${result.landing_project_id}/board`
+            : `/programs/${result.program.id}/overview`,
+          { state: { startExploringSample: result.sample_key } },
+        );
+      },
+      onError: () => toast.error("Couldn't load the demo — please try again."),
+    });
   };
   const closeDrawer = () => {
     if (isDrawer) onClose?.();
@@ -753,6 +773,31 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                         />
                       ))}
                     </>
+                  ) : (projects ?? []).length === 0 ? (
+                    // A zero-project user cannot act on "pin something" advice
+                    // (#2034) — give them the two things they actually can do.
+                    // Keep `role="status"` on the advisory text only, not the
+                    // actions (a live region should not announce controls).
+                    <div className="flex flex-col items-start gap-2 px-3 py-2">
+                      <p role="status" className="text-xs text-chrome-text-secondary">
+                        No projects yet — create one or load a demo.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowNewProject(true)}
+                        className="text-xs font-medium text-brand-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control"
+                      >
+                        + New project
+                      </button>
+                      <button
+                        type="button"
+                        onClick={loadDemo}
+                        disabled={loadSample.isPending}
+                        className="text-xs font-medium text-chrome-text-secondary hover:text-chrome-text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-brand-primary rounded-control disabled:opacity-50"
+                      >
+                        {loadSample.isPending ? 'Loading demo…' : 'Load a demo'}
+                      </button>
+                    </div>
                   ) : (
                     <p role="status" className="px-3 py-2 text-xs italic text-chrome-text-secondary">
                       Pin a program or project for quick access.

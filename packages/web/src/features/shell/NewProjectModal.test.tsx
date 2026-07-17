@@ -29,6 +29,15 @@ vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => projectsResult,
 }));
 
+const toastSuccess = vi.fn();
+vi.mock('@/components/Toast', () => ({
+  toast: {
+    success: (msg: string) => {
+      toastSuccess(msg);
+    },
+  },
+}));
+
 describe('NewProjectModal', () => {
   const onClose = vi.fn();
   const onCreated = vi.fn();
@@ -206,6 +215,21 @@ describe('NewProjectModal', () => {
       expect.objectContaining({ name: 'Beta', description: 'A description' }),
       expect.anything(),
     );
+  });
+
+  it('confirms creation with a success toast and calls onCreated (#2048)', async () => {
+    renderModal();
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), '  Alpha  ');
+    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
+    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    // Fire the mutation's onSuccess as the real hook would.
+    const opts = mutateMock.mock.calls[0][1] as { onSuccess: (d: { id: string }) => void };
+    opts.onSuccess({ id: 'new-proj-1' });
+
+    expect(toastSuccess).toHaveBeenCalledWith('Created Alpha');
+    expect(onCreated).toHaveBeenCalledWith('new-proj-1');
   });
 
   it('shows error message on step 3 when mutation fails', async () => {
