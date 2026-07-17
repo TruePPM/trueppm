@@ -186,18 +186,15 @@ export function ProgramCalendarPage() {
                 value={displayCalendarId ?? ''}
                 onChange={(e) => setCalendarId(e.target.value === '' ? null : e.target.value)}
                 aria-label="Working calendar override"
-                // Disable when the workspace policy locks overrides, or while
-                // loading/errored — an enabled empty picker under either of the
-                // latter would be indistinguishable from "no calendars exist".
-                disabled={!canEdit || calendarsLoading || !!calendarsError}
+                // Disable when the workspace policy locks overrides, or on a load
+                // error — an enabled empty picker there would be indistinguishable
+                // from "no calendars exist". (The loading case is handled upstream
+                // by the page-level skeleton, so it never reaches this control.)
+                disabled={!canEdit || !!calendarsError}
                 className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
               >
                 <option value="">
-                  {calendarsLoading
-                    ? 'Loading calendars…'
-                    : calendarsError
-                      ? "Couldn't load calendars"
-                      : 'Override with a calendar…'}
+                  {calendarsError ? "Couldn't load calendars" : 'Override with a calendar…'}
                 </option>
                 {/* Keep the current override selectable even if it isn't in the
                     fetched list yet (still loading, or the calendar was removed),
