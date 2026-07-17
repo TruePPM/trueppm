@@ -8,6 +8,18 @@ import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
+import type { EstimationMode } from '@/api/types';
+
+// Estimate-governance modes (ADR-0041, #2018). Ordered least → most restrictive.
+const ESTIMATION_MODE_OPTIONS: Array<{ id: EstimationMode; label: string; hint: string }> = [
+  { id: 'open', label: 'Open', hint: 'Any member can write task estimates.' },
+  {
+    id: 'suggest_approve',
+    label: 'Suggest & Approve',
+    hint: 'Members propose estimates; a Scheduler approves them.',
+  },
+  { id: 'pm_only', label: 'PM Only', hint: 'Only Schedulers can write estimates.' },
+];
 
 /**
  * Project > Methodology settings page (ADR-0107, issue 955 / issue 1169).
@@ -87,24 +99,36 @@ export function ProjectMethodologyPage() {
   const { data: ws } = useWorkspaceSettings();
 
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
+  const [estimationMode, setEstimationMode] = useState<EstimationMode>('open');
   const seededProjectIdRef = useRef<string | null>(null);
   const [initial, setInitial] = useState<Methodology>('HYBRID');
+  const [initialEstimationMode, setInitialEstimationMode] = useState<EstimationMode>('open');
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
     seededProjectIdRef.current = project.id;
     setMethodology(project.methodology);
     setInitial(project.methodology);
+    setEstimationMode(project.estimation_mode as EstimationMode);
+    setInitialEstimationMode(project.estimation_mode as EstimationMode);
   }, [project]);
 
   const handleSave = useCallback(async () => {
-    await updateProject.mutateAsync({ methodology });
+    // Send only what actually changed. `methodology` is 403'd under a workspace
+    // override lock, so bundling an unchanged methodology with an estimation_mode
+    // change would sink the whole PATCH — estimation is independent of that lock.
+    const payload: Parameters<typeof updateProject.mutateAsync>[0] = {};
+    if (methodology !== initial) payload.methodology = methodology;
+    if (estimationMode !== initialEstimationMode) payload.estimation_mode = estimationMode;
+    await updateProject.mutateAsync(payload);
     setInitial(methodology);
-  }, [updateProject, methodology]);
+    setInitialEstimationMode(estimationMode);
+  }, [updateProject, methodology, initial, estimationMode, initialEstimationMode]);
 
   const handleReset = useCallback(() => {
     setMethodology(initial);
-  }, [initial]);
+    setEstimationMode(initialEstimationMode);
+  }, [initial, initialEstimationMode]);
 
   // The workspace locks overrides under INHERIT (always) or active Enterprise
   // ENFORCE. OSS never has an active ENFORCE provider, so ENFORCE behaves like
@@ -116,13 +140,18 @@ export function ProjectMethodologyPage() {
   // serializer's `_SCHEDULER_WRITABLE_FIELDS`, so Scheduler+ may change it under
   // the ADR-0041 role model — the UI must not be stricter than the API (#2019).
   const canEdit = !lockedByPolicy && role !== null && role >= ROLE_SCHEDULER;
+  // Estimate governance is Scheduler+ but is NOT subject to the methodology
+  // override lock (that policy governs methodology inheritance only, #2018).
+  const canEditEstimation = role !== null && role >= ROLE_SCHEDULER;
 
   useDirtyForm({
-    values: { methodology },
-    initialValues: { methodology: initial },
+    values: { methodology, estimation_mode: estimationMode },
+    initialValues: { methodology: initial, estimation_mode: initialEstimationMode },
     onSave: handleSave,
     onReset: handleReset,
-    apiReady: !!project && canEdit,
+    // Arm the save bar when EITHER control is editable — estimation stays editable
+    // even when methodology is locked by the workspace policy.
+    apiReady: !!project && (canEdit || canEditEstimation),
   });
 
   // Gate on BOTH the project and the workspace settings: until both resolve,
@@ -261,6 +290,47 @@ export function ProjectMethodologyPage() {
               );
             })}
           </div>
+        </section>
+
+        {/* Estimate governance (ADR-0041, #2018). Scheduler+-writable, independent of
+            the methodology override lock. Disabled below Scheduler to match this page's
+            methodology picker; #2057 migrates both to the ADR-0133 read-only pattern. */}
+        <section aria-labelledby="estimation-heading">
+          <h2
+            id="estimation-heading"
+            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
+          >
+            Estimate governance
+          </h2>
+          <div className="relative inline-block w-[240px]">
+            <select
+              value={estimationMode}
+              onChange={(e) => setEstimationMode(e.target.value as EstimationMode)}
+              disabled={!canEditEstimation}
+              aria-label="Estimate governance"
+              className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
+            >
+              {ESTIMATION_MODE_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[440px]">
+            {ESTIMATION_MODE_OPTIONS.find((o) => o.id === estimationMode)?.hint}{' '}
+            Consumed by the estimate-approval flow on tasks.
+          </p>
         </section>
       </div>
     </div>

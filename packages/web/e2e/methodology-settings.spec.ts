@@ -194,6 +194,67 @@ test.describe('Project methodology', () => {
     expect(patchBody).toMatchObject({ methodology: 'WATERFALL' });
   });
 
+  test('surfaces estimate governance and saves only estimation_mode (#2018)', async ({ page }) => {
+    await baseSetup(page);
+    await projectRoutes(page);
+
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
+        return;
+      }
+      r.fulfill(json(projectDetail()));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+
+    const methodology = page.locator('[data-settings-section="methodology"]');
+    const estimation = methodology.getByRole('combobox', { name: 'Estimate governance' });
+    await expect(estimation).toHaveValue('open');
+
+    await estimation.selectOption('pm_only');
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => patchBody).not.toBeNull();
+    // Methodology was untouched → only estimation_mode is sent.
+    expect(patchBody).toMatchObject({ estimation_mode: 'pm_only' });
+    expect(patchBody).not.toHaveProperty('methodology');
+  });
+
+  test('keeps estimate governance editable under an INHERIT methodology lock (#2018)', async ({
+    page,
+  }) => {
+    await baseSetup(page);
+    await projectRoutes(page, { ws: { methodology_override_policy: 'inherit' } });
+
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = JSON.parse(r.request().postData() ?? '{}') as Record<string, unknown>;
+        r.fulfill(json(projectDetail({ estimation_mode: 'pm_only' })));
+        return;
+      }
+      r.fulfill(json(projectDetail({ methodology: 'AGILE', effective_methodology: 'WATERFALL' })));
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
+    const methodology = page.locator('[data-settings-section="methodology"]');
+
+    // Methodology is locked by the workspace policy…
+    await expect(methodology.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // …but estimate governance is independent — still editable, saves on its own.
+    const estimation = methodology.getByRole('combobox', { name: 'Estimate governance' });
+    await expect(estimation).toBeEnabled();
+    await estimation.selectOption('pm_only');
+    await page.getByRole('button', { name: /Save changes/i }).click();
+
+    await expect.poll(() => patchBody).not.toBeNull();
+    expect(patchBody).toMatchObject({ estimation_mode: 'pm_only' });
+    expect(patchBody).not.toHaveProperty('methodology');
+  });
+
   test('locked state — INHERIT policy disables the picker and shows the workspace value', async ({
     page,
   }) => {

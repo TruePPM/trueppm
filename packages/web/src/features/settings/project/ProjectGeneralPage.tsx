@@ -13,6 +13,7 @@ import { ROLE_ADMIN } from '@/lib/roles';
 import type {
   DurationChangePercentPolicy,
   MCAttributionAudience,
+  PrioritizationModel,
   ProjectDefaultView,
   ProjectHealth,
   ProjectVisibility,
@@ -44,6 +45,25 @@ const DEFAULT_VIEW_OPTIONS: Array<{ id: ProjectDefaultView; label: string }> = [
   { id: 'TABLE', label: 'Table' },
   { id: 'OVERVIEW', label: 'Overview' },
 ];
+
+// Product-backlog scoring model (ADR-0105 §3, #922). `none` hides the scoring surface.
+const PRIORITIZATION_OPTIONS: Array<{ id: PrioritizationModel; label: string }> = [
+  { id: 'none', label: 'None' },
+  { id: 'wsjf', label: 'WSJF' },
+  { id: 'rice', label: 'RICE' },
+  { id: 'value_effort', label: 'Value / Effort' },
+];
+
+// Notification-threshold bounds (validated server-side, 1–365).
+const THRESHOLD_MIN = 1;
+const THRESHOLD_MAX = 365;
+
+/** Parse a threshold input, clamping to [1, 365] and mapping empty/NaN to the min. */
+function clampThreshold(raw: string): number {
+  const n = Number.parseInt(raw, 10);
+  if (Number.isNaN(n)) return THRESHOLD_MIN;
+  return Math.min(THRESHOLD_MAX, Math.max(THRESHOLD_MIN, n));
+}
 
 const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: string }> = [
   {
@@ -84,6 +104,15 @@ export function ProjectGeneralPage() {
   const [visibility, setVisibility] = useState<ProjectVisibility>('WORKSPACE');
   const [timezone, setTimezone] = useState('');
   const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
+  // Schedule anchor (#2018). Required; empty is never persisted (guarded in handleSave).
+  const [startDate, setStartDate] = useState('');
+  // Forecasting data date (ADR-0132, #2018). null = "Today (dynamic)"; a string = fixed anchor.
+  const [statusDate, setStatusDate] = useState<string | null>(null);
+  // Backlog scoring model (ADR-0105, #2018).
+  const [prioritizationModel, setPrioritizationModel] = useState<PrioritizationModel>('none');
+  // Notification-nudge thresholds in days (ADR-0200 / #1911, #2018). Validated 1–365.
+  const [staleThresholdDays, setStaleThresholdDays] = useState<number>(THRESHOLD_MIN);
+  const [endShiftThresholdDays, setEndShiftThresholdDays] = useState<number>(THRESHOLD_MIN);
   // null = Unassigned. User id of the project lead (#966).
   const [lead, setLead] = useState<string | null>(null);
   // null = inherit the program/workspace default (ADR-0116, #1106).
@@ -116,6 +145,13 @@ export function ProjectGeneralPage() {
   const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('WORKSPACE');
   const [initialTimezone, setInitialTimezone] = useState('');
   const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
+  const [initialStartDate, setInitialStartDate] = useState('');
+  const [initialStatusDate, setInitialStatusDate] = useState<string | null>(null);
+  const [initialPrioritizationModel, setInitialPrioritizationModel] =
+    useState<PrioritizationModel>('none');
+  const [initialStaleThresholdDays, setInitialStaleThresholdDays] = useState<number>(THRESHOLD_MIN);
+  const [initialEndShiftThresholdDays, setInitialEndShiftThresholdDays] =
+    useState<number>(THRESHOLD_MIN);
   const [initialLead, setInitialLead] = useState<string | null>(null);
   const [initialIterationLabel, setInitialIterationLabel] = useState<string | null>(null);
   const [initialPublicSharing, setInitialPublicSharing] = useState<boolean | null>(null);
@@ -141,6 +177,11 @@ export function ProjectGeneralPage() {
     setVisibility(project.visibility);
     setTimezone(project.timezone);
     setDefaultView(project.default_view);
+    setStartDate(project.start_date);
+    setStatusDate(project.status_date ?? null);
+    setPrioritizationModel(project.prioritization_model);
+    setStaleThresholdDays(project.stale_task_threshold_days);
+    setEndShiftThresholdDays(project.end_date_shift_threshold_days);
     setLead(project.lead ?? null);
     setIterationLabel(project.iteration_label ?? null);
     setPublicSharing(project.public_sharing ?? null);
@@ -156,6 +197,11 @@ export function ProjectGeneralPage() {
     setInitialVisibility(project.visibility);
     setInitialTimezone(project.timezone);
     setInitialDefaultView(project.default_view);
+    setInitialStartDate(project.start_date);
+    setInitialStatusDate(project.status_date ?? null);
+    setInitialPrioritizationModel(project.prioritization_model);
+    setInitialStaleThresholdDays(project.stale_task_threshold_days);
+    setInitialEndShiftThresholdDays(project.end_date_shift_threshold_days);
     setInitialLead(project.lead ?? null);
     setInitialIterationLabel(project.iteration_label ?? null);
     setInitialPublicSharing(project.public_sharing ?? null);
@@ -175,6 +221,11 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       default_view: defaultView,
+      start_date: startDate,
+      status_date: statusDate,
+      prioritization_model: prioritizationModel,
+      stale_task_threshold_days: staleThresholdDays,
+      end_date_shift_threshold_days: endShiftThresholdDays,
       lead,
       iteration_label: iterationLabel,
       public_sharing: publicSharing,
@@ -192,6 +243,11 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       defaultView,
+      startDate,
+      statusDate,
+      prioritizationModel,
+      staleThresholdDays,
+      endShiftThresholdDays,
       lead,
       iterationLabel,
       publicSharing,
@@ -211,6 +267,11 @@ export function ProjectGeneralPage() {
       visibility: initialVisibility,
       timezone: initialTimezone,
       default_view: initialDefaultView,
+      start_date: initialStartDate,
+      status_date: initialStatusDate,
+      prioritization_model: initialPrioritizationModel,
+      stale_task_threshold_days: initialStaleThresholdDays,
+      end_date_shift_threshold_days: initialEndShiftThresholdDays,
       lead: initialLead,
       iteration_label: initialIterationLabel,
       public_sharing: initialPublicSharing,
@@ -228,6 +289,11 @@ export function ProjectGeneralPage() {
       initialVisibility,
       initialTimezone,
       initialDefaultView,
+      initialStartDate,
+      initialStatusDate,
+      initialPrioritizationModel,
+      initialStaleThresholdDays,
+      initialEndShiftThresholdDays,
       initialLead,
       initialIterationLabel,
       initialPublicSharing,
@@ -240,6 +306,10 @@ export function ProjectGeneralPage() {
   );
 
   const handleSave = useCallback(async () => {
+    // start_date is required (#2018) — an accidentally-cleared native date input
+    // normalizes back to the last saved value rather than 400-ing the whole batch,
+    // mirroring the iteration_label empty→null normalization below.
+    const savedStartDate = startDate || initialStartDate;
     await updateProject.mutateAsync({
       name,
       description,
@@ -248,6 +318,12 @@ export function ProjectGeneralPage() {
       visibility,
       timezone,
       default_view: defaultView,
+      start_date: savedStartDate,
+      // null = "Today (dynamic)"; a string = a fixed forecasting data date (ADR-0132).
+      status_date: statusDate,
+      prioritization_model: prioritizationModel,
+      stale_task_threshold_days: staleThresholdDays,
+      end_date_shift_threshold_days: endShiftThresholdDays,
       lead,
       // null clears the override (inherit); a blank custom string normalizes to null
       // too — "inherit" is the explicit null and the serializer rejects empty strings
@@ -272,6 +348,12 @@ export function ProjectGeneralPage() {
     setInitialVisibility(visibility);
     setInitialTimezone(timezone);
     setInitialDefaultView(defaultView);
+    setStartDate(savedStartDate);
+    setInitialStartDate(savedStartDate);
+    setInitialStatusDate(statusDate);
+    setInitialPrioritizationModel(prioritizationModel);
+    setInitialStaleThresholdDays(staleThresholdDays);
+    setInitialEndShiftThresholdDays(endShiftThresholdDays);
     setInitialLead(lead);
     setInitialIterationLabel(savedIterationLabel);
     setInitialPublicSharing(publicSharing);
@@ -289,6 +371,12 @@ export function ProjectGeneralPage() {
     visibility,
     timezone,
     defaultView,
+    startDate,
+    initialStartDate,
+    statusDate,
+    prioritizationModel,
+    staleThresholdDays,
+    endShiftThresholdDays,
     lead,
     iterationLabel,
     publicSharing,
@@ -307,6 +395,11 @@ export function ProjectGeneralPage() {
     setVisibility(initialVisibility);
     setTimezone(initialTimezone);
     setDefaultView(initialDefaultView);
+    setStartDate(initialStartDate);
+    setStatusDate(initialStatusDate);
+    setPrioritizationModel(initialPrioritizationModel);
+    setStaleThresholdDays(initialStaleThresholdDays);
+    setEndShiftThresholdDays(initialEndShiftThresholdDays);
     setLead(initialLead);
     setIterationLabel(initialIterationLabel);
     setPublicSharing(initialPublicSharing);
@@ -323,6 +416,11 @@ export function ProjectGeneralPage() {
     initialVisibility,
     initialTimezone,
     initialDefaultView,
+    initialStartDate,
+    initialStatusDate,
+    initialPrioritizationModel,
+    initialStaleThresholdDays,
+    initialEndShiftThresholdDays,
     initialLead,
     initialIterationLabel,
     initialPublicSharing,
@@ -711,6 +809,137 @@ export function ProjectGeneralPage() {
                   strokeLinecap="round"
                 />
               </svg>
+            </div>
+          </FieldRow>
+
+          {/* Scheduling & forecasting (#2018). start_date is the schedule anchor;
+              status_date is the ADR-0132 data date Monte Carlo forecasts from. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Scheduling &amp; forecasting
+          </h3>
+
+          <FieldRow
+            label="Start date"
+            hint="The schedule's anchor. Moving it shifts dated work and recomputes the critical path."
+          >
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              aria-label="Start date"
+              className="w-[170px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+          </FieldRow>
+
+          <FieldRow
+            label="Status date (data date)"
+            hint="Forecasts and % complete are measured as of this date. Leave on Today to always use the current date (ADR-0132)."
+          >
+            {/* null = "Today (dynamic)"; picking a date arms a fixed anchor. Mirrors the
+                inherit/override toggle pattern used elsewhere on this page. */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusDate(null)}
+                aria-pressed={statusDate === null}
+                className={[
+                  'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  statusDate === null
+                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                ].join(' ')}
+              >
+                Today (dynamic)
+              </button>
+              <input
+                type="date"
+                value={statusDate ?? ''}
+                onChange={(e) => setStatusDate(e.target.value === '' ? null : e.target.value)}
+                aria-label="Fixed status date"
+                className="w-[170px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+            </div>
+          </FieldRow>
+
+          {/* Backlog scoring (ADR-0105, #2018). estimation_mode lives on the
+              Methodology page (it's Scheduler-editable, unlike this Admin-only page). */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Backlog scoring
+          </h3>
+
+          <FieldRow
+            label="Backlog scoring model"
+            hint="How backlog items are scored for ranking. None hides the scoring inputs — pure manual order (ADR-0105)."
+          >
+            <div className="relative inline-block w-[200px]">
+              <select
+                value={prioritizationModel}
+                onChange={(e) => setPrioritizationModel(e.target.value as PrioritizationModel)}
+                aria-label="Backlog scoring model"
+                className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              >
+                {PRIORITIZATION_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+                width="11"
+                height="11"
+                viewBox="0 0 16 16"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </div>
+          </FieldRow>
+
+          <p className="text-[12px] text-neutral-text-secondary -mt-1 mb-1">
+            Who may write estimates is set on the Methodology page.
+          </p>
+
+          {/* Notification thresholds (ADR-0200 / #1911, #2018). Both validated 1–365. */}
+          <h3 className="mt-8 mb-1 text-[13px] font-semibold text-neutral-text-primary">
+            Notification thresholds
+          </h3>
+
+          <FieldRow
+            label="Stale-task nudge after"
+            hint="Warn when a task's status hasn't changed in this many days. Between 1 and 365."
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={THRESHOLD_MIN}
+                max={THRESHOLD_MAX}
+                value={staleThresholdDays}
+                onChange={(e) => setStaleThresholdDays(clampThreshold(e.target.value))}
+                aria-label="Stale-task nudge after"
+                className="w-[90px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+              <span className="text-[12px] text-neutral-text-secondary">days</span>
+            </div>
+          </FieldRow>
+
+          <FieldRow
+            label="Notify on end-date shift of"
+            hint="Alert the project lead when a recompute moves the finish by at least this many days. Between 1 and 365."
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={THRESHOLD_MIN}
+                max={THRESHOLD_MAX}
+                value={endShiftThresholdDays}
+                onChange={(e) => setEndShiftThresholdDays(clampThreshold(e.target.value))}
+                aria-label="Notify on end-date shift of"
+                className="w-[90px] h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+              <span className="text-[12px] text-neutral-text-secondary">days</span>
             </div>
           </FieldRow>
 

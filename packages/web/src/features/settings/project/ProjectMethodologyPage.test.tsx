@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -36,6 +36,7 @@ function makeProject(overrides: Record<string, unknown> = {}) {
     methodology: 'AGILE',
     effective_methodology: 'AGILE',
     inherited_methodology: 'WATERFALL',
+    estimation_mode: 'open',
     ...overrides,
   };
 }
@@ -120,5 +121,50 @@ describe('ProjectMethodologyPage', () => {
     useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
     renderPage();
     expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+  });
+
+  // ── Estimate governance (#2018) ─────────────────────────────────────────
+  it('seeds the estimate-governance select from the project (#2018)', () => {
+    useProject.mockReturnValue({ data: makeProject({ estimation_mode: 'suggest_approve' }) });
+    renderPage();
+    expect(screen.getByRole('combobox', { name: 'Estimate governance' })).toHaveValue(
+      'suggest_approve',
+    );
+  });
+
+  it('saves ONLY estimation_mode when methodology is unchanged (#2018)', async () => {
+    renderPage();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Estimate governance' }), {
+      target: { value: 'pm_only' },
+    });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    // Methodology was not touched — the payload must not carry it (a locked
+    // methodology would otherwise 403 the whole PATCH).
+    expect(mutateAsync).toHaveBeenCalledWith({ estimation_mode: 'pm_only' });
+  });
+
+  it('keeps estimate governance editable under an INHERIT methodology lock (#2018)', async () => {
+    // Methodology is locked by the workspace policy, but estimation is independent.
+    useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'inherit' } });
+    renderPage();
+
+    // The methodology picker is locked…
+    expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // …but estimate governance is still editable and saves on its own.
+    const select = screen.getByRole('combobox', { name: 'Estimate governance' });
+    expect(select).toBeEnabled();
+    fireEvent.change(select, { target: { value: 'pm_only' } });
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith({ estimation_mode: 'pm_only' });
+  });
+
+  it('disables estimate governance for a sub-Scheduler role (#2018)', () => {
+    useCurrentUserRole.mockReturnValue({ role: 100, isLoading: false });
+    renderPage();
+    expect(screen.getByRole('combobox', { name: 'Estimate governance' })).toBeDisabled();
   });
 });

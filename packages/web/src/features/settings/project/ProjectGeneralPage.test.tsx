@@ -52,6 +52,10 @@ const SEED_PROJECT = {
   name: 'Atlas Migration',
   description: 'Migrate the data warehouse to the new platform.',
   start_date: '2026-01-01',
+  status_date: null,
+  prioritization_model: 'wsjf',
+  stale_task_threshold_days: 14,
+  end_date_shift_threshold_days: 3,
   // Own base override set (calendar_source 'project'): the read-only summary names
   // the resolved calendar and tags it "Override" (ADR-0441, #2009).
   calendar: 'cal-1',
@@ -268,6 +272,71 @@ describe('ProjectGeneralPage', () => {
     );
     // The calendar FK is no longer written from the General page (ADR-0441, #2009).
     expect(mutateAsync.mock.calls[0][0]).not.toHaveProperty('calendar');
+  });
+
+  it('seeds and persists the scheduling, backlog, and threshold fields (#2018)', async () => {
+    renderPage();
+
+    // Seeded values from SEED_PROJECT.
+    expect(screen.getByLabelText('Start date')).toHaveValue('2026-01-01');
+    // status_date null → "Today (dynamic)" pressed, the fixed-date input empty.
+    expect(screen.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByLabelText('Fixed status date')).toHaveValue('');
+    expect(screen.getByRole('combobox', { name: 'Backlog scoring model' })).toHaveValue('wsjf');
+    expect(screen.getByLabelText('Stale-task nudge after')).toHaveValue(14);
+    expect(screen.getByLabelText('Notify on end-date shift of')).toHaveValue(3);
+
+    // Edit each field.
+    fireEvent.change(screen.getByLabelText('Start date'), { target: { value: '2026-02-01' } });
+    fireEvent.change(screen.getByLabelText('Fixed status date'), { target: { value: '2026-03-15' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Backlog scoring model' }), {
+      target: { value: 'rice' },
+    });
+    fireEvent.change(screen.getByLabelText('Stale-task nudge after'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Notify on end-date shift of'), {
+      target: { value: '7' },
+    });
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        start_date: '2026-02-01',
+        status_date: '2026-03-15',
+        prioritization_model: 'rice',
+        stale_task_threshold_days: 30,
+        end_date_shift_threshold_days: 7,
+      }),
+    );
+  });
+
+  it('clamps thresholds to 1–365 and clears status_date back to null on "Today" (#2018)', async () => {
+    renderPage();
+
+    // Over-max input clamps to 365.
+    fireEvent.change(screen.getByLabelText('Stale-task nudge after'), { target: { value: '999' } });
+    expect(screen.getByLabelText('Stale-task nudge after')).toHaveValue(365);
+
+    // Arm a fixed status date, then clear it back to Today (dynamic).
+    fireEvent.change(screen.getByLabelText('Fixed status date'), { target: { value: '2026-03-15' } });
+    expect(screen.getByRole('button', { name: 'Today (dynamic)' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Today (dynamic)' }));
+    expect(screen.getByLabelText('Fixed status date')).toHaveValue('');
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ stale_task_threshold_days: 365, status_date: null }),
+    );
   });
 
   it('renders the visibility control disabled with a "not yet enforced" note (#2011)', () => {

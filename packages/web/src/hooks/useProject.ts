@@ -9,7 +9,7 @@ import type {
   ProjectVisibility,
 } from '@/api/types';
 import type { BoardCadence, Methodology } from '@/types';
-import type { DurationChangePercentPolicy } from '@/api/types';
+import type { DurationChangePercentPolicy, PrioritizationModel } from '@/api/types';
 
 /**
  * Resolved visibility of the four independently-toggleable leaf surfaces
@@ -38,6 +38,12 @@ export interface ApiProjectDetail {
    * responses only (ProjectDetailSerializer).
    */
   start_floor?: string;
+  /**
+   * Data date for progress-aware forecasting (ADR-0132): Monte Carlo and
+   * %-complete are measured as of this date. `null` = no explicit anchor (falls
+   * back to today).
+   */
+  status_date: string | null;
   calendar: string | null;
   /**
    * Read-only server-resolved calendar (ADR-0441, issue #1987): project override
@@ -54,6 +60,16 @@ export interface ApiProjectDetail {
    */
   program: string | null;
   estimation_mode: string;
+  /**
+   * Product-backlog prioritization scoring model (ADR-0105, #922). Drives which
+   * Task input columns feed the computed `prioritization_score`. `none` hides the
+   * scoring surface (pure manual drag).
+   */
+  prioritization_model: PrioritizationModel;
+  /** Stale-task notification nudge threshold, in days (ADR-0200, #646). 1–365. */
+  stale_task_threshold_days: number;
+  /** Project end-date-shift notification threshold, in days (#1911). 1–365. */
+  end_date_shift_threshold_days: number;
   agile_features: boolean;
   /**
    * Raw per-project methodology OVERRIDE (ADR-0107, issue 955). Always non-null
