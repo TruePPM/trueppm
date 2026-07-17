@@ -69,6 +69,17 @@ function makeHealth(over: Partial<SystemHealthResponse> = {}): SystemHealthRespo
         disabled: false,
       },
     ],
+    telemetry: {
+      enabled: false,
+      endpoint: '',
+      endpoint_configured: false,
+      protocol: 'grpc',
+      service_name: 'trueppm-api',
+      traces_enabled: true,
+      metrics_enabled: true,
+      sampler: 'parentbased_always_on',
+      sampler_arg: '',
+    },
     ...over,
   };
 }
@@ -181,6 +192,36 @@ describe('SystemHealthOverviewPage', () => {
     expect(screen.getByText('3 dead · 1 pending_retry')).toBeInTheDocument();
     // Clean-queue message must be absent when parked > 0.
     expect(screen.queryByText(/No parked tasks/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the telemetry card as Off with a not-configured hint when export is unset', () => {
+    useSystemHealth.mockReturnValue(mockResult({ data: makeHealth() }));
+    renderPage();
+    expect(screen.getByText('Telemetry')).toBeInTheDocument();
+    expect(screen.getByText('Off')).toBeInTheDocument();
+    expect(screen.getByText(/OpenTelemetry export is not configured/i)).toBeInTheDocument();
+  });
+
+  it('renders the telemetry card as Exporting with endpoint and sampler when live', () => {
+    const health = makeHealth({
+      telemetry: {
+        enabled: true,
+        endpoint: 'otel-collector.internal:4317',
+        endpoint_configured: true,
+        protocol: 'grpc',
+        service_name: 'trueppm-api',
+        traces_enabled: true,
+        metrics_enabled: false,
+        sampler: 'parentbased_traceidratio',
+        sampler_arg: '0.1',
+      },
+    });
+    useSystemHealth.mockReturnValue(mockResult({ data: health }));
+    renderPage();
+    expect(screen.getByText('Exporting')).toBeInTheDocument();
+    expect(screen.getByText('otel-collector.internal:4317')).toBeInTheDocument();
+    expect(screen.getByText('parentbased_traceidratio (0.1)')).toBeInTheDocument();
+    expect(screen.getByText('Traces on · Metrics off')).toBeInTheDocument();
   });
 
   it('renders a Disabled chip for a disabled retention entry', () => {

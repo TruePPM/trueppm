@@ -42,6 +42,17 @@ const FIXTURE_HEALTH = {
     { key: 'TRUEPPM_WEBHOOK_RETENTION_DAYS', label: 'Webhook deliveries', unit: 'days', value: 7, disabled: false },
     { key: 'HISTORY_RETENTION_DAYS', label: 'Event history', unit: 'days', value: 90, disabled: false },
   ],
+  telemetry: {
+    enabled: true,
+    endpoint: 'otel-collector.internal:4317',
+    endpoint_configured: true,
+    protocol: 'grpc',
+    service_name: 'trueppm-api',
+    traces_enabled: true,
+    metrics_enabled: true,
+    sampler: 'parentbased_always_on',
+    sampler_arg: '',
+  },
 };
 
 const FIXTURE_TASK = {
@@ -184,6 +195,11 @@ test.describe('Workspace Settings → System health', () => {
     await expect(page.getByRole('link', { name: /Open inspector/i })).toBeVisible();
     // Retention config row.
     await expect(page.getByText('Webhook deliveries')).toBeVisible();
+
+    // Telemetry status card (#2022): exporting, with endpoint + sampler surfaced.
+    await expect(page.getByRole('heading', { name: 'Telemetry' })).toBeVisible();
+    await expect(page.getByText('Exporting')).toBeVisible();
+    await expect(page.getByText('otel-collector.internal:4317')).toBeVisible();
   });
 
   test('overview shows an error state with Retry when the health API 500s', async ({ page }) => {

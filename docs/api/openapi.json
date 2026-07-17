@@ -3458,7 +3458,7 @@
         "/api/v1/health/system/": {
             "get": {
                 "operationId": "v1_health_system_retrieve",
-                "description": "Aggregated, read-only snapshot of the durable-execution layer for the workspace-admin System Health dashboard (#692, ADR-0172): five component status cards (outbox dispatcher, Celery Beat, dead-letter alerting, notification dispatcher, retention purge), the Beat heartbeat panel and configured schedule, a dead-letter summary, and the read-only retention configuration. Composes existing committed state — no payloads or task arguments are exposed here. Always responds 200 with statuses in the body (unlike `/health/beat/`, which is a 200/503 probe). Requires a staff (admin) account.",
+                "description": "Aggregated, read-only snapshot of the durable-execution layer for the workspace-admin System Health dashboard (#692, ADR-0172): five component status cards (outbox dispatcher, Celery Beat, dead-letter alerting, notification dispatcher, retention purge), the Beat heartbeat panel and configured schedule, a dead-letter summary, the read-only retention configuration, and the read-only telemetry (OpenTelemetry exporter) posture — export enabled flag, endpoint, protocol, sampler, and per-signal toggles (never the OTLP headers, which carry the export token). Composes existing committed state and settings — no payloads or task arguments are exposed here. Always responds 200 with statuses in the body (unlike `/health/beat/`, which is a 200/503 probe). Requires a staff (admin) account.",
                 "summary": "System health overview (operator dashboard)",
                 "tags": [
                     "meta"
@@ -51554,6 +51554,10 @@
                             "type": "object",
                             "additionalProperties": {}
                         }
+                    },
+                    "telemetry": {
+                        "type": "object",
+                        "additionalProperties": {}
                     }
                 },
                 "required": [
@@ -51562,7 +51566,8 @@
                     "dead_letter",
                     "generated_at",
                     "retention",
-                    "scheduled_tasks"
+                    "scheduled_tasks",
+                    "telemetry"
                 ]
             },
             "Task": {

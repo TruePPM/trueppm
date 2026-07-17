@@ -32,6 +32,8 @@ const DATA: EmailSettings = {
   can_edit: true,
   configured_via: 'environment',
   host_configured: false,
+  frontend_base_url: 'https://app.example.com',
+  frontend_base_url_configured: true,
 };
 
 function mockHooks(overrides: Partial<EmailSettings> = {}) {
@@ -110,6 +112,27 @@ describe('WorkspaceEmailPage (writable)', () => {
     });
     render(<WorkspaceEmailPage />);
     expect(screen.getByText(/Sent — check your inbox/i)).toBeInTheDocument();
+  });
+
+  it('surfaces the read-only Public URL with a copy button when configured', () => {
+    render(<WorkspaceEmailPage />);
+    const publicUrl = screen.getByLabelText<HTMLInputElement>('Public URL (read-only)');
+    expect(publicUrl.value).toBe('https://app.example.com');
+    expect(publicUrl.readOnly).toBe(true);
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/emailed links are broken/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('warns that emailed links are broken when the Public URL is unset', () => {
+    mockHooks({ frontend_base_url: '', frontend_base_url_configured: false });
+    render(<WorkspaceEmailPage />);
+    expect(screen.getByText(/Public URL not set/i)).toBeInTheDocument();
+    expect(screen.getByText(/won.t open/i)).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText('Public URL (read-only)'),
+    ).not.toBeInTheDocument();
   });
 
   it('shows an error + retry', () => {

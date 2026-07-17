@@ -190,8 +190,11 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
         "workspace-admin System Health dashboard (#692, ADR-0172): five component "
         "status cards (outbox dispatcher, Celery Beat, dead-letter alerting, "
         "notification dispatcher, retention purge), the Beat heartbeat panel and "
-        "configured schedule, a dead-letter summary, and the read-only retention "
-        "configuration. Composes existing committed state — no payloads or task "
+        "configured schedule, a dead-letter summary, the read-only retention "
+        "configuration, and the read-only telemetry (OpenTelemetry exporter) "
+        "posture — export enabled flag, endpoint, protocol, sampler, and per-signal "
+        "toggles (never the OTLP headers, which carry the export token). Composes "
+        "existing committed state and settings — no payloads or task "
         "arguments are exposed here. Always responds 200 with statuses in the body "
         "(unlike `/health/beat/`, which is a 200/503 probe). Requires a staff "
         "(admin) account."
@@ -206,6 +209,7 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
                 "scheduled_tasks": serializers.ListField(child=serializers.DictField()),
                 "dead_letter": serializers.DictField(),
                 "retention": serializers.ListField(child=serializers.DictField()),
+                "telemetry": serializers.DictField(),
             },
         ),
     },

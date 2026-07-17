@@ -54,6 +54,23 @@ export interface RetentionEntry {
   disabled: boolean;
 }
 
+/**
+ * Read-only OpenTelemetry exporter posture (#2022). Env/Helm-configured only —
+ * never writable from the app. Headers (the export bearer token) are never sent.
+ * `enabled` is true only when an endpoint is set and the master switch is on.
+ */
+export interface SystemHealthTelemetry {
+  enabled: boolean;
+  endpoint: string;
+  endpoint_configured: boolean;
+  protocol: string;
+  service_name: string;
+  traces_enabled: boolean;
+  metrics_enabled: boolean;
+  sampler: string;
+  sampler_arg: string;
+}
+
 export interface SystemHealthResponse {
   generated_at: string;
   components: SystemHealthComponent[];
@@ -61,6 +78,7 @@ export interface SystemHealthResponse {
   scheduled_tasks: ScheduledTask[];
   dead_letter: SystemHealthDeadLetter;
   retention: RetentionEntry[];
+  telemetry: SystemHealthTelemetry;
 }
 
 // ---------------------------------------------------------------------------

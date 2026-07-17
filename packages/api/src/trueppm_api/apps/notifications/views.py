@@ -559,6 +559,13 @@ def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> d
     The password is never included (write-only serializer field); the response
     carries only ``password_is_set``. ``configured_via`` and ``host_configured``
     preserve back-compat with the #639 read-only status hook.
+
+    ``frontend_base_url`` surfaces the install's public origin (env-only,
+    ``TRUEPPM_FRONTEND_BASE_URL``) so the Email settings page can show it read-only
+    and warn when it is unset — when empty, every emailed invite/reset deep-link
+    renders as a bare origin-less path and silently breaks (#2015). The value is
+    infra config an admin can already see elsewhere, not a secret; it is not
+    writable from the UI (domain changes stay a deploy concern).
     """
     data: dict[str, Any] = dict(WorkspaceEmailSettingsSerializer(obj).data)
     data["can_edit"] = can_edit
@@ -566,6 +573,9 @@ def _email_settings_payload(obj: WorkspaceEmailSettings, *, can_edit: bool) -> d
         "database" if obj.transport_mode != EmailTransportMode.CLOUD else "environment"
     )
     data["host_configured"] = bool(obj.host)
+    frontend_base_url = settings.FRONTEND_BASE_URL.rstrip("/")
+    data["frontend_base_url"] = frontend_base_url
+    data["frontend_base_url_configured"] = bool(frontend_base_url)
     return data
 
 

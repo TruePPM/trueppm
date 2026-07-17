@@ -38,6 +38,13 @@ export interface EmailSettings {
   /** Back-compat status flags preserved from the #639 read-only surface. */
   configured_via: string;
   host_configured: boolean;
+  /**
+   * Install public origin (env-only `TRUEPPM_FRONTEND_BASE_URL`), trailing slash
+   * stripped. Empty string when unset — emailed invite/reset deep-links then
+   * render as origin-less paths and silently break, so the page warns (#2015).
+   */
+  frontend_base_url: string;
+  frontend_base_url_configured: boolean;
 }
 
 /** PUT body. `password` omitted/blank keeps the stored secret (rotate-vs-keep). */

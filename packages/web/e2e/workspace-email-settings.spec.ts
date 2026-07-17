@@ -27,6 +27,8 @@ const EMAIL_GET = {
   can_edit: true,
   configured_via: 'environment',
   host_configured: false,
+  frontend_base_url: 'https://app.truescope.io',
+  frontend_base_url_configured: true,
 };
 
 // The consolidated settings page mounts every section at once, so the General
@@ -113,6 +115,13 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await page.goto('/settings/email');
     await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
 
+    // Public URL status (#2015): the configured origin is shown read-only with a
+    // Copy button, and the "links are broken" warning is absent.
+    await expect(page.getByLabel('Public URL (read-only)')).toHaveValue(
+      'https://app.truescope.io',
+    );
+    await expect(page.getByText(/emailed links are broken/i)).toHaveCount(0);
+
     // Reveal the SMTP fields, fill the transport.
     await page.getByRole('radio', { name: /Custom SMTP/ }).check();
     await page.getByLabel('SMTP host').fill('mail.truescope.io');
@@ -158,5 +167,26 @@ test.describe('Workspace Email & SMTP — writable', () => {
     await expect(email.getByText('Could not connect to the mail server.')).toBeVisible();
     // Values are preserved — the host the admin typed is still in the field.
     await expect(page.getByLabel('SMTP host')).toHaveValue('bad.host.example');
+  });
+
+  test('warns that emailed links are broken when the Public URL is unset (#2015)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route('**/api/v1/workspace/email-settings/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...EMAIL_GET, frontend_base_url: '', frontend_base_url_configured: false }),
+      }),
+    );
+
+    await page.goto('/settings/email');
+    await expect(page.getByRole('heading', { name: 'Email & SMTP' })).toBeVisible();
+
+    const email = page.locator('[data-settings-section="email"]');
+    await expect(email.getByText(/Public URL not set/i)).toBeVisible();
+    // The read-only value row is absent when the origin is unset.
+    await expect(page.getByLabel('Public URL (read-only)')).toHaveCount(0);
   });
 });

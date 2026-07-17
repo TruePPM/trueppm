@@ -46,6 +46,17 @@ const sampleResponse = {
   retention: [
     { key: 'TRUEPPM_WEBHOOK_RETENTION_DAYS', label: 'Webhook delivery records', unit: 'days', value: 30, disabled: false },
   ],
+  telemetry: {
+    enabled: false,
+    endpoint: '',
+    endpoint_configured: false,
+    protocol: 'grpc',
+    service_name: 'trueppm-api',
+    traces_enabled: true,
+    metrics_enabled: true,
+    sampler: 'parentbased_always_on',
+    sampler_arg: '',
+  },
 };
 
 describe('systemHealthKeys', () => {
