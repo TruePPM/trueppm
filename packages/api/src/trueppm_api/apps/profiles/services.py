@@ -147,6 +147,39 @@ def most_recent_project(user: Any) -> Any | None:
     return _most_recent_project_proxy(user)
 
 
+def recent_projects(user: Any, limit: int = 5) -> list[Any]:
+    """The user's most recently *visited* accessible projects (ADR-0150, ADR-0508).
+
+    The list form of :func:`most_recent_project`, backing the ⌘K "Recent" group
+    (#1557). Applies the *same* membership re-filter as the single-value resolver
+    so a project the user was removed from, or that was archived/deleted, never
+    surfaces from a stale visit row — the read is re-joined to live membership,
+    not trusted from the visit table alone (the 🔴 IDOR guard from the VoC panel).
+
+    One indexed query (``(user, -visited_at)``, ``projectvisit_user_recent_idx``)
+    with ``project``/``program`` joined in, sliced server-side. ``limit`` is
+    clamped to ``[1, 10]`` — this is a fixed navigation strip, not a search
+    surface. Returns the :class:`ProjectVisit` rows (each carries ``.project`` and
+    ``.visited_at``) newest-first; unlike ``most_recent_project`` there is no
+    pre-telemetry proxy fallback — a user with no visit rows simply has an empty
+    Recent group.
+    """
+
+    bounded = max(1, min(limit, 10))
+    return list(
+        ProjectVisit.objects.filter(
+            user=user,
+            project__is_deleted=False,
+            project__is_archived=False,
+            project__memberships__user=user,
+            project__memberships__is_deleted=False,
+        )
+        .select_related("project", "project__program")
+        .order_by("-visited_at")
+        .distinct()[:bounded]
+    )
+
+
 def _most_recent_project_proxy(user: Any) -> Any | None:
     """Pre-telemetry fallback: highest-``server_version`` active membership.
 

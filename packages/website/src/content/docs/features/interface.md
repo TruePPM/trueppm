@@ -42,7 +42,17 @@ is the fastest path to:
 
 - **Jump to any view** — "Go to Board", "Go to Schedule", including views you've
   hidden from the tab bar.
-- **Navigate** between your projects and programs.
+- **Navigate** between your projects and programs — resolve any project or program
+  by name from anywhere, not just your current one.
+- **Pick up where you left off** — a **Recent** group lists the projects you've
+  most recently opened (with their program and a "2h ago" recency hint) the moment
+  you open the palette, before you type a thing.
+- **Find people** — start typing a name to search across your teammates and jump to
+  them.
+- **Open a task** — on a project, type to find a task and open it inline. When the
+  project has an active sprint, that sprint's tasks get their own **Current sprint
+  tasks** group with room for more results, so a search scoped to the sprint you're
+  working in isn't cut short.
 - **Run actions** in context.
 
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a
