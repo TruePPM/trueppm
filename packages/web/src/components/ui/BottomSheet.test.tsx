@@ -94,25 +94,29 @@ describe('<BottomSheet>', () => {
     expect(dialog.className).toContain('rounded-none');
   });
 
-  it('uses bottom-0 / max-h-[85vh] / rounded-t-card when size="auto" or "large"', () => {
-    const { rerender } = render(
+  it('size="auto" grows to content with max-h-[85vh]', () => {
+    render(
       <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test" size="auto">
         <p>x</p>
       </BottomSheet>,
     );
-    let dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('dialog');
     expect(dialog.className).toContain('bottom-0');
     expect(dialog.className).toContain('max-h-[85vh]');
     expect(dialog.className).toContain('rounded-t-card');
+  });
 
-    rerender(
+  it('size="large" fills to a fixed h-[85vh], distinct from auto (not a no-op)', () => {
+    render(
       <BottomSheet isOpen onClose={vi.fn()} ariaLabel="Test" size="large">
         <p>x</p>
       </BottomSheet>,
     );
-    dialog = screen.getByRole('dialog');
+    const dialog = screen.getByRole('dialog');
     expect(dialog.className).toContain('bottom-0');
-    expect(dialog.className).toContain('max-h-[85vh]');
+    expect(dialog.className).toContain('h-[85vh]');
+    expect(dialog.className).not.toContain('max-h-[85vh]');
+    expect(dialog.className).toContain('rounded-t-card');
   });
 
   it('moves focus to the first focusable descendant on open (WCAG 2.4.3, #1503)', () => {

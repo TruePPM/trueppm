@@ -101,7 +101,7 @@ export function MilestoneBridgeForecast({
 
       {showProjection && (
         <p className="text-xs text-neutral-text-secondary">
-          If velocity holds, {stcLow === stcHigh ? '~' : '~'}
+          If velocity holds, ~
           <span className="tppm-mono">{stcLow}</span>
           {stcLow !== stcHigh && (
             <>

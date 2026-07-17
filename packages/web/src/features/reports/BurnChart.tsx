@@ -602,7 +602,7 @@ export function BurnChart({
     <ReferenceDot
       key={c.date}
       x={c.date}
-      y={variant === 'burndown' || variant === 'combined' ? 0 : 0}
+      y={0}
       r={5}
       fill={c.delta > 0 ? CHART_COLORS.scopeAdd : CHART_COLORS.scopeRem}
       stroke="rgb(var(--neutral-surface))"

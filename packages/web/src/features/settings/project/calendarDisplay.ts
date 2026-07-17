@@ -152,8 +152,11 @@ export function classifyDay(day: PreviewDay): ClassifiedDay {
   if (day.working || day.sources.length === 0) {
     return { date: day.date, type: 'working', multi: false, sources: day.sources };
   }
-  const dominant = day.sources.reduce((best, s) =>
-    ROLE_RANK[s.role] > ROLE_RANK[best.role] ? s : best,
+  // Seeded with the first source (guaranteed present by the guard above) so the
+  // highest-rank fold never runs against an empty array.
+  const dominant = day.sources.reduce(
+    (best, s) => (ROLE_RANK[s.role] > ROLE_RANK[best.role] ? s : best),
+    day.sources[0],
   );
   return {
     date: day.date,

@@ -706,7 +706,9 @@ export function ScheduleView() {
     if (mcResult?.cpmFinish) return mcResult.cpmFinish;
     const finishes = allTasks.filter((t) => !t.isMilestone && t.finish).map((t) => t.finish);
     if (finishes.length === 0) return null;
-    return finishes.reduce((a, b) => (a > b ? a : b));
+    // Seeded with the first element (guaranteed present by the guard above) so
+    // the max-fold never runs against an empty array.
+    return finishes.reduce((a, b) => (a > b ? a : b), finishes[0]);
   }, [mcResult?.cpmFinish, allTasks]);
 
   // Sync vertical scroll between task list and canvas container

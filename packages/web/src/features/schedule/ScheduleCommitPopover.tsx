@@ -154,23 +154,15 @@ export function ScheduleCommitPopover({
       const c = cancelRef.current;
       const k = confirmRef.current;
       if (!c || !k) return;
+      // Only two focusable elements, so Tab and Shift+Tab both toggle to the
+      // other one — a single direction-agnostic swap covers both.
       const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === c) {
-          e.preventDefault();
-          k.focus();
-        } else if (active === k) {
-          e.preventDefault();
-          c.focus();
-        }
-      } else {
-        if (active === c) {
-          e.preventDefault();
-          k.focus();
-        } else if (active === k) {
-          e.preventDefault();
-          c.focus();
-        }
+      if (active === c) {
+        e.preventDefault();
+        k.focus();
+      } else if (active === k) {
+        e.preventDefault();
+        c.focus();
       }
     };
     window.addEventListener('keydown', trap);
