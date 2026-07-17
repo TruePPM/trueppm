@@ -8,7 +8,7 @@
  * mobile/PWA surface reuse the exact same vocabulary.
  */
 
-export type SyncStatusKind = 'synced' | 'syncing' | 'offline' | 'error';
+export type SyncStatusKind = 'synced' | 'syncing' | 'offline' | 'error' | 'stale';
 
 export type SyncStatus =
   | { kind: 'synced'; lastSyncAt: number | null }
@@ -19,7 +19,13 @@ export type SyncStatus =
       errorCount: number;
       lastError: string | null;
       lastSyncAt: number | null;
-    };
+    }
+  // Browser is online and writes work, but the live-update WebSocket is down
+  // (`stale`/`failed`), so incoming changes from others aren't arriving in
+  // real time and this view may be out of date (#2053). Reads fall back to a
+  // slow poll; the badge just makes the degradation visible instead of showing
+  // a falsely-reassuring "Synced".
+  | { kind: 'stale'; lastSyncAt: number | null };
 
 export interface SyncInputs {
   /** `navigator.onLine` — false when the browser reports no connection. */
@@ -34,6 +40,12 @@ export interface SyncInputs {
   lastError: string | null;
   /** Epoch ms of the last successful write this session. */
   lastSyncAt: number | null;
+  /**
+   * The live-update WebSocket is prolonged-down (`stale`) or terminal (`failed`)
+   * while the browser is otherwise online — so real-time changes from others are
+   * not arriving and the view is being kept fresh only by the slow fallback poll.
+   */
+  liveUpdatesDegraded: boolean;
 }
 
 /**
@@ -43,8 +55,12 @@ export interface SyncInputs {
  * 1. `offline` — when the browser is offline, paused writes *are* the story and
  *    the user can't act on an error anyway, so this dominates (calm orange).
  * 2. `error` — only once online does a failed write escalate to red/retry.
- * 3. `syncing` — writes draining to the server (least urgent).
- * 4. `synced` — silent; everything is saved.
+ * 3. `stale` — online and writes fine, but the live-update socket is down, so
+ *    the view may be out of date. Ranked above `syncing`/`synced` so a working
+ *    write path can't paint a falsely-reassuring "Synced" over a frozen view
+ *    (#2053) — this is the whole point of the state.
+ * 4. `syncing` — writes draining to the server (least urgent).
+ * 5. `synced` — silent; everything is saved.
  */
 export function deriveSyncStatus(i: SyncInputs): SyncStatus {
   if (!i.online) {
@@ -57,6 +73,9 @@ export function deriveSyncStatus(i: SyncInputs): SyncStatus {
       lastError: i.lastError,
       lastSyncAt: i.lastSyncAt,
     };
+  }
+  if (i.liveUpdatesDegraded) {
+    return { kind: 'stale', lastSyncAt: i.lastSyncAt };
   }
   if (i.inFlightCount > 0) {
     return { kind: 'syncing', count: i.inFlightCount, lastSyncAt: i.lastSyncAt };
@@ -94,6 +113,11 @@ export function syncStatusPresentation(status: SyncStatus): {
       return {
         label: `Syncing ${status.count}`,
         aria: `Syncing ${status.count} change${status.count === 1 ? '' : 's'}.`,
+      };
+    case 'stale':
+      return {
+        label: 'Not live',
+        aria: "Live updates are disconnected — this view may be out of date. It refreshes periodically until the connection returns. Your changes still save.",
       };
     case 'synced':
       return { label: 'Synced', aria: 'Synced — all changes saved.' };
