@@ -61,7 +61,7 @@ function main() {
   const shardDirs = readdirSync(cwd, { withFileTypes: true })
     .filter((d) => d.isDirectory() && /^coverage-\d+$/.test(d.name))
     .map((d) => d.name)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
 
   if (shardDirs.length === 0) {
     console.error('ERROR: no coverage-<n>/ shard directories found to merge');

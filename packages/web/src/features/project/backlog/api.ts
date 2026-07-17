@@ -173,7 +173,7 @@ function mapCriterion(c: ApiAcceptanceCriterion): AcceptanceCriterion {
     text: c.text,
     given: c.given,
     when: c.when,
-    then: c.then,
+    thenClause: c.then,
     met: c.met,
     position: c.position,
     metByName: c.met_by_name ?? null,
