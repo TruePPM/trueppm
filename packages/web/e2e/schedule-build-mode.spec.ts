@@ -320,6 +320,162 @@ test.describe('Schedule build-mode — delete surfaces an Undo toast (#1762)', (
 });
 
 // ───────────────────────────────────────────────────────────────────────────
+// #2029 — deleting a SUMMARY/phase row takes its whole subtree, and Undo can
+// only recover the parent, so that specific delete is gated behind a confirm
+// naming the descendant count. Leaf deletes (above) stay confirm-free.
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Schedule build-mode — subtree delete confirms and is honest (#2029)', () => {
+  const SUBTREE_TASKS = [
+    {
+      id: 'phase', wbs_path: '1', name: 'Design Phase',
+      early_start: '2026-04-05', early_finish: '2026-04-20', planned_start: '2026-04-05',
+      duration: 12, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: true, parent_id: null,
+      status: 'IN_PROGRESS', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+    {
+      id: 'child-a', wbs_path: '1.1', name: 'Wireframes',
+      early_start: '2026-04-05', early_finish: '2026-04-09', planned_start: '2026-04-05',
+      duration: 5, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: false, parent_id: 'phase',
+      status: 'NOT_STARTED', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+    {
+      id: 'child-b', wbs_path: '1.2', name: 'Mockups',
+      early_start: '2026-04-10', early_finish: '2026-04-14', planned_start: '2026-04-10',
+      duration: 5, percent_complete: 0, is_critical: false,
+      is_milestone: false, is_summary: false, parent_id: 'phase',
+      status: 'NOT_STARTED', assignees: [], total_float: null,
+      predecessor_count: 0, is_blocked: false,
+      linked_risks_count: 0, linked_risks_max_severity: null,
+    },
+  ];
+
+  let currentTasks: Array<Record<string, unknown>>;
+  let deleteCount: number;
+
+  test.beforeEach(async ({ page }) => {
+    await enableBuildMode(page);
+    await setupAuth(page);
+    await setupCatchAll(page);
+    currentTasks = SUBTREE_TASKS.map((t) => ({ ...t }));
+    deleteCount = 0;
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: currentTasks,
+    });
+
+    // DELETE phase → drop the summary and its children so the refetch unmounts them.
+    await page.route('**/api/v1/tasks/phase/', (route) => {
+      if (route.request().method() === 'DELETE') {
+        deleteCount += 1;
+        for (let i = currentTasks.length - 1; i >= 0; i -= 1) {
+          if (currentTasks[i].id === 'phase' || currentTasks[i].parent_id === 'phase') {
+            currentTasks.splice(i, 1);
+          }
+        }
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.fallback();
+    });
+
+    // POST /tasks/ → the Undo recreate (parent row only — the honest scope).
+    await page.route('**/api/v1/tasks/', (route) => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as { name?: string };
+        const restored = { ...SUBTREE_TASKS[0], id: 'phase-restored', name: body.name };
+        currentTasks.push(restored);
+        return route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(restored),
+        });
+      }
+      return route.fallback();
+    });
+  });
+
+  test('deleting a phase row raises a confirm naming the descendant count', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await expect(page.getByText('Design Phase')).toBeVisible();
+
+    await page.getByText('Design Phase').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Delete/ })
+      .click();
+
+    // The subtree confirm — not an immediate delete.
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('Delete “Design Phase” and its 2 subtasks?');
+    expect(deleteCount).toBe(0);
+  });
+
+  test('Backspace on a focused phase row also confirms (the CRITICAL one-keypress case)', async ({
+    page,
+  }) => {
+    await page.goto(BASE_URL);
+    const phaseRow = page.locator('[data-row-id="phase"]');
+    await expect(phaseRow).toBeVisible();
+    await phaseRow.focus();
+    await page.keyboard.press('Backspace');
+
+    // The keybinding routes through the same guard as the menu — no immediate
+    // destroy; the confirm names the subtree.
+    await expect(page.getByRole('alertdialog')).toContainText(
+      'Delete “Design Phase” and its 2 subtasks?',
+    );
+    expect(deleteCount).toBe(0);
+  });
+
+  test('canceling the confirm keeps the phase and issues no delete', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.getByText('Design Phase').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Delete/ })
+      .click();
+
+    await page.getByRole('alertdialog').getByRole('button', { name: /Cancel/ }).click();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+    await expect(page.getByText('Design Phase')).toBeVisible();
+    expect(deleteCount).toBe(0);
+  });
+
+  test('confirming deletes the subtree and the Undo toast is honest about scope', async ({ page }) => {
+    await page.goto(BASE_URL);
+    await page.getByText('Design Phase').click({ button: 'right' });
+    await page
+      .getByRole('menu', { name: 'Row actions' })
+      .getByRole('menuitem', { name: /Delete/ })
+      .click();
+
+    await page.getByRole('alertdialog').getByRole('button', { name: /Delete 3 rows/ }).click();
+
+    await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(0);
+    expect(deleteCount).toBe(1);
+    // Toast names the blast radius and, crucially, does not promise the subtree back.
+    const toast = page.getByRole('status').filter({ hasText: 'Deleted' });
+    await expect(toast).toContainText('Deleted “Design Phase” and its 2 subtasks');
+    await expect(toast.getByRole('button', { name: 'Undo' })).toBeVisible();
+
+    // Clicking Undo restores the parent row but must NOT claim the subtree came
+    // back — this is the "actively misleading" copy the issue called out.
+    await toast.getByRole('button', { name: 'Undo' }).click();
+    await expect(page.getByRole('row').filter({ hasText: 'Design Phase' })).toHaveCount(1);
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Restored the row only' }),
+    ).toBeVisible();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 // #1666 — Enter = new sibling row (the previously broken insertBelow/Enter
 // binding). Enter on a focused row creates a sibling under the SAME parent
 // (not the WBS root) and drops the cursor into its Name cell; Enter in the
