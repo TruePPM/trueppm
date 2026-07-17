@@ -50,7 +50,10 @@ the drawer groups everything about the task into four tabs:
 - **Details** — a schedule strip (Start, Finish, Duration, Float, with a
   critical-path banner when float is zero), status and progress, assignees, the
   description, dependencies, and the secondary planning sections (sprint,
-  estimates, recurrence).
+  estimates, recurrence). **Duration is editable right here** — click it and type
+  a new value (e.g. `10`, or `2w` for two working weeks) instead of dragging the
+  bar; Start, Finish, and Float re-compute the moment you commit. Milestones have
+  no duration, and Viewers see it read-only.
 - **Subtasks** — the checklist breakdown, with a done/total count on the tab.
 - **Activity** — comments, the activity timeline, field history, and baseline.
 - **Files** — attachments and external links.
