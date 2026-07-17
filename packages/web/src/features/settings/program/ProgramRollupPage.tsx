@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
 import {
@@ -482,12 +483,21 @@ export function ProgramRollupPage() {
                         {kpi.description}
                       </div>
                     </div>
-                    <Toggle
-                      on={enabledSet.has(kpi.id)}
-                      onToggle={() => onToggle(kpi.id)}
-                      disabled={!canEdit}
-                      ariaLabel={kpi.label}
-                    />
+                    {canEdit ? (
+                      <Toggle
+                        on={enabledSet.has(kpi.id)}
+                        onToggle={() => onToggle(kpi.id)}
+                        disabled={!canEdit}
+                        ariaLabel={kpi.label}
+                      />
+                    ) : (
+                      <ReadOnlyIndicator
+                        label={kpi.label}
+                        value={enabledSet.has(kpi.id) ? 'On' : 'Off'}
+                        provenance="managed by the program admin"
+                        filled={enabledSet.has(kpi.id)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -531,8 +541,18 @@ export function ProgramRollupPage() {
             </div>
           )}
 
-          {!isLoading && !isError && config && (
-            <fieldset className="px-4 py-3 space-y-2" disabled={!canEdit}>
+          {!isLoading && !isError && config && !canEdit && (
+            <div className="px-4 py-3">
+              <ReadOnlyIndicator
+                label="Aggregation policy"
+                value={POLICIES.find((o) => o.id === policyShown)?.label ?? policyShown}
+                provenance="managed by the program admin"
+              />
+            </div>
+          )}
+
+          {!isLoading && !isError && config && canEdit && (
+            <fieldset className="px-4 py-3 space-y-2">
               <legend className="sr-only">Health aggregation policy</legend>
               {POLICIES.map((opt) => (
                 <label

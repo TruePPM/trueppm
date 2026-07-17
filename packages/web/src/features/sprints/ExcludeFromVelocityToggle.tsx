@@ -1,5 +1,6 @@
 import { useSprintMutations } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
 import type { ApiSprint } from '@/types';
 
 interface Props {
@@ -54,34 +55,43 @@ export function ExcludeFromVelocityToggle({ sprint, projectId, canEdit }: Props)
           numbers down — the {itl.lower} still appears in your history.
         </span>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={
-          on
-            ? `${sprint.name} is excluded from velocity`
-            : `Exclude ${sprint.name} from velocity`
-        }
-        aria-busy={pending || undefined}
-        disabled={!canEdit || pending}
-        onClick={handleToggle}
-        title={disabledTitle}
-        className={[
-          'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors mt-0.5',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-          on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
-          !canEdit ? 'opacity-50 cursor-not-allowed' : '',
-          pending ? 'opacity-70 cursor-progress' : '',
-        ].join(' ')}
-      >
-        <span
+      {canEdit ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label={
+            on
+              ? `${sprint.name} is excluded from velocity`
+              : `Exclude ${sprint.name} from velocity`
+          }
+          aria-busy={pending || undefined}
+          disabled={pending}
+          onClick={handleToggle}
+          title={disabledTitle}
           className={[
-            'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
-            on ? 'translate-x-3.5' : 'translate-x-0.5',
+            'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors mt-0.5',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
+            pending ? 'opacity-70 cursor-progress' : '',
           ].join(' ')}
+        >
+          <span
+            className={[
+              'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
+              on ? 'translate-x-3.5' : 'translate-x-0.5',
+            ].join(' ')}
+          />
+        </button>
+      ) : (
+        <ReadOnlyIndicator
+          label="Exclude from velocity"
+          value={on ? 'Excluded' : 'Not excluded'}
+          provenance="managed by a Scheduler"
+          filled={on}
+          className="mt-0.5 shrink-0"
         />
-      </button>
+      )}
     </div>
   );
 }

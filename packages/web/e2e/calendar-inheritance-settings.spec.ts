@@ -210,7 +210,14 @@ test.describe('Program working calendar', () => {
     await expect(
       cal.getByText(/requires every program and project to use its default calendar/i),
     ).toBeVisible();
-    await expect(cal.getByRole('combobox', { name: 'Working calendar override' })).toBeDisabled();
-    await expect(cal.getByRole('button', { name: /Inherit from workspace/i })).toBeDisabled();
+    // No disabled picker (ADR-0133) — the effective calendar shows read-only,
+    // provenance "locked by workspace policy".
+    await expect(cal.getByRole('combobox', { name: 'Working calendar override' })).toHaveCount(0);
+    await expect(cal.getByRole('button', { name: /Inherit from workspace/i })).toHaveCount(0);
+    await expect(
+      cal.getByLabel(
+        'Working calendar: Standard 5-day (US), locked by workspace policy. View only.',
+      ),
+    ).toBeVisible();
   });
 });

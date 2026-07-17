@@ -272,9 +272,11 @@ test.describe('Project methodology', () => {
       methodology.getByText(/requires every project to use its default methodology/i),
     ).toBeVisible();
 
-    // The locked picker shows the workspace-resolved value (Waterfall) and is disabled.
-    await expect(methodology.getByRole('radio', { name: /Waterfall/i, checked: true })).toBeVisible();
-    await expect(methodology.getByRole('radio', { name: /Waterfall/i })).toBeDisabled();
-    await expect(methodology.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // The locked picker shows the workspace-resolved value (Waterfall) read-only —
+    // no disabled radios (ADR-0133): effective value + provenance instead.
+    await expect(methodology.getByRole('radio')).toHaveCount(0);
+    await expect(
+      methodology.getByLabel('Methodology: Waterfall, locked by workspace policy. View only.'),
+    ).toBeVisible();
   });
 });

@@ -144,10 +144,10 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     expect(screen.getByRole('spinbutton')).toHaveValue(14);
   });
 
-  it('non-admin sees disabled fieldset and a Read-only pill', () => {
+  it('non-admin sees read-only values (no disabled controls) and a Read-only pill', () => {
     useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_MEMBER } });
     useProgramRiskPolicy.mockReturnValue({
-      data: defaultPolicy(),
+      data: defaultPolicy({ slip_propagation: 'warn', escalation_days: 5 }),
       isLoading: false,
       isError: false,
       refetch,
@@ -155,9 +155,17 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     renderPage();
 
     expect(screen.getByText(/Read-only/)).toBeInTheDocument();
-    // The slip radios live in a disabled fieldset.
-    expect(screen.getByRole('radio', { name: /Warn only/i })).toBeDisabled();
-    expect(screen.getByRole('spinbutton')).toBeDisabled();
+    // No disabled control — the effective value + provenance is shown instead (ADR-0133).
+    expect(screen.queryByRole('radio', { name: /Warn only/i })).toBeNull();
+    expect(screen.queryByRole('spinbutton')).toBeNull();
+    expect(
+      screen.getByLabelText('Slip policy: Warn only, managed by the program admin. View only.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(
+        'Auto-escalate after: 5 days, managed by the program admin. View only.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('publishes apiReady=true and dirty=false to the settings save store once seeded', () => {

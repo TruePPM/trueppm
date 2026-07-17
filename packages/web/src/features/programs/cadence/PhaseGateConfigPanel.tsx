@@ -5,6 +5,7 @@ import {
   useProgramPhaseGateConfig,
   useUpdateProgramPhaseGateConfig,
 } from '@/features/programs/hooks/useProgramPhaseGateConfig';
+import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
 
 export interface PhaseGateConfigPanelProps {
   programId: string;
@@ -135,16 +136,25 @@ export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateC
           )}
           {!isLoading && !isError && (
             <>
-              <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => setEnabled(e.target.checked)}
-                  disabled={!canEdit || update.isPending}
-                  className="rounded-control border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+              {canEdit ? (
+                <label className="flex items-center gap-2 text-[13px] text-neutral-text-primary cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => setEnabled(e.target.checked)}
+                    disabled={update.isPending}
+                    className="rounded-control border-neutral-border text-brand-primary focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+                  />
+                  Enabled
+                </label>
+              ) : (
+                <ReadOnlyIndicator
+                  label="Phase gate"
+                  value={enabled ? 'Enabled' : 'Disabled'}
+                  provenance="managed by a program admin"
+                  filled={enabled}
                 />
-                Enabled
-              </label>
+              )}
 
               <div>
                 <label

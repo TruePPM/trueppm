@@ -23,6 +23,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { SettingsPageTitle } from '../SettingsShell';
+import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
 import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -190,6 +191,18 @@ function CadenceSection({
           <p className="text-[12px] text-neutral-text-secondary">
             Waterfall projects don&rsquo;t use sprints — board cadence doesn&rsquo;t apply.
           </p>
+        ) : !canEdit ? (
+          <div className="space-y-3">
+            <ReadOnlyIndicator
+              label="Board cadence"
+              value={CADENCE_OPTIONS.find((o) => o.id === selected)?.label ?? selected}
+              provenance="managed by the project scheduler"
+            />
+            <p className="text-[12px] text-neutral-text-secondary">
+              Continuous flow hides sprint tracking (planning, burndown, sprint header) and leans on
+              the flow-analytics panel. Tasks still move through your board columns.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
             <div

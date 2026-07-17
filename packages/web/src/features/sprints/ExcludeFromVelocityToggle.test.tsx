@@ -68,10 +68,13 @@ describe('ExcludeFromVelocityToggle', () => {
 
   it('renders read-only and does not mutate for non-Scheduler roles', () => {
     renderToggle({ canEdit: false });
-    const sw = screen.getByRole('switch');
-    expect(sw).toBeDisabled();
-    expect(sw).toHaveAttribute('title', 'Only a Scheduler or above can change this');
-    fireEvent.click(sw);
+    // No interactive switch — the value + provenance shows read-only instead (ADR-0133).
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(
+      screen.getByLabelText(
+        'Exclude from velocity: Not excluded, managed by a Scheduler. View only.',
+      ),
+    ).toBeInTheDocument();
     expect(updateMutate).not.toHaveBeenCalled();
   });
 

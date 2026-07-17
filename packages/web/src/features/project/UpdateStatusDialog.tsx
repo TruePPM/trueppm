@@ -24,7 +24,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { AxiosError } from 'axios';
 import type { ProjectHealth } from '@/api/types';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
-import { HEALTH_OPTIONS, HEALTH_ACTIVE } from '@/features/project/projectHealth';
+import { HEALTH_OPTIONS, HEALTH_ACTIVE, HEALTH_LABEL } from '@/features/project/projectHealth';
+import { ReadOnlyIndicator } from '@/features/settings/components/ReadOnlyIndicator';
 
 interface UpdateStatusDialogProps {
   projectId: string;
@@ -103,34 +104,44 @@ export function UpdateStatusDialog({
           rollups, and is separate from the schedule health computed from your plan.
         </p>
 
-        <div
-          className="mb-3 flex flex-wrap gap-2"
-          role="group"
-          aria-label="Reported project health"
-        >
-          {HEALTH_OPTIONS.map((opt) => {
-            const isSelected = selected === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                disabled={!canEdit || busy}
-                onClick={() => setSelected(opt.id)}
-                aria-pressed={isSelected}
-                className={[
-                  'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  'disabled:cursor-not-allowed',
-                  isSelected
-                    ? HEALTH_ACTIVE[opt.id]
-                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken disabled:hover:bg-transparent',
-                ].join(' ')}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        {canEdit ? (
+          <div
+            className="mb-3 flex flex-wrap gap-2"
+            role="group"
+            aria-label="Reported project health"
+          >
+            {HEALTH_OPTIONS.map((opt) => {
+              const isSelected = selected === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setSelected(opt.id)}
+                  aria-pressed={isSelected}
+                  className={[
+                    'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    'disabled:cursor-not-allowed',
+                    isSelected
+                      ? HEALTH_ACTIVE[opt.id]
+                      : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken disabled:hover:bg-transparent',
+                  ].join(' ')}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mb-3">
+            <ReadOnlyIndicator
+              label="Reported status"
+              value={HEALTH_LABEL[currentHealth]}
+              provenance="set by the Project Manager"
+            />
+          </div>
+        )}
 
         <p className="mb-4 text-xs text-neutral-text-secondary">
           {canEdit

@@ -8,6 +8,7 @@
 
 import { useMemo } from 'react';
 import { EntitySelectCombobox, type EntityOption } from '@/components/EntitySelectCombobox';
+import { ReadOnlyIndicator } from './ReadOnlyIndicator';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useProgramMembers } from '@/features/programs/hooks/useProgramMembers';
 
@@ -28,6 +29,11 @@ interface MemberPickerProps {
   label: string;
   canEdit: boolean;
   /**
+   * Provenance clause for the read-only branch (below-role users), rendered after
+   * "· " by {@link ReadOnlyIndicator}. Defaults to a generic "managed by an admin".
+   */
+  readOnlyProvenance?: string;
+  /**
    * The currently-assigned member's display payload, from the record's
    * `lead_detail`. Merged into the option list so the resting row renders the
    * real name even before the roster query resolves (or if the saved lead is
@@ -44,6 +50,7 @@ export function MemberPicker({
   onChange,
   label,
   canEdit,
+  readOnlyProvenance = 'managed by an admin',
   selectedDetail,
 }: MemberPickerProps) {
   // Both hooks are called unconditionally (rules of hooks); only the active
@@ -91,6 +98,21 @@ export function MemberPicker({
     selectedDetail,
   ]);
 
+  // Below-role users get the effective value + provenance, never a disabled
+  // combobox (ADR-0133, web-rule 175/164).
+  if (!canEdit) {
+    const selectedLabel =
+      options.find((o) => o.id === value)?.primaryText ?? selectedDetail?.username;
+    return (
+      <ReadOnlyIndicator
+        label={label}
+        value={selectedLabel ?? 'None'}
+        provenance={readOnlyProvenance}
+        filled={value != null}
+      />
+    );
+  }
+
   return (
     <EntitySelectCombobox
       value={value}
@@ -98,7 +120,6 @@ export function MemberPicker({
       onChange={onChange}
       label={label}
       isLoading={isLoading}
-      disabled={!canEdit}
     />
   );
 }
