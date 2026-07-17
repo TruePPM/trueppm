@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialScrollLeft } from './scheduleUtils';
@@ -1491,15 +1492,7 @@ export function ScheduleView() {
   // the two never race on mount (the consume effect wins first).
   useEffect(() => {
     if (!taskParamConsumedRef.current) return;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (selectedTaskId) next.set('task', selectedTaskId);
-        else next.delete('task');
-        return next;
-      },
-      { replace: true },
-    );
+    setSearchParam(setSearchParams, 'task', selectedTaskId);
   }, [selectedTaskId, setSearchParams]);
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {

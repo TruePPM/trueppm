@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { setSearchParam } from '@/hooks/useUrlSelectedId';
 import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { QueryErrorState } from '@/components/QueryErrorState';
@@ -141,15 +142,7 @@ export function GridView() {
 
   const setOverdue = useCallback(
     (next: boolean) => {
-      setSearchParams(
-        (prev) => {
-          const p = new URLSearchParams(prev);
-          if (next) p.set('due', 'overdue');
-          else p.delete('due');
-          return p;
-        },
-        { replace: true },
-      );
+      setSearchParam(setSearchParams, 'due', next ? 'overdue' : null);
     },
     [setSearchParams],
   );
@@ -204,16 +197,7 @@ export function GridView() {
   }, [tasks, projectId, openTaskDrawer]);
   useEffect(() => {
     if (!gridTaskConsumedRef.current) return;
-    const id = drawerTask?.id ?? null;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (id) next.set('task', id);
-        else next.delete('task');
-        return next;
-      },
-      { replace: true },
-    );
+    setSearchParam(setSearchParams, 'task', drawerTask?.id ?? null);
   }, [drawerTask, setSearchParams]);
 
   const handleSearchChange = (v: string) => {
