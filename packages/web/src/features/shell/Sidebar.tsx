@@ -32,6 +32,7 @@ import {
   ResourcesIcon,
   BarChartIcon,
   InboxIcon,
+  AgentIcon,
 } from '@/components/Icons';
 import { NewProjectModal } from './NewProjectModal';
 import { NewProgramModal } from '@/features/programs/NewProgramModal';
@@ -118,6 +119,9 @@ const PROGRAM_VIEWS: {
   { view: 'projects', label: 'Projects', Icon: WbsIcon },
   { view: 'schedule', label: 'Schedule', Icon: GanttIcon },
   { view: 'resources', label: 'Resources', Icon: BarChartIcon },
+  // Governance-of-execution sits next to capacity-of-execution (#2020, ADR-0362):
+  // the OSS per-program read of what the team's own agents did.
+  { view: 'agents', label: 'Agents', Icon: AgentIcon },
   { view: 'members', label: 'Members', Icon: ResourcesIcon },
   // Unified Assets surface — files + external links across the program's
   // readable member projects (ADR-0215, issue 971).

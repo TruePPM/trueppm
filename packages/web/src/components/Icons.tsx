@@ -65,6 +65,27 @@ export function LinkIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Agent oversight — a shield enclosing a check; governance-of-agents glyph (#2020) */
+export function AgentIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M8 1.5 13 3.25V7.5c0 3.1-2.1 5.4-5 6.75-2.9-1.35-5-3.65-5-6.75V3.25L8 1.5Z" />
+      <path d="M5.75 7.75 7.25 9.25 10.5 6" />
+    </svg>
+  );
+}
+
 /** Kanban board — three vertical columns */
 export function BoardIcon({ className, ...rest }: IconProps) {
   return (
