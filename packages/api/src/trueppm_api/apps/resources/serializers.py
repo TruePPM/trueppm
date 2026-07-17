@@ -258,3 +258,37 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
         if value < Decimal("0.01") or value > Decimal("2.0"):
             raise serializers.ValidationError("units must be between 0.01 and 2.0 (1% to 200%)")
         return value
+
+
+class ResourceAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
+    """Read-only projection of one resource's task assignments across all projects.
+
+    Backs the org catalog's "Assignments" panel (#2047, ADR-0499): it answers the
+    resource manager's daily question "what is this person working on / are they
+    overloaded?". Purely read-only — assignment *writes* still go through
+    ``TaskResourceSerializer`` on the project-nested route. It carries the task and
+    project *names* (which ``TaskResourceSerializer`` deliberately omits), so the
+    action that serves it is gated on ``IsOrgAdmin`` rather than the base catalog
+    read gate — those names are project-scoped confidential data.
+    """
+
+    task = serializers.UUIDField(source="task_id", read_only=True)
+    task_name = serializers.CharField(source="task.name", read_only=True)
+    project = serializers.UUIDField(source="task.project_id", read_only=True)
+    project_name = serializers.CharField(source="task.project.name", read_only=True)
+    status = serializers.CharField(source="task.status", read_only=True)
+    percent_complete = serializers.FloatField(source="task.percent_complete", read_only=True)
+
+    class Meta:
+        model = TaskResource
+        fields = [
+            "id",
+            "task",
+            "task_name",
+            "project",
+            "project_name",
+            "status",
+            "percent_complete",
+            "units",
+        ]
+        read_only_fields = fields

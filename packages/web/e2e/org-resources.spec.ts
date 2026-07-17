@@ -289,3 +289,68 @@ test('restore deactivated resource', async ({ page }) => {
 
   await expect.poll(() => restorePosted).toBe(true);
 });
+
+// ---------------------------------------------------------------------------
+// Assignments section (issue #2047) — admin-gated "what are they working on"
+// ---------------------------------------------------------------------------
+
+const FIXTURE_ASSIGNMENTS = [
+  {
+    id: 'asg-1',
+    task: 'task-1',
+    task_name: 'Design homepage',
+    project: 'proj-a',
+    project_name: 'Omega Launch',
+    status: 'IN_PROGRESS',
+    percent_complete: 40,
+    units: '1.00',
+  },
+  {
+    id: 'asg-2',
+    task: 'task-2',
+    task_name: 'Ship public API',
+    project: 'proj-b',
+    project_name: 'Bravo Rollout',
+    status: 'NOT_STARTED',
+    percent_complete: 0,
+    units: '0.50',
+  },
+];
+
+test('admin sees the Assignments section grouped by project', async ({ page }) => {
+  await mockResourceRoutes(page);
+  // Registered AFTER mockResourceRoutes so these more-specific handlers win
+  // (Playwright runs the most-recently-added matching route first).
+  await page.route('**/api/v1/resources/*/assignments/**', (route) =>
+    route.fulfill({
+      json: { count: FIXTURE_ASSIGNMENTS.length, next: null, previous: null, results: FIXTURE_ASSIGNMENTS },
+    }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      json: {
+        id: 'u1',
+        username: 'admin',
+        display_name: 'Admin',
+        initials: 'AD',
+        email: 'admin@example.com',
+        can_access_admin_settings: true,
+      },
+    }),
+  );
+  await seedAuthAndNavigate(page);
+
+  await page.getByRole('button', { name: /alice nguyen/i }).click();
+
+  // Section renders with a neutral cross-project count (no utilization scoring).
+  await expect(page.getByText('Assignments')).toBeVisible();
+  await expect(page.getByText('2 tasks across 2 projects')).toBeVisible();
+  // A task row links to the task in its project schedule.
+  await expect(
+    page.getByRole('link', { name: /Design homepage, Omega Launch/ }),
+  ).toHaveAttribute('href', '/projects/proj-a/schedule?task=task-1');
+  // Project group header links to that project's allocation view.
+  await expect(
+    page.getByRole('link', { name: 'Bravo Rollout — open allocation view' }),
+  ).toHaveAttribute('href', '/projects/proj-b/resources/allocation');
+});

@@ -44,6 +44,33 @@ results.
   `0.5` for half their capacity). Assigning someone who isn't yet on the roster adds them
   automatically.
 
+## Assignments across projects
+
+:::note[0.4]
+The **Assignments** view on a resource's detail panel will ship in 0.4 as part of
+the **Community (OSS)** edition.
+:::
+
+Opening a person's card in the Workspace resource catalog will answer the first
+question a resource manager has — *what is this person working on?* The detail
+panel will gain an **Assignments** section that lists every task the resource is
+assigned to, **across every project**, grouped by project. Each task row links to
+that task in its project schedule, and each project heading links to that project's
+allocation view, so you can drill from the catalog straight into the work.
+
+Every row shows the task's status, percent complete, and the resource's allocation
+on that task (the raw `units` fraction of their capacity). A neutral summary — for
+example *"3 tasks across 2 projects"* — sits at the top. The view is **read-only**:
+it projects the assignments that already exist and lets you read the load yourself.
+It does **not** compute a utilization score, flag overallocation, or roll up across
+programs — cross-program resource leveling and portfolio heat maps remain part of
+the Enterprise edition.
+
+Because task and project names are project-scoped, the Assignments section is
+visible only to **resource managers** — org admins (Admin or Owner on at least one
+project). Other users still see the rest of the resource card (role, capacity,
+skills) but not the assignments list.
+
 ## Skill-fit and overallocation warnings
 
 You can attach **skill requirements** to a task — the skills (and minimum proficiency) the
@@ -67,7 +94,9 @@ units, the assignment comes back with an **overallocation** warning. Both checks
 5. Define per-task skill requirements and see skill-fit on assignment.
 6. See overallocation warnings when someone is overcommitted.
 7. View project utilization across the team.
-8. Deactivate and restore resources; remove them from a roster (cascading task
+8. See, from a resource's card, every task they are assigned to across all
+   projects — grouped by project, read-only (ships in 0.4).
+9. Deactivate and restore resources; remove them from a roster (cascading task
    assignments when forced).
 
 ## API
@@ -79,3 +108,9 @@ The catalog and assignment surfaces are exposed under
 Editing the resource catalog requires the **Project Manager** or **Project Admin** role on
 at least one project; editing the skill catalog, rosters, and task assignments requires
 the **Resource Manager** role or above on at least one project.
+
+A read-only cross-project assignments feed for one resource is exposed at
+`GET /api/v1/resources/{id}/assignments/` (ships in 0.4). Unlike
+`/api/v1/task-resources/?resource=`, it is **not** scoped to the caller's own
+projects — it returns the full cross-project set — so it requires org-admin
+(resource-manager) access.
