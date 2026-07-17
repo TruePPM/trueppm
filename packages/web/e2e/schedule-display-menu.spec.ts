@@ -3,11 +3,15 @@ import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
  * Schedule "Display" menu — WBS/Owner column toggles + the Chart section
- * (dependency lines, on-bar task-name placement, progress pills) — #2097.
+ * (dependency lines, on-bar task-name placement, progress pills) — #2097, with
+ * per-view task-name placement — #2107.
  *
  * The Chart toggles persist to localStorage (`trueppm.schedule.chartDisplay.v1`),
  * distinct from the data filters mirrored to the URL, and hiding a chart element
- * lights the trigger's active-count badge.
+ * lights the trigger's active-count badge. Task-name placement is tracked
+ * independently for Grid vs Timeline (`taskNamePlacementByView`): Grid omits the
+ * Timeline-only "Aligned left" option, and switching a view's placement leaves
+ * the other view untouched.
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
@@ -87,7 +91,7 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('exposes WBS + Owner column toggles and the Chart section controls', async ({ page }) => {
+  test('exposes WBS + Owner column toggles and the Grid-scoped Chart section', async ({ page }) => {
     await page.getByRole('button', { name: 'Display' }).click();
     const menu = page.getByRole('menu', { name: 'Display options' });
     await expect(menu).toBeVisible();
@@ -100,9 +104,13 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(menu.getByText('Chart')).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Dependency lines' })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Progress %' })).toBeVisible();
+
+    // Grid view: the sub-label is scoped to Grid and offers only Next-to-bar +
+    // Hidden. "Aligned left" is a Timeline-only gutter, so it is not shown here.
+    await expect(menu.getByText('Task names (Grid)')).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Next to bar' })).toBeVisible();
-    await expect(menu.getByRole('menuitemradio', { name: 'Aligned left' })).toBeVisible();
     await expect(menu.getByRole('menuitemradio', { name: 'Hidden' })).toBeVisible();
+    await expect(menu.getByRole('menuitemradio', { name: 'Aligned left' })).toHaveCount(0);
   });
 
   test('hiding dependency lines persists to localStorage and lights the badge', async ({ page }) => {
@@ -123,9 +131,13 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
     await expect(page.getByRole('button', { name: /Display, 1 active/i })).toBeVisible();
   });
 
-  test('selecting "Aligned left" name placement persists', async ({ page }) => {
+  test('selecting "Aligned left" in Timeline persists to the Timeline slot', async ({ page }) => {
+    // "Aligned left" is Timeline-only — switch to Timeline first.
+    await page.getByRole('radio', { name: 'Timeline' }).click();
+
     await page.getByRole('button', { name: 'Display' }).click();
     const menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
     const aligned = menu.getByRole('menuitemradio', { name: 'Aligned left' });
     await aligned.click();
     await expect(aligned).toHaveAttribute('aria-checked', 'true');
@@ -134,9 +146,63 @@ test.describe('Schedule Display menu — columns + Chart section (#2097)', () =>
       .poll(() =>
         page.evaluate(() => {
           const raw = localStorage.getItem('trueppm.schedule.chartDisplay.v1');
-          return raw ? JSON.parse(raw).taskNamePlacement : null;
+          return raw ? JSON.parse(raw).taskNamePlacementByView?.timeline : null;
         }),
       )
       .toBe('left');
+  });
+
+  test('Grid and Timeline placements are independent and survive navigation (#2107)', async ({
+    page,
+  }) => {
+    // Set Grid → "Next to bar" (Grid defaults to Hidden).
+    await page.getByRole('button', { name: 'Display' }).click();
+    let menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu.getByText('Task names (Grid)')).toBeVisible();
+    await menu.getByRole('menuitemradio', { name: 'Next to bar' }).click();
+    await page.keyboard.press('Escape');
+
+    // Switch to Timeline and set a *different* placement — "Hidden".
+    await page.getByRole('radio', { name: 'Timeline' }).click();
+    await page.getByRole('button', { name: 'Display' }).click();
+    menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
+    await menu.getByRole('menuitemradio', { name: 'Hidden' }).click();
+
+    // Each view kept its own choice — the two do not clobber each other.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = localStorage.getItem('trueppm.schedule.chartDisplay.v1');
+          return raw ? JSON.parse(raw).taskNamePlacementByView : null;
+        }),
+      )
+      .toEqual({ grid: 'next', timeline: 'hidden' });
+
+    // Reload — a full page teardown proves the per-view preferences persist
+    // (they "save when you go back"). The view mode is also persisted, so the
+    // schedule reopens in Timeline.
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Display' })).toBeVisible({ timeout: 10_000 });
+
+    // Still in Timeline: "Hidden" is the restored selection.
+    await page.getByRole('button', { name: 'Display' }).click();
+    menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu.getByText('Task names (Timeline)')).toBeVisible();
+    await expect(menu.getByRole('menuitemradio', { name: 'Hidden' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.keyboard.press('Escape');
+
+    // Switch back to Grid: its independent "Next to bar" choice is intact.
+    await page.getByRole('radio', { name: 'Grid' }).click();
+    await page.getByRole('button', { name: 'Display' }).click();
+    menu = page.getByRole('menu', { name: 'Display options' });
+    await expect(menu.getByText('Task names (Grid)')).toBeVisible();
+    await expect(menu.getByRole('menuitemradio', { name: 'Next to bar' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 });

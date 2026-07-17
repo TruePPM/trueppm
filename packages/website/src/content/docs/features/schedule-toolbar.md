@@ -37,10 +37,10 @@ Filters are split into two clusters so they don't read as a "pick one of four" r
 
 **Chart** — control what the timeline paints (presentation, not a data filter):
 - **Dependency lines** — show or hide all dependency arrows.
-- **Task names** — place on-bar names **Next to bar** (default), **Aligned left** (the Timeline-mode gutter described above), or **Hidden**.
+- **Task names** — place on-bar names **Next to bar**, **Aligned left** (the Timeline-mode gutter described above; offered only in Timeline), or **Hidden**. This placement is remembered **independently for Grid and Timeline** — the sub-label names the view it applies to (*Task names (Grid)* / *Task names (Timeline)*). Timeline defaults to **Next to bar** (the canvas is the only place names appear there); Grid defaults to **Hidden** (the task-list table already shows every name), so you can drop the redundant on-bar label in Grid without stripping the names off the bars in Timeline.
 - **Progress %** — show or hide the on-bar completion pills.
 
-Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding any Chart element lights the Display trigger's badge so nothing disappears silently, and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.
+Chart choices are saved per-user in your browser. Unlike the view/render filters (which are encoded in the URL so a filtered view is shareable), Chart choices are personal presentation preferences and stay local. Hiding a Chart element lights the Display trigger's badge so nothing disappears silently (a hidden **Grid** task name is the one exception — the name is still right there in the task-list table, so the badge stays quiet), and a PDF export opens matching what you see — hide the dependency lines and the export's arrow toggle starts off to match.
 
 ## Summary chip
 

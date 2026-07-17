@@ -31,6 +31,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { ChevronDownIcon, SlidersIcon } from '@/components/Icons';
+import type { ScheduleViewMode } from '@/stores/scheduleStore';
 import type { TaskNamePlacement } from './engine';
 
 /** A single checkbox toggle row inside the Display menu. */
@@ -52,6 +53,10 @@ export interface DisplayMenuSection {
 export interface ChartMenuConfig {
   dependencyLinesVisible: boolean;
   setDependencyLinesVisible: (v: boolean) => void;
+  /** The active view whose name placement this menu edits (#2107). Scopes the
+   *  "Task names" sub-label and which placement options are offered. */
+  viewMode: ScheduleViewMode;
+  /** Placement for the active view (resolved by the host from its per-view map). */
   taskNamePlacement: TaskNamePlacement;
   setTaskNamePlacement: (v: TaskNamePlacement) => void;
   progressPillsVisible: boolean;
@@ -63,6 +68,13 @@ const TASK_NAME_OPTIONS: ReadonlyArray<{ value: TaskNamePlacement; label: string
   { value: 'left', label: 'Aligned left' },
   { value: 'hidden', label: 'Hidden' },
 ];
+
+// `left` (aligned-left name gutter, #2096) only exists in Timeline mode — in
+// Grid the DOM task table already carries the names, so the option would be a
+// no-op. Offer it only where it means something (#2107).
+function taskNameOptionsFor(view: ScheduleViewMode) {
+  return view === 'grid' ? TASK_NAME_OPTIONS.filter((o) => o.value !== 'left') : TASK_NAME_OPTIONS;
+}
 
 // Internal flattened, focusable menu item — checkbox or radio. Roving focus and
 // keyboard nav operate over this uniform list regardless of source section.
@@ -179,7 +191,13 @@ export function ScheduleDisplayMenu({
   }
 
   if (chart) {
-    const radioIds = TASK_NAME_OPTIONS.map((o) => `task-name-${o.value}`);
+    // The placement options and the sub-group label are both scoped to the
+    // active view (#2107): Grid omits the Timeline-only `left` option, and the
+    // label names the view so the value visibly differing across views reads as
+    // intentional ("Task names (Grid)") rather than a bug.
+    const taskNameOptions = taskNameOptionsFor(chart.viewMode);
+    const radioIds = taskNameOptions.map((o) => `task-name-${o.value}`);
+    const taskNamesLabel = `Task names (${chart.viewMode === 'grid' ? 'Grid' : 'Timeline'})`;
     sections.push({
       id: 'chart',
       label: 'Chart',
@@ -191,7 +209,7 @@ export function ScheduleDisplayMenu({
           checked: chart.dependencyLinesVisible,
           activate: () => chart.setDependencyLinesVisible(!chart.dependencyLinesVisible),
         },
-        ...TASK_NAME_OPTIONS.map((o) => ({
+        ...taskNameOptions.map((o) => ({
           kind: 'radio' as const,
           id: `task-name-${o.value}`,
           label: o.label,
@@ -206,7 +224,7 @@ export function ScheduleDisplayMenu({
           activate: () => chart.setProgressPillsVisible(!chart.progressPillsVisible),
         },
       ],
-      radioGroup: { afterItemId: 'dependency-lines', label: 'Task names', itemIds: radioIds },
+      radioGroup: { afterItemId: 'dependency-lines', label: taskNamesLabel, itemIds: radioIds },
     });
   }
 
@@ -244,8 +262,14 @@ export function ScheduleDisplayMenu({
 
   useLayoutEffect(() => {
     if (!open) return;
-    itemRefs.current[activeIndex]?.focus();
-  }, [open, activeIndex]);
+    // Clamp: the focusable item count varies with the active view (#2107 — Grid
+    // offers 2 name-placement radios, Timeline 3, and the Columns section is
+    // Grid-only). If the list shrinks while the menu is open (e.g. a device
+    // rotation flips the effective view), a stale activeIndex would point past
+    // the array and drop focus to <body>; clamp it back into range instead.
+    const index = Math.min(activeIndex, items.length - 1);
+    itemRefs.current[index]?.focus();
+  }, [open, activeIndex, items.length]);
 
   function onTriggerKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
     if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {

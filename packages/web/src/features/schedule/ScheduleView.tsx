@@ -21,7 +21,7 @@ import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
-import { useScheduleChartPrefs } from '@/hooks/useScheduleChartPrefs';
+import { useScheduleChartPrefs, hiddenChartCountForView } from '@/hooks/useScheduleChartPrefs';
 import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/grid/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
@@ -408,7 +408,6 @@ export function ScheduleView() {
     setDependencyLinesVisible,
     setTaskNamePlacement,
     setProgressPillsVisible,
-    hiddenChartCount,
   } = useScheduleChartPrefs();
 
   // Filter links to critical-path only when showCpOnly is active, and drop them
@@ -610,17 +609,24 @@ export function ScheduleView() {
   // dedicated mobile-first surface is tracked in #1671.
   const effectiveViewMode = isMobile ? 'timeline' : viewMode;
 
+  // On-bar task-name placement is independent per view (#2107): resolve the
+  // active view's choice here, then hand a single scalar to the engine and the
+  // Display menu. (`effectiveViewMode`, not the stored `viewMode`, so mobile's
+  // forced-Timeline layout paints and edits Timeline's placement.)
+  const activeNamePlacement = chartPrefs.taskNamePlacementByView[effectiveViewMode];
+  const hiddenChartCount = hiddenChartCountForView(chartPrefs, effectiveViewMode);
+
   // Engine chart options (name placement + progress pills). Dependency-line
   // visibility is handled by the `links` filter above, not here. The gutter is
   // drawn only in Timeline mode (table hidden) with the "Aligned left" choice —
   // in Grid mode the task table already carries the names.
   const chartOptions = useMemo(
     () => ({
-      taskNamePlacement: chartPrefs.taskNamePlacement,
+      taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
-      showNameGutter: effectiveViewMode === 'timeline' && chartPrefs.taskNamePlacement === 'left',
+      showNameGutter: effectiveViewMode === 'timeline' && activeNamePlacement === 'left',
     }),
-    [chartPrefs.taskNamePlacement, chartPrefs.progressPillsVisible, effectiveViewMode],
+    [activeNamePlacement, chartPrefs.progressPillsVisible, effectiveViewMode],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -1798,8 +1804,9 @@ export function ScheduleView() {
             chart={{
               dependencyLinesVisible: chartPrefs.dependencyLinesVisible,
               setDependencyLinesVisible,
-              taskNamePlacement: chartPrefs.taskNamePlacement,
-              setTaskNamePlacement,
+              viewMode: effectiveViewMode,
+              taskNamePlacement: activeNamePlacement,
+              setTaskNamePlacement: (v) => setTaskNamePlacement(effectiveViewMode, v),
               progressPillsVisible: chartPrefs.progressPillsVisible,
               setProgressPillsVisible,
             }}
