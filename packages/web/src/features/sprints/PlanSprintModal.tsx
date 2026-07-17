@@ -294,7 +294,7 @@ export function PlanSprintModal({
               <button
                 type="submit"
                 disabled={!canSubmit}
-                className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
+                className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-neutral-text-inverse
                   disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                   focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"

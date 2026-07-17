@@ -466,7 +466,7 @@ export function CeremonyModal({ programId, ceremony, onClose, onSaved }: Ceremon
             <button
               type="submit"
               disabled={isPending || nameInvalid}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Save'}
             </button>

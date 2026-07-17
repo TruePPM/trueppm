@@ -241,7 +241,7 @@ export function ProjectCalendarsPage() {
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-brand-primary-dark bg-brand-primary px-4 text-[13px] font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[38px]"
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-brand-primary-dark bg-brand-primary px-4 text-[13px] font-medium text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[38px]"
                 >
                   <PlusIcon aria-hidden="true" />
                   Add a holidays calendar

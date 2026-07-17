@@ -46,7 +46,7 @@ function Avatar({ initials }: { initials: string }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-primary text-xs font-bold text-white"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-primary text-xs font-bold text-neutral-text-inverse"
     >
       {initials}
     </span>

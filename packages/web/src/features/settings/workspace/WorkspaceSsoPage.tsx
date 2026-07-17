@@ -248,7 +248,7 @@ export function WorkspaceSsoPage() {
                 <button
                   type="button"
                   onClick={() => setConnecting(true)}
-                  className="h-9 px-4 text-[13px] font-semibold rounded-control bg-brand-primary text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="h-9 px-4 text-[13px] font-semibold rounded-control bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
                   Connect OIDC provider
                 </button>

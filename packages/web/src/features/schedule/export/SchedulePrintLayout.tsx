@@ -399,7 +399,7 @@ export const SchedulePrintLayout = forwardRef<HTMLDivElement, SchedulePrintLayou
                 {dataDateX != null && (
                   <span
                     style={{ left: dataDateX }}
-                    className="absolute top-0.5 -translate-x-1/2 whitespace-nowrap rounded-sm bg-brand-primary px-1 text-xs font-medium leading-tight text-white"
+                    className="absolute top-0.5 -translate-x-1/2 whitespace-nowrap rounded-sm bg-brand-primary px-1 text-xs font-medium leading-tight text-neutral-text-inverse"
                   >
                     {fmtUtcShort(dataDate)}
                   </span>

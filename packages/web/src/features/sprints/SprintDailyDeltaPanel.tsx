@@ -249,7 +249,7 @@ function WindowControl({
               'px-2 py-0.5 font-medium border-l border-neutral-border first:border-l-0',
               'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-inset',
               active
-                ? 'bg-brand-primary text-white'
+                ? 'bg-brand-primary text-neutral-text-inverse'
                 : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised',
             ].join(' ')}
           >

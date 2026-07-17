@@ -269,7 +269,7 @@ export function BoardFilterControl({
             aria-hidden="true"
             data-testid="board-filter-count"
             className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1
-              rounded-full bg-brand-primary text-white text-xs font-bold tppm-mono leading-none"
+              rounded-full bg-brand-primary text-neutral-text-inverse text-xs font-bold tppm-mono leading-none"
           >
             {count}
           </span>

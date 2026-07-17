@@ -349,7 +349,7 @@ export function QuickLogTime() {
         <button
           type="submit"
           disabled={!canLog}
-          className="h-11 w-full rounded-control bg-brand-primary px-4 text-sm font-medium text-white hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:w-auto"
+          className="h-11 w-full rounded-control bg-brand-primary px-4 text-sm font-medium text-neutral-text-inverse hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 md:h-9 md:w-auto"
         >
           Log {formatLoggedMinutes(minutes)}
         </button>

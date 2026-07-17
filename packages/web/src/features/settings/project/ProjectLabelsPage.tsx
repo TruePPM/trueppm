@@ -348,7 +348,7 @@ function CreateLabelRow({
               // Add button (strict-mode) and reads ambiguously to a screen reader.
               aria-label="Add label"
               data-testid="label-create-add"
-              className="h-8 shrink-0 rounded-control bg-brand-primary px-3 text-sm font-medium text-white
+              className="h-8 shrink-0 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
                 hover:bg-brand-primary-dark disabled:opacity-60"
             >
               Add

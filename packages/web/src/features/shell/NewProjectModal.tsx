@@ -201,7 +201,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold
                     ${n === step
-                      ? 'bg-brand-primary text-white'
+                      ? 'bg-brand-primary text-neutral-text-inverse'
                       : n < step
                         ? 'bg-brand-primary/20 text-brand-primary'
                         : 'bg-neutral-surface-raised text-neutral-text-disabled'}`}
@@ -443,7 +443,7 @@ export function NewProjectModal({ onClose, onCreated, programId, programName }: 
                     (step === 2 && !canAdvanceStep2) ||
                     (step === TOTAL_STEPS && createProject.isPending)
                   }
-                  className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-white
+                  className="h-9 px-4 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
                     disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
                     focus:outline-none focus:ring-2 focus:ring-white
                     focus:ring-offset-2 focus:ring-offset-brand-primary"

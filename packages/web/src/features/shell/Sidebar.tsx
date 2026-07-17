@@ -712,7 +712,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
                 </svg>
                 <span className="min-w-0 truncate">Notifications</span>
                 {unreadCount > 0 && (
-                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-white">
+                  <span className="tppm-mono ml-auto shrink-0 rounded-full bg-brand-primary px-1.5 py-0.5 text-xs text-neutral-text-inverse">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}

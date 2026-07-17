@@ -245,7 +245,7 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
           <button
             type="button"
             onClick={() => setStatusDialogOpen(true)}
-            className="text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
+            className="text-xs bg-brand-primary text-neutral-text-inverse rounded-control px-3 h-7 font-medium
               hover:opacity-90
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
@@ -782,7 +782,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
             type="button"
             onClick={() => runMutation.mutate({})}
             disabled={runMutation.isPending}
-            className="self-start text-xs bg-brand-primary text-white rounded-control px-3 h-7 font-medium
+            className="self-start text-xs bg-brand-primary text-neutral-text-inverse rounded-control px-3 h-7 font-medium
               hover:opacity-90 disabled:opacity-50
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"

@@ -312,7 +312,7 @@ export function NotificationPreferencesPage() {
                 applyPreset.mutate('signal_only', { onSuccess: () => setSavedAt(Date.now()) })
               }
               disabled={applyPreset.isPending}
-              className="h-9 px-3 rounded-control text-sm font-medium bg-brand-primary text-white
+              className="h-9 px-3 rounded-control text-sm font-medium bg-brand-primary text-neutral-text-inverse
                 hover:bg-brand-primary-dark disabled:opacity-60 disabled:cursor-progress
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                 focus-visible:ring-offset-1"

@@ -4088,7 +4088,7 @@ export function BoardView() {
           onClick={handleMobileFabAdd}
           title="Add task"
           className="fixed bottom-16 right-4 w-14 h-14 rounded-full bg-brand-primary
-            border border-brand-primary-dark text-white flex items-center justify-center
+            border border-brand-primary-dark text-neutral-text-inverse flex items-center justify-center
             text-2xl font-light md:hidden z-10
             focus:ring-2 focus:ring-white focus:ring-offset-2
             focus:ring-offset-brand-primary"

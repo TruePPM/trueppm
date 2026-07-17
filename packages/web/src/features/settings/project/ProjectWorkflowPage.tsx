@@ -1160,7 +1160,7 @@ function CustomFieldModal({
           <button
             type="submit"
             disabled={!canSubmit || submitting}
-            className="px-3 py-1 text-[12px] font-medium text-white bg-brand-primary rounded-control hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1 text-[12px] font-medium text-neutral-text-inverse bg-brand-primary rounded-control hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {submitting ? 'Saving…' : mode === 'create' ? 'Add field' : 'Save'}
           </button>

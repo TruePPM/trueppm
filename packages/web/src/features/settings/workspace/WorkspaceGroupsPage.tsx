@@ -118,7 +118,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
           <span className="text-[11px] text-neutral-text-secondary flex items-center gap-1">
             Lead:{' '}
             <span
-              className="w-[18px] h-[18px] rounded-full bg-brand-primary inline-flex items-center justify-center text-white font-bold"
+              className="w-[18px] h-[18px] rounded-full bg-brand-primary inline-flex items-center justify-center text-neutral-text-inverse font-bold"
               style={{ fontSize: 10 }}
               aria-hidden="true"
             >
@@ -221,7 +221,7 @@ export function WorkspaceGroupsPage() {
             <button
               type="button"
               onClick={() => setShowCreateForm((v) => !v)}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               + Create group
             </button>
@@ -273,7 +273,7 @@ export function WorkspaceGroupsPage() {
             <button
               type="submit"
               disabled={!newGroupName.trim() || createGroup.isPending}
-              className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
+              className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
             >
               {createGroup.isPending ? 'Creating…' : 'Create'}
             </button>

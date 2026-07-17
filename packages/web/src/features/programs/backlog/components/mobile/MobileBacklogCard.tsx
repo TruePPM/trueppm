@@ -73,7 +73,7 @@ export function MobileBacklogCard({
               }
             }}
             aria-label={`Pull ${item.title} to a project`}
-            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-control bg-brand-primary px-3 text-xs font-medium text-white ${FOCUS_RING}`}
+            className={`inline-flex h-9 shrink-0 items-center gap-1 rounded-control bg-brand-primary px-3 text-xs font-medium text-neutral-text-inverse ${FOCUS_RING}`}
           >
             Pull
             <ArrowRightIcon aria-hidden="true" className="h-3 w-3" />

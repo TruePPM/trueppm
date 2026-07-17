@@ -60,7 +60,7 @@ function MenuContent({
       {/* Header: avatar + display name + email */}
       <div className={`${rowBase} gap-3`}>
         <span
-          className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-white text-xs font-semibold flex items-center justify-center"
+          className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-primary text-neutral-text-inverse text-xs font-semibold flex items-center justify-center"
           aria-hidden="true"
         >
           {initials}
@@ -265,7 +265,7 @@ function AvatarChip({
         'relative w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold',
         "max-md:before:absolute max-md:before:content-[''] max-md:before:-inset-[6px]",
         'focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-brand-primary',
-        'bg-brand-primary text-white',
+        'bg-brand-primary text-neutral-text-inverse',
       ].join(' ')}
     >
       {initials}

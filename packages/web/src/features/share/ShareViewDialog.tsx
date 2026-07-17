@@ -26,8 +26,8 @@ const BTN =
   'text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none ' +
   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 ' +
   'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed';
-const PRI = `${BTN} !border-brand-primary !bg-brand-primary !text-white hover:!opacity-90`;
-const SEG_ON = 'bg-brand-primary text-white';
+const PRI = `${BTN} !border-brand-primary !bg-brand-primary !text-neutral-text-inverse hover:!opacity-90`;
+const SEG_ON = 'bg-brand-primary text-neutral-text-inverse';
 const SEG_OFF = 'text-neutral-text-primary hover:bg-neutral-surface-sunken';
 
 type ExpiryChoice = 'never' | '30d' | 'custom';

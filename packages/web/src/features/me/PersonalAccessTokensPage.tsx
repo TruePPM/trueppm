@@ -73,7 +73,7 @@ export function PersonalAccessTokensPage() {
             onClick={() => setCreating(true)}
             disabled={atCap}
             title={atCap ? 'Revoke a token to free up a slot' : undefined}
-            className="h-8 px-3 shrink-0 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Create token
           </button>
@@ -361,7 +361,7 @@ function CreateTokenDialog({ onClose }: { onClose: () => void }) {
                 <button
                   type="submit"
                   disabled={create.isPending}
-                  className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                 >
                   {create.isPending ? 'Creating…' : 'Create token'}
                 </button>
@@ -546,7 +546,7 @@ function RevokeDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="h-8 px-3 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Keep token
           </button>
@@ -584,7 +584,7 @@ function CopyButton({ value }: { value: string }) {
       type="button"
       onClick={() => void copy()}
       aria-label="Copy token"
-      className="h-9 px-3 shrink-0 rounded-control bg-brand-primary text-white text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="h-9 px-3 shrink-0 rounded-control bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
     >
       {copied ? 'Copied ✓' : 'Copy'}
     </button>

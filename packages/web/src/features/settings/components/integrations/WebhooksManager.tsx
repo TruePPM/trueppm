@@ -60,7 +60,7 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-white hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           New webhook
         </button>

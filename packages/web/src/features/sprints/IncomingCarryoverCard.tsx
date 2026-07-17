@@ -66,7 +66,7 @@ export function IncomingCarryoverCard({ sprintId, currentSprintShortId }: Props)
               }
               className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-xs font-bold ${
                 t.pulled_in_to_current
-                  ? 'border-brand-primary bg-brand-primary text-white'
+                  ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
                   : 'border-neutral-border text-transparent'
               }`}
             >

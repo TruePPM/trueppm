@@ -87,7 +87,7 @@ export function RetroColumns(props: Props) {
                   'flex-1 min-h-[44px] px-2 rounded text-xs font-medium whitespace-nowrap',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   selected
-                    ? 'bg-brand-primary text-white'
+                    ? 'bg-brand-primary text-neutral-text-inverse'
                     : 'text-neutral-text-secondary hover:bg-neutral-surface-sunken',
                 ].join(' ')}
               >

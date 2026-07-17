@@ -66,7 +66,7 @@ export function ForgotPasswordSentPage() {
         <a
           href="mailto:"
           className="
-            h-11 w-full rounded bg-brand-primary text-white
+            h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
             text-sm font-semibold flex items-center justify-center
             hover:bg-brand-primary-dark
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

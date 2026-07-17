@@ -235,7 +235,7 @@ function LabelPopover({
                 onClick={submitCreate}
                 disabled={create.isPending}
                 data-testid="label-create-submit"
-                className="w-full rounded-control bg-brand-primary px-2 py-1.5 text-sm font-medium text-white
+                className="w-full rounded-control bg-brand-primary px-2 py-1.5 text-sm font-medium text-neutral-text-inverse
                   hover:bg-brand-primary-dark disabled:opacity-60
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
               >

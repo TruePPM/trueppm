@@ -204,7 +204,7 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
                 void handleSubmit(e as unknown as FormEvent);
               }}
               disabled={update.isPending}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {update.isPending ? 'Saving…' : 'Save'}
             </button>

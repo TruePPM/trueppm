@@ -26,7 +26,7 @@ export function CardPopoverFooter({ onOpenDetail, onEdit, openDetailRef }: CardP
       <button
         type="button"
         onClick={onEdit}
-        className="h-8 md:h-8 min-h-11 md:min-h-0 px-3.5 rounded-control bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
+        className="h-8 md:h-8 min-h-11 md:min-h-0 px-3.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium border-none hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary focus-visible:outline-none"
       >
         Edit
       </button>

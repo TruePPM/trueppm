@@ -32,7 +32,7 @@ export interface UnsavedChangesDialogProps {
 }
 
 const PRIMARY_BTN =
-  'h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium border-none hover:bg-brand-primary-dark disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none';
+  'h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium border-none hover:bg-brand-primary-dark disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary focus-visible:outline-none';
 const SECONDARY_BTN =
   'h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none';
 

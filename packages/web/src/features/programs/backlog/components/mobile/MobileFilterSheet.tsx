@@ -64,7 +64,7 @@ export function MobileFilterSheet({
                     aria-hidden="true"
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-control border text-xs ${
                       checked
-                        ? 'border-brand-primary bg-brand-primary text-white'
+                        ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
                         : 'border-neutral-border'
                     }`}
                   >

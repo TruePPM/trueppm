@@ -102,7 +102,7 @@ export function ForgotPasswordPage() {
           type="submit"
           disabled={!canSubmit}
           className="
-            h-11 w-full rounded bg-brand-primary text-white
+            h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
             text-sm font-semibold
             hover:bg-brand-primary-dark
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
