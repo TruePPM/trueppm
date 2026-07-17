@@ -32,7 +32,10 @@ mkdir -p "$DEST"
 for pack in "${PACKS[@]}"; do
   echo "fetching p/${pack} …"
   # -f: fail on HTTP error so a registry hiccup doesn't write a truncated pack.
-  curl -fsSL "${BASE}/${pack}" -o "${DEST}/${pack}.yml"
+  # --proto '=https' --tlsv1.2: refuse any non-HTTPS URL, including a redirect
+  # that tries to downgrade to plaintext http, so the rules can't be swapped in
+  # transit.
+  curl --proto '=https' --tlsv1.2 -fsSL "${BASE}/${pack}" -o "${DEST}/${pack}.yml"
   # Sanity-check the download is a rules document, not an error page.
   if ! head -1 "${DEST}/${pack}.yml" | grep -q '^rules:'; then
     echo "error: ${DEST}/${pack}.yml does not start with 'rules:' — aborting" >&2

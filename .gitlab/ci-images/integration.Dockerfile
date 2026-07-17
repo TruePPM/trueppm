@@ -66,4 +66,10 @@ RUN mkdir -p scheduler/src/trueppm_scheduler api/src/trueppm_api \
  && pip uninstall --yes trueppm-scheduler trueppm-api \
  && rm -rf /opt/ci-deps
 
+# Run the CI job as a non-root user (Sonar dockerfile:S6471). The Playwright base
+# ships `pwuser` (uid 1000, the vendor's own browser-sandbox user); give it the
+# venv so the job-time `pip install -e packages/...` editable re-link still writes.
+RUN chown -R pwuser /opt/api-venv
+USER pwuser
+
 WORKDIR /

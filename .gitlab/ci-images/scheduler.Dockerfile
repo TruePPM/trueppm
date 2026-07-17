@@ -49,6 +49,15 @@ RUN mkdir -p scheduler/src/trueppm_scheduler \
 # Pinned + resident so the SBOM jobs never do a live install. Installed
 # SEPARATELY from scheduler[dev] so its own deps (lxml, jsonschema, …) stay out
 # of the audited dependency set in security:pip-audit:scheduler: (#935).
-RUN pip install --no-cache-dir cyclonedx-bom==7.3.0
+# --only-binary :all: keeps this wheel-only so no sdist setup script runs during
+# the image build (cyclonedx-bom and its deps all publish manylinux wheels).
+RUN pip install --only-binary :all: --no-cache-dir cyclonedx-bom==7.3.0
+
+# Run the CI jobs as a non-root user (Sonar dockerfile:S6471). uid 1000 owns the
+# system site-packages and bin so the job-time `pip install -e
+# packages/scheduler[dev]` editable re-link still writes without root.
+RUN useradd --uid 1000 --create-home --shell /bin/bash ci \
+ && chown -R ci /usr/local/lib/python3.11 /usr/local/bin
+USER ci
 
 WORKDIR /

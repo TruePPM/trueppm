@@ -229,6 +229,20 @@ function DesignCanvas({ children, minScale, maxScale, style }) {
 // (translate3d + will-change) so wheel ticks don't go through React —
 // keeps pans at 60fps on dense canvases.
 // ─────────────────────────────────────────────────────────────
+// Target origin for every cross-frame post to the host toolbar. Deriving it
+// from the embedder (document.referrer) rather than the '*' wildcard keeps the
+// zoom/present messages from leaking to an unexpected parent if this sandbox is
+// ever framed by a different origin. Falls back to this frame's own origin when
+// the referrer is stripped (e.g. a strict referrer policy) so the post still
+// has a concrete, same-origin target instead of '*'.
+const DC_HOST_ORIGIN = (() => {
+  try {
+    return new URL(document.referrer).origin || window.location.origin;
+  } catch {
+    return window.location.origin;
+  }
+})();
+
 function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
   const vpRef = React.useRef(null);
   const worldRef = React.useRef(null);
@@ -251,7 +265,7 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
     // ticks leave scale unchanged — skip the cross-frame post for those.
     if (lastPostedScale.current !== scale) {
       lastPostedScale.current = scale;
-      window.parent.postMessage({ type: '__dc_zoom', scale }, '*');
+      window.parent.postMessage({ type: '__dc_zoom', scale }, DC_HOST_ORIGIN);
     }
     clearTimeout(saveT.current);
     saveT.current = setTimeout(() => {
@@ -372,7 +386,7 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
         // images/fonts is after our mount-time announce, so re-announce.
         // Clear the pan-tick guard so apply() re-posts the current scale
         // even if it's unchanged — the host just reset dcScale to 1.
-        window.parent.postMessage({ type: '__dc_present' }, '*');
+        window.parent.postMessage({ type: '__dc_present' }, DC_HOST_ORIGIN);
         lastPostedScale.current = undefined;
         apply();
       }
@@ -385,7 +399,7 @@ function DCViewport({ children, minScale = 0.1, maxScale = 8, style = {} }) {
     // lastPostedScale reset mirrors the __dc_probe handler: the layout
     // effect's restore-path apply() may already have posted the restored
     // scale (before __dc_present), so clear the guard to re-post it in order.
-    window.parent.postMessage({ type: '__dc_present' }, '*');
+    window.parent.postMessage({ type: '__dc_present' }, DC_HOST_ORIGIN);
     lastPostedScale.current = undefined;
     apply();
 

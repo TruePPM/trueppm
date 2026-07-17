@@ -19,7 +19,9 @@ fi
 
 if ! command -v pre-commit &>/dev/null; then
   echo "pre-commit not found. Installing..."
-  pip install pre-commit --quiet
+  # --only-binary :all: keeps this a wheel-only install so pip never runs a
+  # dependency's setup script during the dev-hook bootstrap.
+  pip install --only-binary :all: pre-commit --quiet
 fi
 
 pre-commit install

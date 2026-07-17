@@ -3,8 +3,10 @@
 FROM node:22-alpine AS dev
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# npm ci installs the exact, resolved versions from the committed lockfile
+# (reproducible + tamper-evident) instead of npm install re-resolving ranges.
+COPY package.json package-lock.json ./
+RUN npm ci
 
 EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
@@ -13,8 +15,9 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 FROM node:22-alpine AS builder
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install
+# npm ci — locked, reproducible install from the committed lockfile.
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 RUN npm run build
