@@ -22,6 +22,8 @@ export interface Label {
   color: string;
   position: number;
   serverVersion: number;
+  /** Non-deleted tasks carrying this label (list/retrieve only; 0 elsewhere). */
+  taskCount: number;
 }
 
 interface ApiLabel {
@@ -31,6 +33,7 @@ interface ApiLabel {
   position: number;
   server_version: number;
   created_at?: string;
+  task_count?: number;
 }
 
 function mapLabel(l: ApiLabel): Label {
@@ -40,6 +43,7 @@ function mapLabel(l: ApiLabel): Label {
     color: l.color,
     position: l.position,
     serverVersion: l.server_version,
+    taskCount: l.task_count ?? 0,
   };
 }
 

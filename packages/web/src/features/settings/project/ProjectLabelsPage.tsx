@@ -259,7 +259,10 @@ function LabelRow({
           aria-label={`Delete ${label.name}?`}
         >
           <span className="text-neutral-text-secondary">
-            Delete “{label.name}”? It is removed from every task that has it.
+            Delete “{label.name}”?{' '}
+            {label.taskCount > 0
+              ? `Used on ${label.taskCount} ${label.taskCount === 1 ? 'task' : 'tasks'} — it is removed from ${label.taskCount === 1 ? 'that task' : 'them all'}.`
+              : 'It is not used on any tasks.'}
           </span>
           <button
             type="button"
