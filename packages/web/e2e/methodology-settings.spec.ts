@@ -242,8 +242,12 @@ test.describe('Project methodology', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/methodology`);
     const methodology = page.locator('[data-settings-section="methodology"]');
 
-    // Methodology is locked by the workspace policy…
-    await expect(methodology.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // Methodology is locked read-only by workspace policy (ADR-0133): no disabled
+    // radios — effective value (Waterfall) + provenance instead.
+    await expect(methodology.getByRole('radio')).toHaveCount(0);
+    await expect(
+      methodology.getByLabel('Methodology: Waterfall, locked by workspace policy. View only.'),
+    ).toBeVisible();
     // …but estimate governance is independent — still editable, saves on its own.
     const estimation = methodology.getByRole('combobox', { name: 'Estimate governance' });
     await expect(estimation).toBeEnabled();

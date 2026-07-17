@@ -154,8 +154,12 @@ describe('ProjectMethodologyPage', () => {
     useWorkspaceSettings.mockReturnValue({ data: { methodologyOverridePolicy: 'inherit' } });
     renderPage();
 
-    // The methodology picker is locked…
-    expect(screen.getByRole('radio', { name: /Agile/i })).toBeDisabled();
+    // The methodology picker is locked read-only by workspace policy (ADR-0133):
+    // no disabled radios — effective value + provenance instead.
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(
+      screen.getByLabelText('Methodology: Agile, locked by workspace policy. View only.'),
+    ).toBeInTheDocument();
     // …but estimate governance is still editable and saves on its own.
     const select = screen.getByRole('combobox', { name: 'Estimate governance' });
     expect(select).toBeEnabled();
