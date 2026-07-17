@@ -5092,11 +5092,14 @@ SCOPE_MCP_READ = "mcp:read"
 API_TOKEN_SCOPES: tuple[str, ...] = (SCOPE_LEGACY_FULL, SCOPE_MCP_READ)
 API_TOKEN_SCOPE_CHOICES = [(scope, scope) for scope in API_TOKEN_SCOPES]
 
-# Cap on the number of *active* personal access tokens (PATs) a single user may
-# hold at once (ADR-0214, issue #648). "Active" = owner-scoped, not revoked, not
-# soft-deleted, not past expiry. Bounds the blast radius of a leaked account and
-# keeps the /me/api-tokens/ list navigable; mirrors the count-gate precedent used
-# for per-task comments. Enterprise can later raise/lower this via policy.
+# Default cap on the number of *active* personal access tokens (PATs) a single
+# user may hold at once (ADR-0214, issue #648). "Active" = owner-scoped, not
+# revoked, not soft-deleted, not past expiry. Bounds the blast radius of a leaked
+# account and keeps the /me/api-tokens/ list navigable; mirrors the count-gate
+# precedent used for per-task comments. This is only the DEFAULT — the enforced
+# value is read from ``settings.TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS`` at request
+# time (#2021, ADR-0497), so an operator can retune it per deployment; Enterprise
+# can later raise/lower it via policy.
 MAX_PERSONAL_ACCESS_TOKENS = 10
 
 

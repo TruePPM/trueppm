@@ -13427,6 +13427,7 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         """
         import secrets
 
+        from django.conf import settings
         from django.contrib.auth.models import User
 
         from trueppm_api.apps.projects.authentication import (
@@ -13434,7 +13435,6 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             sha256_hex,
         )
         from trueppm_api.apps.projects.models import (
-            MAX_PERSONAL_ACCESS_TOKENS,
             SCOPE_LEGACY_FULL,
             ApiToken,
             ApiTokenAuditAction,
@@ -13447,15 +13447,17 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         write_serializer = MyApiTokenCreateSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
 
-        # Cap gate (ADR-0214): count only ACTIVE tokens (not revoked, not expired,
-        # not deleted) so revoking or letting one expire frees a slot. Mirrors the
-        # per-task comment count-gate precedent.
+        # Cap gate (ADR-0214, #2021): count only ACTIVE tokens (not revoked, not
+        # expired, not deleted) so revoking or letting one expire frees a slot.
+        # Mirrors the per-task comment count-gate precedent. The cap is read from
+        # settings at request time so an operator can retune it per deployment.
+        max_personal_tokens = settings.TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS
         active_count = ApiToken.active_personal_tokens_for(caller).count()
-        if active_count >= MAX_PERSONAL_ACCESS_TOKENS:
+        if active_count >= max_personal_tokens:
             return Response(
                 {
                     "detail": (
-                        f"You already have {MAX_PERSONAL_ACCESS_TOKENS} active personal "
+                        f"You already have {max_personal_tokens} active personal "
                         "access tokens (the maximum). Revoke one before creating another."
                     )
                 },

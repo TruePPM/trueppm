@@ -1026,6 +1026,34 @@ REST_FRAMEWORK = {
     },
 }
 
+# MCP administration controls (#2021, ADR-0497).
+#
+# Instance-wide MCP kill switch. Default True preserves backward compatibility —
+# existing deployments keep agent (mcp:read token) access. Set False to deny every
+# MCP-token read at the McpReadableViewMixin chokepoint (403), even though the
+# token exists; human JWT/session auth on the same viewsets is unaffected. This is
+# the operator lever for "no agent access on this instance, period."
+TRUEPPM_MCP_ENABLED: bool = env.bool("TRUEPPM_MCP_ENABLED", default=True)
+
+# Env-overridable safety caps for API tokens and inbound task-sync. Each keeps its
+# historical hardcoded default; surfacing them as settings lets an operator tune the
+# blast-radius/limits per deployment without a code change. Read at request time so
+# override_settings (and a live env change) takes effect.
+#
+# Max ACTIVE personal access tokens per user (ADR-0214). Bounds the blast radius of
+# a leaked account and keeps the /me/api-tokens/ list navigable.
+TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS: int = env.int("TRUEPPM_MAX_PERSONAL_ACCESS_TOKENS", default=10)
+# Token-issuance rate cap (req/min/user) on the mint endpoint (ADR-0068). Caps the
+# blast radius of a compromised admin session even when RBAC is satisfied.
+TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE: int = env.int("TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE", default=5)
+# Inbound task-sync per-project rate caps (ADR-0068). Steady-state limit applies
+# after the 60-minute backfill window; the higher backfill limit applies to a
+# freshly minted token so a large first import gets headroom.
+TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT: int = env.int(
+    "TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT", default=100
+)
+TRUEPPM_TASK_SYNC_BACKFILL_LIMIT: int = env.int("TRUEPPM_TASK_SYNC_BACKFILL_LIMIT", default=1000)
+
 # Sync watermark source (#822, ADR-0142). When True the sync pull reads the
 # denormalized Project.last_sync_version column; set False to fall back to the
 # 12-table UNION ALL (_snapshot_max_version) for one release if a drift bug is

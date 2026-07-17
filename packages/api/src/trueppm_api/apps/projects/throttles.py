@@ -10,7 +10,7 @@ should not become a DoS surface).
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, ClassVar
 
 import redis
@@ -44,8 +44,24 @@ def _client() -> redis.Redis:
 # week and is then bulk-loaded still pays the steady-state rate.  Matches the
 # common pattern of "mint token, run backfill within the hour".
 BACKFILL_WINDOW = timedelta(minutes=60)
+# Default per-project task-sync rate caps. These are only the DEFAULTS — the
+# enforced values are read from settings at request time (#2021, ADR-0497) so an
+# operator can retune them per deployment via TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT
+# / TRUEPPM_TASK_SYNC_BACKFILL_LIMIT.
 STEADY_STATE_LIMIT = 100  # req/min/project
 BACKFILL_LIMIT = 1000  # req/min/project during the backfill window
+
+
+def _task_sync_limit(token_created_at: datetime, now: datetime) -> int:
+    """Resolve the active task-sync cap for a token, honoring the backfill window.
+
+    Reads the caps from settings at call time so ``override_settings`` (and a live
+    operator env change) takes effect; falls back to the module defaults.
+    """
+    in_backfill = (now - token_created_at) < BACKFILL_WINDOW
+    if in_backfill:
+        return int(getattr(settings, "TRUEPPM_TASK_SYNC_BACKFILL_LIMIT", BACKFILL_LIMIT))
+    return int(getattr(settings, "TRUEPPM_TASK_SYNC_STEADY_STATE_LIMIT", STEADY_STATE_LIMIT))
 
 
 class TaskSyncThrottle(BaseThrottle):
@@ -66,11 +82,7 @@ class TaskSyncThrottle(BaseThrottle):
         if not isinstance(token, ProjectApiToken):
             return True
 
-        limit = (
-            BACKFILL_LIMIT
-            if (timezone.now() - token.created_at) < BACKFILL_WINDOW
-            else STEADY_STATE_LIMIT
-        )
+        limit = _task_sync_limit(token.created_at, timezone.now())
         bucket_key = f"rate:task_sync:{token.project_id}"
 
         count: int
@@ -115,11 +127,7 @@ class AcceptanceResultThrottle(BaseThrottle):
         if not isinstance(token, ProjectApiToken):
             return True
 
-        limit = (
-            BACKFILL_LIMIT
-            if (timezone.now() - token.created_at) < BACKFILL_WINDOW
-            else STEADY_STATE_LIMIT
-        )
+        limit = _task_sync_limit(token.created_at, timezone.now())
         bucket_key = f"rate:acceptance_result:{token.pk}"
 
         count: int
@@ -174,7 +182,14 @@ class TokenIssuanceThrottle(BaseThrottle):
     even if RBAC is satisfied.
     """
 
+    # Default cap; the enforced limit is read from settings at request time
+    # (#2021, ADR-0497) via TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE so an operator can
+    # retune it per deployment.
     USER_LIMIT: ClassVar[int] = 5
+
+    @property
+    def user_limit(self) -> int:
+        return int(getattr(settings, "TRUEPPM_TOKEN_ISSUANCE_PER_MINUTE", self.USER_LIMIT))
 
     def allow_request(self, request: Request, view: APIView) -> bool:
         user = getattr(request, "user", None)
@@ -192,7 +207,7 @@ class TokenIssuanceThrottle(BaseThrottle):
             logger.exception("TokenIssuanceThrottle: Redis error, failing open")
             return True
 
-        if count > self.USER_LIMIT:
+        if count > self.user_limit:
             self.wait_seconds = 60
             return False
         return True

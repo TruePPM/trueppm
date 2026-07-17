@@ -1164,6 +1164,40 @@ class TokenReadOnlyMethods(BasePermission):
         return request.method in SAFE_METHODS
 
 
+class McpInstanceEnabled(BasePermission):
+    """Instance-wide MCP kill switch (#2021, ADR-0497).
+
+    When an operator sets ``TRUEPPM_MCP_ENABLED = False`` (env
+    ``TRUEPPM_MCP_ENABLED``), every MCP-token read is denied at this single
+    chokepoint — even though the token exists and carries ``mcp:read``. It is the
+    "no agent access on this instance, period" lever a self-hosting operator
+    (Persona 10) reaches for, mirroring the public-board-sharing kill switch
+    (ADR-0245) but enforced at the mixin's one guard chokepoint rather than per
+    view.
+
+    Token-scoped and fail-closed. A non-token (human JWT/Session) request PASSES
+    unconditionally, so the switch never affects normal user auth on the same
+    viewset; an API-token caller is DENIED (``False`` → 403) whenever the switch
+    is off. Placed *first* in the guard list so a disabled instance short-circuits
+    the scope/owner checks. A denied read is still recorded as a ``POLICY`` refusal
+    by the mixin's existing agent-action audit.
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from django.conf import settings
+
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ApiToken):
+            return True  # Human JWT/Session path is never gated by the MCP switch.
+        # why: single operator chokepoint. When MCP is disabled instance-wide the
+        # token still exists (and may carry mcp:read), but it must not grant agent
+        # access. Denying here — before the scope/owner guards — fails closed for
+        # the agent path only, leaving human auth on the same viewset untouched.
+        return bool(getattr(settings, "TRUEPPM_MCP_ENABLED", True))
+
+
 class TokenIsOwnerScoped(BasePermission):
     """Confine the MCP read surface to owner-scoped (personal) API tokens (#1712).
 
@@ -1269,20 +1303,23 @@ class McpReadableViewMixin(_McpViewBase):
     def mcp_token_guards(self) -> list[BasePermission]:
         """Read-only MCP token guards to append to a view's RBAC permission list.
 
-        All three permissions pass unconditionally for human JWT/Session auth, so
-        they are safe to append to *every* action's list. For an API-token caller
-        they confine it to: safe methods (``TokenReadOnlyMethods``), the
-        ``mcp:read`` scope (``TokenHasScope``), and — crucially — an owner-scoped
-        (personal) token (``TokenIsOwnerScoped``). The owner-scoped guard closes
-        the confused-deputy hole (#1712): a project/program token has no pk to
-        check against on the collection tools, so without it a scoped token would
-        read the minter's entire membership. ViewSets that override
-        ``get_permissions`` with per-action lists call this from their wrapper so
-        no branch — including write branches — can leak a token past the guards.
+        All permissions pass unconditionally for human JWT/Session auth, so they
+        are safe to append to *every* action's list. For an API-token caller they
+        confine it to: the instance MCP switch being on (``McpInstanceEnabled``,
+        placed first so a disabled instance short-circuits everything else), safe
+        methods (``TokenReadOnlyMethods``), the ``mcp:read`` scope
+        (``TokenHasScope``), and — crucially — an owner-scoped (personal) token
+        (``TokenIsOwnerScoped``). The owner-scoped guard closes the confused-deputy
+        hole (#1712): a project/program token has no pk to check against on the
+        collection tools, so without it a scoped token would read the minter's
+        entire membership. ViewSets that override ``get_permissions`` with
+        per-action lists call this from their wrapper so no branch — including
+        write branches — can leak a token past the guards.
         """
         from trueppm_api.apps.projects.models import SCOPE_MCP_READ
 
         return [
+            McpInstanceEnabled(),
             TokenReadOnlyMethods(),
             TokenHasScope(SCOPE_MCP_READ)(),
             TokenIsOwnerScoped(),
