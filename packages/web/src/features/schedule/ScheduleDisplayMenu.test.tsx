@@ -41,9 +41,7 @@ describe('ScheduleDisplayMenu (#1741)', () => {
 
   it('uses the singular "filter" for exactly one active filter', () => {
     setup({ focusModeEnabled: true });
-    expect(
-      screen.getByRole('button', { name: 'Display, 1 active filter' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Display, 1 active filter' })).toBeInTheDocument();
   });
 
   it('opens the popover and toggles a filter in place (menu stays open)', () => {
@@ -94,8 +92,65 @@ describe('ScheduleDisplayMenu (#1741)', () => {
     // The visible "Display" text is gone…
     expect(screen.queryByText('Display')).toBeNull();
     // …but the trigger still exposes its accessible name (with the active count).
-    expect(
-      screen.getByRole('button', { name: 'Display, 1 active filter' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Display, 1 active filter' })).toBeInTheDocument();
+  });
+
+  describe('Chart section (#2097)', () => {
+    function chartProps() {
+      return {
+        dependencyLinesVisible: true,
+        setDependencyLinesVisible: vi.fn(),
+        taskNamePlacement: 'next' as const,
+        setTaskNamePlacement: vi.fn(),
+        progressPillsVisible: true,
+        setProgressPillsVisible: vi.fn(),
+      };
+    }
+
+    it('omits the Chart section when no chart config is provided', () => {
+      setup({ chart: null });
+      fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+      expect(screen.queryByText('Chart')).toBeNull();
+    });
+
+    it('renders dependency-lines + progress checkboxes and a task-name radio group', () => {
+      const chart = chartProps();
+      setup({ chart });
+      fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+      expect(screen.getByText('Chart')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Dependency lines' }));
+      expect(chart.setDependencyLinesVisible).toHaveBeenCalledWith(false);
+
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Progress %' }));
+      expect(chart.setProgressPillsVisible).toHaveBeenCalledWith(false);
+
+      // Radio group — three placements, "Next to bar" currently selected.
+      const nextToBar = screen.getByRole('menuitemradio', { name: 'Next to bar' });
+      expect(nextToBar).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Aligned left' }));
+      expect(chart.setTaskNamePlacement).toHaveBeenCalledWith('left');
+    });
+
+    it('adds hidden chart elements to the trigger badge count', () => {
+      setup({ chart: chartProps(), hiddenChartCount: 2, showCpOnly: true });
+      // 1 active data filter (CP only) + 2 hidden chart elements = 3.
+      expect(
+        screen.getByRole('button', { name: /display, 3 active filters/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows WBS and Owner among the column toggles', () => {
+      const onChange = vi.fn();
+      setup({
+        columns: [
+          { id: 'wbs', label: 'WBS', checked: true, onChange },
+          { id: 'owner', label: 'Owner', checked: false, onChange },
+        ],
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Display' }));
+      expect(screen.getByRole('menuitemcheckbox', { name: 'WBS' })).toBeInTheDocument();
+      expect(screen.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeInTheDocument();
+    });
   });
 });

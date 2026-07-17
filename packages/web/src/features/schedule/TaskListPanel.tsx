@@ -66,7 +66,10 @@ function computeNameSuggestions(tasks: Task[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const name of [...milestoneNames, ...otherNames]) {
-    if (!seen.has(name)) { seen.add(name); result.push(name); }
+    if (!seen.has(name)) {
+      seen.add(name);
+      result.push(name);
+    }
   }
   return result;
 }
@@ -95,7 +98,9 @@ function PendingTaskRow({ name }: { name: string }) {
       {/* Empty checkbox column */}
       <span className="w-6 flex-shrink-0" />
       {/* WBS placeholder */}
-      <span className="w-8 flex-shrink-0 text-xs font-mono text-neutral-text-disabled text-right pr-1">—</span>
+      <span className="w-8 flex-shrink-0 text-xs font-mono text-neutral-text-disabled text-right pr-1">
+        —
+      </span>
       {/* Name */}
       <span className="flex-1 min-w-0 text-xs text-neutral-text-secondary italic truncate pr-2">
         {name}
@@ -153,6 +158,9 @@ interface Props {
   depChipsById?: Map<string, TaskDepChips>;
   /** Hover-chain callback (#475) — forwarded to each row. */
   onHoverChange?: (taskId: string | null) => void;
+  /** Currently hovered task id (shared with the canvas) — the matching row gets a
+   *  wash so the table row and its bar read as one unit (#2096). */
+  hoveredTaskId?: string | null;
   /** Dependency picker entry-point (#477) — forwarded to each row's right-click menu. */
   onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
   /**
@@ -184,7 +192,29 @@ interface Props {
   plannedByPhase?: Map<string, PhasePlannedBadge>;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById, phaseInWaitingIds, onAddPhaseFirstChild, autoEditTaskId, onAutoEditConsumed, plannedByPhase }: Props) {
+export function TaskListPanel({
+  tasks,
+  pendingTaskIds,
+  scrollRef,
+  widths,
+  visible,
+  setWidth,
+  totalWidth,
+  summaryIds,
+  expandedIds,
+  onToggle,
+  focusChainIds,
+  depChipsById,
+  onHoverChange,
+  hoveredTaskId,
+  onAddDependencyRequest,
+  sprintsById,
+  phaseInWaitingIds,
+  onAddPhaseFirstChild,
+  autoEditTaskId,
+  onAutoEditConsumed,
+  plannedByPhase,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -273,16 +303,23 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   isExpanded={expandedIds.has(task.id)}
                   onToggleId={onToggle}
                   prevTaskId={virtualRow.index > 0 ? tasks[virtualRow.index - 1].id : null}
-                  nextTaskId={virtualRow.index < tasks.length - 1 ? tasks[virtualRow.index + 1].id : null}
-                  dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
+                  nextTaskId={
+                    virtualRow.index < tasks.length - 1 ? tasks[virtualRow.index + 1].id : null
+                  }
+                  dimmed={
+                    focusChainIds !== undefined &&
+                    focusChainIds.size > 0 &&
+                    !focusChainIds.has(task.id)
+                  }
                   depChips={depChipsById?.get(task.id)}
                   siblingIds={siblingIdsMap.get(task.id)}
                   siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
                   milestoneParents={milestoneParentsMap.get(task.id)}
                   onHoverChange={onHoverChange}
+                  isHovered={hoveredTaskId === task.id}
                   onAddDependencyRequest={onAddDependencyRequest}
-                  sourceSprint={task.sprintId ? sprintsById?.get(task.sprintId) ?? null : null}
+                  sourceSprint={task.sprintId ? (sprintsById?.get(task.sprintId) ?? null) : null}
                   phaseInWaiting={phaseInWaitingIds?.has(task.id) ?? false}
                   onAddPhaseFirstChild={onAddPhaseFirstChild}
                   startInlineEditOnMount={autoEditTaskId === task.id}

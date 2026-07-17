@@ -45,6 +45,10 @@ interface UseScheduleExportArgs {
   getVisibleWindow: () => VisibleWindow | null;
   /** Whether the "Visible window" range option can be offered (engine rendered). */
   visibleWindowAvailable: boolean;
+  /** Seed the export's arrow toggle from the in-app Chart menu so export is
+   *  WYSIWYG on open — hidden dependency lines stay hidden (#2097). Undefined
+   *  leaves the default (arrows on). The user can still override in the dialog. */
+  initialArrows?: boolean;
 }
 
 export interface UseScheduleExportReturn {
@@ -90,6 +94,7 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
     forecast,
     getVisibleWindow,
     visibleWindowAvailable,
+    initialArrows,
   } = args;
 
   const [open, setOpen] = useState(false);
@@ -127,14 +132,19 @@ export function useScheduleExport(args: UseScheduleExportArgs): UseScheduleExpor
     setOpenedAtIso(new Date().toISOString());
     setVisibleWindow(getVisibleWindow());
     // If the viewport window can't be derived, force Full so the dialog never
-    // opens on an un-satisfiable "Visible window" selection.
-    setOptions((prev) => ({ ...prev, range: visibleWindowAvailable ? prev.range : 'full' }));
+    // opens on an un-satisfiable "Visible window" selection. Seed the arrow
+    // toggle from the in-app Chart menu so the export opens WYSIWYG (#2097).
+    setOptions((prev) => ({
+      ...prev,
+      range: visibleWindowAvailable ? prev.range : 'full',
+      includeArrows: initialArrows ?? prev.includeArrows,
+    }));
     setProgress(null);
     setResult(null);
     setError(null);
     setPhase('configuring');
     setOpen(true);
-  }, [tasks.length, getVisibleWindow, visibleWindowAvailable]);
+  }, [tasks.length, getVisibleWindow, visibleWindowAvailable, initialArrows]);
 
   const closeDialog = useCallback(() => {
     controllerRef.current?.abort();

@@ -21,6 +21,7 @@ import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
+import { useScheduleChartPrefs } from '@/hooks/useScheduleChartPrefs';
 import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/grid/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
@@ -307,6 +308,20 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
   /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 }
 
+// Display-menu labels for the toggleable task-list columns (#2097). The `task`
+// column is always visible (locked) so it is deliberately absent.
+const COLUMN_MENU_LABELS: Record<
+  'wbs' | 'dur' | 'start' | 'finish' | 'progress' | 'owner',
+  string
+> = {
+  wbs: 'WBS',
+  dur: 'Duration',
+  start: 'Start',
+  finish: 'Finish',
+  progress: '% Complete',
+  owner: 'Owner',
+};
+
 // ---------------------------------------------------------------------------
 // ScheduleView
 // ---------------------------------------------------------------------------
@@ -356,16 +371,12 @@ export function ScheduleView() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Focus mode and CP-only filter (issue #131) — seeded from / mirrored to URL.
-  const [focusModeEnabled, setFocusModeEnabled] = useState(
-    () => searchParams.get('focus') === '1',
-  );
+  const [focusModeEnabled, setFocusModeEnabled] = useState(() => searchParams.get('focus') === '1');
   const [showCpOnly, setShowCpOnly] = useState(() => searchParams.get('cp') === '1');
 
   // Render filters (#248) — toggle which bar types are drawn on the canvas.
   // Both keep summary tasks visible so the WBS hierarchy doesn't collapse.
-  const [showCriticalOnly, setShowCriticalOnly] = useState(
-    () => searchParams.get('crit') === '1',
-  );
+  const [showCriticalOnly, setShowCriticalOnly] = useState(() => searchParams.get('crit') === '1');
   const [showMilestonesOnly, setShowMilestonesOnly] = useState(
     () => searchParams.get('ms') === '1',
   );
@@ -389,11 +400,24 @@ export function ScheduleView() {
     );
   }, [focusModeEnabled, showCpOnly, showCriticalOnly, showMilestonesOnly, setSearchParams]);
 
-  // Filter links to critical-path only when showCpOnly is active
-  const links = useMemo(
-    () => (showCpOnly ? allLinks.filter((l) => l.isCritical) : allLinks),
-    [allLinks, showCpOnly],
-  );
+  // Chart presentation prefs (#2097) — dependency-line visibility, on-bar task
+  // name placement, and progress-pill visibility. localStorage-backed, never URL
+  // (URL stays reserved for shareable *data* filters focus/cp/crit/ms).
+  const {
+    prefs: chartPrefs,
+    setDependencyLinesVisible,
+    setTaskNamePlacement,
+    setProgressPillsVisible,
+    hiddenChartCount,
+  } = useScheduleChartPrefs();
+
+  // Filter links to critical-path only when showCpOnly is active, and drop them
+  // entirely when the Chart menu hides dependency lines (#2097) — passing [] also
+  // removes hidden arrows from hit-testing, not just paint.
+  const links = useMemo(() => {
+    if (!chartPrefs.dependencyLinesVisible) return [];
+    return showCpOnly ? allLinks.filter((l) => l.isCritical) : allLinks;
+  }, [allLinks, showCpOnly, chartPrefs.dependencyLinesVisible]);
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
@@ -585,6 +609,19 @@ export function ScheduleView() {
   // rotate back to desktop restores the user's Grid/Timeline preference. A
   // dedicated mobile-first surface is tracked in #1671.
   const effectiveViewMode = isMobile ? 'timeline' : viewMode;
+
+  // Engine chart options (name placement + progress pills). Dependency-line
+  // visibility is handled by the `links` filter above, not here. The gutter is
+  // drawn only in Timeline mode (table hidden) with the "Aligned left" choice —
+  // in Grid mode the task table already carries the names.
+  const chartOptions = useMemo(
+    () => ({
+      taskNamePlacement: chartPrefs.taskNamePlacement,
+      showProgressPills: chartPrefs.progressPillsVisible,
+      showNameGutter: effectiveViewMode === 'timeline' && chartPrefs.taskNamePlacement === 'left',
+    }),
+    [chartPrefs.taskNamePlacement, chartPrefs.progressPillsVisible, effectiveViewMode],
+  );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
   // Entries are removed when the task appears in the scheduled tasks list.
@@ -792,11 +829,14 @@ export function ScheduleView() {
     didInitialFrameRef.current = true;
   }, [engine, scheduleScales]);
 
-  // Drag CPM preview — wires engine events + Web Worker (issue #19)
+  // Drag CPM preview — wires engine events + Web Worker (issue #19). Uses the
+  // full dependency graph (`allLinks`), NOT the paint-filtered `links`: the live
+  // CPM ripple is a function of the real schedule, so hiding dependency lines or
+  // applying CP-only (both presentation) must not blank the cascade preview (#2097).
   useDragCpm({
     engine,
     tasks: allTasks,
-    links: links ?? [],
+    links: allLinks,
     ariaLiveRef,
     keyboardModeRef,
   });
@@ -810,10 +850,12 @@ export function ScheduleView() {
     [allTasks],
   );
 
+  // Uses the full `allLinks` graph (not the paint-filtered `links`) so keyboard
+  // rescheduling cascades through every real dependency regardless of view filters.
   useKeyboardReschedule({
     engine,
     tasks: allTasks,
-    links: links ?? [],
+    links: allLinks,
     ariaLiveRef,
     ariaAssertiveRef,
     keyboardModeRef,
@@ -1053,6 +1095,8 @@ export function ScheduleView() {
     forecast: mcResult ?? null,
     getVisibleWindow,
     visibleWindowAvailable: engine?.scales != null,
+    // WYSIWYG: if dependency lines are hidden in-app, open export with arrows off (#2097).
+    initialArrows: chartPrefs.dependencyLinesVisible,
   });
   const { openDialog: openExportDialog, canExport: canExportSchedule } = scheduleExport;
 
@@ -1743,21 +1787,23 @@ export function ScheduleView() {
             setShowMilestonesOnly={setShowMilestonesOnly}
             columns={
               effectiveViewMode === 'grid'
-                ? (['dur', 'start', 'finish', 'progress'] as const).map((col) => ({
+                ? (['wbs', 'dur', 'start', 'finish', 'progress', 'owner'] as const).map((col) => ({
                     id: col,
-                    label:
-                      col === 'dur'
-                        ? 'Duration'
-                        : col === 'start'
-                          ? 'Start'
-                          : col === 'finish'
-                            ? 'Finish'
-                            : '% Complete',
+                    label: COLUMN_MENU_LABELS[col],
                     checked: visible[col],
                     onChange: () => toggleColumn(col),
                   }))
                 : null
             }
+            chart={{
+              dependencyLinesVisible: chartPrefs.dependencyLinesVisible,
+              setDependencyLinesVisible,
+              taskNamePlacement: chartPrefs.taskNamePlacement,
+              setTaskNamePlacement,
+              progressPillsVisible: chartPrefs.progressPillsVisible,
+              setProgressPillsVisible,
+            }}
+            hiddenChartCount={hiddenChartCount}
             iconOnly={breakpoint !== 'lg'}
           />
 
@@ -1939,6 +1985,7 @@ export function ScheduleView() {
                   focusChainIds={focusChainIds}
                   depChipsById={depChipsById}
                   onHoverChange={setHoveredTaskId}
+                  hoveredTaskId={hoveredTaskId}
                   onAddDependencyRequest={handleAddDependencyRequest}
                   sprintsById={sprintsById}
                   phaseInWaitingIds={visiblePhaseInWaitingIds}
@@ -1956,9 +2003,7 @@ export function ScheduleView() {
               buildModeActive ? (
                 <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
               ) : (
-                <ScheduleEmptyState
-                  onAddTask={readOnly ? undefined : () => setShowAddForm(true)}
-                />
+                <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />
               )
             ) : (
               <div
@@ -1998,6 +2043,7 @@ export function ScheduleView() {
                       tasks={visibleTasks}
                       links={links ?? []}
                       zoomLevel={zoomLevel}
+                      chartOptions={chartOptions}
                       containerRef={canvasScrollRef}
                       onEngineReady={handleEngineReady}
                     />
