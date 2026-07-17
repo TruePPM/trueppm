@@ -18,6 +18,7 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildModeRowMenu, type RowMenuItem } from '@/features/schedule/buildMode';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
+import { ReadinessChip } from './ReadinessChip';
 
 /**
  * Per-row promote/demote wiring passed down from the board. `null` when the row
@@ -240,31 +241,6 @@ function PhaseTag({ name, color }: { name: string; color: string }) {
         }}
       />
       <span className="truncate">{name}</span>
-    </span>
-  );
-}
-
-function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
-  const styles: Record<TaskReadiness, string> = {
-    idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
-    estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-    ready: 'text-brand-primary',
-    baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-  };
-  // brand-primary-light is now a channel-triple CSS var (ADR-0103); wrap in rgb().
-  const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
-  return (
-    <span
-      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${styles[readiness]}`}
-      style={{
-        height: 16,
-        padding: '0 6px',
-        fontSize: '9.5px',
-        letterSpacing: '0.06em',
-        backgroundColor: inlineBg,
-      }}
-    >
-      {readiness}
     </span>
   );
 }
@@ -526,7 +502,7 @@ export function QueueRow({
 
       {/* Status / readiness column */}
       {task.status === 'BACKLOG' ? (
-        <ReadinessChip readiness={readiness} />
+        <ReadinessChip readiness={readiness} variant="compact" />
       ) : (
         <StatusBadge status={task.status} progress={task.progress} />
       )}

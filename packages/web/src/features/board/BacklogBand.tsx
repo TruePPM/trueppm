@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
+import { ReadinessChip } from './ReadinessChip';
 
 const STORAGE_KEY = 'trueppm.board.backlogBand.collapsed';
 
@@ -90,38 +91,6 @@ function Avatar({ initials, size = 18 }: AvatarProps) {
       }}
     >
       {initials.slice(0, 2).toUpperCase()}
-    </span>
-  );
-}
-
-interface ReadinessChipProps {
-  readiness: TaskReadiness;
-}
-
-function ReadinessChip({ readiness }: ReadinessChipProps) {
-  const styles: Record<TaskReadiness, string> = {
-    idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
-    estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-    ready: 'text-brand-primary',
-    baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
-  };
-  // 'ready' uses brand-accent-light which doesn't exist as a Tailwind utility
-  // mapping cleanly to a single class; render with inline backgroundColor so
-  // the brand-primary-light token from the design tokens is applied without
-  // a Tailwind class round-trip.
-  const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
-  return (
-    <span
-      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${styles[readiness]}`}
-      style={{
-        height: 16,
-        padding: '0 6px',
-        fontSize: '10px',
-        letterSpacing: '0.06em',
-        backgroundColor: inlineBg,
-      }}
-    >
-      {readiness}
     </span>
   );
 }
@@ -313,7 +282,7 @@ export function BacklogCard({
       >
         <div className="flex items-center gap-1.5">
           <PriorityDot rank={task.priorityRank} />
-          <ReadinessChip readiness={readiness} />
+          <ReadinessChip readiness={readiness} variant="compact" />
           {(task.predecessorCount ?? 0) > 0 && (
             <span
               aria-label="Linked dependency"

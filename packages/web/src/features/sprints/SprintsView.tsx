@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
+import { setSearchParam, useUrlSelectedId } from '@/hooks/useUrlSelectedId';
 import { useProject } from '@/hooks/useProject';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
@@ -173,15 +174,7 @@ export function SprintsView() {
   const setSelectedSprintId = useCallback(
     (id: string | null) => {
       setSelectedSprintIdState(id);
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          if (id) next.set('sprint', id);
-          else next.delete('sprint');
-          return next;
-        },
-        { replace: true },
-      );
+      setSearchParam(setSearchParams, 'sprint', id);
     },
     [setSearchParams],
   );
@@ -250,28 +243,9 @@ export function SprintsView() {
   // Task detail drawer — opened by clicking a backlog row. null = closed.
   // Mirrors the Board/Schedule pattern (ADR-0050): the row hands an id up and
   // the full Task is resolved from the project task list already loaded above.
-  // Seeded from `?task=` and mirrored back so the drawer round-trips a refresh
-  // or link-copy (issue #2031); seeding in the initializer avoids a mount race
-  // with the emit effect.
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
-    () => searchParams.get('task'),
-  );
-  useEffect(() => {
-    // Bail when the URL already reflects the selection. Without this guard the
-    // mount pass fires a redundant write that races the sprint-fallback's
-    // setSearchParams within one effect flush and clobbers `?sprint=` (both
-    // functional updaters read the pre-navigation location).
-    if (searchParams.get('task') === selectedTaskId) return;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        if (selectedTaskId) next.set('task', selectedTaskId);
-        else next.delete('task');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [selectedTaskId, searchParams, setSearchParams]);
+  // The shared hook round-trips `?task=` (issue #2031) — seeded from the
+  // initializer, mirrored back with the guard that avoids clobbering `?sprint=`.
+  const [selectedTaskId, setSelectedTaskId] = useUrlSelectedId('task');
   // Index the project task list by id so a clicked backlog row (which carries
   // only the lightweight SprintBacklogTask) can open the full Task in the
   // shared drawer — the same index the Board builds from useScheduleTasks.

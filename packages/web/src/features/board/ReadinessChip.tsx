@@ -1,14 +1,55 @@
 import { LockIcon } from '@/components/Icons';
 import type { TaskReadiness } from '@/types';
 
+interface ReadinessChipProps {
+  readiness: TaskReadiness;
+  /**
+   * `full` (default): labeled pill with a non-color glyph per state — used on the
+   * board card, the unscheduled gutter, and the task drawer header.
+   * `compact`: an uppercase micro-chip for dense backlog / queue rows, where the
+   * label alone carries the signal in a smaller footprint.
+   */
+  variant?: 'full' | 'compact';
+}
+
+// Compact variant: uppercase micro-chip. Color is a supporting cue only — the
+// uppercase state word is the primary signal (web-rule 107). `ready` uses the
+// brand-primary-light token, which is a channel-triple CSS var (ADR-0103) with
+// no clean single-class Tailwind mapping, so it is applied as an inline rgb().
+const COMPACT_STYLE: Record<TaskReadiness, string> = {
+  idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
+  estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+  ready: 'text-brand-primary',
+  baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+};
+
+function CompactReadinessChip({ readiness }: { readiness: TaskReadiness }) {
+  const inlineBg = readiness === 'ready' ? 'rgb(var(--brand-primary-light))' : undefined;
+  return (
+    <span
+      className={`inline-flex items-center rounded-chip uppercase tracking-wider font-semibold ${COMPACT_STYLE[readiness]}`}
+      style={{
+        height: 16,
+        padding: '0 6px',
+        fontSize: '10px',
+        letterSpacing: '0.06em',
+        backgroundColor: inlineBg,
+      }}
+    >
+      {readiness}
+    </span>
+  );
+}
+
 /**
  * Readiness pill (issue #179) — the at-a-glance "how baked is this work item?"
- * signal. Shared by the board card (top-left), the unscheduled gutter, and the
- * task detail drawer header (#962). Four states with a non-color signal each
- * (dashed border / glyph / label) so readiness never relies on color alone
- * (web-rule 107).
+ * signal. Shared by the board card (top-left), the unscheduled gutter, the task
+ * detail drawer header (#962), the card popover, and the backlog / queue rows.
+ * Four states with a non-color signal each (dashed border / glyph / label) so
+ * readiness never relies on color alone (web-rule 107).
  */
-export function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
+export function ReadinessChip({ readiness, variant = 'full' }: ReadinessChipProps) {
+  if (variant === 'compact') return <CompactReadinessChip readiness={readiness} />;
   switch (readiness) {
     case 'idea':
       return (
