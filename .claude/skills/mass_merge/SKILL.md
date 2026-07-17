@@ -93,6 +93,16 @@ Stop and tell the user if:
   clobbered). Prefer a dedicated worktree — `scripts/wt new <any-issue>` — if
   parallel sessions are active.
 
+> **The batch's own branches being checked out in worktrees is normal, not a
+> blocker.** Under the parallel-worktree workflow, each MR you are landing was
+> built in its own worktree, so `git worktree list` will show them — that is
+> expected and Phase B handles it (it drives each branch via `git -C "$WT"`
+> instead of `glab mr checkout`; see Step 3). What must be clean is *your own*
+> checkout and any worktree you are about to rebase. Before rebasing a
+> worktree-held branch, confirm `git -C "$WT" status --porcelain` is empty and
+> its `HEAD` equals `origin/<branch>` (pushed) — an unpushed or dirty worktree
+> means a session is still working that branch; skip it and tell the user.
+
 Then validate every MR in the list, in parallel is fine:
 
 ```bash
@@ -201,25 +211,97 @@ Only the **contiguous ✅ prefix** from Phase A is landable. If MR #3 is 🔴, l
 first. Never skip a 🔴 to land a later MR — that reorders the stack Phase A
 validated.
 
-For each MR in the safe prefix, **one at a time**:
+For each MR in the safe prefix, **one at a time**.
+
+**First, locate the source branch's working copy.** A batch MR's source branch
+is very often already checked out in a **parallel worktree** (that is how the
+work was done). `glab mr checkout <iid>` then fails with `git: exit status 128`
+("branch is already checked out at …") and silently leaves you on your current
+branch — you rebase and push the *wrong* branch. So resolve the working copy
+first and drive git there with `git -C "$WT"`:
 
 ```bash
-glab mr checkout <iid>                 # checks out the real source branch
-git fetch origin
-git rebase origin/main                 # rebase onto the latest main (includes MRs already landed this run)
-# if the rebase conflicts → abort, stop, report: this MR now needs a manual rebase
-git push --force-with-lease            # re-runs the MR pipeline against CURRENT main (merged-results equivalent)
+BR=$(glab mr view <iid> --output json | python3 -c 'import sys,json;print(json.load(sys.stdin)["source_branch"])')
+WT=$(git worktree list --porcelain | awk -v b="refs/heads/$BR" '
+  /^worktree /{p=$2} $0=="branch "b{print p}')   # empty if not in a worktree
+if [ -z "$WT" ]; then
+  glab mr checkout <iid>; WT=.                     # not worktree-held → check out here
+fi
+test -z "$(git -C "$WT" status --porcelain)" || { echo "DIRTY $BR → STOP"; exit 1; }
 ```
 
-Then wait for the freshly-pushed pipeline to go **green**, and only then merge:
+Then rebase that working copy onto the latest main and push:
 
 ```bash
-# poll until the head pipeline for <source_branch> is success (not just MWPS-fire-and-forget)
-glab ci status --branch <source_branch>      # or: glab pipeline list --ref <source_branch>
-# when green:
-glab mr merge <iid> --yes                     # immediate merge; pipeline already green
-git fetch origin                              # pull the new main so the NEXT MR rebases on top of this one
+git -C "$WT" fetch origin
+git -C "$WT" rebase origin/main        # rebase onto latest main (includes MRs already landed this run)
+# if the rebase conflicts → git -C "$WT" rebase --abort, stop, report: needs a manual rebase
+SHA=$(git -C "$WT" rev-parse HEAD)      # the EXACT sha we are about to push — poll on this, not the branch tip
+git -C "$WT" push --no-verify --force-with-lease="$BR:$(git -C "$WT" rev-parse "origin/$BR")" origin "$BR"
 ```
+
+- `--no-verify` skips the local pre-push hook: Phase A already ran the full gate
+  suite on the combined tree, so re-running `make pre-push` on every push is pure
+  latency, and the hook is what stalls on a VS Code/askpass credential prompt.
+- `--force-with-lease="$BR:<old-sha>"` pins the expected remote sha explicitly.
+  A bare `--force-with-lease` compares against the *local* remote-tracking ref,
+  which in a shared-worktree checkout can be stale and either wrongly reject or
+  wrongly accept; the explicit form is exact.
+
+Then wait for the freshly-pushed pipeline **for that exact sha** to go green, and
+only then merge. **Poll by MR ref and match the full sha** — do not use the
+`?sha=<short>` filter (GitLab's sha filter only matches the full 40-char sha and
+returns `[]` for a short one, so a short-sha poll loops forever), and do not
+trust the MR's `head_pipeline` (it goes stale right after a force-push):
+
+```bash
+# poll: the pipeline whose sha == $SHA on this MR's ref must reach `success`
+while :; do
+  ST=$(glab api "projects/:id/pipelines?ref=refs/merge-requests/<iid>/head&per_page=20" \
+        | python3 -c "import sys,json;m=[p for p in json.load(sys.stdin) if p['sha']=='$SHA'];print(m[0]['status'] if m else 'none')")
+  case "$ST" in
+    success)                 break ;;                       # green → merge
+    failed|canceled)         echo "PIPELINE $ST → STOP"; exit 1 ;;
+    none|created|preparing|pending|running|manual|scheduled|waiting_for_resource)
+                             sleep 30 ;;                     # keep waiting (incl. 'none' = not created yet)
+    *)                       echo "unknown status $ST"; sleep 30 ;;
+  esac
+done
+# green for $SHA → confirm the MR is mergeable, then merge
+glab mr merge <iid> --yes
+git fetch origin                        # pull the new main so the NEXT MR rebases on top of this one
+```
+
+Cap the poll (e.g. 120 iterations × 30s = 60 min) and stop with a clear message
+rather than looping forever if CI hangs. Terminal-failure states (`failed`,
+`canceled`) stop the whole run — do not merge a red pipeline, and do not silently
+wait through a crash.
+
+**Before treating a `failed` as terminal, triage the failing job — a known
+flake is retried once, not a stop.** A rebased branch re-runs the full suite,
+which includes the flaky `web:e2e` specs (`task-collaboration.spec.ts` `?task=`
+deep-link, `board-space-pan.spec.ts`, `schedule` dep-milestone row — see the
+`feedback_flaky_e2e_*` memories). Pull the failed jobs and read the trace:
+
+```bash
+PID=<pipeline id for $SHA>
+glab api "projects/:id/pipelines/$PID/jobs?per_page=100" \
+  | python3 -c "import sys,json;[print(j['status'],j['name'],j['id']) for j in json.load(sys.stdin) if j['status']=='failed' and not j['allow_failure']]"
+glab api "projects/:id/jobs/<job-id>/trace" | grep -iE "failed|✘|\.spec\.ts|Error:" | tail -40
+```
+
+- If the only failures are **known-flaky e2e specs** (assertion on a deep-link
+  URL / pan / timing race, hundreds passed, unrelated to this MR's diff), retry
+  that job **once** and keep polling the same pipeline:
+  `glab api -X POST "projects/:id/jobs/<job-id>/retry"`. If the retry also fails,
+  treat it as a real stop.
+- If the failure is a **real test/lint/type/build error**, or touches this MR's
+  own changed surface, stop the run and hand it to the user — the rebase onto the
+  MRs already landed this batch may have introduced a genuine semantic conflict
+  (exactly the stale-base class this skill exists to catch).
+
+Never blanket-retry a red pipeline to make it green — retry only a job you have
+positively identified as a known flake.
 
 Rules for Phase B:
 
@@ -231,7 +313,20 @@ Rules for Phase B:
   MWPS gotcha). One MR's pipeline must be confirmed green before its merge, and
   merged before the next MR is even pushed.
 - **`--force-with-lease`, never `--force`** — protects against someone else
-  pushing to the MR branch mid-run.
+  pushing to the MR branch mid-run. Pin the expected sha explicitly
+  (`--force-with-lease="$BR:<old-sha>"`) when the branch lives in a worktree, so
+  a stale remote-tracking ref can't misjudge the lease.
+- **Drive the branch where it actually lives.** If the source branch is checked
+  out in a worktree, `glab mr checkout` fails (git 128) and dumps you on the
+  wrong branch — resolve `$WT` from `git worktree list` and run every git command
+  with `git -C "$WT"`. Verify `$WT` is clean before rebasing so you never clobber
+  a parallel session's uncommitted work.
+- **Poll the exact pushed sha, by MR ref.** Capture `SHA=$(git rev-parse HEAD)`
+  before the merge and poll `pipelines?ref=refs/merge-requests/<iid>/head`,
+  matching that full sha. The `?sha=<short>` filter returns `[]` (needs the full
+  40-char sha) and loops forever; `head_pipeline` goes stale after a force-push.
+  Treat `failed`/`canceled` as a hard stop and `none` (pipeline not yet created)
+  as keep-waiting.
 - **A rebase conflict in Phase B stops the run.** Phase A merged the *original*
   branch tips; a Phase B rebase can still conflict once an earlier MR from this
   batch has actually landed. That is a real semantic conflict — hand it to the
@@ -277,7 +372,22 @@ Step 2 suite.
 - **Rebase every MR onto the latest main immediately before pushing** — this is
   the CLAUDE.md batched-MR rule, enforced automatically.
 - **Poll-to-green then merge, serially.** No batch MWPS, no parallel merges.
-- **Never `--force`; always `--force-with-lease`.**
+- **Poll the exact pushed full sha by MR ref** — never the `?sha=<short>` filter
+  (returns `[]`, loops forever) and never `head_pipeline` (stale after a
+  force-push). Cap the wait so CI hangs don't loop forever.
+- **Triage a `failed` before stopping.** A rebased branch re-runs the flaky
+  `web:e2e` specs. If the only failures are known flakes (see `feedback_flaky_e2e_*`
+  memories) and hundreds passed, retry that job once and keep polling. A real
+  test/type/lint/build failure — or one on this MR's own diff — is a hard stop.
+  Never blanket-retry to force green.
+- **Drive worktree-held branches with `git -C "$WT"`** — `glab mr checkout` fails
+  (git 128) on a branch already checked out in a worktree and silently leaves you
+  on the wrong branch. The batch's own branches being in worktrees is expected.
+- **Push rebased branches with `--no-verify`** — Phase A already ran the full gate
+  suite on the combined tree; the pre-push hook is redundant latency here and is
+  what stalls on an askpass credential prompt.
+- **Never `--force`; always `--force-with-lease`** — pin the expected sha
+  (`--force-with-lease="$BR:<old-sha>"`) for worktree-held branches.
 - **Never resolve a rebase/merge conflict by guessing** — stop and hand it back.
 - **Restore the user's original branch** (Step 0) when the run ends, on success
   or failure.
