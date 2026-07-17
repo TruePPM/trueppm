@@ -12,7 +12,13 @@ export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'mileston
 export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
 // 5-column board model (issues #177/#178). BACKLOG and REVIEW are new values;
 // ON_HOLD is kept for migration compatibility and maps to BACKLOG in the default config.
-export type TaskStatus = 'BACKLOG' | 'NOT_STARTED' | 'IN_PROGRESS' | 'REVIEW' | 'ON_HOLD' | 'COMPLETE';
+export type TaskStatus =
+  | 'BACKLOG'
+  | 'NOT_STARTED'
+  | 'IN_PROGRESS'
+  | 'REVIEW'
+  | 'ON_HOLD'
+  | 'COMPLETE';
 export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
@@ -374,6 +380,15 @@ export interface TaskLink {
    */
   lag: number;
   isCritical: boolean;
+  /**
+   * Driving link (#2095): this predecessor's relationship free float is zero, so it
+   * actually controls the successor's early date. Server-authoritative — a CPM
+   * output on the dependency (`is_driving`), render-don't-derive (it cannot be
+   * synthesized from endpoint criticality the way `isCritical` is). The schedule
+   * view draws driving links at full weight and lets non-driving links recede.
+   * `undefined`/`false` until the schedule has been recomputed.
+   */
+  isDriving?: boolean;
   /**
    * Program schedule view only (ADR-0182, issue 1118): this edge connects tasks in
    * two different member projects of the same program (server-authoritative

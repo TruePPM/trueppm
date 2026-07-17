@@ -1805,3 +1805,71 @@ class TestCompletedNotCritical:
         assert by_id["A"].is_critical is False
         assert by_id["B"].is_critical is True
         assert "A" not in r.critical_path
+
+
+# ---------------------------------------------------------------------------
+# schedule() — driving edges (#2095)
+# ---------------------------------------------------------------------------
+
+
+class TestDrivingEdges:
+    """Driving edges: dependency links whose relationship free float is zero — the
+    predecessor that actually controls the successor's early date (#2095)."""
+
+    @staticmethod
+    def _pairs(r: ScheduleResult) -> set[tuple[str, str]]:
+        return {(e.predecessor_id, e.successor_id) for e in r.driving_edges}
+
+    def test_merge_point_only_the_constraining_predecessor_drives(self) -> None:
+        # A(5)→C, B(3)→C: A finishes later, so A→C pins C's start; B→C has slack.
+        p = make_project(
+            tasks=[task("A", "A", 5), task("B", "B", 3), task("C", "C", 2)],
+            dependencies=[Dependency("A", "C"), Dependency("B", "C")],
+        )
+        r = schedule(p)
+        pairs = self._pairs(r)
+        assert ("A", "C") in pairs
+        assert ("B", "C") not in pairs
+
+    def test_linear_chain_every_link_drives(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 2), task("B", "B", 2), task("C", "C", 2)],
+            dependencies=[Dependency("A", "B"), Dependency("B", "C")],
+        )
+        r = schedule(p)
+        assert self._pairs(r) == {("A", "B"), ("B", "C")}
+
+    def test_driving_edge_carries_dep_type_and_is_sorted(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 2), task("B", "B", 2), task("C", "C", 2)],
+            dependencies=[Dependency("A", "C"), Dependency("A", "B")],
+        )
+        r = schedule(p)
+        # Deterministic sorted order by (predecessor, successor, dep_type).
+        assert [(e.predecessor_id, e.successor_id, e.dep_type) for e in r.driving_edges] == [
+            ("A", "B", "FS"),
+            ("A", "C", "FS"),
+        ]
+
+    def test_edge_into_completed_successor_is_not_driving(self) -> None:
+        # A completed successor imposes no live constraint (#1819), so its incoming
+        # link is never reported as driving.
+        p = make_project(
+            tasks=[
+                task("A", "A", 2),
+                task("B", "B", 2, percent_complete=100.0, actual_finish=date(2026, 3, 4)),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        r = schedule(p)
+        assert ("A", "B") not in self._pairs(r)
+
+    def test_driving_edges_survive_to_dict_roundtrip(self) -> None:
+        p = make_project(
+            tasks=[task("A", "A", 2), task("B", "B", 2)],
+            dependencies=[Dependency("A", "B")],
+        )
+        d = schedule(p).to_dict()
+        assert d["driving_edges"] == [
+            {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS"}
+        ]

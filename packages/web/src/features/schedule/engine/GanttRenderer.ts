@@ -1941,6 +1941,11 @@ export interface DependencyLayout {
   fsByTarget: Map<string, TaskLink[]>;
   /** SS / FF / SF links (cubic Bézier; no Manhattan routing). */
   nonFSLinks: TaskLink[];
+  /** True when at least one link is driving (#2095). When false the schedule has
+   *  no driving info (e.g. never recomputed), so the driving/non-driving weight
+   *  tier is suppressed and every link renders at full weight — matching the
+   *  pre-#2095 look rather than making the whole graph recede. */
+  anyDriving: boolean;
   /** Nothing to paint (no links). */
   empty: boolean;
 }
@@ -1982,7 +1987,14 @@ export function prepareDependencyLayout(
   const nodes = new Map<string, DepNode>();
   const barByRow = new Array<(RoutingBox & { id: string }) | undefined>(tasks.length);
   if (links.length === 0) {
-    return { nodes, barByRow, fsByTarget: new Map(), nonFSLinks: [], empty: true };
+    return {
+      nodes,
+      barByRow,
+      fsByTarget: new Map(),
+      nonFSLinks: [],
+      anyDriving: false,
+      empty: true,
+    };
   }
   const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2); // = 9px
 
@@ -2102,7 +2114,11 @@ export function prepareDependencyLayout(
     }
   }
 
-  return { nodes, barByRow, fsByTarget, nonFSLinks, empty: false };
+  // Driving hierarchy engages only when the engine has actually flagged driving
+  // links (#2095); otherwise suppress it so an un-recomputed schedule keeps the
+  // uniform full-weight look instead of rendering everything as "non-driving".
+  const anyDriving = links.some((l) => l.isDriving === true);
+  return { nodes, barByRow, fsByTarget, nonFSLinks, anyDriving, empty: false };
 }
 
 type DepScreenNode = {
@@ -2132,8 +2148,13 @@ export function paintDependencyLayout(
   hoverChain: DepArrowHoverChain | null = null,
 ): void {
   if (layout.empty) return;
-  const { nodes, barByRow, fsByTarget, nonFSLinks } = layout;
+  const { nodes, barByRow, fsByTarget, nonFSLinks, anyDriving } = layout;
   const milestoneHalfDiag = Math.ceil((MILESTONE_SIZE / 2) * Math.SQRT2); // = 9px
+
+  // Effective driving weight for a link (#2095): when the schedule carries no
+  // driving info at all, every link renders at full weight (see anyDriving); once
+  // any link is flagged, non-driving links recede.
+  const effectiveDriving = (link: TaskLink): boolean => !anyDriving || link.isDriving === true;
 
   const cpWidth = ctx.canvas.width / (window.devicePixelRatio || 1);
   const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
@@ -2219,7 +2240,7 @@ export function paintDependencyLayout(
     if (offScreen(src.barRight, tgt.barLeft, srcY, tgtY, cpWidth, cpHeight)) return;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, hoverChain);
-    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, effectiveDriving(link));
     const lineDash = linkDash(link);
     const arrowSize = 9;
     const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
@@ -2290,7 +2311,7 @@ export function paintDependencyLayout(
       const srcY = rowY(src.rowIndex);
       const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
       const role = arrowRole(link.sourceId, link.targetId, hoverChain);
-      const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+      const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, effectiveDriving(link));
       // Each predecessor feeder carries its own cross-project dash; the shared
       // trunk to the arrowhead stays solid (it is the target's converged inflow).
       const lineDash = linkDash(link);
@@ -2383,7 +2404,7 @@ export function paintDependencyLayout(
     if (offScreen(x1, x2, srcY, tgtY, cpWidth, cpHeight)) continue;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, hoverChain);
-    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
+    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, effectiveDriving(link));
     const lineDash = linkDash(link);
     const angle = Math.atan2(0, x2 - cx2);
     pendingPaths.push({
@@ -2480,6 +2501,13 @@ const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 const CHAIN_ARROW_PREDECESSOR = '#60A5FA'; // blue — flows into hovered task
 const CHAIN_ARROW_SUCCESSOR = '#34D399'; // green — flows out of hovered task
 const CHAIN_ARROW_DIM_ALPHA = 0.2; // non-chain arrows fade to 20% of the charcoal default
+// Non-driving links (#2095) recede: thinner and ~55% contrast of the charcoal
+// default, so the driving chain — the links that actually control successor dates
+// — reads as the strong line through a dense graph. Weight/alpha only, never a new
+// color (rule 73: arrow color carries no semantics).
+const NON_DRIVING_ARROW_ALPHA = 0.55;
+const NON_DRIVING_ARROW_WIDTH = 1.5;
+const DRIVING_ARROW_WIDTH = 2;
 
 type ArrowRole = 'predecessor' | 'successor' | 'dim' | 'normal';
 
@@ -2510,17 +2538,30 @@ function arrowRole(
  * Hover-chain (#475): when a chain is supplied, in-chain arrows recolor to
  * blue (predecessors) or green (successors); out-of-chain arrows dim to 20%.
  * Explicit selection still wins so a selected arrow stays prominent.
+ *
+ * Driving hierarchy (#2095): applies ONLY to the resting `normal` role — a
+ * non-driving link renders thinner and at reduced contrast so the driving chain
+ * stands out. Selection and hover-chain roles are interrogation states and keep
+ * precedence untouched. `isDriving` defaults true so callers that don't supply it
+ * (the merge trunk, whose driving status is ambiguous) render at full weight.
  */
 function arrowPen(
   isSelected: boolean,
   role: ArrowRole = 'normal',
+  isDriving = true,
 ): { stroke: string; lineWidth: number; alpha: number } {
   if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5, alpha: 1 };
   if (role === 'predecessor') return { stroke: CHAIN_ARROW_PREDECESSOR, lineWidth: 2, alpha: 1 };
   if (role === 'successor') return { stroke: CHAIN_ARROW_SUCCESSOR, lineWidth: 2, alpha: 1 };
   if (role === 'dim')
     return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: CHAIN_ARROW_DIM_ALPHA };
-  return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: 1 };
+  if (!isDriving)
+    return {
+      stroke: _palette.arrowNormal,
+      lineWidth: NON_DRIVING_ARROW_WIDTH,
+      alpha: NON_DRIVING_ARROW_ALPHA,
+    };
+  return { stroke: _palette.arrowNormal, lineWidth: DRIVING_ARROW_WIDTH, alpha: 1 };
 }
 
 /**

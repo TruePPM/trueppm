@@ -927,6 +927,21 @@ def _run_schedule(
     # program-scoped write-back derive summary dates through identical code.
     apply_summary_rollups(result_map, summary_ids, children_map, db_task_by_id)
 
+    # Driving-link flags (#2095): the engine reports which edges have zero
+    # relationship free float, keyed by (leaf) task ids. Leaf-to-leaf stored edges
+    # match directly; summary-level edges were expanded before CPM, so they carry no
+    # driving fact and stay non-driving (the visual default). Set in memory here and
+    # persisted via bulk_update below (like Task CPM fields — no server_version bump).
+    driving_edge_keys = {
+        (e.predecessor_id, e.successor_id, e.dep_type) for e in result.driving_edges
+    }
+    for dep in db_deps:
+        dep.is_driving = (
+            str(dep.predecessor_id),
+            str(dep.successor_id),
+            dep.dep_type,
+        ) in driving_edge_keys
+
     # Write CPM results back for every task the engine returned.
     #
     # INTENTIONAL DESIGN: bulk_update bypasses VersionedModel.save(), so
@@ -1054,6 +1069,14 @@ def _run_schedule(
             ],
             batch_size=_WRITEBACK_BATCH_SIZE,
         )
+
+        # Persist driving-link flags (#2095). bulk_update bypasses VersionedModel.save
+        # so it never bumps server_version — is_driving is a derived CPM output, not a
+        # user edit, and must not trigger a mobile-sync pull (same rationale as Task).
+        if db_deps:
+            Dependency.objects.bulk_update(
+                db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE
+            )
 
         if schedule_shift_events:
             TaskActivityEvent.objects.bulk_create(
@@ -1236,7 +1259,13 @@ def _run_program_schedule(program_id: str) -> None:
     from django.db import transaction
     from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Program, Project, Task, TaskActivityEvent
+    from trueppm_api.apps.projects.models import (
+        Dependency,
+        Program,
+        Project,
+        Task,
+        TaskActivityEvent,
+    )
     from trueppm_api.apps.projects.program_schedule import gather_program_schedule
     from trueppm_api.apps.projects.slip_conflict import detect_and_upsert_slip_conflicts
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
@@ -1270,6 +1299,9 @@ def _run_program_schedule(program_id: str) -> None:
 
     now = timezone.now()
     tasks_to_update: list[Task] = []
+    # Driving-link flags across every member project (#2095), persisted alongside
+    # the task write-back below. Empty when the program has no schedulable result.
+    program_db_deps: list[Dependency] = []
     # Snapshot CPM dates before overwrite, for the schedule-shift events (ADR-0207).
     old_cpm_dates: dict[str, tuple[Any, Any, Any, Any]] = {}
     if graph.result is not None:
@@ -1306,6 +1338,20 @@ def _run_program_schedule(program_id: str) -> None:
                 db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
             tasks_to_update.append(db_task)
 
+        # Driving-link flags across the program (#2095): mark each stored edge whose
+        # relationship free float is zero. Keyed by (leaf) task ids exactly as the
+        # single-project path; summary-level edges stay non-driving.
+        driving_edge_keys = {
+            (e.predecessor_id, e.successor_id, e.dep_type) for e in graph.result.driving_edges
+        }
+        program_db_deps = list(Dependency.objects.filter(predecessor__project_id__in=member_ids))
+        for dep in program_db_deps:
+            dep.is_driving = (
+                str(dep.predecessor_id),
+                str(dep.successor_id),
+                dep.dep_type,
+            ) in driving_edge_keys
+
     # Group moved tasks by project for the per-project broadcasts.
     by_project: dict[object, list[Task]] = {}
     for t in tasks_to_update:
@@ -1325,6 +1371,12 @@ def _run_program_schedule(program_id: str) -> None:
         if tasks_to_update:
             Task.objects.bulk_update(
                 tasks_to_update, _PROGRAM_WRITE_FIELDS, batch_size=_WRITEBACK_BATCH_SIZE
+            )
+
+        # Persist driving-link flags (#2095) — bulk_update, no server_version bump.
+        if program_db_deps:
+            Dependency.objects.bulk_update(
+                program_db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE
             )
 
         if schedule_shift_events:

@@ -407,7 +407,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         &project.calendar,
     )?;
 
-    compute_floats(
+    let driving_edges = compute_floats(
         &mut tasks,
         &pg.topo_order,
         pg,
@@ -453,6 +453,7 @@ pub(crate) fn compute_full(project: &Project, pg: &ProjectGraph) -> Result<Sched
         project_finish,
         tasks,
         critical_path,
+        driving_edges,
     })
 }
 

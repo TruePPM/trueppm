@@ -92,6 +92,17 @@ fn load_and_check(fixture_name: &str) {
         result_json["critical_path"], expected["critical_path"],
         "{fixture_name}: critical_path mismatch"
     );
+    // Driving-edge parity (#2095): both engines must agree on which links have
+    // zero relationship free float, in the same deterministic order. `.get(...)`
+    // with an empty-array default mirrors the Python conformance assertion.
+    let expected_driving = expected
+        .get("driving_edges")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    assert_eq!(
+        result_json["driving_edges"], expected_driving,
+        "{fixture_name}: driving_edges mismatch"
+    );
 
     let result_tasks = result_json["tasks"].as_array().unwrap();
     let expected_tasks = expected["tasks"].as_array().unwrap();

@@ -40856,6 +40856,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "is_driving": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "predecessor_card": {
                         "allOf": [
                             {
@@ -40879,6 +40883,7 @@
                     "accepted_at",
                     "accepted_by",
                     "id",
+                    "is_driving",
                     "pending_acceptance",
                     "predecessor",
                     "predecessor_card",
