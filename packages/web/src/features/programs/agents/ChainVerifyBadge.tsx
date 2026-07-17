@@ -72,7 +72,7 @@ export function ChainVerifyBadge() {
             role="dialog"
             aria-label="Chain verification"
             style={popoverStyle}
-            className="z-50 rounded-card border border-neutral-border bg-neutral-surface p-4 text-sm text-neutral-text-secondary shadow-lg"
+            className="z-50 rounded-card border border-neutral-border bg-neutral-surface p-4 text-sm text-neutral-text-secondary shadow-pop"
           >
             <p className="m-0 leading-snug">
               Every agent action is one link in a tamper-evident chain. Each row&rsquo;s fingerprint
