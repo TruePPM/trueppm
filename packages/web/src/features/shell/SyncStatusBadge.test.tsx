@@ -65,6 +65,26 @@ describe('SyncStatusBadge', () => {
     expect(screen.getByRole('button', { name: /Sync error/ })).toBeInTheDocument();
   });
 
+  it('surfaces the stale state when live updates are down (#2053)', () => {
+    // The whole point: a mobile user (StatusBar is hidden below md) must see a
+    // degraded cue instead of a falsely-reassuring "Synced".
+    mockView = viewFor({ status: { kind: 'stale', lastSyncAt: null } });
+    render(<SyncStatusBadge />);
+    expect(screen.getByRole('button', { name: /Live updates are disconnected/ })).toBeInTheDocument();
+    expect(screen.getByText('Not live')).toBeInTheDocument();
+  });
+
+  it('explains the degraded live-updates state in the modal', () => {
+    mockView = viewFor({ status: { kind: 'stale', lastSyncAt: null } });
+    render(<SyncStatusBadge />);
+    fireEvent.click(screen.getByRole('button', { name: /Live updates are disconnected/ }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Sync status' });
+    expect(within(dialog).getByText('Live updates disconnected')).toBeInTheDocument();
+    // Not an error: no pending writes, so no retry button is offered.
+    expect(within(dialog).queryByRole('button', { name: 'Retry now' })).not.toBeInTheDocument();
+  });
+
   it('opens the modal with the pending-write list on click', () => {
     mockView = viewFor({
       status: { kind: 'offline', pending: 1, lastSyncAt: null },

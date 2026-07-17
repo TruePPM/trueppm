@@ -6,10 +6,11 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
 import { AxiosError, type AxiosResponse } from 'axios';
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useSyncStatus } from './useSyncStatus';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 function axiosError(status: number): AxiosError {
   const err = new AxiosError('Request failed with status code ' + status);
@@ -63,5 +64,29 @@ describe('useSyncStatus — online client-rejection exclusion (#1945)', () => {
 
     expect(result.current.view.status.kind).toBe('error');
     expect(result.current.view.pendingWrites).toHaveLength(1);
+  });
+});
+
+describe('useSyncStatus — live-update degradation surfaces as stale (#2053)', () => {
+  // The WS connection store is a module singleton; restore it after each case.
+  afterEach(() => useWsConnectionStore.setState({ state: 'connecting', reconnectAttempts: 0 }));
+
+  it('derives stale when the socket is prolonged-down (stale)', () => {
+    useWsConnectionStore.setState({ state: 'stale' });
+    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
+    expect(result.current.status.kind).toBe('stale');
+  });
+
+  it('derives stale when the socket has failed terminally', () => {
+    useWsConnectionStore.setState({ state: 'failed' });
+    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
+    expect(result.current.status.kind).toBe('stale');
+  });
+
+  it('stays synced for transient socket states (connecting / reconnecting)', () => {
+    useWsConnectionStore.setState({ state: 'reconnecting' });
+    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(makeQC()) });
+    // A brief blip must not alarm — only stale/failed count.
+    expect(result.current.status.kind).toBe('synced');
   });
 });

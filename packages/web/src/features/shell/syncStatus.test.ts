@@ -13,6 +13,7 @@ const base: SyncInputs = {
   errorCount: 0,
   lastError: null,
   lastSyncAt: null,
+  liveUpdatesDegraded: false,
 };
 
 describe('deriveSyncStatus', () => {
@@ -72,6 +73,30 @@ describe('deriveSyncStatus', () => {
     expect(status.kind).toBe('error');
   });
 
+  it('is stale when the live-update socket is degraded but the browser is online', () => {
+    const status = deriveSyncStatus({ ...base, liveUpdatesDegraded: true });
+    expect(status).toEqual({ kind: 'stale', lastSyncAt: null });
+  });
+
+  it('ranks stale above syncing and synced so a working write path cannot mask it', () => {
+    // A draining write must not paint "Syncing"/"Synced" over a frozen view.
+    const syncing = deriveSyncStatus({ ...base, liveUpdatesDegraded: true, inFlightCount: 2 });
+    expect(syncing.kind).toBe('stale');
+    const synced = deriveSyncStatus({ ...base, liveUpdatesDegraded: true });
+    expect(synced.kind).toBe('stale');
+  });
+
+  it('ranks offline and error above stale', () => {
+    // Browser offline dominates (the socket is down too, but that's implied).
+    expect(deriveSyncStatus({ ...base, online: false, liveUpdatesDegraded: true }).kind).toBe(
+      'offline',
+    );
+    // A failed write (actionable) outranks a stale read.
+    expect(deriveSyncStatus({ ...base, errorCount: 1, liveUpdatesDegraded: true }).kind).toBe(
+      'error',
+    );
+  });
+
   it('threads lastSyncAt through every state', () => {
     const ts = 1_700_000_000_000;
     expect(deriveSyncStatus({ ...base, lastSyncAt: ts }).lastSyncAt).toBe(ts);
@@ -99,6 +124,13 @@ describe('syncStatusPresentation', () => {
         lastSyncAt: null,
       }).label,
     ).toBe('Sync error');
+    expect(syncStatusPresentation({ kind: 'stale', lastSyncAt: null }).label).toBe('Not live');
+  });
+
+  it('the stale aria reassures that writes still save', () => {
+    const { aria } = syncStatusPresentation({ kind: 'stale', lastSyncAt: null });
+    expect(aria).toContain('out of date');
+    expect(aria).toContain('changes still save');
   });
 
   it('singularizes the pending count in aria text', () => {

@@ -3,6 +3,7 @@ import { useMutationState, useQueryClient } from '@tanstack/react-query';
 import type { Mutation } from '@tanstack/react-query';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import { deriveSyncStatus, type SyncStatus } from '@/features/shell/syncStatus';
 import { isClientRejection } from '@/lib/apiError';
 
@@ -77,6 +78,13 @@ export interface SyncStatusView {
  */
 export function useSyncStatus(): SyncStatusView {
   const online = useOnlineStatus();
+  // The live-update socket being prolonged-down (`stale`) or terminal (`failed`)
+  // is a degraded read state the badge must surface — otherwise a mobile user
+  // (StatusBar is `hidden md:flex`) sees "Synced" over a silently frozen board
+  // (#2053). `connecting`/`reconnecting` are transient and deliberately excluded
+  // so brief blips don't alarm; only the prolonged/terminal states count.
+  const wsState = useWsConnectionStore((s) => s.state);
+  const liveUpdatesDegraded = wsState === 'stale' || wsState === 'failed';
   const lastSyncAt = useSyncStatusStore((s) => s.lastSyncAt);
   const pendingPeak = useSyncStatusStore((s) => s.pendingPeak);
   const reportPending = useSyncStatusStore((s) => s.reportPending);
@@ -123,6 +131,7 @@ export function useSyncStatus(): SyncStatusView {
     errorCount,
     lastError,
     lastSyncAt,
+    liveUpdatesDegraded,
   });
 
   return { status, pendingWrites, lastError, lastSyncAt, pendingPeak };

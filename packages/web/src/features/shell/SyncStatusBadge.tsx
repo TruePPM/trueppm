@@ -10,10 +10,12 @@ import { SyncStatusModal } from './SyncStatusModal';
  * - `syncing` — brand spinner (motion-safe) + count.
  * - `offline` — calm orange cloud-off chip (semantic-at-risk) + pending count.
  * - `error`   — red alert chip (semantic-critical) + retry affordance.
+ * - `stale`   — amber wifi-off chip (semantic-at-risk): live updates are down but
+ *               writes still work, so it's degraded, not broken (#2053).
  */
 const KIND_STYLE: Record<
   SyncStatusKind,
-  { wrapper: string; icon: 'dot' | 'spinner' | 'cloud-off' | 'alert'; iconColor: string }
+  { wrapper: string; icon: 'dot' | 'spinner' | 'cloud-off' | 'alert' | 'wifi-off'; iconColor: string }
 > = {
   synced: {
     wrapper: 'text-neutral-text-secondary hover:bg-neutral-surface-raised',
@@ -35,13 +37,18 @@ const KIND_STYLE: Record<
     icon: 'alert',
     iconColor: 'text-semantic-critical',
   },
+  stale: {
+    wrapper: 'bg-semantic-at-risk-bg text-semantic-at-risk hover:opacity-90',
+    icon: 'wifi-off',
+    iconColor: 'text-semantic-at-risk',
+  },
 };
 
 function StateIcon({
   icon,
   colorClass,
 }: {
-  icon: 'dot' | 'spinner' | 'cloud-off' | 'alert';
+  icon: 'dot' | 'spinner' | 'cloud-off' | 'alert' | 'wifi-off';
   colorClass: string;
 }) {
   if (icon === 'dot') {
@@ -75,6 +82,30 @@ function StateIcon({
         <path d="M18.8 18.8A5 5 0 0 0 18 9h-1.3A7 7 0 0 0 5.3 6.5" />
         <path d="M4 8a5 5 0 0 0-1 9.9" />
         <line x1="3" y1="3" x2="21" y2="21" />
+      </svg>
+    );
+  }
+  if (icon === 'wifi-off') {
+    // Wi-Fi arcs with a slash — "live channel down" reads distinctly from the
+    // cloud-off used for browser-offline, even though both share the amber token.
+    return (
+      <svg
+        className={`h-3.5 w-3.5 shrink-0 ${colorClass}`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <line x1="2" y1="2" x2="22" y2="22" />
+        <path d="M8.5 16.5a5 5 0 0 1 7 0" />
+        <path d="M2 8.82a15 15 0 0 1 4.17-2.65" />
+        <path d="M10.66 5c4.01-.36 8.14.9 11.34 3.76" />
+        <path d="M16.85 11.25a10 10 0 0 1 2.22 1.68" />
+        <path d="M5 13a10 10 0 0 1 5.24-2.76" />
+        <line x1="12" y1="20" x2="12.01" y2="20" />
       </svg>
     );
   }

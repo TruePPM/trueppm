@@ -104,6 +104,19 @@ export function SyncStatusModal({
           />
         )}
 
+        {/* Live-updates degraded (#2053): writes still work, but real-time
+            updates from others aren't arriving — explain the slow-poll fallback
+            so the amber badge doesn't read as "your changes are lost". */}
+        {status.kind === 'stale' && (
+          <div className="rounded-control border border-semantic-at-risk bg-semantic-at-risk-bg p-3">
+            <p className="text-xs font-semibold text-semantic-at-risk">Live updates disconnected</p>
+            <p className="mt-1 text-xs text-semantic-at-risk">
+              Changes from others may not appear right away. This view refreshes
+              periodically until the connection returns. Your own changes still save.
+            </p>
+          </div>
+        )}
+
         {/* Last error */}
         {status.kind === 'error' && lastError && (
           <div className="rounded-control border border-semantic-critical bg-semantic-critical-bg p-3">
