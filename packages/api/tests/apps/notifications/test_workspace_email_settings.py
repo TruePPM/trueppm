@@ -323,6 +323,9 @@ def test_internal_smtp_host_rejected(operator_client: APIClient) -> None:
     )
     assert resp.status_code == 400
     assert WorkspaceEmailSettings.load().transport_mode == EmailTransportMode.CLOUD
+    # The SSRF guard must not echo the DNS-resolved internal address back to the
+    # client (#2082 — CodeQL py/stack-trace-exposure). localhost → 127.0.0.1.
+    assert "127.0.0.1" not in str(resp.data)
 
 
 def test_internal_bounce_webhook_rejected(operator_client: APIClient, _no_probe: None) -> None:
@@ -331,6 +334,53 @@ def test_internal_bounce_webhook_rejected(operator_client: APIClient, _no_probe:
     )
     assert resp.status_code == 400
     assert "bounce_webhook_url" in resp.data
+    # Curated message only — the internal target must not be reflected (#2082).
+    assert "169.254.169.254" not in str(resp.data)
+
+
+def test_smtp_egress_block_does_not_leak_resolved_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_assert_host_public` must not copy the resolved IP into EmailTransportError.
+
+    Regression for #2082: the egress guard's message can embed the DNS-resolved
+    internal address; surfacing it would turn the transport probe into an SSRF
+    oracle. The raised EmailTransportError must carry a curated message only.
+    """
+    from trueppm_api.apps.integrations import http as egress_http
+
+    def _blocked(host: str, port: int) -> None:
+        raise egress_http.EgressBlocked(f"host {host!r} resolves to non-public address 10.9.8.7")
+
+    monkeypatch.setattr(egress_http, "assert_host_allowed", _blocked)
+
+    with pytest.raises(email_backend.EmailTransportError) as excinfo:
+        email_backend._assert_host_public("mail.internal.test", 587)
+    assert "10.9.8.7" not in str(excinfo.value)
+
+
+def test_bounce_webhook_egress_block_does_not_leak_resolved_ip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The webhook-URL validator must not reflect the egress guard's resolved IP.
+
+    Regression for #2082 (CodeQL py/stack-trace-exposure).
+    """
+    from rest_framework import serializers
+
+    from trueppm_api.apps.integrations import http as egress_http
+    from trueppm_api.apps.notifications.serializers import WorkspaceEmailSettingsSerializer
+
+    def _blocked(url: str) -> None:
+        raise egress_http.EgressBlocked(
+            "host 'hook.internal.test' resolves to non-public address 10.9.8.7"
+        )
+
+    monkeypatch.setattr(egress_http, "assert_url_allowed", _blocked)
+
+    with pytest.raises(serializers.ValidationError) as excinfo:
+        WorkspaceEmailSettingsSerializer().validate_bounce_webhook_url(
+            "https://hook.internal.test/x"
+        )
+    assert "10.9.8.7" not in str(excinfo.value.detail)
 
 
 def test_from_name_crlf_rejected(operator_client: APIClient, _no_probe: None) -> None:

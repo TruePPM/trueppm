@@ -137,7 +137,14 @@ def _assert_host_public(host: str, port: int) -> None:
     try:
         assert_host_allowed(host, port)
     except EgressBlocked as exc:
-        raise EmailTransportError(str(exc)) from exc
+        # Do NOT copy the EgressBlocked text into EmailTransportError: it can
+        # embed the DNS-resolved internal address, which the serializer would
+        # otherwise surface to the client (SSRF oracle). Log the detail, raise a
+        # curated message (security review M1; CodeQL py/stack-trace-exposure).
+        logger.info("SMTP host rejected by egress guard (host=%s port=%s): %s", host, port, exc)
+        raise EmailTransportError(
+            "The mail server host is not permitted — it resolves to a non-public address."
+        ) from exc
     except EgressError:
         # Unresolvable now; the connect attempt re-checks and fails cleanly.
         return
