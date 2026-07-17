@@ -11,6 +11,7 @@ import type {
 import { ROLE_ADMIN, ROLE_VIEWER } from '@/lib/roles';
 
 const useProjectId = vi.fn();
+const useProject = vi.fn();
 const useCurrentUserRole = vi.fn();
 const useBreakpoint = vi.fn(() => 'lg');
 const useProjectCalendars = vi.fn();
@@ -20,6 +21,11 @@ const useUpdateProjectCalendars = vi.fn();
 
 vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => useProjectId() as string | undefined,
+}));
+// The base-calendar breadcrumb reads the project (#2009) only when the base is
+// null (inherited); mocked so the page makes no real project fetch.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: (id: string | null | undefined) => useProject(id) as unknown,
 }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: (id: string | undefined) => useCurrentUserRole(id) as unknown,
@@ -65,6 +71,8 @@ function cal(id: string, name: string, exceptionCount = 0): Calendar {
 
 const BASE = cal('base', 'Project calendar');
 const HOL = cal('hol', 'US Federal Holidays 2026', 11);
+// A second base-eligible library calendar so a base swap targets a distinct id.
+const ALT = cal('alt', 'Night shift');
 
 const APPLIED: ProjectCalendars = {
   base: BASE,
@@ -98,13 +106,17 @@ function renderPage() {
 
 function loadedHooks(role: number, mutate = vi.fn()) {
   useCurrentUserRole.mockReturnValue({ role, isLoading: false });
+  // Base override set → source 'project'; no inherited breadcrumb shown.
+  useProject.mockReturnValue({
+    data: { calendar: 'base', calendar_source: 'project', effective_calendar: null },
+  });
   useProjectCalendars.mockReturnValue({
     data: APPLIED,
     isLoading: false,
     error: null,
     refetch: vi.fn(),
   });
-  useCalendarLibrary.mockReturnValue({ data: [BASE, HOL], isLoading: false });
+  useCalendarLibrary.mockReturnValue({ data: [BASE, HOL, ALT], isLoading: false });
   useCalendarPreview.mockReturnValue({
     data: PREVIEW,
     isFetching: false,
@@ -118,6 +130,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   useProjectId.mockReturnValue('p-1');
   useBreakpoint.mockReturnValue('lg');
+  // Unconditional default so the loading/error tests (which don't call
+  // loadedHooks) don't crash destructuring the base-breadcrumb project read.
+  useProject.mockReturnValue({ data: undefined });
 });
 
 describe('ProjectCalendarsPage', () => {
@@ -125,10 +140,12 @@ describe('ProjectCalendarsPage', () => {
     loadedHooks(ROLE_ADMIN);
     renderPage();
 
-    // Applied stack shows the base (locked) and the holiday overlay.
-    expect(screen.getByText('Project calendar')).toBeInTheDocument();
-    expect(screen.getByText('US Federal Holidays 2026')).toBeInTheDocument();
+    // Applied stack shows the editable base row and the holiday overlay. The base
+    // name is the selected option of the base picker; the holiday name appears both
+    // as the overlay row and a base-picker option, so assert the overlay via its
+    // Remove control (below) rather than by text.
     expect(screen.getByText('Base')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Working calendar override' })).toHaveValue('base');
 
     // The preview strip + its data-backed summary render.
     expect(screen.getByText('Effective working time')).toBeInTheDocument();
@@ -168,6 +185,91 @@ describe('ProjectCalendarsPage', () => {
     expect(
       screen.queryByRole('button', { name: /Remove US Federal Holidays 2026/ }),
     ).not.toBeInTheDocument();
+  });
+
+  // ── Base calendar editor (#2009, ADR-0441) ──────────────────────────────
+  // The base FK is now written only here; the General page is a read-only summary.
+
+  it('changing the base calendar PUTs base_calendar_id with overlays preserved (#2009)', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    const picker = screen.getByRole('combobox', { name: 'Working calendar override' });
+    fireEvent.change(picker, { target: { value: 'alt' } });
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    // buildBaseUpdatePayload (real): new base, existing holiday overlay kept.
+    expect(mutate.mock.calls[0][0]).toEqual({
+      base_calendar_id: 'alt',
+      overlays: [{ calendar_id: 'hol', role: 'holidays' }],
+    });
+  });
+
+  it('Inherit clears the base to null, preserving overlays (#2009)', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inherit from workspace' }));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      base_calendar_id: null,
+      overlays: [{ calendar_id: 'hol', role: 'holidays' }],
+    });
+  });
+
+  it('re-selecting the current base does not fire a redundant PUT (#2009)', () => {
+    const mutate = vi.fn();
+    loadedHooks(ROLE_ADMIN, mutate);
+    renderPage();
+
+    // The base is already 'base' — selecting it again is a no-op.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working calendar override' }), {
+      target: { value: 'base' },
+    });
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('shows the inherited-base breadcrumb (read-only summary) when the base is null (#2009)', () => {
+    loadedHooks(ROLE_ADMIN);
+    // No own base override → inherited from the workspace.
+    useProjectCalendars.mockReturnValue({
+      data: { ...APPLIED, base: null },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    useProject.mockReturnValue({
+      data: {
+        calendar: null,
+        calendar_source: 'workspace',
+        effective_calendar: { id: 'ws', name: 'Workspace default', working_days: 31, hours_per_day: 8 },
+      },
+    });
+    renderPage();
+
+    // Inherit is the pressed state; the breadcrumb names the resolving scope.
+    expect(screen.getByRole('button', { name: 'Inherit from workspace' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByText(/Inherited from workspace \(Workspace default\)/i)).toBeInTheDocument();
+  });
+
+  it('renders the base as a read-only summary for a Viewer — no picker or toggle (#2009)', () => {
+    loadedHooks(ROLE_VIEWER);
+    renderPage();
+
+    expect(
+      screen.queryByRole('combobox', { name: 'Working calendar override' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Inherit from workspace' }),
+    ).not.toBeInTheDocument();
+    // The base name still shows read-only.
+    expect(screen.getByText('Project calendar')).toBeInTheDocument();
   });
 
   it('shows the loading skeleton while the applied set is loading', () => {

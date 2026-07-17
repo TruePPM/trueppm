@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -9,6 +10,8 @@ import {
   useCalendarPreview,
   useUpdateProjectCalendars,
   buildUpdatePayload,
+  buildBaseUpdatePayload,
+  type Calendar,
   type CalendarRole,
 } from '@/hooks/useProjectCalendars';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -17,6 +20,7 @@ import { CalendarIcon, PlusIcon, CloseIcon, ChevronRightIcon, WarningIcon } from
 import { AddCalendarPicker } from './AddCalendarPicker';
 import {
   buildMonthGrids,
+  calendarSourceCopy,
   classifyDay,
   countLostWorkdays,
   cellDayNumber,
@@ -76,6 +80,11 @@ export function ProjectCalendarsPage() {
 
   const applied = useProjectCalendars(projectId);
   const library = useCalendarLibrary();
+  // Read the project only for the inherited-base breadcrumb (ADR-0441): when the
+  // base override is null, `calendar_source` / `effective_calendar` name the scope
+  // the base resolves from (program → workspace → system default). The applied
+  // GET carries no inheritance info — it reports the project's own base only.
+  const { data: project } = useProject(projectId);
 
   // Preview window. Desktop shows a rolling quarter from the current month;
   // mobile shows a single month. The pager shifts the anchor and the preview
@@ -106,6 +115,17 @@ export function ProjectCalendarsPage() {
   function handleRemove(layerId: string) {
     if (!applied.data) return;
     update.mutate(buildUpdatePayload(applied.data, [], [layerId]));
+  }
+
+  // The base calendar is written only here now (ADR-0441, #2009) — the General
+  // page's calendar row is a read-only summary that links back to this page.
+  // Immediate-apply, like overlay add/remove: no save bar on this panel. Guard a
+  // redundant PUT when the picked value equals the current base (e.g. pressing
+  // "Inherit" while already inherited).
+  function handleSetBase(baseId: string | null) {
+    if (!applied.data) return;
+    if ((applied.data.base?.id ?? null) === baseId) return;
+    update.mutate(buildBaseUpdatePayload(applied.data, baseId));
   }
 
   // ---- Loading ----------------------------------------------------------
@@ -153,6 +173,14 @@ export function ProjectCalendarsPage() {
   const data = applied.data;
   const overlays = data.overlays;
   const hasHolidayOverlay = overlays.some((o) => o.role !== 'project');
+  // Inherited-base breadcrumb — only meaningful when the project has no own base
+  // override (ADR-0441). `calendar_source` is optional (a stale cached project
+  // read from before #1987), so its absence yields no breadcrumb rather than
+  // guessing a scope.
+  const baseBreadcrumb =
+    data.base === null && project?.calendar_source
+      ? calendarSourceCopy(project.calendar_source, project.effective_calendar ?? null)
+      : null;
 
   return (
     <div>
@@ -177,14 +205,16 @@ export function ProjectCalendarsPage() {
               </span>
             </SubHead>
             <div className="flex flex-col gap-2">
-              {data.base && (
-                <CalendarRow
-                  name={data.base.name}
-                  kind="project"
-                  summary={summarizeCalendar(data.base, 'project')}
-                  locked
-                />
-              )}
+              <BaseCalendarRow
+                base={data.base}
+                canEdit={canEdit}
+                library={library.data ?? []}
+                libraryLoading={library.isLoading}
+                libraryError={!!library.error}
+                breadcrumb={baseBreadcrumb}
+                saving={update.isPending}
+                onSetBase={handleSetBase}
+              />
               {overlays.map((o) => (
                 <CalendarRow
                   key={o.layer_id ?? o.calendar.id}
@@ -308,6 +338,130 @@ function SubHead({ children }: { children: ReactNode }) {
   return (
     <div className="mb-2.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
       {children}
+    </div>
+  );
+}
+
+interface BaseCalendarRowProps {
+  base: Calendar | null;
+  canEdit: boolean;
+  library: Calendar[];
+  libraryLoading: boolean;
+  libraryError: boolean;
+  breadcrumb: string | null;
+  saving: boolean;
+  onSetBase: (baseId: string | null) => void;
+}
+
+/**
+ * The project's base working calendar — the single write surface for the base FK
+ * (ADR-0441, #2009). Scheduler+ can inherit (null) or override with an org-library
+ * calendar and the change applies immediately (like overlay add/remove, no save
+ * bar). Viewers get a read-only summary with provenance — never a disabled input
+ * (rule 175 / ADR-0133). Overlays stack on top of whichever base resolves.
+ */
+function BaseCalendarRow({
+  base,
+  canEdit,
+  library,
+  libraryLoading,
+  libraryError,
+  breadcrumb,
+  saving,
+  onSetBase,
+}: BaseCalendarRowProps) {
+  const inherited = base === null;
+
+  if (!canEdit) {
+    return (
+      <div className="flex items-center gap-3 rounded-control border border-neutral-border bg-neutral-surface-raised px-3.5 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13.5px] font-semibold text-neutral-text-primary">
+              {base ? base.name : 'Inherited calendar'}
+            </span>
+            <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+              Base
+            </span>
+          </div>
+          <div className="mt-0.5 text-[12px] text-neutral-text-secondary">
+            {base
+              ? summarizeCalendar(base, 'project')
+              : (breadcrumb ?? 'Inherits the program or workspace default.')}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-control border border-neutral-border bg-neutral-surface-raised px-3.5 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[13.5px] font-semibold text-neutral-text-primary">Base calendar</span>
+        <span className="shrink-0 rounded border border-neutral-border/55 bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-secondary">
+          Base
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onSetBase(null)}
+          aria-pressed={inherited}
+          disabled={saving}
+          className={[
+            'px-3 py-1 rounded-control border text-[12px] font-medium transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'disabled:cursor-not-allowed disabled:opacity-60',
+            inherited
+              ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+              : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+          ].join(' ')}
+        >
+          Inherit from workspace
+        </button>
+        <div className="relative inline-block w-[240px]">
+          <select
+            value={base?.id ?? ''}
+            onChange={(e) => onSetBase(e.target.value === '' ? null : e.target.value)}
+            aria-label="Working calendar override"
+            // Disable while the library loads or the fetch failed — an enabled empty
+            // picker would be indistinguishable from "no calendars exist".
+            disabled={saving || libraryLoading || libraryError}
+            className="h-8 w-full appearance-none rounded-control border border-neutral-border bg-neutral-surface-raised pl-2.5 pr-8 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary"
+          >
+            <option value="">
+              {libraryLoading
+                ? 'Loading calendars…'
+                : libraryError
+                  ? "Couldn't load calendars"
+                  : 'Override with a calendar…'}
+            </option>
+            {/* Keep the current override selectable even if it isn't in the fetched
+                list yet (still loading, or removed from the library). */}
+            {base && !library.some((c) => c.id === base.id) && (
+              <option value={base.id}>Current override</option>
+            )}
+            {library.map((cal) => (
+              <option key={cal.id} value={cal.id}>
+                {cal.name}
+              </option>
+            ))}
+          </select>
+          <svg
+            className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+            width="11"
+            height="11"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+      </div>
+      {inherited && breadcrumb && (
+        <p className="mt-1.5 text-[12px] text-neutral-text-secondary">{breadcrumb}</p>
+      )}
     </div>
   );
 }

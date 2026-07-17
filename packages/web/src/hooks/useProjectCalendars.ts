@@ -182,6 +182,12 @@ export function useUpdateProjectCalendars(projectId: string | null | undefined) 
       void queryClient.invalidateQueries({
         queryKey: [...calendarKeys.all, 'preview', projectId],
       });
+      // The base calendar FK is now written only here (ADR-0441, #2009): the
+      // project General page reads `project.calendar` / `effective_calendar` /
+      // `calendar_source` for its read-only summary, so invalidate the project
+      // query too. Without this the two settings surfaces show a divergent
+      // "current calendar" until a manual refetch — the exact drift #2009 fixes.
+      void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
     },
   });
 }
@@ -218,4 +224,29 @@ export function buildUpdatePayload(
     base_calendar_id: current.base?.id ?? null,
     overlays: [...kept, ...added],
   };
+}
+
+/**
+ * Build the atomic-replace PUT body that changes ONLY the base calendar,
+ * preserving the current overlay stack unchanged.
+ *
+ * The base FK is the project's own override (`null` = inherit the program /
+ * workspace default, ADR-0441). This is the single write surface for the base
+ * (#2009): the project Calendars page owns it; the General page shows a
+ * read-only summary. Overlays keep their server-assigned role — a `project`
+ * role can never appear here (only the base is `project`), so narrow to
+ * `OverlayRole`.
+ *
+ * @param current  The project's currently-applied calendars.
+ * @param baseCalendarId  The new base override, or `null` to inherit.
+ */
+export function buildBaseUpdatePayload(
+  current: ProjectCalendars,
+  baseCalendarId: string | null,
+): UpdateProjectCalendarsInput {
+  const overlays: OverlayInput[] = current.overlays.map((o) => ({
+    calendar_id: o.calendar.id,
+    role: (o.role === 'workspace' ? 'workspace' : 'holidays') as OverlayRole,
+  }));
+  return { base_calendar_id: baseCalendarId, overlays };
 }
