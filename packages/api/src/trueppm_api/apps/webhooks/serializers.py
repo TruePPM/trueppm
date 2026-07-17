@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
@@ -12,6 +13,8 @@ from trueppm_api.apps.webhooks.models import (
     WebhookDelivery,
     WebhookEventType,
 )
+
+logger = logging.getLogger(__name__)
 
 # Minimum signing-secret length (#893). The secret is the only thing standing
 # between a forged request and an accepted webhook delivery (HMAC over the
@@ -146,8 +149,17 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         try:
             assert_url_allowed(value)
         except EgressBlocked as exc:
-            # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
-            raise serializers.ValidationError(str(exc)) from exc
+            # Return a curated message only. EgressBlocked can embed the
+            # DNS-resolved address (e.g. "resolves to non-public address
+            # 10.0.0.5"), which would turn this field into an SSRF oracle for
+            # internal network topology — log it server-side, never echo it to
+            # the client (CodeQL py/stack-trace-exposure). Mirrors the
+            # notifications bounce-webhook fix in #2082.
+            logger.info("webhook url rejected by egress guard: %s", exc)
+            raise serializers.ValidationError(
+                "This URL is not allowed. Use a public https:// URL that does not "
+                "resolve to an internal or private address."
+            ) from exc
         except EgressError:
             # DNS resolution failed at registration; allow save — delivery re-checks.
             pass

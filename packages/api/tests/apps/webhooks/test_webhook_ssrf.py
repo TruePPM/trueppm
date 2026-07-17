@@ -10,6 +10,7 @@ integrations egress chokepoint (``assert_url_allowed``, ADR-0049 §3).
 from __future__ import annotations
 
 import contextlib
+import json
 from datetime import date
 from unittest.mock import patch
 
@@ -60,6 +61,44 @@ def test_create_webhook_rejects_ssrf_url(
     )
     assert resp.status_code == 400
     assert "url" in resp.data
+    assert not Webhook.objects.filter(project=project).exists()
+
+
+@pytest.mark.django_db
+def test_create_webhook_egress_error_does_not_echo_internal_ip(
+    admin_client: APIClient, project: Project
+) -> None:
+    """The egress rejection must not leak the DNS-resolved internal address.
+
+    ``EgressBlocked`` embeds the resolved address (e.g. "resolves to non-public
+    address 10.0.0.5"). Surfacing ``str(exc)`` to the client would turn this
+    field into an SSRF oracle for internal network topology (CodeQL
+    py/stack-trace-exposure). The serializer must return a curated message and
+    log the real detail server-side only — mirrors the notifications
+    bounce-webhook fix in #2082. Regression guard for #2083.
+    """
+    from trueppm_api.apps.integrations.http import EgressBlocked
+
+    leak = "host 'internal.example.com' resolves to non-public address 10.0.0.5"
+    with patch(
+        "trueppm_api.apps.integrations.http.assert_url_allowed",
+        side_effect=EgressBlocked(leak),
+    ):
+        resp = admin_client.post(
+            f"/api/v1/projects/{project.pk}/webhooks/",
+            {
+                "url": "https://internal.example.com/x",
+                "secret": "s" * 32,
+                "events": ["task.created"],
+            },
+            format="json",
+        )
+
+    assert resp.status_code == 400
+    body = json.dumps(resp.data)
+    assert "10.0.0.5" not in body
+    assert "resolves to non-public address" not in body
+    assert "not allowed" in body.lower()
     assert not Webhook.objects.filter(project=project).exists()
 
 
