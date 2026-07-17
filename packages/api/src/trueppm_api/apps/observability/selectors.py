@@ -436,13 +436,44 @@ def get_readiness() -> tuple[bool, dict[str, str]]:
     return ready, checks
 
 
+def _telemetry() -> dict[str, Any]:
+    """Read-only OpenTelemetry exporter posture for the System Health page (#2022).
+
+    Surfaces whether OTLP export is live and the effective transport/sampler so an
+    operator can confirm *from the app* why spans/metrics are (or are not) arriving,
+    without shelling into the pod to read env. Pure ``settings`` reads — telemetry
+    stays env/Helm-configured and is never writable here.
+
+    ``OTEL_EXPORTER_OTLP_HEADERS`` is deliberately never included: it carries the
+    export bearer token (``authorization=Bearer …``) and must not be disclosed even
+    to an admin. ``enabled`` mirrors the bootstrap gate — export is live only when an
+    endpoint is set *and* the master ``TRUEPPM_OTEL_ENABLED`` switch is on.
+    """
+    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT.strip()
+    enabled = bool(endpoint) and settings.TRUEPPM_OTEL_ENABLED
+    return {
+        "enabled": enabled,
+        "endpoint": endpoint,
+        "endpoint_configured": bool(endpoint),
+        "protocol": settings.OTEL_EXPORTER_OTLP_PROTOCOL,
+        "service_name": settings.OTEL_SERVICE_NAME,
+        # Raw per-signal toggles — reported as configured, so an operator can see a
+        # signal is switched off even while the overall exporter is live.
+        "traces_enabled": settings.TRUEPPM_OTEL_TRACES_ENABLED,
+        "metrics_enabled": settings.TRUEPPM_OTEL_METRICS_ENABLED,
+        "sampler": settings.OTEL_TRACES_SAMPLER,
+        "sampler_arg": settings.OTEL_TRACES_SAMPLER_ARG,
+    }
+
+
 def get_system_health() -> dict[str, Any]:
     """Aggregate the full System Health overview payload (ADR-0172 §2).
 
     Returns the component cards, Beat heartbeat panel + configured schedule,
-    dead-letter summary, and read-only retention config. All reads are committed
-    state, so the figures reflect work done by the Celery worker/Beat processes
-    even though this is served by the web process.
+    dead-letter summary, read-only retention config, and read-only telemetry
+    (OTel exporter) posture. All reads are committed state, so the figures reflect
+    work done by the Celery worker/Beat processes even though this is served by the
+    web process.
     """
     beat_panel, beat_card = _beat_status()
     dead_letter_summary, dead_letter_card = _dead_letter()
@@ -461,4 +492,5 @@ def get_system_health() -> dict[str, Any]:
         "scheduled_tasks": _scheduled_tasks(),
         "dead_letter": dead_letter_summary,
         "retention": retention_rows,
+        "telemetry": _telemetry(),
     }

@@ -15,6 +15,7 @@ from datetime import date
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -166,6 +167,29 @@ def test_get_allowed_for_operator(operator_client: APIClient) -> None:
 def test_get_requires_auth(db: object) -> None:
     resp = APIClient().get(URL)
     assert resp.status_code in (401, 403)
+
+
+@override_settings(FRONTEND_BASE_URL="https://app.example.com")
+def test_public_url_surfaced_when_configured(workspace_admin_client: APIClient) -> None:
+    # The install's public origin is shown read-only so an admin can confirm that
+    # emailed invite/reset deep-links will resolve (#2015).
+    resp = workspace_admin_client.get(URL)
+    assert resp.data["frontend_base_url"] == "https://app.example.com"
+    assert resp.data["frontend_base_url_configured"] is True
+
+
+@override_settings(FRONTEND_BASE_URL="https://app.example.com/")
+def test_public_url_trailing_slash_stripped(workspace_admin_client: APIClient) -> None:
+    resp = workspace_admin_client.get(URL)
+    assert resp.data["frontend_base_url"] == "https://app.example.com"
+
+
+@override_settings(FRONTEND_BASE_URL="")
+def test_public_url_flagged_unconfigured_when_unset(workspace_admin_client: APIClient) -> None:
+    # Unset → the page shows a warning that emailed links are broken.
+    resp = workspace_admin_client.get(URL)
+    assert resp.data["frontend_base_url"] == ""
+    assert resp.data["frontend_base_url_configured"] is False
 
 
 def test_write_forbidden_for_single_project_admin(admin_client: APIClient, _no_probe: None) -> None:

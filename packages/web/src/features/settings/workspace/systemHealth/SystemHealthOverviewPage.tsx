@@ -366,8 +366,10 @@ function OverviewSkeleton() {
  *
  * Requires workspace-admin access. Shows 5 component health cards, a Celery
  * Beat heartbeat panel (with a reference table of all scheduled tasks), a
- * dead-letter summary, and a retention-policy summary. All data is read-only
- * — editing retention values requires env/settings changes (ADR-0081).
+ * dead-letter summary, a retention-policy summary, and a telemetry (OpenTelemetry
+ * exporter) status card. The telemetry card is read-only — export is configured
+ * via env/Helm only. Retention values, by contrast, are editable here via the
+ * "Manage retention" page (PATCH /health/retention/, ADR-0173).
  */
 export function SystemHealthOverviewPage() {
   const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useSystemHealth();
@@ -639,6 +641,72 @@ export function SystemHealthOverviewPage() {
               >
                 Manage retention →
               </Link>
+            </div>
+          </SettingsCard>
+
+          {/* Telemetry (OpenTelemetry exporter) status (#2022) — read-only; export
+              is configured via env/Helm only. The OTLP headers (export bearer
+              token) are never surfaced by the API, so they can't appear here. */}
+          <SettingsCard>
+            <div className="px-4 py-3 border-b border-neutral-border/55 flex items-center justify-between gap-3">
+              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Telemetry</h2>
+              {health.telemetry.enabled ? (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-semantic-on-track-bg text-semantic-on-track border border-semantic-on-track/40">
+                  Exporting
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-chip text-[11px] font-semibold bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-border">
+                  Off
+                </span>
+              )}
+            </div>
+            <div className="px-4 py-3">
+              {health.telemetry.endpoint_configured ? (
+                <>
+                  <FieldRow label="Endpoint">
+                    <span className="text-[13px] text-neutral-text-primary tppm-mono break-all">
+                      {health.telemetry.endpoint}
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Protocol">
+                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
+                      {health.telemetry.protocol}
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Service name">
+                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
+                      {health.telemetry.service_name}
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Sampler">
+                    <span className="text-[13px] text-neutral-text-primary tppm-mono">
+                      {health.telemetry.sampler}
+                      {health.telemetry.sampler_arg ? ` (${health.telemetry.sampler_arg})` : ''}
+                    </span>
+                  </FieldRow>
+                  <FieldRow label="Signals">
+                    <span className="text-[13px] text-neutral-text-primary">
+                      Traces {health.telemetry.traces_enabled ? 'on' : 'off'} · Metrics{' '}
+                      {health.telemetry.metrics_enabled ? 'on' : 'off'}
+                    </span>
+                  </FieldRow>
+                  {!health.telemetry.enabled && (
+                    <p className="mt-2 text-[12px] text-neutral-text-secondary">
+                      An endpoint is set but export is switched off (
+                      <span className="tppm-mono">TRUEPPM_OTEL_ENABLED=false</span>).
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-[13px] text-neutral-text-secondary">
+                  OpenTelemetry export is not configured. Set{' '}
+                  <span className="tppm-mono">OTEL_EXPORTER_OTLP_ENDPOINT</span> (env / Helm) to
+                  send traces and metrics to a collector.
+                </p>
+              )}
+              <p className="mt-3 text-[12px] text-neutral-text-secondary">
+                Configured via environment / Helm only — not editable here.
+              </p>
             </div>
           </SettingsCard>
         </div>

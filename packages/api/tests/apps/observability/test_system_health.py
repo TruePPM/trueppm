@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -148,3 +149,61 @@ class TestComponentStatuses:
         data = _admin_client().get(URL).data
         assert data["dead_letter"]["parked"] == 0
         assert _components_by_key(data)["dead_letter"]["status"] == "ok"
+
+
+@pytest.mark.django_db
+class TestTelemetryStatus:
+    """The read-only OTel exporter posture block (#2022)."""
+
+    def test_telemetry_block_present_with_expected_keys(self) -> None:
+        telemetry = _admin_client().get(URL).data["telemetry"]
+        assert {
+            "enabled",
+            "endpoint",
+            "endpoint_configured",
+            "protocol",
+            "service_name",
+            "traces_enabled",
+            "metrics_enabled",
+            "sampler",
+            "sampler_arg",
+        } <= set(telemetry)
+
+    @override_settings(OTEL_EXPORTER_OTLP_ENDPOINT="")
+    def test_disabled_when_endpoint_unset(self) -> None:
+        telemetry = _admin_client().get(URL).data["telemetry"]
+        assert telemetry["endpoint_configured"] is False
+        assert telemetry["enabled"] is False
+        assert telemetry["endpoint"] == ""
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector.internal:4317",
+        TRUEPPM_OTEL_ENABLED=True,
+    )
+    def test_enabled_when_endpoint_set_and_switch_on(self) -> None:
+        telemetry = _admin_client().get(URL).data["telemetry"]
+        assert telemetry["endpoint_configured"] is True
+        assert telemetry["enabled"] is True
+        assert telemetry["endpoint"] == "otel-collector.internal:4317"
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector.internal:4317",
+        TRUEPPM_OTEL_ENABLED=False,
+    )
+    def test_endpoint_set_but_master_switch_off_is_not_enabled(self) -> None:
+        telemetry = _admin_client().get(URL).data["telemetry"]
+        assert telemetry["endpoint_configured"] is True
+        assert telemetry["enabled"] is False
+
+    @override_settings(
+        OTEL_EXPORTER_OTLP_ENDPOINT="otel-collector.internal:4317",
+        OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer super-secret-token",
+    )
+    def test_headers_never_disclosed(self) -> None:
+        # The OTLP headers carry the export bearer token and must never appear in
+        # the payload, at any depth.
+        import json
+
+        blob = json.dumps(_admin_client().get(URL).data["telemetry"])
+        assert "super-secret-token" not in blob
+        assert "authorization" not in blob.lower()

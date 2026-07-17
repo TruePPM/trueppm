@@ -60,6 +60,25 @@ function regionFromHost(host: string): string {
   return m ? m[1] : SES_REGIONS[0];
 }
 
+/** Copy-to-clipboard button for a read-only value (mirrors WorkspaceSsoPage). */
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }}
+      className="h-8 px-2.5 text-[12px] font-medium border border-neutral-border rounded-control text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 shrink-0"
+    >
+      {copied ? 'Copied ✓' : 'Copy'}
+    </button>
+  );
+}
+
 interface FormState {
   transportMode: EmailTransportMode;
   host: string;
@@ -237,6 +256,51 @@ export function WorkspaceEmailPage() {
       />
 
       <div className="px-6 pb-8 max-w-[920px]">
+        {/* Public URL status (#2015) — the origin used to build emailed invite,
+            reset, and notification deep-links. Env-only (TRUEPPM_FRONTEND_BASE_URL);
+            shown read-only so an operator can confirm it, and warned about when
+            unset because those links then render as origin-less paths and break. */}
+        {data.frontend_base_url_configured ? (
+          <SettingsCard className="mb-5">
+            <div className="px-4 py-3">
+              <FieldRow
+                label="Public URL"
+                hint="Origin used to build invite, reset, and notification links in outbound email."
+              >
+                <div className="flex items-center gap-2 max-w-[520px]">
+                  <input
+                    type="text"
+                    readOnly
+                    value={data.frontend_base_url}
+                    aria-label="Public URL (read-only)"
+                    className={`${INPUT_CLASS} tppm-mono bg-neutral-surface-sunken`}
+                  />
+                  <CopyButton value={data.frontend_base_url} />
+                </div>
+              </FieldRow>
+              <p className="mt-1 text-[12px] text-neutral-text-secondary">
+                Set at deploy time (<span className="tppm-mono">TRUEPPM_FRONTEND_BASE_URL</span>);
+                not editable here.
+              </p>
+            </div>
+          </SettingsCard>
+        ) : (
+          <div
+            role="alert"
+            className="mb-5 rounded-card border border-semantic-warning/40 bg-semantic-warning-bg px-4 py-3"
+          >
+            <p className="text-[13px] font-medium text-semantic-warning">
+              Public URL not set — emailed links are broken
+            </p>
+            <p className="mt-0.5 text-[13px] text-neutral-text-secondary">
+              Invite, password-reset, and notification emails build links from this install&apos;s
+              public origin. It is unset, so those links render as bare paths with no domain and
+              won&apos;t open. Set <span className="tppm-mono">TRUEPPM_FRONTEND_BASE_URL</span> at
+              deploy time (Helm <span className="tppm-mono">config.TRUEPPM_FRONTEND_BASE_URL</span>).
+            </p>
+          </div>
+        )}
+
         {!canEdit && (
           <SettingsCard className="mb-5 bg-neutral-surface-sunken">
             <div className="px-4 py-3" role="note">
