@@ -36,6 +36,8 @@ import { AssigneesEditor, type AssigneeWorkingRow } from './AssigneesEditor';
 import { PredecessorsEditor, type PredecessorWorkingRow } from './PredecessorsEditor';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { isPhaseTask } from '@/lib/isPhaseTask';
+import { StoryPointField } from '@/features/backlog/StoryPointField';
+import { formatStoryPoints } from '@/lib/storyPoints';
 
 export type TaskFormMode = 'create' | 'edit';
 
@@ -340,6 +342,8 @@ export function TaskFormModal({
   const isEditingPhase = isEdit && task != null && isPhaseTask(task, allTasks ?? []);
   const { sprints } = useSprints(projectId);
   const { data: projectDetail } = useProject(projectId);
+  // Effective estimation scale drives the points picker/labels (ADR-0510, #2027).
+  const estimationScale = projectDetail?.effective_estimation_scale ?? 'fibonacci';
   const itl = useIterationLabel(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
@@ -1010,23 +1014,18 @@ export function TaskFormModal({
                 {pointsReadOnly ? (
                   <div
                     className="w-full h-9 flex items-center justify-center tppm-mono text-sm text-neutral-text-primary bg-neutral-surface-raised border border-neutral-border/50 rounded-control"
-                    aria-label={`Story points: ${form.storyPoints ?? '—'}`}
+                    aria-label={`Story points: ${formatStoryPoints(form.storyPoints, estimationScale) || '—'}`}
                   >
-                    {form.storyPoints ?? '—'}
+                    {formatStoryPoints(form.storyPoints, estimationScale) || '—'}
                   </div>
                 ) : (
-                  <input
+                  <StoryPointField
                     id="task-story-points"
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder="—"
-                    value={form.storyPoints ?? ''}
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      setForm({ ...form, storyPoints: raw === '' ? null : Math.max(0, Math.round(Number(raw))) });
-                    }}
-                    className="w-full h-9 px-2 text-sm tppm-mono text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded-control focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled"
+                    scale={estimationScale}
+                    value={form.storyPoints}
+                    onChange={(next) => setForm({ ...form, storyPoints: next })}
+                    ariaLabel="Story points"
+                    className="w-full"
                   />
                 )}
               </div>

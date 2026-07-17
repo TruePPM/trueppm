@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { ReadOnlyIndicator } from '../components/ReadOnlyIndicator';
+import { InheritableSelectField } from '../components/InheritableSelectField';
+import { ESTIMATION_SCALE_HINT, ESTIMATION_SCALE_OPTIONS } from '../estimationScale';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -9,7 +11,7 @@ import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { Methodology } from '@/types';
-import type { EstimationMode } from '@/api/types';
+import type { EstimationMode, EstimationScale } from '@/api/types';
 
 // Estimate-governance modes (ADR-0041, #2018). Ordered least → most restrictive.
 const ESTIMATION_MODE_OPTIONS: Array<{ id: EstimationMode; label: string; hint: string }> = [
@@ -101,9 +103,12 @@ export function ProjectMethodologyPage() {
 
   const [methodology, setMethodology] = useState<Methodology>('HYBRID');
   const [estimationMode, setEstimationMode] = useState<EstimationMode>('open');
+  // Estimation-scale override (ADR-0510, #2027). null = inherit program/workspace.
+  const [estimationScale, setEstimationScale] = useState<EstimationScale | null>(null);
   const seededProjectIdRef = useRef<string | null>(null);
   const [initial, setInitial] = useState<Methodology>('HYBRID');
   const [initialEstimationMode, setInitialEstimationMode] = useState<EstimationMode>('open');
+  const [initialEstimationScale, setInitialEstimationScale] = useState<EstimationScale | null>(null);
 
   useEffect(() => {
     if (!project || seededProjectIdRef.current === project.id) return;
@@ -112,6 +117,8 @@ export function ProjectMethodologyPage() {
     setInitial(project.methodology);
     setEstimationMode(project.estimation_mode as EstimationMode);
     setInitialEstimationMode(project.estimation_mode as EstimationMode);
+    setEstimationScale(project.estimation_scale);
+    setInitialEstimationScale(project.estimation_scale);
   }, [project]);
 
   const handleSave = useCallback(async () => {
@@ -121,15 +128,26 @@ export function ProjectMethodologyPage() {
     const payload: Parameters<typeof updateProject.mutateAsync>[0] = {};
     if (methodology !== initial) payload.methodology = methodology;
     if (estimationMode !== initialEstimationMode) payload.estimation_mode = estimationMode;
+    if (estimationScale !== initialEstimationScale) payload.estimation_scale = estimationScale;
     await updateProject.mutateAsync(payload);
     setInitial(methodology);
     setInitialEstimationMode(estimationMode);
-  }, [updateProject, methodology, initial, estimationMode, initialEstimationMode]);
+    setInitialEstimationScale(estimationScale);
+  }, [
+    updateProject,
+    methodology,
+    initial,
+    estimationMode,
+    initialEstimationMode,
+    estimationScale,
+    initialEstimationScale,
+  ]);
 
   const handleReset = useCallback(() => {
     setMethodology(initial);
     setEstimationMode(initialEstimationMode);
-  }, [initial, initialEstimationMode]);
+    setEstimationScale(initialEstimationScale);
+  }, [initial, initialEstimationMode, initialEstimationScale]);
 
   // The workspace locks overrides under INHERIT (always) or active Enterprise
   // ENFORCE. OSS never has an active ENFORCE provider, so ENFORCE behaves like
@@ -146,8 +164,12 @@ export function ProjectMethodologyPage() {
   const canEditEstimation = role !== null && role >= ROLE_SCHEDULER;
 
   useDirtyForm({
-    values: { methodology, estimation_mode: estimationMode },
-    initialValues: { methodology: initial, estimation_mode: initialEstimationMode },
+    values: { methodology, estimation_mode: estimationMode, estimation_scale: estimationScale },
+    initialValues: {
+      methodology: initial,
+      estimation_mode: initialEstimationMode,
+      estimation_scale: initialEstimationScale,
+    },
     onSave: handleSave,
     onReset: handleReset,
     // Arm the save bar when EITHER control is editable — estimation stays editable
@@ -341,6 +363,31 @@ export function ProjectMethodologyPage() {
           <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[440px]">
             {ESTIMATION_MODE_OPTIONS.find((o) => o.id === estimationMode)?.hint}{' '}
             Consumed by the estimate-approval flow on tasks.
+          </p>
+        </section>
+
+        {/* Estimation scale (ADR-0510, #2027). Scheduler+-writable (PO/team territory),
+            inheritable Workspace → Program → Project. Display/input-only — it governs the
+            point picker/labels, never the stored story_points integer. */}
+        <section aria-labelledby="estimation-scale-heading">
+          <h2
+            id="estimation-scale-heading"
+            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
+          >
+            Estimation scale
+          </h2>
+          <InheritableSelectField
+            value={estimationScale}
+            onChange={setEstimationScale}
+            inherited={project.inherited_estimation_scale}
+            options={ESTIMATION_SCALE_OPTIONS}
+            inheritFromLabel="the program or workspace default"
+            ariaLabel="Estimation scale"
+            scopeNoun="project"
+            canEdit={canEditEstimation}
+          />
+          <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[440px]">
+            {ESTIMATION_SCALE_HINT}
           </p>
         </section>
       </div>

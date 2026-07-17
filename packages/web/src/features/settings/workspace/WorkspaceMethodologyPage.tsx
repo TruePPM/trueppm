@@ -4,8 +4,9 @@ import { EnterpriseBadge } from '../components/EnterpriseBadge';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
+import { ESTIMATION_SCALE_HINT, ESTIMATION_SCALE_OPTIONS } from '../estimationScale';
 import { IDENTITY_AMBER, IDENTITY_SAGE, IDENTITY_VIOLET } from '@/lib/identityColors';
-import type { MethodologyOverridePolicy, ProgramMethodology } from '@/api/types';
+import type { EstimationScale, MethodologyOverridePolicy, ProgramMethodology } from '@/api/types';
 
 /**
  * Workspace > Methodology defaults page (ADR-0107, issue 955 / issue 1169).
@@ -85,11 +86,15 @@ export function WorkspaceMethodologyPage() {
 
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
   const [overridePolicy, setOverridePolicy] = useState<MethodologyOverridePolicy>('suggest');
+  // Workspace-wide default estimation scale (ADR-0510, #2027) — the non-null root
+  // of the cascade. No override policy: freely overridable at every scope.
+  const [estimationScale, setEstimationScale] = useState<EstimationScale>('fibonacci');
 
   const [initial, setInitial] = useState<{
     methodology: ProgramMethodology;
     overridePolicy: MethodologyOverridePolicy;
-  }>({ methodology: 'HYBRID', overridePolicy: 'suggest' });
+    estimationScale: EstimationScale;
+  }>({ methodology: 'HYBRID', overridePolicy: 'suggest', estimationScale: 'fibonacci' });
 
   // Seed local state once the query resolves (or re-resolves after a save).
   useEffect(() => {
@@ -97,25 +102,29 @@ export function WorkspaceMethodologyPage() {
     const snap = {
       methodology: ws.methodology,
       overridePolicy: ws.methodologyOverridePolicy,
+      estimationScale: ws.estimationScale,
     };
     setMethodology(snap.methodology);
     setOverridePolicy(snap.overridePolicy);
+    setEstimationScale(snap.estimationScale);
     setInitial(snap);
   }, [ws]);
 
-  const values = { methodology, overridePolicy };
+  const values = { methodology, overridePolicy, estimationScale };
 
   const onSave = useCallback(async () => {
     await updateSettings.mutateAsync({
       methodology,
       methodologyOverridePolicy: overridePolicy,
+      estimationScale,
     });
-    setInitial({ methodology, overridePolicy });
-  }, [methodology, overridePolicy, updateSettings]);
+    setInitial({ methodology, overridePolicy, estimationScale });
+  }, [methodology, overridePolicy, estimationScale, updateSettings]);
 
   const onReset = useCallback(() => {
     setMethodology(initial.methodology);
     setOverridePolicy(initial.overridePolicy);
+    setEstimationScale(initial.estimationScale);
   }, [initial]);
 
   useDirtyForm({ values, initialValues: initial, onSave, onReset, apiReady: true });
@@ -218,6 +227,47 @@ export function WorkspaceMethodologyPage() {
               );
             })}
           </div>
+        </section>
+
+        {/* Estimation scale (ADR-0510, #2027). The workspace is the non-null root; no
+            override policy — programs and projects override it freely. */}
+        <section aria-labelledby="estimation-scale-heading">
+          <h2
+            id="estimation-scale-heading"
+            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
+          >
+            Default estimation scale
+          </h2>
+          <div className="relative inline-block w-[280px]">
+            <label htmlFor="workspace-estimation-scale" className="sr-only">
+              Default estimation scale
+            </label>
+            <select
+              id="workspace-estimation-scale"
+              value={estimationScale}
+              onChange={(e) => setEstimationScale(e.target.value as EstimationScale)}
+              className="w-full h-8 pl-2.5 pr-8 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            >
+              {ESTIMATION_SCALE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <p className="mt-1.5 text-[12px] text-neutral-text-secondary max-w-[480px]">
+            {ESTIMATION_SCALE_HINT}
+          </p>
         </section>
 
         {/* Override policy */}

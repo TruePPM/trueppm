@@ -25,6 +25,8 @@ import { BACKLOG_ITEM_TYPES, itemTypeShowsPoints, type BacklogItemType } from '.
 import type { CreateBacklogItemInput } from '../hooks/useBacklogMutations';
 import { TagInput } from './TagInput';
 import { FOCUS_RING, INPUT_BASE } from './styles';
+import { StoryPointField } from '@/features/backlog/StoryPointField';
+import type { EstimationScale } from '@/api/types';
 
 const TYPE_LABELS: Record<BacklogItemType, string> = {
   story: 'Story',
@@ -55,11 +57,18 @@ const EMPTY_DRAFT: CreateDraft = {
 
 interface DetailCreateProps {
   tagSuggestions: string[];
+  /** Program's resolved estimation scale (ADR-0510, #2027). */
+  estimationScale: EstimationScale;
   onCancel: () => void;
   onCreate: (input: CreateBacklogItemInput) => Promise<void>;
 }
 
-export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
+export function DetailCreate({
+  tagSuggestions,
+  estimationScale,
+  onCancel,
+  onCreate,
+}: DetailCreateProps) {
   const { draft, setField, setDraft, dirty } = useDirtyDraft<CreateDraft>(EMPTY_DRAFT);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -182,16 +191,14 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
             >
               Story points
             </label>
-            <input
+            <StoryPointField
               id="backlog-create-points"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1}
-              value={draft.storyPoints}
-              onChange={(e) => setField('storyPoints', e.target.value)}
-              placeholder="Optional estimate"
-              className={`mt-1 h-8 w-32 ${INPUT_BASE}`}
+              scale={estimationScale}
+              value={draft.storyPoints.trim() === '' ? null : Number(draft.storyPoints)}
+              onChange={(next) => setField('storyPoints', next === null ? '' : String(next))}
+              ariaLabel="Story points"
+              size="md"
+              className="mt-1 w-32"
             />
           </div>
         )}

@@ -25,6 +25,7 @@ const WS: WorkspaceSettings = {
   mcHistoryOverridePolicy: 'suggest',
   taskDurationChangePercentPolicy: 'prorate',
   taskDurationChangePercentOverridePolicy: 'suggest',
+  estimationScale: 'fibonacci',
   methodology: 'HYBRID',
   methodologyOverridePolicy: 'suggest',
   attachmentsEnabled: true,
