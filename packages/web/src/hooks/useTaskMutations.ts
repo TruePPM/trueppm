@@ -957,7 +957,10 @@ export interface DuplicateTaskPayload {
 export function buildCopyName(sourceName: string, siblingNames: string[]): string {
   // Strip an existing "(copy)" or "(copy N)" suffix so re-duplicating a copy
   // doesn't produce "Foo (copy) (copy)".
-  const stripped = sourceName.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/i, '');
+  // Trim trailing whitespace first so the suffix match anchors on `)$` instead of
+  // `\s*$` — the trailing-anchored quantifier SonarQube S5852 flags. The inner
+  // ` +\d+` (literal-space run) likewise replaces the ambiguous `\s+\d+`.
+  const stripped = sourceName.trimEnd().replace(/\s*\(copy(?: +\d+)?\)$/i, '');
   const taken = new Set(siblingNames);
   if (!taken.has(`${stripped} (copy)`)) return `${stripped} (copy)`;
   for (let n = 2; n < 1000; n++) {

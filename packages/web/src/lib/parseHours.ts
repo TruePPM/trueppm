@@ -42,7 +42,10 @@ export function parseHoursToMinutes(raw: string): number | null {
     minutes = Number(h) * 60 + mins;
   } else {
     // Decimal-hours form — allow a leading dot (`.5`) and at most one dot.
-    if (!/^\d*\.?\d+$/.test(input) && !/^\d+\.$/.test(input)) return null;
+    // Unambiguous decimal-hours match: an integer with an optional fraction, or a
+    // bare leading-dot fraction (`.5`). Splitting the alternatives removes the
+    // `\d*\.?\d+` digit-overlap that SonarQube S5852 flags as super-linear.
+    if (!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(input) && !/^\d+\.$/.test(input)) return null;
     const hours = Number(input);
     if (Number.isNaN(hours)) return null;
     minutes = Math.round(hours * 60);

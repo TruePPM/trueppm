@@ -714,11 +714,13 @@ export async function exportSchedulePdf(
  * `Project` (so the default reads `Project_Schedule_<date>.pdf`).
  */
 export function scheduledPdfFileName(projectName: string, isoDate: string): string {
+  // Extract alphanumeric runs and join with '_' — no leading/trailing/duplicate
+  // separators by construction, so no trailing-anchored trim regex (`_+$`) that
+  // SonarQube S5852 flags for potential super-linear backtracking.
   const slug =
     projectName
-      .trim()
-      .replace(/[^A-Za-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
+      .match(/[A-Za-z0-9]+/g)
+      ?.join('_')
       .slice(0, 48) || 'Project';
   const day = isoDate.slice(0, 10);
   return `${slug}_Schedule_${day}.pdf`;

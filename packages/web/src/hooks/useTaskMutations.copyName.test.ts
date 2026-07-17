@@ -26,12 +26,21 @@ describe('buildCopyName (#477 duplicate suffix)', () => {
   });
 
   it('strips a numbered "(copy N)" suffix from the source name', () => {
-    expect(
-      buildCopyName('Frame raised (copy 4)', ['Frame raised', 'Frame raised (copy 4)']),
-    ).toBe('Frame raised (copy)');
+    expect(buildCopyName('Frame raised (copy 4)', ['Frame raised', 'Frame raised (copy 4)'])).toBe(
+      'Frame raised (copy)',
+    );
   });
 
   it('trims trailing whitespace introduced by stripping', () => {
     expect(buildCopyName('Frame raised   (copy)', [])).toBe('Frame raised (copy)');
+  });
+
+  it('trims a plain trailing-whitespace source name (no suffix) before suffixing', () => {
+    // The `trimEnd()` in the S5852 rewrite normalizes this to a single space.
+    expect(buildCopyName('Frame raised   ', [])).toBe('Frame raised (copy)');
+  });
+
+  it('strips a mixed-case "(Copy)" suffix (case-insensitive match)', () => {
+    expect(buildCopyName('Frame raised (Copy)', [])).toBe('Frame raised (copy)');
   });
 });

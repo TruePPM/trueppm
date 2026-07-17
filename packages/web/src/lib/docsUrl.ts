@@ -19,9 +19,11 @@
  */
 export function docsUrl(path: string): string {
   const override: unknown = import.meta.env.VITE_DOCS_BASE_URL;
-  const base = (
-    typeof override === 'string' && override.length > 0 ? override : 'https://docs.trueppm.com'
-  ).replace(/\/+$/, '');
+  let base =
+    typeof override === 'string' && override.length > 0 ? override : 'https://docs.trueppm.com';
+  // Trim trailing slashes without a `/+$` regex — SonarQube S5852 flags the
+  // trailing-anchored quantifier; endsWith/slice is provably linear.
+  while (base.endsWith('/')) base = base.slice(0, -1);
   const slug = path.replace(/^\/+/, '');
   return `${base}/${slug}`;
 }

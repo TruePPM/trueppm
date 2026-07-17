@@ -22,11 +22,23 @@ describe('parseHoursToMinutes', () => {
     expect(parseHoursToMinutes('0')).toBe(0);
   });
 
+  it('accepts a bare trailing dot as the integer hours (e.g. "2.")', () => {
+    expect(parseHoursToMinutes('2.')).toBe(120);
+  });
+
   it('rejects unparseable input as null', () => {
     expect(parseHoursToMinutes('abc')).toBeNull();
     expect(parseHoursToMinutes('1:2:3')).toBeNull();
     expect(parseHoursToMinutes('1:75')).toBeNull(); // minutes > 59
     expect(parseHoursToMinutes('-2')).toBeNull();
+  });
+
+  it('rejects malformed decimal forms the unambiguous regex must exclude', () => {
+    // These probe the `^(?:\d+(?:\.\d+)?|\.\d+)$` rewrite (SonarQube S5852).
+    expect(parseHoursToMinutes('.')).toBeNull(); // dot with no digits
+    expect(parseHoursToMinutes('1.2.3')).toBeNull(); // two dots
+    expect(parseHoursToMinutes('..5')).toBeNull(); // leading double-dot
+    expect(parseHoursToMinutes('1.')).toBe(60); // trailing dot is the integer 1
   });
 
   it('rejects out-of-range (> 24h) as null', () => {

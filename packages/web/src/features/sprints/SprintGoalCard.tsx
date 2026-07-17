@@ -47,7 +47,11 @@ export function evaluateSprintGoal(raw: string): GoalQuality {
   const text = raw.trim();
   if (text.length < 8) return { outcome: false, single: false, measurable: false };
   const lower = text.toLowerCase();
-  const hasBullets = /(^|\n)\s*[-*•]/.test(raw) || /(^|\n)\s*\d+[.)]/.test(raw);
+  // Detect a bullet or numbered-list marker at the start of any line. Using the
+  // multiline `^` with `[ \t]*` (horizontal whitespace only) keeps the whitespace
+  // class from overlapping the line-start anchor — the `(^|\n)\s*` ambiguity that
+  // SonarQube S5852 flags (`\n` is itself a `\s`).
+  const hasBullets = /^[ \t]*[-*•]/m.test(raw) || /^[ \t]*\d+[.)]/m.test(raw);
   const andCount = (lower.match(/\band\b/g) ?? []).length;
   const sentenceBreaks = (text.match(/[.;]/g) ?? []).length;
   const outcome = !hasBullets && andCount <= 1 && text.length >= 12;

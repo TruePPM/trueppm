@@ -132,11 +132,15 @@ export async function exportBoardPdf(
 
 /** Build a filesystem-safe export file name: `board-<slug>-<yyyy-mm-dd>.pdf`. */
 export function boardPdfFileName(projectName: string, isoDate: string): string {
+  // Extract alphanumeric runs and join with '-'. Building the slug this way has
+  // no leading/trailing/duplicate separators by construction, so it needs no
+  // trailing-anchored trim regex (`-+$`) — the shape SonarQube S5852 flags for
+  // potential super-linear backtracking.
   const slug =
     projectName
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+      .match(/[a-z0-9]+/g)
+      ?.join('-')
       .slice(0, 40) || 'board';
   const day = isoDate.slice(0, 10);
   return `board-${slug}-${day}.pdf`;

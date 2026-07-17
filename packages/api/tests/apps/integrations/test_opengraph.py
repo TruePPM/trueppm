@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from trueppm_api.apps.integrations.opengraph import (
+    PreviewData,
     classify_preview_type,
     parse_preview,
 )
@@ -139,7 +140,9 @@ def test_secure_url_variant_preferred() -> None:
 
 
 def test_empty_and_garbage_bodies_yield_empty_preview() -> None:
-    assert parse_preview(b"", base_url=BASE) == parse_preview(b"", base_url=BASE)
+    # An empty body yields a fully-empty preview (every field None), not merely
+    # something equal to itself.
+    assert parse_preview(b"", base_url=BASE) == PreviewData()
     garbage = parse_preview(b"\x00\x01\x02not html at all", base_url=BASE)
     assert garbage.title is None
     assert garbage.description is None
