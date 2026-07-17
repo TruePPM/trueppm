@@ -88,6 +88,9 @@ def _pr_key(provider: str, url: str) -> tuple[Any, ...] | None:
     the parser already restricts to ``merge_requests``/``issues`` and we keep only
     merge requests.
     """
+    # Both providers return a ``(repo_path, ref)`` pair so the tuple shape is
+    # identical regardless of provider (GitHub owner/repo is folded into one
+    # path segment, mirroring GitLab's already-combined project path).
     if provider == PROVIDER_GITHUB:
         parsed = _parse_github_url(url)
         if parsed is None:
@@ -95,7 +98,7 @@ def _pr_key(provider: str, url: str) -> tuple[Any, ...] | None:
         owner, repo, kind, ref = parsed
         if kind != "pull":
             return None
-        return (owner.lower(), repo.lower(), ref)
+        return (f"{owner.lower()}/{repo.lower()}", ref)
     parsed_gl = _parse_gitlab_url(url)
     if parsed_gl is None:
         return None

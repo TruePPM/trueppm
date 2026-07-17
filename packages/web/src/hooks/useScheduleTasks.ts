@@ -374,7 +374,7 @@ export function mapTask(t: ApiTask): Task {
       text: c.text,
       given: c.given,
       when: c.when,
-      then: c.then,
+      thenClause: c.then,
       met: c.met,
       position: c.position,
       metByName: c.met_by_name ?? null,

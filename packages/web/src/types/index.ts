@@ -45,7 +45,10 @@ export interface AcceptanceCriterion {
   text: string;
   given?: string;
   when?: string;
-  then?: string;
+  // Gherkin "then" clause. NOT named `then` on purpose: an object with a `then`
+  // property is treated as a thenable by the Promise-resolution procedure, and
+  // these objects are returned from async mappers (createCriterion/updateCriterion).
+  thenClause?: string;
   met: boolean;
   position: number;
   metByName?: string | null;

@@ -94,7 +94,7 @@ export function useProjects(): UseProjectsResult {
       // so the sidebar/palette no longer truncate at the DRF-default 50 without the
       // client sending any param (which would break the `/projects/` route mocks).
       const res = await apiClient.get<PaginatedResponse<ApiProject>>('/projects/');
-      return { items: res.data.results.map(mapProject), count: res.data.count };
+      return { items: res.data.results.map((p, i) => mapProject(p, i)), count: res.data.count };
     },
   });
 

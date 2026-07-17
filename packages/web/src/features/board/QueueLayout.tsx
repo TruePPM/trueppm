@@ -181,7 +181,7 @@ const RESOURCE_COLOR_PALETTE = ['#3E8C6D', '#C17A10', '#0EA5E9', '#7C3AED', '#DC
 
 function colorForInitials(initials: string): string {
   let hash = 0;
-  for (let i = 0; i < initials.length; i++) hash = (hash * 31 + initials.charCodeAt(i)) | 0;
+  for (let i = 0; i < initials.length; i++) hash = Math.trunc(hash * 31 + initials.charCodeAt(i));
   return RESOURCE_COLOR_PALETTE[Math.abs(hash) % RESOURCE_COLOR_PALETTE.length];
 }
 
