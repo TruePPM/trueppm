@@ -10,7 +10,7 @@
  *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
  *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
- *   task_created / task_deleted → invalidate tasks
+ *   task_created / task_deleted / task_restored → invalidate tasks
  *   task_updated → invalidate tasks, unless self-echo (actor_id === current user) or a
  *                  duplicate/replayed version (ADR-0152, #327)
  *   tasks_reordered / tasks_restructured / tasks_bulk_mutated → invalidate tasks
@@ -372,10 +372,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         });
       }
     });
-    on(['task_created', 'task_deleted'], (payload) => {
+    on(['task_created', 'task_deleted', 'task_restored'], (payload) => {
       scheduleInvalidate('tasks', 'board-activity', 'standup');
       // The drawer Activity tab merges the per-task history feed (#1867) —
-      // create/delete both append a history record for the affected task.
+      // create/delete/restore all append a history record for the affected task.
       const historyTaskId = typeof payload.id === 'string' ? payload.id : null;
       void queryClient.invalidateQueries({
         queryKey:

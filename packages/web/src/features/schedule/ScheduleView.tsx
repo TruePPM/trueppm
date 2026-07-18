@@ -98,6 +98,7 @@ import {
   useOutdentTask,
   useUpdateTask,
   useDeleteTask,
+  useRestoreTask,
   useCreateTask,
   useAddDependency,
   parseCyclicDependencyError,
@@ -963,6 +964,7 @@ export function ScheduleView() {
   const outdentTask = useOutdentTask(projectId ?? null);
   const updateTaskMut = useUpdateTask();
   const deleteTaskMut = useDeleteTask(projectId ?? null);
+  const restoreTaskMut = useRestoreTask(projectId ?? null);
   const createTaskMut = useCreateTask(projectId ?? null);
   // Drag-to-link (#1666): the canvas `create-link` gesture lands here as an
   // FS/0-lag dependency create. Server enforces cycle detection (400
@@ -1132,10 +1134,9 @@ export function ScheduleView() {
 
   // The actual build-mode delete + Undo toast, factored out so both the fast
   // path (leaf rows, no confirm) and the confirmed subtree path share it.
-  // `descendantCount` drives the honest copy: Undo recreates only the row's own
-  // core fields (name/duration/parent/sprint/milestone), so when a subtree was
-  // deleted we say so instead of the old "Task restored" that implied the whole
-  // subtree came back (#2029 — the Undo actively misled).
+  // `descendantCount` only sizes the "Deleted X and its N subtasks" message; the
+  // Undo itself is a faithful server restore (#2078), so the recovery copy is a
+  // plain "Restored" whether or not a subtree was involved.
   const performBuildModeDelete = useCallback(
     (taskId: string, descendantCount: number) => {
       if (!projectId) {
@@ -1156,42 +1157,27 @@ export function ScheduleView() {
             action: {
               label: 'Undo',
               onClick: () => {
-                createTaskMut.mutate(
-                  {
-                    name: snapshot.name,
-                    duration: snapshot.isMilestone ? 0 : snapshot.duration,
-                    parent_id: snapshot.parentId ?? null,
-                    sprint: snapshot.sprintId ?? null,
-                    is_milestone: snapshot.isMilestone,
+                // Faithful restore (#2078, ADR-0494): the server un-tombstones the whole
+                // graph — the task under its original id, its is_subtask subtree, its
+                // dependency edges, and its assignments — so Undo is truthful and the copy
+                // is a plain "Restored" regardless of subtree size (no more create-a-new-row
+                // approximation or the "subtasks were not recovered" caveat).
+                restoreTaskMut.mutate(taskId, {
+                  onSuccess: () => {
+                    focus.focusRow(taskId);
+                    setScheduleActionToast({ message: 'Restored', durationMs: 2000 });
                   },
-                  {
-                    onSuccess: (recreated) => {
-                      focus.focusRow(recreated.id);
-                      setScheduleActionToast({
-                        // Honest recovery scope (#2029): a subtree delete only
-                        // restores the parent row — deps/assignments/children are
-                        // gone until the server exposes a real restore endpoint
-                        // (TODO(#2078): swap this create-a-new-row Undo for the
-                        // faithful restore and drop the caveat copy).
-                        message:
-                          descendantCount > 0
-                            ? 'Restored the row only — its subtasks were not recovered'
-                            : 'Task restored',
-                        durationMs: descendantCount > 0 ? 5000 : 2000,
-                      });
-                    },
-                    onError: () => {
-                      setScheduleActionToast({ message: 'Couldn’t restore the task.' });
-                    },
+                  onError: () => {
+                    setScheduleActionToast({ message: 'Couldn’t restore the task.' });
                   },
-                );
+                });
               },
             },
           });
         },
       });
     },
-    [projectId, allTasks, deleteTaskMut, createTaskMut, focus, setScheduleActionToast],
+    [projectId, allTasks, deleteTaskMut, restoreTaskMut, focus, setScheduleActionToast],
   );
 
   const buildModeApi = useMemo<BuildModeApi>(

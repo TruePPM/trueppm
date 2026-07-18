@@ -34958,6 +34958,67 @@
                 }
             }
         },
+        "/api/v1/tasks/{id}/restore/": {
+            "post": {
+                "operationId": "v1_tasks_restore_create",
+                "description": "Un-tombstone a soft-deleted task and its cascade, atomically (#2078, ADR-0494).\n\nThe faithful inverse of ``perform_destroy``: restores the task, its ``is_subtask``\nsubtree, and every dependency edge that both-endpoints-live allows — the real\nrecovery the create-a-new-row Undo only approximated. Resource assignments were\nnever tombstoned, so they return with the row.\n\nSame gate as delete (``IsProjectMemberWriteOrOwn`` — Admin+ or the assignee). A\nsecond restore of an already-live task returns **404**: it is no longer in the\ncaller's trash, so the lookup fails closed rather than re-applying. The whole\nrestore runs in one ``transaction.atomic()`` block — a mid-way failure rolls back\nrather than leaving a half-restored subtree. ``server_version`` is bumped on every\nrestored row so offline clients re-materialize them (ADR-0202).",
+                "summary": "Restore a soft-deleted task, its subtree, and its dependency edges",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/scope/": {
             "get": {
                 "operationId": "v1_tasks_scope_retrieve",
