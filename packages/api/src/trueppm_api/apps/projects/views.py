@@ -1025,6 +1025,13 @@ class ProjectViewSet(
                     # serializer N+1s one query per story/epic. Filter tombstoned
                     # labels so a soft-deleted label never renders as a pill.
                     db_models.Prefetch("labels", queryset=Label.objects.filter(is_deleted=False)),
+                    # Per-task custom-field values (#2143, ADR-0528): this LIST path
+                    # bypasses annotate_tasks_queryset too, so mirror its prefetch or
+                    # the flat custom_fields map N+1s one query per story/epic.
+                    db_models.Prefetch(
+                        "custom_field_values",
+                        queryset=TaskCustomFieldValue.objects.select_related("field", "value_user"),
+                    ),
                 )
                 # Freshness signal (ADR-0143, #740) — this LIST path bypasses
                 # annotate_tasks_queryset, so annotate latest_note_at here too or
