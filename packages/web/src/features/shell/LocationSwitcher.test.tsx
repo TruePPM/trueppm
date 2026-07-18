@@ -16,13 +16,24 @@ vi.mock('./LocationSegment', () => ({
     noun,
     currentName,
     currentSubtitle,
+    placeholder,
+    placeholderAriaLabel,
   }: {
     noun: string;
     currentName?: string;
     currentSubtitle?: string;
+    placeholder?: string;
+    placeholderAriaLabel?: string;
   }) => (
-    <button type="button" aria-label={`Current ${noun}: ${currentName}. Switch ${noun}.`}>
-      {currentName}
+    <button
+      type="button"
+      aria-label={
+        currentName
+          ? `Current ${noun}: ${currentName}. Switch ${noun}.`
+          : (placeholderAriaLabel ?? `Switch ${noun}`)
+      }
+    >
+      {currentName ?? placeholder}
       {currentSubtitle && <span data-testid={`${noun}-subtitle`}>{currentSubtitle}</span>}
     </button>
   ),
@@ -107,12 +118,53 @@ describe('LocationSwitcher (#1643)', () => {
     expect(screen.getByText('Overview')).toHaveAttribute('aria-current', 'page');
   });
 
-  it('collapses to a leaf-only label off a project/program (global route)', () => {
+  it('collapses to a leaf-only label off a project/program with zero projects (#2102)', () => {
     mockModel.mockReturnValue(model({ program: null, project: null, leaf: 'My Work' }));
     renderWithRouter(<LocationSwitcher />);
     expect(
       screen.queryByRole('button', { name: /Current (program|project)/ }),
     ).not.toBeInTheDocument();
+    expect(screen.getByText('My Work')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('renders the "Jump to project…" placeholder picker on a global route (#2102, ADR-0508 D3)', () => {
+    mockModel.mockReturnValue(
+      model({
+        program: null,
+        project: {
+          options: [{ id: 'p1', name: 'Launch Site', to: '/projects/p1/overview' }],
+          currentId: undefined,
+          currentName: undefined,
+          currentMethodologyLabel: undefined,
+        },
+        leaf: 'My Work',
+      }),
+    );
+    renderWithRouter(<LocationSwitcher />);
+    // Two-part anatomy: placeholder picker › leaf — no program segment introduced.
+    const trigger = screen.getByRole('button', { name: 'Jump to a project' });
+    expect(trigger).toHaveTextContent('Jump to project…');
+    expect(screen.queryByRole('button', { name: /program/i })).not.toBeInTheDocument();
+    expect(screen.getByText('My Work')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('mobile stays leaf-only wayfinding off-project (no placeholder picker)', () => {
+    mockBreakpoint.mockReturnValue('sm');
+    mockModel.mockReturnValue(
+      model({
+        program: null,
+        project: {
+          options: [{ id: 'p1', name: 'Launch Site', to: '/projects/p1/overview' }],
+          currentId: undefined,
+          currentName: undefined,
+          currentMethodologyLabel: undefined,
+        },
+        leaf: 'My Work',
+      }),
+    );
+    renderWithRouter(<LocationSwitcher />);
+    // Mobile is non-interactive wayfinding; with no current name only the leaf shows.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.getByText('My Work')).toHaveAttribute('aria-current', 'page');
   });
 

@@ -40,13 +40,10 @@ vi.mock('@/hooks/usePrograms', () => ({
     ],
   }),
 }));
+// Mutable so the off-project placeholder tests (#2102) can empty the membership.
+let projectsList: { id: string; name: string }[] = [];
 vi.mock('@/hooks/useProjects', () => ({
-  useProjects: () => ({
-    data: [
-      { id: 'p1', name: 'Launch Site' },
-      { id: 'p2', name: 'Rover' },
-    ],
-  }),
+  useProjects: () => ({ data: projectsList }),
 }));
 // useGroupedProjectViews supplies labelFor for the project-route leaf.
 vi.mock('@/features/shell/useGroupedProjectViews', () => ({
@@ -62,6 +59,10 @@ describe('useLocationModel (#1643)', () => {
     projectId = 'p1';
     programId = undefined;
     pathname = '/projects/p1/board';
+    projectsList = [
+      { id: 'p1', name: 'Launch Site' },
+      { id: 'p2', name: 'Rover' },
+    ];
   });
 
   it('project route with a program: program + project segments, view leaf', () => {
@@ -93,10 +94,38 @@ describe('useLocationModel (#1643)', () => {
     );
   });
 
-  it('global route: leaf-only, both segments omitted', () => {
+  it('global route: placeholder project segment (no current) + leaf (#2102, ADR-0508 D3)', () => {
     projectId = undefined;
     programId = undefined;
     pathname = '/me/work';
+    const { result } = renderHook(() => useLocationModel());
+    expect(result.current.program).toBeNull();
+    // Unanchored segment: full membership list, no current, options → Overview.
+    expect(result.current.project?.currentId).toBeUndefined();
+    expect(result.current.project?.currentName).toBeUndefined();
+    expect(result.current.project?.currentMethodologyLabel).toBeUndefined();
+    expect(result.current.project?.options.map((o) => o.to)).toEqual([
+      '/projects/p1/overview',
+      '/projects/p2/overview',
+    ]);
+    expect(result.current.leaf).toBe('My Work');
+  });
+
+  it('global route with a single project still yields the placeholder segment (#2102)', () => {
+    projectId = undefined;
+    programId = undefined;
+    pathname = '/me/work';
+    projectsList = [{ id: 'p1', name: 'Launch Site' }];
+    const { result } = renderHook(() => useLocationModel());
+    expect(result.current.project?.currentId).toBeUndefined();
+    expect(result.current.project?.options).toHaveLength(1);
+  });
+
+  it('global route with zero projects: leaf-only, both segments omitted (#2102)', () => {
+    projectId = undefined;
+    programId = undefined;
+    pathname = '/me/work';
+    projectsList = [];
     const { result } = renderHook(() => useLocationModel());
     expect(result.current.program).toBeNull();
     expect(result.current.project).toBeNull();

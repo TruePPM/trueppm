@@ -25,8 +25,12 @@ two stacked rows). Left to right it carries:
   view tabs that lets you jump between the projects you're a member of without
   leaving the project view. Selecting a project keeps you on the same view you
   were looking at (Schedule stays on Schedule), and it's fully keyboard- and
-  screen-reader accessible. It appears only when you belong to more than one
-  project.
+  screen-reader accessible. On a project, it shows the current project's name
+  (or, when you belong to just one, plain non-clickable wayfinding). Off a
+  project — on My Work, Notifications, or a listing page — the same control
+  becomes a **"Jump to project…"** picker so any project you're a member of is
+  one hop away from anywhere; it's hidden only when you belong to no projects at
+  all.
 - **View tabs** — the grouped, methodology-adaptive navigation (below). The strip
   scrolls horizontally on narrow screens rather than dropping or clipping labels.
 - **The health cluster** — one bordered context read-out (below).

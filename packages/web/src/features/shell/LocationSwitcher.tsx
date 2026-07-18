@@ -20,10 +20,13 @@ function Chevron() {
  * here" label, never a dropdown — the left rail owns view switching (post-#1642),
  * so the leaf is the one deliberate dedup.
  *
- * Route-adaptive (see `useLocationModel`): off a project the switcher collapses to
- * the leaf only (e.g. "My Work"); on a program route the project segment drops; a
- * project with no program drops the program segment. It self-suppresses on
- * `/settings/*` (rule 123) — the SettingsShell owns the scope switcher there.
+ * Route-adaptive (see `useLocationModel`): off a project (My Work, Notifications,
+ * the listing pages) the project segment becomes an unanchored "Jump to project…"
+ * placeholder picker (#2102, ADR-0508 D3) so any project is one hop away —
+ * `[Jump to project…] › Leaf`, collapsing to the leaf alone with zero projects; on
+ * a program route the project segment drops; a project with no program drops the
+ * program segment. It self-suppresses on `/settings/*` (rule 123) — the
+ * SettingsShell owns the scope switcher there.
  *
  * Single render across breakpoints (rule 211): the mobile branch is non-interactive
  * wayfinding (`Project › Leaf`, switching via the rail drawer), the desktop branch
@@ -85,6 +88,8 @@ export function LocationSwitcher() {
             currentId={model.project.currentId}
             currentName={model.project.currentName}
             currentSubtitle={model.project.currentMethodologyLabel}
+            placeholder="Jump to project…"
+            placeholderAriaLabel="Jump to a project"
           />
           <Chevron />
         </>
