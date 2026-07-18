@@ -1611,6 +1611,27 @@ def _validate_project(project: Project) -> None:
                     f"Task {t.id!r} {actual_name} must be a date, "
                     f"not {type(actual_value).__name__}."
                 )
+        # A recorded pair of actuals must be internally ordered. ADR-0136 keeps a
+        # completed task's actuals VERBATIM (early_start = actual_start,
+        # early_finish = actual_finish) so out-of-sequence reality — a task sitting
+        # before its predecessor — is surfaced rather than normalized away. But a
+        # single task claiming it finished BEFORE it started is not out-of-sequence
+        # truth; it is physically impossible input, in the same class as a negative
+        # duration. Left unchecked it produces an inverted early window
+        # (early_start > early_finish) that every downstream consumer — the Gantt
+        # renderer, float math, Monte Carlo, the API serializer — reads as garbage;
+        # the contract fuzz suite caught it as an _assert_schedule_invariants
+        # violation (#2119). Reject it here so the inversion never leaves the
+        # boundary, mirroring the three-point-estimate ordering guard below.
+        if (
+            t.actual_start is not None
+            and t.actual_finish is not None
+            and t.actual_start > t.actual_finish
+        ):
+            raise InvalidScheduleInput(
+                f"Task {t.id!r} actual_start must not be after actual_finish "
+                f"(got {t.actual_start.isoformat()} > {t.actual_finish.isoformat()})."
+            )
         # calendar_id (ADR-0120 D3) is looked up as a dict key against the project's
         # calendar registry; a non-string id can never match an entry and would
         # silently fall back to the default calendar, so reject it explicitly to

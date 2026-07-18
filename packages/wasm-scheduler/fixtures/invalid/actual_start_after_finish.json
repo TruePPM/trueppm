@@ -1,0 +1,15 @@
+{
+  "id": "inv-actual-start-after-finish",
+  "name": "Task recorded with actual_start after actual_finish (finished before it started)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0, "actual_start": "2026-04-10", "actual_finish": "2026-04-05"}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
