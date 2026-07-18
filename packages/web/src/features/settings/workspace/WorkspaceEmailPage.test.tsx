@@ -68,10 +68,10 @@ describe('WorkspaceEmailPage (writable)', () => {
     expect(screen.getByLabelText('Loading email settings')).toBeInTheDocument();
   });
 
-  it('renders the transport picker and From identity for an operator', () => {
+  it('renders the provider picker and From identity for an operator', () => {
     render(<WorkspaceEmailPage />);
     expect(screen.getByRole('heading', { name: 'Email & SMTP' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: /Custom SMTP/ })).toBeInTheDocument();
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('cloud');
     expect(screen.getByLabelText<HTMLInputElement>('From address').value).toBe(
       'notify@truescope.io',
     );
@@ -80,11 +80,42 @@ describe('WorkspaceEmailPage (writable)', () => {
     expect(screen.queryByLabelText('SMTP host')).not.toBeInTheDocument();
   });
 
-  it('reveals SMTP fields when the Custom SMTP transport is selected', () => {
+  it('reveals SMTP fields when the Custom provider is selected', () => {
     render(<WorkspaceEmailPage />);
-    fireEvent.click(screen.getByRole('radio', { name: /Custom SMTP/ }));
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'custom' } });
     expect(screen.getByLabelText('SMTP host')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();
+  });
+
+  it('derives the Gmail provider from a saved smtp.gmail.com host and shows the App-Password help', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'smtp.gmail.com', port: 587, security: 'tls' });
+    render(<WorkspaceEmailPage />);
+    // (transport_mode, host) projects back onto the Gmail preset.
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('gmail');
+    // The credential is labeled App password and carries the guided FieldHelp.
+    expect(screen.getByLabelText('App password')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Gmail App password/i })).toBeInTheDocument();
+    // Host/port/security are collapsed behind Advanced (defaults match), with a summary strip.
+    const advanced = screen.getByRole('button', { name: /Advanced — server settings/i });
+    expect(advanced).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('smtp.gmail.com · 587 · STARTTLS')).toBeInTheDocument();
+  });
+
+  it('pre-fills host/port/security when the Gmail preset is picked', () => {
+    render(<WorkspaceEmailPage />);
+    fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'gmail' } });
+    expect(screen.getByText('smtp.gmail.com · 587 · STARTTLS')).toBeInTheDocument();
+    // Expand Advanced to confirm the fields are editable and pre-filled.
+    fireEvent.click(screen.getByRole('button', { name: /Advanced — server settings/i }));
+    expect(screen.getByLabelText<HTMLInputElement>('SMTP host').value).toBe('smtp.gmail.com');
+  });
+
+  it('shows the plaintext warning when Security is set to None', () => {
+    mockHooks({ transport_mode: 'smtp', host: 'mail.internal', security: 'none' });
+    render(<WorkspaceEmailPage />);
+    // Custom provider (unknown host) → transport fields flat; None → warning callout.
+    expect(screen.getByLabelText<HTMLSelectElement>('Provider').value).toBe('custom');
+    expect(screen.getByText('Unencrypted connection')).toBeInTheDocument();
   });
 
   it('shows the write-only "set" placeholder when a secret exists', () => {
@@ -120,9 +151,7 @@ describe('WorkspaceEmailPage (writable)', () => {
     expect(publicUrl.value).toBe('https://app.example.com');
     expect(publicUrl.readOnly).toBe(true);
     expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
-    expect(
-      screen.queryByText(/emailed links are broken/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/emailed links are broken/i)).not.toBeInTheDocument();
   });
 
   it('warns that emailed links are broken when the Public URL is unset', () => {
@@ -130,9 +159,7 @@ describe('WorkspaceEmailPage (writable)', () => {
     render(<WorkspaceEmailPage />);
     expect(screen.getByText(/Public URL not set/i)).toBeInTheDocument();
     expect(screen.getByText(/won.t open/i)).toBeInTheDocument();
-    expect(
-      screen.queryByLabelText('Public URL (read-only)'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Public URL (read-only)')).not.toBeInTheDocument();
   });
 
   it('shows an error + retry', () => {
