@@ -967,6 +967,12 @@ REST_FRAMEWORK = {
         # account cannot bulk-scrape the workspace user list, loose enough that
         # interactive typeahead (debounced, >=2 chars) never trips it.
         "user_search": "60/min",
+        # ⌘K global Epic/Story omni-search (ADR-0508 D4, #2103). A debounced,
+        # >=2-char typeahead over the caller's own membership; the 60/min bound
+        # matches user_search — snug enough that a scripted loop cannot bulk-map
+        # every epic/story title the account can see, loose enough that live typing
+        # never trips it.
+        "omni_search": env("TRUEPPM_THROTTLE_OMNI_SEARCH_RATE", default="60/min"),
         # WebSocket connection tickets (#818, ADR-0141). One ticket is minted per
         # socket open (and per reconnect, since tickets are single-use); 120/min
         # covers aggressive reconnect storms without letting one account flood
