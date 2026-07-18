@@ -1,4 +1,4 @@
-"""App config for ``apps/sso`` — basic SSO / OIDC relying party (ADR-0187).
+"""App config for ``apps/sso`` — basic multi-provider SSO (ADR-0517, supersedes ADR-0187).
 
 The two extension seams (``register_oidc_identity_mapper`` and
 ``register_local_login_policy_provider``) default to safe community behaviour
@@ -16,4 +16,4 @@ from django.apps import AppConfig
 class SsoConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "trueppm_api.apps.sso"
-    verbose_name = "Single sign-on (OIDC)"
+    verbose_name = "Single sign-on"

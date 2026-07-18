@@ -1,8 +1,17 @@
 # ADR-0187: Basic SSO — self-service OIDC/OAuth2 login against the operator's own IdP
 
+> **Superseded by [ADR-0517](0517-adopt-allauth-socialaccount-for-sso.md) (2026-07-17).**
+> The bespoke OIDC relying party defined here (hand-rolled discovery / JWKS / PKCE /
+> ID-token validation in `apps/sso`) is re-platformed onto `allauth.socialaccount`.
+> The **auth carve-out**, the **cookie-JWT session reuse**, the **Fernet
+> secret-at-rest bar**, and the two **enterprise seams** (`oidc_role_for`,
+> `local_login_allowed`) established here are all **retained** by ADR-0517 — only the
+> relying-party machinery underneath is replaced (which also unblocks GitHub OAuth2,
+> impossible in the generic-OIDC-only design below). See ADR-0517 for the migration.
+
 ## Status
 
-Accepted (2026-06-30)
+Superseded by ADR-0517 (2026-07-17). Previously: Accepted (2026-06-30)
 
 Accepted with the **#1405 backend** implementation (the OIDC relying party + the
 `OIDCProvider` config surface). The pre-implementation `threat-model` mitigations are
