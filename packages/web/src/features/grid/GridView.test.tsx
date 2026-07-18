@@ -110,9 +110,11 @@ vi.mock('@/hooks/useProject', () => ({
 }));
 
 const bulkDeleteMutate = vi.fn();
+const bulkRestoreMutate = vi.fn();
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
   useBulkDeleteTasks: () => ({ mutate: bulkDeleteMutate, isPending: false }),
+  useBulkRestoreTasks: () => ({ mutate: bulkRestoreMutate, isPending: false }),
   useReorderTasks: () => ({ mutate: vi.fn(), isPending: false }),
   useIndentTask: () => ({ mutate: vi.fn(), isPending: false }),
   useOutdentTask: () => ({ mutate: vi.fn(), isPending: false }),
@@ -500,6 +502,7 @@ describe('GridView — extra coverage', () => {
     projectMethodology = 'AGILE';
     scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
     bulkDeleteMutate.mockReset();
+    bulkRestoreMutate.mockReset();
   });
 
   it('confirms bulk delete and dispatches the mutation on success', async () => {
@@ -514,6 +517,25 @@ describe('GridView — extra coverage', () => {
     await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
     expect(bulkDeleteMutate).toHaveBeenCalled();
     expect(await screen.findByText(/task.* deleted/i)).toBeInTheDocument();
+  });
+
+  it('offers Undo on the delete toast and restores via bulkRestore (#2078)', async () => {
+    let deletedIds: string[] = [];
+    bulkDeleteMutate.mockImplementation((ids: string[], opts?: { onSuccess?: () => void }) => {
+      deletedIds = ids;
+      opts?.onSuccess?.();
+    });
+    const user = userEvent.setup();
+    await renderGrid();
+    const checkboxes = screen.getAllByLabelText(/^Select /);
+    await user.click(checkboxes[0]);
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
+
+    // The success toast offers Undo; clicking it restores the same ids.
+    const undo = await screen.findByRole('button', { name: /^undo$/i });
+    await user.click(undo);
+    expect(bulkRestoreMutate).toHaveBeenCalledWith(deletedIds, expect.anything());
   });
 
   it('shows the error toast when bulk delete fails', async () => {

@@ -91,6 +91,30 @@ export default [
       'jsx-a11y/alt-text': 'error',
       // Ban default exports — all modules use named exports
       'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+      // Prefer the Number.* static methods over the coercing global numeric
+      // functions and bare NaN (#2099). Mirrors unicorn/prefer-number-properties
+      // without pulling in the whole plugin — a core rule, so it guards product
+      // and test files alike. Global isNaN/isFinite coerce their argument
+      // (isNaN('12px') === true), whereas Number.isNaN('12px') === false; the
+      // Number.* forms are stricter. parseInt/parseFloat differ only
+      // stylistically. Infinity is
+      // intentionally NOT restricted: it has many legitimate sentinel uses
+      // (staleTime: Infinity, -Infinity fold seeds) that Number.POSITIVE_INFINITY
+      // would only make noisier.
+      'no-restricted-globals': [
+        'error',
+        { name: 'parseInt', message: 'Use Number.parseInt instead of the global.' },
+        { name: 'parseFloat', message: 'Use Number.parseFloat instead of the global.' },
+        {
+          name: 'isNaN',
+          message: 'Use Number.isNaN — it does not coerce its argument like the global isNaN.',
+        },
+        {
+          name: 'isFinite',
+          message: 'Use Number.isFinite — it does not coerce its argument like the global isFinite.',
+        },
+        { name: 'NaN', message: 'Use Number.NaN instead of the bare global.' },
+      ],
       '@typescript-eslint/no-explicit-any': 'error',
       // Allow _-prefixed params to signal intentionally unused arguments (e.g. stubs)
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],

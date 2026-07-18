@@ -141,6 +141,11 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # ENFORCE = Enterprise hard lock, no-op in OSS).
             "task_duration_change_percent_policy",
             "task_duration_change_percent_override_policy",
+            # Workspace-wide default estimation scale (ADR-0510, #2027) — the non-null
+            # root of the Workspace → Program → Project chain. No override_policy: the
+            # scale is a plain PO/team preference, freely overridable at every scope
+            # (no enforcement seam). Display/input-only — never touches story_points.
+            "estimation_scale",
             # Per-workspace attachment policy (ADR-0153, #976) — the non-null root of
             # the Workspace → Program → Project chain. attachments_enabled gates task
             # file uploads (external links unaffected); allowed_attachment_types is the

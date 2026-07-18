@@ -31,7 +31,7 @@ const FG_LIGHT = '#FFFFFF';
 export function contrastText(hex: string): string {
   const match = /^#([0-9a-fA-F]{6})$/.exec(hex);
   if (!match) return FG_LIGHT;
-  const int = parseInt(match[1], 16);
+  const int = Number.parseInt(match[1], 16);
   const channels = [(int >> 16) & 0xff, (int >> 8) & 0xff, int & 0xff];
   const [r, g, b] = channels.map((c) => {
     const s = c / 255;

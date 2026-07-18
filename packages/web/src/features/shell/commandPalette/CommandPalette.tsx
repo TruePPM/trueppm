@@ -16,23 +16,29 @@ import { useCommandItems } from './useCommandItems';
 
 const GROUP_LABEL: Record<CommandItem['group'], string> = {
   sprint: 'Current sprint',
+  sprintTask: 'Current sprint tasks',
   task: 'Tasks',
   current: 'Current project',
   person: 'People',
+  recent: 'Recent',
   jump: 'Jump to',
   backlog: 'Backlog',
   board: 'Board',
   action: 'Actions',
 };
 // Render + keyboard-nav order. `sprint` (jump to today's active sprint board, the
-// first-class issue 1594 action) leads always; `task` follows (the query-gated jump-to
-// ask); `current` (the in-context role targets) then `person` (query-gated global
-// people search) sit above the global navigation.
+// first-class issue 1594 action) leads always; `sprintTask` (active-sprint tasks,
+// ADR-0508) then `task` (all other tasks) follow — both query-gated; `current`
+// (in-context role targets) then `person` (query-gated global people search) sit
+// above `recent` (cold-only recently-visited projects, ADR-0508) and the global
+// navigation.
 const GROUP_ORDER: CommandItem['group'][] = [
   'sprint',
+  'sprintTask',
   'task',
   'current',
   'person',
+  'recent',
   'jump',
   'backlog',
   'board',
@@ -48,31 +54,45 @@ const DEFAULT_CHIP_CLASS = 'bg-neutral-surface-sunken text-neutral-text-secondar
 
 /** Max task results shown (ADR-0138) — keep the list scannable. */
 const TASK_RESULT_CAP = 8;
+/** Max active-sprint task results shown (ADR-0508) — a bounded working set the
+ *  user recognizes, so a higher-but-still-scannable cap than project-wide tasks. */
+const SPRINT_TASK_RESULT_CAP = 25;
 /** Max people results shown (ADR-0401) — same scannability budget as tasks. */
 const PERSON_RESULT_CAP = 6;
 
 /**
  * Apply the per-section result caps to the filtered list, preserving order so the
  * flat list drives both rendering and keyboard nav identically:
- *  - Tasks are query-gated (a cold palette never dumps arbitrary tasks) and capped
- *    at {@link TASK_RESULT_CAP}.
- *  - People are already query-gated at the hook (only built with a non-empty
+ *  - `sprintTask` (active-sprint tasks, ADR-0508) are query-gated and capped at
+ *    {@link SPRINT_TASK_RESULT_CAP}.
+ *  - `task` (all other tasks) are query-gated (a cold palette never dumps
+ *    arbitrary tasks) and capped at {@link TASK_RESULT_CAP}.
+ *  - `person` are already query-gated at the hook (only built with a non-empty
  *    query) and capped at {@link PERSON_RESULT_CAP}.
+ *  - `recent` are cold-only: dropped once a query is typed so the `jump` fuzzy
+ *    filter alone owns search (the hook already stops building them when typing;
+ *    this is the belt-and-braces enforcement of that invariant).
  * Truncation is surfaced to the user by {@link CommandPalette} via an explicit
- * "showing first N" hint, so the cap is never silent (#1940).
+ * "showing N" hint, so the cap is never silent (#1940).
  */
 function applyResultCaps(items: CommandItem[], query: string): CommandItem[] {
   const hasQuery = query.trim().length > 0;
   const out: CommandItem[] = [];
+  let sprintTaskCount = 0;
   let taskCount = 0;
   let personCount = 0;
   for (const item of items) {
-    if (item.group === 'task') {
+    if (item.group === 'sprintTask') {
+      if (!hasQuery || sprintTaskCount >= SPRINT_TASK_RESULT_CAP) continue;
+      sprintTaskCount += 1;
+    } else if (item.group === 'task') {
       if (!hasQuery || taskCount >= TASK_RESULT_CAP) continue;
       taskCount += 1;
     } else if (item.group === 'person') {
       if (personCount >= PERSON_RESULT_CAP) continue;
       personCount += 1;
+    } else if (item.group === 'recent') {
+      if (hasQuery) continue;
     }
     out.push(item);
   }
@@ -112,6 +132,14 @@ export function CommandPalette() {
     () => filtered.filter((i) => i.group === 'task').length > TASK_RESULT_CAP,
     [filtered],
   );
+  // Total active-sprint task matches (before the cap) — drives the "Showing 25 of
+  // {M}" cue, which names the total because a sprint is a bounded, countable set
+  // (ADR-0508); project-wide tasks stay "first N" (no alarming unbounded total).
+  const sprintTaskTotal = useMemo(
+    () => filtered.filter((i) => i.group === 'sprintTask').length,
+    [filtered],
+  );
+  const sprintTaskTruncated = sprintTaskTotal > SPRINT_TASK_RESULT_CAP;
   const personTruncated = useMemo(
     () => filtered.filter((i) => i.group === 'person').length > PERSON_RESULT_CAP,
     [filtered],
@@ -233,6 +261,20 @@ export function CommandPalette() {
                     {GROUP_LABEL[group]}
                   </p>
                   {(() => {
+                    // Sprint tasks name the total ("Showing 25 of 41 — …") since a
+                    // sprint is a bounded, countable working set (ADR-0508).
+                    if (group === 'sprintTask') {
+                      return sprintTaskTruncated ? (
+                        <p
+                          key="sprintTask-overflow"
+                          className="px-3 pb-1 pt-0.5 text-xs text-neutral-text-secondary"
+                          role="note"
+                        >
+                          Showing {SPRINT_TASK_RESULT_CAP} of {sprintTaskTotal} — refine your
+                          search to narrow it down.
+                        </p>
+                      ) : null;
+                    }
                     const truncated =
                       (group === 'task' && taskTruncated) ||
                       (group === 'person' && personTruncated);
@@ -303,7 +345,9 @@ export function CommandPalette() {
           </span>
           <span>
             <kbd className="tppm-mono">↵</kbd>{' '}
-            {activeItem?.group === 'task' ? 'open in drawer' : 'open'}
+            {activeItem?.group === 'task' || activeItem?.group === 'sprintTask'
+              ? 'open in drawer'
+              : 'open'}
           </span>
           <span className="ml-auto tppm-mono">{modifierKeyLabel()}K</span>
         </div>

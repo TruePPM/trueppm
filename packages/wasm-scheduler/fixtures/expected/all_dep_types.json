@@ -87,5 +87,22 @@
   "critical_path": [
     "A",
     "B"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "C",
+      "successor_id": "D",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "E",
+      "successor_id": "F",
+      "dep_type": "FF"
+    }
   ]
 }

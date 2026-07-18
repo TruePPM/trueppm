@@ -254,8 +254,8 @@ function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
           aria-label="Lag days"
           title="Lag in days (negative = lead)"
           onBlur={(e) => {
-            const newLag = parseInt(e.target.value, 10);
-            if (!isNaN(newLag) && newLag !== link.lag) {
+            const newLag = Number.parseInt(e.target.value, 10);
+            if (!Number.isNaN(newLag) && newLag !== link.lag) {
               setRowError(null);
               onUpdate({ lag: newLag });
             }

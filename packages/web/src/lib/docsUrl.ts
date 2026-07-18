@@ -19,9 +19,14 @@
  */
 export function docsUrl(path: string): string {
   const override: unknown = import.meta.env.VITE_DOCS_BASE_URL;
-  const base = (
-    typeof override === 'string' && override.length > 0 ? override : 'https://docs.trueppm.com'
-  ).replace(/\/+$/, '');
+  const rawBase =
+    typeof override === 'string' && override.length > 0 ? override : 'https://docs.trueppm.com';
+  // Trim trailing slashes with a bounded single-pass scan rather than `/\/+$/`,
+  // whose start-unanchored `\/+$` shape backtracks super-linearly (S5852). The
+  // leading `/^\/+/` on `path` below is start-anchored and matches in one pass.
+  let end = rawBase.length;
+  while (end > 0 && rawBase[end - 1] === '/') end--;
+  const base = rawBase.slice(0, end);
   const slug = path.replace(/^\/+/, '');
   return `${base}/${slug}`;
 }

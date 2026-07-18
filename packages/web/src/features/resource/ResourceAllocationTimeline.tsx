@@ -141,7 +141,7 @@ export function ResourceAllocationTimeline({
             assignmentId,
             task,
             resourceName: resource.name,
-            maxUnits: parseFloat(resource.max_units),
+            maxUnits: Number.parseFloat(resource.max_units),
             anchorEl,
           });
           return;
@@ -164,7 +164,7 @@ export function ResourceAllocationTimeline({
   // ---------------------------------------------------------------------------
 
   function renderResourceRow(resource: AllocationResource) {
-    const maxUnits = parseFloat(resource.max_units);
+    const maxUnits = Number.parseFloat(resource.max_units);
     const overloaded = detectOverallocatedAssignments(resource.tasks, maxUnits);
     const isCurrentUser = resource.id === currentUserResourceId;
     const hasOverallocation = overloaded.size > 0;
@@ -253,7 +253,7 @@ export function ResourceAllocationTimeline({
             .filter((t) => t.early_start && t.early_finish)
             .map((task) => {
               const isOver = overloaded.has(task.assignment_id);
-              const units = parseFloat(task.units);
+              const units = Number.parseFloat(task.units);
               const variant: SpanVariant =
                 task.status === 'COMPLETE'
                   ? 'complete'
@@ -392,7 +392,7 @@ export function ResourceAllocationTimeline({
                 <span className="text-neutral-text-secondary">→</span>
                 <span className="font-medium">{task.name}</span>
                 <span className="text-neutral-text-secondary tppm-mono">
-                  ({Math.round(parseFloat(task.units) * 100)}%)
+                  ({Math.round(Number.parseFloat(task.units) * 100)}%)
                 </span>
               </div>
             ))}
@@ -404,12 +404,12 @@ export function ResourceAllocationTimeline({
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {`Resource allocation timeline. ${scheduled.length} resources. `}
         {scheduled.filter((r) => {
-          const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
+          const over = detectOverallocatedAssignments(r.tasks, Number.parseFloat(r.max_units));
           return over.size > 0;
         }).length > 0 &&
           `${
             scheduled.filter((r) => {
-              const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
+              const over = detectOverallocatedAssignments(r.tasks, Number.parseFloat(r.max_units));
               return over.size > 0;
             }).length
           } overallocated. `}

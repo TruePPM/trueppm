@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Program } from '@/api/types';
+import type { EstimationScale, Program } from '@/api/types';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import {
@@ -76,6 +76,9 @@ export interface BacklogController {
   searchActive: boolean;
   counts: StatusCounts;
   tagUniverse: string[];
+  /** Program's resolved estimation scale (ADR-0510, #2027) — drives the points
+   *  picker/labels on the create + detail panes. Fibonacci until the program loads. */
+  estimationScale: EstimationScale;
   selectedItem: BacklogItem | undefined;
   memberProjects: MemberProject[];
 
@@ -249,6 +252,7 @@ export function useBacklogController(
     searchActive,
     counts,
     tagUniverse,
+    estimationScale: program?.effective_estimation_scale ?? 'fibonacci',
     selectedItem,
     memberProjects: projectsQuery.data,
 

@@ -278,6 +278,11 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   // default to an empty list. Specs exercising the jump override with page.route(...).
   await page.route('**/api/v1/me/active-sprints/', (route) => route.fulfill(jsonResponse([])));
 
+  // Recently-visited projects (#1557) — the ⌘K "Recent" group reads this whenever
+  // the palette is opened cold. Returns a PLAIN ARRAY (not a paginated envelope);
+  // default to empty. Specs exercising Recent override with page.route(...).
+  await page.route('**/api/v1/me/recent-projects/**', (route) => route.fulfill(jsonResponse([])));
+
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>
     route.fulfill(jsonResponse(paginated(projects))),

@@ -9,6 +9,22 @@ describe('parseHoursToMinutes', () => {
     expect(parseHoursToMinutes('.5')).toBe(30);
   });
 
+  it('accepts the decimal edge forms the (S5852-safe) parser allows', () => {
+    // ".d", "d", "d.d", and a trailing-dot "d." are all valid; the rewrite from
+    // `\d*\.?\d+` to disjoint alternatives must keep accepting exactly these.
+    expect(parseHoursToMinutes('.25')).toBe(15);
+    expect(parseHoursToMinutes('5.')).toBe(300); // trailing-dot form → 5h
+    expect(parseHoursToMinutes('05')).toBe(300); // leading zero
+    expect(parseHoursToMinutes('1.0')).toBe(60);
+  });
+
+  it('rejects malformed decimals (multiple/lone dots)', () => {
+    expect(parseHoursToMinutes('1.2.3')).toBeNull();
+    expect(parseHoursToMinutes('.')).toBeNull();
+    expect(parseHoursToMinutes('..5')).toBeNull();
+    expect(parseHoursToMinutes('1..2')).toBeNull();
+  });
+
   it('parses clock hours h:mm', () => {
     expect(parseHoursToMinutes('2:30')).toBe(150);
     expect(parseHoursToMinutes('0:15')).toBe(15);
@@ -46,7 +62,7 @@ describe('formatMinutesAsHm', () => {
 
   it('clamps non-finite / negative to 0:00', () => {
     expect(formatMinutesAsHm(-5)).toBe('0:00');
-    expect(formatMinutesAsHm(NaN)).toBe('0:00');
+    expect(formatMinutesAsHm(Number.NaN)).toBe('0:00');
   });
 });
 

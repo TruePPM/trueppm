@@ -196,7 +196,7 @@ _HISTORY_EXCLUDED_TASK = [
 # ``deleted_at`` (Task, Dependency) is grouped with ``deleted_version`` as a
 # tombstone-reap bookkeeping field, not a user-meaningful audit fact — the
 # ``is_deleted`` transition it accompanies is already captured in history.
-_HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at"]
+_HISTORY_EXCLUDED_DEPENDENCY = [*_HISTORY_EXCLUDED_BASE, "deleted_at", "is_driving"]
 
 
 class ImmutableModelError(Exception):
@@ -556,6 +556,24 @@ class DurationChangePercentPolicy(models.TextChoices):
     CONFIRM = "confirm", "Confirm percent-complete (client prompt)"
 
 
+class EstimationScale(models.TextChoices):
+    """Story-point estimation vocabulary (ADR-0510, #2027).
+
+    The non-null root of the Workspace → Program → Project inheritance chain,
+    resolved computed-on-read in ``apps.projects.estimation_scale``. Governs only
+    the *input widget shape* and *display label* a client renders for the stored
+    integer ``story_points`` — never the stored value or any velocity/rollup math.
+    T-shirt sizes carry a hidden numeric map (client-side, ``lib/storyPoints.ts``):
+    XS→1, S→2, M→3, L→5, XL→8, so ``story_points`` stays an integer under every
+    scale and off-scale legacy values still display (no backend validation of
+    on-scale membership — the scale constrains the picker, not the domain).
+    """
+
+    FIBONACCI = "fibonacci", "Fibonacci (1, 2, 3, 5, 8, 13, 21)"
+    LINEAR = "linear", "Linear (1-10)"
+    TSHIRT = "tshirt", "T-shirt (XS-XL)"
+
+
 class DurationChangeSource(models.TextChoices):
     """What triggered a :class:`TaskDurationChangeEvent` (ADR-0151).
 
@@ -743,6 +761,18 @@ class Program(VersionedModel):
     task_duration_change_percent_policy = models.CharField(  # noqa: DJ001 — null = inherit
         max_length=16,
         choices=DurationChangePercentPolicy.choices,
+        null=True,
+        blank=True,
+    )
+    # Per-scope estimation-scale override (ADR-0510, #2027). NULL = inherit the
+    # workspace value; a non-null value overrides it for every project in this
+    # program whose own override is NULL. Resolved computed-on-read in
+    # ``apps.projects.estimation_scale``. Display/input-only — governs which point
+    # widget clients render, never the stored integer ``story_points``. Not in
+    # ``_HISTORY_EXCLUDED_BASE``, so each override write is captured (audit).
+    estimation_scale = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=EstimationScale.choices,
         null=True,
         blank=True,
     )
@@ -1269,6 +1299,19 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-scope estimation-scale override (ADR-0510, #2027). NULL = inherit from the
+    # program (or workspace, if the program also inherits); non-null = explicit
+    # override for this project. Resolved computed-on-read in
+    # ``apps.projects.estimation_scale`` and surfaced via the serializer's
+    # ``effective_estimation_scale``. Display/input-only — governs which point widget
+    # clients render, never the stored integer ``story_points``. Captured by
+    # HistoricalRecords (not in ``_HISTORY_EXCLUDED_BASE``) so admin writes audit.
+    estimation_scale = models.CharField(  # noqa: DJ001 — null = inherit
+        max_length=16,
+        choices=EstimationScale.choices,
+        null=True,
+        blank=True,
+    )
     # Per-scope attachment-policy overrides (ADR-0153, #976). ``attachments_enabled``
     # NULL = inherit from the program (or workspace, if the program also inherits);
     # True/False = explicit override for this project. ``allowed_attachment_types``
@@ -1525,6 +1568,72 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
     # Enterprise rollup; a bulk update would bypass Risk.save's signal path.
     for risk in Risk.objects.filter(project_id=project_id, is_deleted=True):
         risk.restore()
+
+
+def cascade_task_children_restore(task: Task) -> None:
+    """Restore a task's tombstoned subtree and dependency edges — inverse of
+    :meth:`Task.soft_delete`'s cascade (#2078).
+
+    The subtree-scoped analog of :func:`cascade_project_children_restore`. The single
+    point where it is NOT a copy of the project cascade: it restores only
+    ``is_subtask=True`` descendants, matching the ``is_subtask`` scope of the delete
+    cascade exactly — WBS-structure children are never auto-restored because the delete
+    never auto-tombstones them (the PM deletes/restores those explicitly). Restores, in
+    order (tasks before edges, so an un-tombstoned task is a live endpoint the edge pass
+    relies on):
+
+    1. **Descendants** — ``is_deleted=True, is_subtask=True`` tasks under
+       ``wbs_path__startswith=task.wbs_path + "."``.
+    2. **Dependency edges** — tombstoned edges touching the restored subtree, restored
+       only when BOTH endpoints are now live and no already-live duplicate exists on the
+       non-partial ``unique_dependency (predecessor, successor, dep_type)`` constraint
+       (``.exclude(Exists(...))``), avoiding an ``IntegrityError``.
+    3. **Assignments** need no action — the delete never tombstones them, so they return
+       for free with the row.
+
+    Idempotent: every pass filters ``is_deleted=True``, so a re-run touches only still-
+    tombstoned rows and bumps no versions. Every restored row bumps ``server_version`` so
+    the offline pull re-materializes it (ADR-0202). Caller MUST be inside ``atomic()``.
+
+    Errs toward completeness like the project cascade: per-row ``server_version`` /
+    ``deleted_version`` are counters, not a global clock, so there is no reliable marker
+    distinguishing "tombstoned by this delete cascade" from "a subtask individually deleted
+    earlier, then its parent deleted". Restoring the parent may resurrect that earlier-
+    deleted subtask — the same bounded, accepted tradeoff ("half-restore is worse than
+    none"), with a narrower blast radius (one task's ``is_subtask`` subtree, not a project).
+    """
+    if task.wbs_path:
+        Task.objects.filter(
+            is_deleted=True,
+            is_subtask=True,
+            wbs_path__startswith=str(task.wbs_path) + ".",
+        ).update(
+            is_deleted=False,
+            server_version=F("server_version") + 1,
+            deleted_version=None,
+            deleted_at=None,
+        )
+
+    # Edges touching the restored subtree (the task itself or any wbs descendant), gated
+    # on both endpoints live + no live duplicate — mirrors the project cascade's edge pass.
+    subtree = Task.objects.filter(Q(pk=task.pk) | Q(wbs_path__startswith=str(task.wbs_path) + "."))
+    live_duplicate = Dependency.objects.filter(
+        is_deleted=False,
+        predecessor=OuterRef("predecessor"),
+        successor=OuterRef("successor"),
+        dep_type=OuterRef("dep_type"),
+    )
+    Dependency.objects.filter(
+        Q(predecessor__in=subtree) | Q(successor__in=subtree),
+        is_deleted=True,
+        predecessor__is_deleted=False,
+        successor__is_deleted=False,
+    ).exclude(Exists(live_duplicate)).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        deleted_version=None,
+        deleted_at=None,
+    )
 
 
 def cascade_project_children_soft_delete(project: Project | uuid.UUID | str) -> None:
@@ -2438,6 +2547,19 @@ class Task(VersionedModel):
         self.deleted_at = timezone.now()
         super().soft_delete()
 
+    def restore(self) -> None:
+        """Un-tombstone this single task, clearing ``deleted_at`` (#2078).
+
+        The symmetric inverse of :meth:`soft_delete`'s ``deleted_at`` stamping, mirroring
+        :meth:`Project.restore`. The base :meth:`VersionedModel.restore` clears ``is_deleted``
+        / ``deleted_version`` and bumps ``server_version``; ``deleted_at`` (the tombstone-reap
+        clock) must be cleared too or a nightly reap could still consider the live row eligible.
+        The subtree + dependency-edge cascade is a separate module function
+        (:func:`cascade_task_children_restore`); this covers only the single top row.
+        """
+        self.deleted_at = None
+        super().restore()
+
 
 class AcceptanceCriterion(VersionedModel):
     """A single tickable acceptance criterion on a story (ADR-0105 §2, #493/#731).
@@ -2666,6 +2788,15 @@ class Dependency(VersionedModel):
         related_name="accepted_dependencies",
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
+
+    # Driving-link flag (#2095): True when this edge's relationship free float is
+    # zero — i.e. this predecessor actually controls (drives) the successor's early
+    # date, so the schedule view draws it at full weight while non-driving links
+    # recede. A CPM *output*, written back by the recompute task via bulk_update
+    # (like Task.is_critical) so it never bumps server_version, and history-excluded.
+    # Defaults False so a freshly-created edge reads as non-driving until the next
+    # recompute resolves it (avoids a NOT NULL-without-default migration).
+    is_driving = models.BooleanField(default=False)
 
     # Timestamp of the most recent soft_delete() call — mirrors Task.deleted_at /
     # Attachment.deleted_at. Registered as the tombstone reap age_field (sync/tasks.py)

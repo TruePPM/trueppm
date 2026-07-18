@@ -21,8 +21,8 @@ interface Props {
 /** Convert an ISO week label (e.g. "2026-W18") to the Monday date string (YYYY-MM-DD). */
 function isoWeekToMonday(weekLabel: string): string {
   const [yearStr, weekStr] = weekLabel.split('-W');
-  const year = parseInt(yearStr, 10);
-  const week = parseInt(weekStr, 10);
+  const year = Number.parseInt(yearStr, 10);
+  const week = Number.parseInt(weekStr, 10);
   // Jan 4 is always in week 1 of the ISO year.
   const jan4 = new Date(Date.UTC(year, 0, 4));
   const dayOfWeek = jan4.getUTCDay() || 7; // 1=Mon … 7=Sun

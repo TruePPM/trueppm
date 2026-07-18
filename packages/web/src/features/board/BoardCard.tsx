@@ -14,6 +14,9 @@ import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { formatRelative } from '@/lib/formatRelative';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
+import { formatStoryPoints, storyPointsUnit } from '@/lib/storyPoints';
 import { isTaskScheduled } from '@/lib/task';
 import { PendingAcceptanceChip, pendingAcceptanceExplainer } from './PendingAcceptanceChip';
 import { PendingSyncBadge } from './PendingSyncBadge';
@@ -225,6 +228,10 @@ function BoardCardImpl({
   readOnly = false,
 }: BoardCardProps) {
   const itl = useIterationLabel();
+  // Resolved estimation scale for the point badge (ADR-0510, #2027). useProject
+  // shares the ['project', id] react-query cache, so every card reads it without a
+  // new request; Fibonacci until the project detail resolves.
+  const estimationScale = useProject(useProjectId()).data?.effective_estimation_scale ?? 'fibonacci';
   // A closed-sprint board disables drag-to-assign (issue 1141): dnd-kit returns empty
   // listeners/attributes when disabled, so the card keeps click-to-open + scroll
   // but can never be dragged into the closed sprint's scope.
@@ -948,7 +955,8 @@ function BoardCardImpl({
                   bg-neutral-surface-sunken border border-neutral-border text-neutral-text-secondary"
                 aria-label={`${task.storyPoints} story point${task.storyPoints === 1 ? '' : 's'}`}
               >
-                {task.storyPoints} pts
+                {formatStoryPoints(task.storyPoints, estimationScale)}
+                {storyPointsUnit(task.storyPoints, estimationScale)}
               </span>
             )}
           </div>

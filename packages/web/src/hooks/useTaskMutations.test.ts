@@ -18,6 +18,8 @@ import {
   useOutdentTask,
   useDeleteTask,
   useBulkDeleteTasks,
+  useRestoreTask,
+  useBulkRestoreTasks,
   useReorderTasks,
   usePromoteTask,
   parseGuardrailWarnings,
@@ -665,6 +667,54 @@ describe('useBulkDeleteTasks', () => {
   it('falls back to undefined query key when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useBulkDeleteTasks(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1']);
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useRestoreTask (#2078)', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: { id: 't1', name: 'Foundation' } });
+  });
+
+  it('POSTs to the restore endpoint and invalidates the tasks + task-history caches', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useRestoreTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/tasks/t1/restore/'));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-history', 'p1', 't1'] });
+  });
+});
+
+describe('useBulkRestoreTasks (#2078)', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: {} });
+  });
+
+  it('fans out one restore POST per id (the single endpoint, not a bulk op)', async () => {
+    const { result } = renderHook(() => useBulkRestoreTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1', 't2']);
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/tasks/t1/restore/'));
+    expect(postMock).toHaveBeenCalledWith('/tasks/t2/restore/');
+    expect(postMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkRestoreTasks(null), { wrapper: makeWrapper(qc) });
     result.current.mutate(['t1']);
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),

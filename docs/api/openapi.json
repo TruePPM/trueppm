@@ -5295,6 +5295,55 @@
                 "summary": "Mark all read notifications"
             }
         },
+        "/api/v1/me/recent-projects/": {
+            "get": {
+                "operationId": "v1_me_recent_projects_list",
+                "description": "``GET /api/v1/me/recent-projects/`` — the ⌘K \"Recent\" group (ADR-0508, #1557).\n\nReturns the caller's most recently *visited* projects (from the\n:class:`~trueppm_api.apps.profiles.models.ProjectVisit` telemetry, ADR-0150),\nnewest-first, as a fixed navigation strip — default 5, hard max 10 via\n``?limit``. Not a search surface and not paginated.\n\n**RBAC contract**: hard-scoped to ``request.user``'s own visit rows, and each\nrow is re-joined to live project membership in\n``services.recent_projects`` so a project the user lost access to (revoked\nmembership, archive, delete) never leaks its name from a stale visit. There is\nno ``?user=`` escape hatch — the endpoint is per-user private telemetry, never\na cross-user surveillance surface (mirrors ``MeWorkView``).",
+                "summary": "The current user's recently-visited projects",
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/RecentProject"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/time-entries/": {
             "get": {
                 "operationId": "v1_me_time_entries_retrieve",
@@ -34918,6 +34967,67 @@
                 }
             }
         },
+        "/api/v1/tasks/{id}/restore/": {
+            "post": {
+                "operationId": "v1_tasks_restore_create",
+                "description": "Un-tombstone a soft-deleted task and its cascade, atomically (#2078, ADR-0494).\n\nThe faithful inverse of ``perform_destroy``: restores the task, its ``is_subtask``\nsubtree, and every dependency edge that both-endpoints-live allows — the real\nrecovery the create-a-new-row Undo only approximated. Resource assignments were\nnever tombstoned, so they return with the row.\n\nSame gate as delete (``IsProjectMemberWriteOrOwn`` — Admin+ or the assignee). A\nsecond restore of an already-live task returns **404**: it is no longer in the\ncaller's trash, so the lookup fails closed rather than re-applying. The whole\nrestore runs in one ``transaction.atomic()`` block — a mid-way failure rolls back\nrather than leaving a half-restored subtree. ``server_version`` is bumped on every\nrestored row so offline clients re-materialize them (ADR-0202).",
+                "summary": "Restore a soft-deleted task, its subtree, and its dependency edges",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/tasks/{id}/scope/": {
             "get": {
                 "operationId": "v1_tasks_scope_retrieve",
@@ -40940,6 +41050,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "is_driving": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "predecessor_card": {
                         "allOf": [
                             {
@@ -40963,6 +41077,7 @@
                     "accepted_at",
                     "accepted_by",
                     "id",
+                    "is_driving",
                     "pending_acceptance",
                     "predecessor",
                     "predecessor_card",
@@ -41105,6 +41220,15 @@
                 ],
                 "type": "string",
                 "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
+            },
+            "EstimationScaleEnum": {
+                "enum": [
+                    "fibonacci",
+                    "linear",
+                    "tshirt"
+                ],
+                "type": "string",
+                "description": "* `fibonacci` - Fibonacci (1, 2, 3, 5, 8, 13, 21)\n* `linear` - Linear (1-10)\n* `tshirt` - T-shirt (XS-XL)"
             },
             "EventTypeEnum": {
                 "enum": [
@@ -45103,6 +45227,20 @@
                             }
                         ]
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -45330,6 +45468,20 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/BlankEnum"
@@ -46365,6 +46517,9 @@
                     "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
                     },
+                    "estimation_scale": {
+                        "$ref": "#/components/schemas/EstimationScaleEnum"
+                    },
                     "attachments_enabled": {
                         "type": "boolean"
                     },
@@ -46755,6 +46910,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "iteration_label": {
                         "type": "string",
                         "nullable": true,
@@ -47010,6 +47187,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
                     "effective_mc_history_retention_cap",
@@ -47021,6 +47199,7 @@
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
                     "inherited_calendar",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -47264,6 +47443,20 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/TaskDurationChangePercentPolicyEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/BlankEnum"
@@ -47618,6 +47811,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -47891,6 +48106,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -47903,6 +48119,7 @@
                     "inherited_allow_guests",
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -48218,6 +48435,28 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "effective_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "inherited_estimation_scale": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -48526,6 +48765,7 @@
                     "effective_allowed_attachment_types",
                     "effective_attachments_enabled",
                     "effective_calendar",
+                    "effective_estimation_scale",
                     "effective_iteration_label",
                     "effective_mc_history_attribution_audience",
                     "effective_mc_history_enabled",
@@ -48538,6 +48778,7 @@
                     "inherited_allow_guests",
                     "inherited_allowed_attachment_types",
                     "inherited_attachments_enabled",
+                    "inherited_estimation_scale",
                     "inherited_iteration_label",
                     "inherited_mc_history_attribution_audience",
                     "inherited_mc_history_enabled",
@@ -49012,6 +49253,20 @@
                             }
                         ]
                     },
+                    "estimation_scale": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimationScaleEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "prioritization_model": {
                         "$ref": "#/components/schemas/PrioritizationModelEnum"
                     },
@@ -49325,6 +49580,43 @@
                 "required": [
                     "checks",
                     "status"
+                ]
+            },
+            "RecentProject": {
+                "type": "object",
+                "description": "One recently-visited project for the ⌘K \"Recent\" group (ADR-0508, #1557).\n\nSerializes a :class:`~trueppm_api.apps.profiles.models.ProjectVisit` row into\nthe flat shape the palette renders: the project identity plus its program\nbreadcrumb (for cross-program disambiguation — two projects can share a name\nacross programs) and the ``visited_at`` recency hint. Read-only; the program\nfields are method-computed so a project with no program (``program`` is\n``SET_NULL``) serializes cleanly to ``null`` rather than raising.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "program_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "visited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "program_id",
+                    "program_name",
+                    "visited_at"
                 ]
             },
             "RecurrenceFrequencyEnum": {
@@ -55109,6 +55401,9 @@
                     },
                     "task_duration_change_percent_override_policy": {
                         "$ref": "#/components/schemas/TermOverridePolicyEnum"
+                    },
+                    "estimation_scale": {
+                        "$ref": "#/components/schemas/EstimationScaleEnum"
                     },
                     "attachments_enabled": {
                         "type": "boolean"

@@ -43,7 +43,7 @@ function mapProjectResource(r: ApiProjectResource): ProjectResource {
       name: r.resource_detail.name,
       email: r.resource_detail.email,
       jobRole: r.resource_detail.job_role,
-      maxUnits: parseFloat(r.resource_detail.max_units),
+      maxUnits: Number.parseFloat(r.resource_detail.max_units),
       calendarId: r.resource_detail.calendar,
       skills: r.resource_detail.skills.map((s) => ({
         id: s.id,
@@ -55,8 +55,8 @@ function mapProjectResource(r: ApiProjectResource): ProjectResource {
       isMe: r.resource_detail.is_me,
     },
     roleTitle: r.role_title,
-    unitsOverride: r.units_override !== null ? parseFloat(r.units_override) : null,
-    effectiveMaxUnits: parseFloat(r.effective_max_units),
+    unitsOverride: r.units_override !== null ? Number.parseFloat(r.units_override) : null,
+    effectiveMaxUnits: Number.parseFloat(r.effective_max_units),
     notes: r.notes,
   };
 }
