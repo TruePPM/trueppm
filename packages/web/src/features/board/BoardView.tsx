@@ -2841,8 +2841,12 @@ export function BoardView() {
       // WIP-limit guard (#232, #2050): if the destination column is at or over
       // its limit and the task isn't already there, defer the move behind a
       // styled confirm dialog instead of a native window.confirm mid-drop.
+      // Toggle-independent (rule 176; #2169): the confirm is a process guardrail,
+      // so — like `wipBandRaw` and the always-on breach chip — it must NOT be
+      // gated on the cosmetic `showWip` display toggle. Only the numeric badge
+      // obeys `showWip`; a breach still gates the move even with chips hidden.
       const breach =
-        showWip && newStatus !== activeTask.status
+        newStatus !== activeTask.status
           ? wipBreachInfo(COLUMNS, totalByStatus, newStatus as TaskStatus)
           : null;
       if (breach) {
@@ -2861,7 +2865,6 @@ export function BoardView() {
       taskIndex,
       workshopMode,
       selectedSprint,
-      showWip,
       totalByStatus,
       iterationLabel,
       groupMode,
@@ -2891,17 +2894,17 @@ export function BoardView() {
       // WIP-limit guard (#232, #2050): defer past-limit moves behind the styled
       // confirm dialog — the keyboard Move-to path is a second write into the
       // same mutation, so it needs the same non-native prompt as drag-end.
+      // Toggle-independent (rule 176; #2169): computed regardless of the cosmetic
+      // `showWip` display toggle, matching the drag-end guard above.
       const breach =
-        showWip && newStatus !== task.status
-          ? wipBreachInfo(COLUMNS, totalByStatus, newStatus)
-          : null;
+        newStatus !== task.status ? wipBreachInfo(COLUMNS, totalByStatus, newStatus) : null;
       if (breach) {
         setWipMoveCandidate({ breach, taskName: task.name, perform: performMove });
         return;
       }
       performMove();
     },
-    [projectId, updateStatus, COLUMNS, showWip, totalByStatus, readOnly],
+    [projectId, updateStatus, COLUMNS, totalByStatus, readOnly],
   );
 
   const handleAddTask = useCallback((phaseId: string, phaseName: string, isSynthetic = false) => {
