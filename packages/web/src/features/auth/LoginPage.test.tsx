@@ -43,11 +43,31 @@ function makeCurrentUser(overrides: Partial<CurrentUser> = {}): CurrentUser {
   };
 }
 
+// LoginPage makes two kinds of GET via bare axios: a mount-time SSO discovery
+// (`/auth/oidc/discover/`) and, during sign-in, the `me` fetch. Route by URL so
+// the mount discovery never steals a `mockResolvedValueOnce` meant for `me`.
+let ssoProviders: { slug: string; display_name: string }[] = [];
+let meHandler: () => Promise<{ data: CurrentUser }> = () =>
+  Promise.reject(new Error('no me handler set'));
+
 // useNavigate and useSearchParams come from the MemoryRouter in renderWithRouter.
 describe('LoginPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockNavigate.mockClear();
+    ssoProviders = [];
+    meHandler = () => Promise.reject(new Error('no me handler set'));
+    mockedAxios.get.mockImplementation((url: string) => {
+      if (typeof url === 'string' && url.includes('/auth/oidc/discover/')) {
+        return Promise.resolve({
+          data: { provider_present: ssoProviders.length > 0, providers: ssoProviders },
+        });
+      }
+      if (typeof url === 'string' && url.includes('/auth/me/')) {
+        return meHandler();
+      }
+      return Promise.reject(new Error(`unmocked GET ${String(url)}`));
+    });
     useAuthStore.setState({
       accessToken: null,
       isAuthenticated: false,
@@ -68,10 +88,9 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
-  it('renders the SSO button and remember-me checkbox', () => {
+  it('renders the remember-me checkbox', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
 
-    expect(screen.getByRole('button', { name: 'Continue with SSO' })).toBeInTheDocument();
     expect(screen.getByLabelText('Keep me signed in for 30 days')).toBeInTheDocument();
   });
 
@@ -140,7 +159,7 @@ describe('LoginPage', () => {
       landing: { intent: 'project_overview', path: '/projects/abc/overview', resolved_by: 'role_policy' },
     });
     mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
-    mockedAxios.get.mockResolvedValueOnce({ data: currentUser });
+    meHandler = () => Promise.resolve({ data: currentUser });
 
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     const user = userEvent.setup();
@@ -166,7 +185,7 @@ describe('LoginPage', () => {
 
   it('completes sign-in and falls back to the root path when the me fetch fails', async () => {
     mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
-    mockedAxios.get.mockRejectedValueOnce(new Error('me fetch failed'));
+    meHandler = () => Promise.reject(new Error('me fetch failed'));
 
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     const user = userEvent.setup();
@@ -187,9 +206,20 @@ describe('LoginPage', () => {
     expect(queryClient.getQueryData(['current-user'])).toBeUndefined();
   });
 
-  it('starts SSO and redirects to the RP login endpoint when the email domain has a provider', async () => {
-    // discoverSso() probes GET /auth/oidc/discover; a matched domain hands off
-    // to the RP login endpoint via a top-level navigation (issue 1392).
+  it('renders one sign-in button per enabled provider, discovered on mount', async () => {
+    ssoProviders = [
+      { slug: 'keycloak', display_name: 'Keycloak' },
+      { slug: 'github', display_name: 'GitHub' },
+    ];
+    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+
+    expect(
+      await screen.findByRole('button', { name: 'Continue with Keycloak' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with GitHub' })).toBeInTheDocument();
+  });
+
+  it('hands off to the provider-scoped RP login endpoint on click', async () => {
     // jsdom's window.location.assign isn't spyable, so replace location for this test.
     const originalLocation = window.location;
     const assign = vi.fn();
@@ -197,20 +227,14 @@ describe('LoginPage', () => {
       configurable: true,
       value: { ...originalLocation, assign },
     });
-    mockedAxios.get.mockResolvedValueOnce({
-      data: { provider_present: true, display_name: 'Acme SSO', issuer: 'https://id.acme.io' },
-    });
+    ssoProviders = [{ slug: 'keycloak', display_name: 'Keycloak' }];
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText('Email'), 'anna@acme.io');
-    await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue with Keycloak' }));
 
-    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/login'));
-    const discoverCall = mockedAxios.get.mock.calls[0];
-    expect(discoverCall[0]).toBe('/api/v1/auth/oidc/discover/');
-    expect(discoverCall[1]).toEqual(
-      expect.objectContaining({ params: { email: 'anna@acme.io' } }),
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith('/api/v1/auth/oidc/login?provider=keycloak'),
     );
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -218,28 +242,16 @@ describe('LoginPage', () => {
     });
   });
 
-  it('falls back to password entry when no SSO provider matches the email domain', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: { provider_present: false } });
+  it('shows no SSO section when no provider is configured (password-only install)', async () => {
+    ssoProviders = [];
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText('Email'), 'anna@nowhere.example');
-    await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
-
-    expect(
-      await screen.findByText(/No SSO provider is set up for that email domain/i),
-    ).toBeInTheDocument();
-  });
-
-  it('prompts for an email before starting SSO when the field is empty', async () => {
-    renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Continue with SSO' }));
-
-    expect(
-      await screen.findByText(/Enter your work email above, then continue with SSO/i),
-    ).toBeInTheDocument();
+    // The mount discovery resolves to an empty list, so no provider buttons and
+    // no dangling OR divider — just the password form.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- mockedAxios.get is a vi.mocked mock, not a bound method
+    await waitFor(() => expect(mockedAxios.get).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /Continue with/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
   });
 
   it('links Forgot? to the self-service password reset flow (issue 765)', () => {

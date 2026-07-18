@@ -2,12 +2,15 @@ import { test, expect, type Page } from '@playwright/test';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
- * Workspace → Settings → Single sign-on — admin OIDC config (#1392, ADR-0187).
+ * Workspace → Settings → Single sign-on — multi-provider admin config
+ * (#2108, ADR-0517, supersedes #1392).
  *
- * Covers the empty state (no provider connected → connect CTA) and the configured
- * state (live status, copy-able redirect URI, disable action). The consolidated
- * settings page mounts every section at once, so the General /workspace/ hook and
- * /auth/me/ must be mocked with their real object shapes alongside /workspace/sso/.
+ * Covers the empty state (no providers → Add CTA opens the panel), the
+ * configured list (live status, provider row, redirect URI + scopes in the edit
+ * panel), test connection, save (PUT), and remove (styled confirm → DELETE). The
+ * consolidated settings page mounts every section at once, so the General
+ * /workspace/ hook and /auth/me/ must be mocked with their real object shapes
+ * alongside the /workspace/sso/providers/ collection.
  */
 
 const pj = (data: unknown) => JSON.stringify(data);
@@ -31,35 +34,28 @@ const WORKSPACE = {
   mc_history_override_policy: 'suggest',
 };
 
-const BLANK_SSO = {
-  enabled: false,
-  display_name: '',
-  issuer_url: '',
-  client_id: '',
+const KEYCLOAK = {
+  slug: 'keycloak',
+  provider: 'openid_connect',
+  kind: 'derived',
+  display_name: 'Acme SSO',
+  enabled: true,
+  client_id: 'trueppm-web',
+  server_url: 'https://id.acme.io/realms/main',
+  github_org: '',
   scopes: ['openid', 'email', 'profile'],
-  allowed_email_domains: [],
-  auto_create_members: false,
+  allowed_email_domains: ['acme.io'],
+  auto_create_members: true,
   default_role: 100,
   allow_password_signin: true,
   allow_password_signin_enforced: false,
-  secret_set: false,
+  secret_set: true,
   redirect_uri: 'https://app.truescope.io/api/v1/auth/oidc/callback/',
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',
 };
 
-const CONFIGURED_SSO = {
-  ...BLANK_SSO,
-  enabled: true,
-  display_name: 'Acme SSO',
-  issuer_url: 'https://id.acme.io',
-  client_id: 'trueppm-web',
-  allowed_email_domains: ['acme.io'],
-  auto_create_members: true,
-  secret_set: true,
-};
-
-async function setup(page: Page, sso: unknown) {
+async function setup(page: Page, providers: unknown[]) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -94,124 +90,118 @@ async function setup(page: Page, sso: unknown) {
   await page.route('**/api/v1/workspace/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
   );
-  await page.route('**/api/v1/workspace/sso/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj(sso) }),
+  // The collection returns a plain array (not paginated).
+  await page.route('**/api/v1/workspace/sso/providers/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(providers) }),
   );
 }
 
-test.describe('Workspace Single sign-on — admin', () => {
-  test('empty state: no provider connected → connect CTA reveals the form', async ({ page }) => {
-    await setup(page, BLANK_SSO);
+test.describe('Workspace Single sign-on — admin (multi-provider)', () => {
+  test('empty state: no providers → Add CTA opens the provider panel', async ({ page }) => {
+    await setup(page, []);
     await page.goto('/settings#sso');
 
     await expect(page.getByRole('heading', { name: 'Single sign-on' })).toBeVisible();
     await expect(page.getByText('No identity provider connected')).toBeVisible();
+    await expect(page.getByText('SSO sign-in is not enabled yet')).toBeVisible();
 
-    await page.getByRole('button', { name: 'Connect OIDC provider' }).click();
-    await expect(page.getByLabel('Issuer URL')).toBeVisible();
+    await page.getByRole('button', { name: 'Add provider' }).click();
+    // The panel opens on Keycloak (a derived, two-field provider).
+    await expect(page.getByLabel('Provider type')).toBeVisible();
+    await expect(page.getByLabel('Base URL')).toBeVisible();
+    await expect(page.getByLabel('Realm')).toBeVisible();
     await expect(page.getByLabel('Client ID')).toBeVisible();
   });
 
-  test('configured state: live status, redirect URI, and disable action', async ({ page }) => {
-    await setup(page, CONFIGURED_SSO);
+  test('configured: live status and a provider row', async ({ page }) => {
+    await setup(page, [KEYCLOAK]);
     await page.goto('/settings#sso');
 
-    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
-    await expect(page.getByLabel('Redirect URI (read-only)')).toHaveValue(
-      CONFIGURED_SSO.redirect_uri,
-    );
-    await expect(page.getByRole('button', { name: 'Disable SSO' })).toBeVisible();
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await expect(page.getByText('Acme SSO')).toBeVisible();
+    await expect(page.getByText('Keycloak · OIDC')).toBeVisible();
+    // The consolidated settings page mounts other sections that also render an
+    // "Enabled" label, so scope the provider status pill to the SSO section.
+    await expect(page.getByLabel('sso').getByText('Enabled', { exact: true })).toBeVisible();
+  });
+
+  test('edit panel: redirect URI (copy) and fixed OSS scopes', async ({ page }) => {
+    await setup(page, [KEYCLOAK]);
+    await page.goto('/settings#sso');
+
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await page.getByRole('button', { name: 'Edit' }).click();
+
+    await expect(page.getByLabel('Redirect URI (read-only)')).toHaveValue(KEYCLOAK.redirect_uri);
     // Scopes are fixed to the OSS set — no groups scope.
-    await expect(page.getByText('openid email profile')).toBeVisible();
+    await expect(page.getByText('openid', { exact: true })).toBeVisible();
+    await expect(page.getByText('profile', { exact: true })).toBeVisible();
   });
 
   test('test connection: a reachable issuer reports success inline', async ({ page }) => {
-    await setup(page, CONFIGURED_SSO);
-    // POST /workspace/sso/test-connection/ returns the structured probe result.
-    await page.route('**/api/v1/workspace/sso/test-connection/', (r) =>
+    await setup(page, [KEYCLOAK]);
+    await page.route('**/api/v1/workspace/sso/providers/keycloak/test-connection/', (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ ok: true, issuer: CONFIGURED_SSO.issuer_url }),
+        body: pj({ ok: true, issuer: KEYCLOAK.server_url }),
       }),
     );
     await page.goto('/settings#sso');
 
-    // Gate on a "page rendered" signal (the live-status banner) before touching chrome.
-    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
-
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await page.getByRole('button', { name: 'Edit' }).click();
     await page.getByRole('button', { name: 'Test connection' }).click();
     await expect(page.getByText('✓ Reachable.')).toBeVisible();
   });
 
-  test('test connection: an unreachable issuer surfaces the failure detail', async ({ page }) => {
-    await setup(page, CONFIGURED_SSO);
-    // The endpoint returns 200 with { ok: false } in the reachable-but-invalid /
-    // unreachable case — the hook renders detail inline rather than throwing.
-    await page.route('**/api/v1/workspace/sso/test-connection/', (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: pj({ ok: false, error: 'discovery_unreachable', detail: 'Discovery timed out' }),
-      }),
-    );
-    await page.goto('/settings#sso');
-
-    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
-
-    await page.getByRole('button', { name: 'Test connection' }).click();
-    await expect(page.getByText('✗ Discovery timed out')).toBeVisible();
-  });
-
-  test('save: editing a field and saving persists via PUT', async ({ page }) => {
-    await setup(page, CONFIGURED_SSO);
+  test('save: editing the display name persists via PUT to the slug item', async ({ page }) => {
+    await setup(page, [KEYCLOAK]);
     let putBody: Record<string, unknown> | null = null;
-    // PUT /workspace/sso/ returns the updated config; capture the body to assert
-    // the form serialized correctly. Registered AFTER setup's GET route so this
-    // PUT-specific handler wins (last-registered wins; reverse-order match).
-    await page.route('**/api/v1/workspace/sso/', (r) => {
+    // Registered AFTER the collection route so this item-specific handler wins
+    // (last-registered wins; reverse-order match).
+    await page.route('**/api/v1/workspace/sso/providers/keycloak/', (r) => {
       const req = r.request();
       if (req.method() === 'PUT') {
         putBody = req.postDataJSON() as Record<string, unknown>;
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: pj({ ...CONFIGURED_SSO, display_name: 'Renamed SSO' }),
+          body: pj({ ...KEYCLOAK, display_name: 'Renamed SSO' }),
         });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(CONFIGURED_SSO) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(KEYCLOAK) });
     });
     await page.goto('/settings#sso');
 
-    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
+    await page.getByRole('button', { name: 'Edit' }).click();
 
     const displayName = page.getByLabel('Display name', { exact: true });
     await displayName.fill('Renamed SSO');
-    // The shell save-bar arms once the section is dirty; its action is "Save changes".
     await page.getByRole('button', { name: 'Save changes' }).click();
 
     await expect.poll(() => putBody).not.toBeNull();
     expect(putBody).toMatchObject({ display_name: 'Renamed SSO' });
   });
 
-  test('disable-SSO confirm: the styled dialog confirms and issues DELETE', async ({ page }) => {
-    await setup(page, CONFIGURED_SSO);
+  test('remove: the styled confirm dialog issues DELETE on the slug item', async ({ page }) => {
+    await setup(page, [KEYCLOAK]);
     let deleteFired = false;
-    await page.route('**/api/v1/workspace/sso/', (r) => {
+    await page.route('**/api/v1/workspace/sso/providers/keycloak/', (r) => {
       const req = r.request();
       if (req.method() === 'DELETE') {
         deleteFired = true;
         return r.fulfill({ status: 204, body: '' });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(CONFIGURED_SSO) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(KEYCLOAK) });
     });
     await page.goto('/settings#sso');
 
-    await expect(page.getByText('OIDC sign-in is live')).toBeVisible();
+    await expect(page.getByText('SSO sign-in is live')).toBeVisible();
 
-    // Opening the confirm is a styled dialog, not window.confirm.
-    await page.getByRole('button', { name: 'Disable SSO' }).click();
-    const dialog = page.getByRole('alertdialog', { name: 'Disable SSO?' });
+    await page.getByRole('button', { name: 'Remove' }).click();
+    const dialog = page.getByRole('alertdialog', { name: /Remove Acme SSO\?/ });
     await expect(dialog).toBeVisible();
 
     // Cancel first — DELETE must not fire.
@@ -220,9 +210,11 @@ test.describe('Workspace Single sign-on — admin', () => {
     expect(deleteFired).toBe(false);
 
     // Re-open and confirm.
-    await page.getByRole('button', { name: 'Disable SSO' }).click();
-    const dialog2 = page.getByRole('alertdialog', { name: 'Disable SSO?' });
-    await dialog2.getByRole('button', { name: 'Disable SSO' }).click();
+    await page.getByRole('button', { name: 'Remove' }).click();
+    await page
+      .getByRole('alertdialog', { name: /Remove Acme SSO\?/ })
+      .getByRole('button', { name: 'Remove provider' })
+      .click();
 
     await expect.poll(() => deleteFired).toBe(true);
   });
