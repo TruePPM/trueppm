@@ -43,6 +43,7 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project, Task
+from trueppm_api.core.openapi import suppress_list_pagination
 
 from . import git_webhook_auth, providers
 from .encryption import CredentialEncryptionError, decrypt_secret
@@ -120,6 +121,7 @@ class IntegrationCredentialViewSet(
         return IntegrationCredential.objects.filter(user=user)
 
     @extend_schema(responses={200: CredentialSummarySerializer(many=True)})
+    @suppress_list_pagination
     def list(self, request: Request) -> Response:
         """Return one summary row per registered provider.
 
@@ -138,6 +140,7 @@ class IntegrationCredentialViewSet(
             422: CredentialVerificationErrorSerializer,
         },
     )
+    @suppress_list_pagination
     def create(self, request: Request, provider: str | None = None) -> Response:
         """Connect or rotate the credential for ``provider``.
 

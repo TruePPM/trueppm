@@ -149,6 +149,26 @@ class TestResourceWrite:
         )
         assert res.status_code == 401
 
+    def test_admin_can_create_with_blank_email(self, admin_client: APIClient) -> None:
+        """A blank email is accepted and serialized as "" (#2127 conformance fix)."""
+        res = admin_client.post(
+            "/api/v1/resources/",
+            {"name": "Bench Saw", "email": "", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 201
+        assert res.data["email"] == ""
+
+    def test_malformed_email_is_rejected(self, admin_client: APIClient) -> None:
+        """Non-blank input is still validated as an email (#2127 preserves validation)."""
+        res = admin_client.post(
+            "/api/v1/resources/",
+            {"name": "Bad", "email": "not-an-email", "max_units": "1.00"},
+            format="json",
+        )
+        assert res.status_code == 400
+        assert "email" in res.data
+
     def test_admin_can_patch(self, admin_client: APIClient, resource: Resource) -> None:
         res = admin_client.patch(
             f"/api/v1/resources/{resource.pk}/",

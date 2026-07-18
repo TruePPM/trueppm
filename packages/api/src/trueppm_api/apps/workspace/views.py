@@ -18,8 +18,13 @@ from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -352,7 +357,21 @@ class WorkspaceMemberListView(APIView):
         )
         return annotated
 
-    @extend_schema(responses={200: WorkspaceMemberSerializer(many=True)})
+    @extend_schema(
+        # This view manually cursor-paginates (it is an APIView, so drf-spectacular
+        # does not auto-wrap); declare the envelope explicitly so the schema matches
+        # the ``{next, previous, results}`` body (#2127).
+        responses={
+            200: inline_serializer(
+                name="PaginatedWorkspaceMemberList",
+                fields={
+                    "next": serializers.URLField(allow_null=True),
+                    "previous": serializers.URLField(allow_null=True),
+                    "results": WorkspaceMemberSerializer(many=True),
+                },
+            )
+        }
+    )
     def get(self, request: Request) -> Response:
         role = _workspace_membership_role(request)
         if role is not None and role >= WorkspaceRole.ADMIN:

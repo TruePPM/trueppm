@@ -297,6 +297,18 @@ _SURFACE_VISIBILITY_SCHEMA = {
     "required": ["reporting", "time_tracking", "baselines", "monte_carlo"],
 }
 
+# Inline schema for Task.external_link_summary (#767, #2127). A SerializerMethodField
+# returning {count, worst_status}; without this hint drf-spectacular guesses ``string``
+# from the untyped dict return and the response fails schema conformance.
+_EXTERNAL_LINK_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer"},
+        "worst_status": {"type": "string", "nullable": True},
+    },
+    "required": ["count", "worst_status"],
+}
+
 
 class ProjectSerializer(serializers.ModelSerializer[Project]):
     """Read/write serializer for projects.
@@ -383,7 +395,9 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     # lead's name + initials without a second per-project user fetch. Null when
     # ``lead`` is unset. The write side stays on the plain ``lead`` UUID field —
     # ``lead_detail`` is response-only. Mirrors ``ProgramSerializer`` (#966).
-    lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # ``allow_null`` so the schema declares the nested object nullable — it is
+    # emitted as ``null`` whenever ``lead`` is unset (#2127).
+    lead_detail = _UserSummarySerializer(source="lead", read_only=True, allow_null=True)
     # Server-resolved iteration-container label (ADR-0116, #1106): project override
     # ?? program override ?? workspace default ?? "Sprint". Clients read THIS, not the
     # raw nullable ``iteration_label`` override — so web/mobile/MCP share one value.
@@ -1431,8 +1445,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     # Read-only nested user payload so the General settings page can render
     # the lead's name + initials without a second per-program user fetch.
     # Null when ``lead`` is unset. The write side stays on the plain ``lead``
-    # UUID field — ``lead_detail`` is response-only.
-    lead_detail = _UserSummarySerializer(source="lead", read_only=True)
+    # UUID field — ``lead_detail`` is response-only. ``allow_null`` so the schema
+    # declares the nested object nullable — emitted as ``null`` when ``lead`` is
+    # unset (#2127).
+    lead_detail = _UserSummarySerializer(source="lead", read_only=True, allow_null=True)
     # Read-only label the program inherits when its own override is cleared — the
     # workspace default (ADR-0116, #1106). Drives the settings "Inherit (X)" copy.
     inherited_iteration_label = serializers.SerializerMethodField()
@@ -2464,8 +2480,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Baseline overlay fields: populated when the queryset is annotated with
     # an active or explicit baseline (TaskViewSet.get_queryset).  Null when no
     # baseline is active for the project.
-    baseline_start = serializers.DateField(read_only=True, allow_null=True, default=None)
-    baseline_finish = serializers.DateField(read_only=True, allow_null=True, default=None)
+    #
+    # No ``default=None``: on a partial update (PATCH) DRF's ``get_default()``
+    # raises ``SkipField`` when ``partial`` is set, which would DROP the key from
+    # the response whenever the re-serialized instance lacks the (conditional)
+    # baseline annotation — the response then omits a schema-required field and
+    # fails conformance (#2127). ``allow_null=True`` alone emits ``null`` for the
+    # missing-attribute case on every path, matching the documented pattern used
+    # by ``pulled_task_project_*`` above.
+    baseline_start = serializers.DateField(read_only=True, allow_null=True)
+    baseline_finish = serializers.DateField(read_only=True, allow_null=True)
 
     # Freshness signal (ADR-0143, #740): timestamp of the most recent non-deleted
     # TaskNote. Fed by the `latest_note_at` annotation in annotate_tasks_queryset;
@@ -3676,6 +3700,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             return (actual - baseline).days
         return None
 
+    @extend_schema_field(_EXTERNAL_LINK_SUMMARY_SCHEMA)
     def get_external_link_summary(self, obj: Task) -> dict[str, object]:
         """Assemble {count, worst_status} for the at-a-glance link glyph (#767).
 
@@ -4802,8 +4827,10 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     successor = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.filter(is_deleted=False),
     )
+    # ``allow_null`` so the schema advertises the null emitted while the edge is
+    # still pending acceptance (accepted_by FK is null until accepted) (#2127).
     accepted_by: serializers.PrimaryKeyRelatedField[Any] = serializers.PrimaryKeyRelatedField(
-        read_only=True
+        read_only=True, allow_null=True
     )
     predecessor_card = serializers.SerializerMethodField()
     successor_card = serializers.SerializerMethodField()
@@ -6987,6 +7014,45 @@ class MeWorkActiveSprintSerializer(serializers.Serializer[Any]):
         return max(0, int((obj.finish_date - today).days))
 
 
+class _ActiveSprintCardSprintSerializer(serializers.Serializer[Any]):
+    """Burndown snapshot block nested in each ``/me/active-sprints/`` card (#230)."""
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    short_id_display = serializers.CharField()
+    start_date = serializers.DateField()
+    finish_date = serializers.DateField()
+    day = serializers.IntegerField()
+    total = serializers.IntegerField()
+    remaining_points = serializers.IntegerField()
+    committed_points = serializers.IntegerField()
+    trend_pts = serializers.IntegerField()
+
+
+class _ActiveSprintCardVelocitySerializer(serializers.Serializer[Any]):
+    """Rolling-velocity forecast block nested in each ``/me/active-sprints/`` card."""
+
+    rolling_avg_points = serializers.FloatField(allow_null=True)
+    forecast_range_low = serializers.FloatField(allow_null=True)
+    forecast_range_high = serializers.FloatField(allow_null=True)
+
+
+class MeActiveSprintCardSerializer(serializers.Serializer[Any]):
+    """One per-project card for ``GET /api/v1/me/active-sprints/`` (#230, #2127).
+
+    Response-schema shape only: the view assembles plain dicts, so this exists to
+    give drf-spectacular an accurate typed array (the endpoint returns a bare list
+    of these, not a paginated envelope).
+    """
+
+    project_id = serializers.UUIDField()
+    project_name = serializers.CharField()
+    sprint = _ActiveSprintCardSprintSerializer()
+    capacity_ratio = serializers.FloatField()
+    capacity_label = serializers.CharField()
+    velocity = _ActiveSprintCardVelocitySerializer()
+
+
 # ---------------------------------------------------------------------------
 # Inbound task-sync — ADR-0068 / issue #500
 # ---------------------------------------------------------------------------
@@ -7012,7 +7078,9 @@ class ProjectDetailSerializer(ProjectSerializer):
     # still pending (recalculated_at is null), and a per-project demo indicator
     # when is_sample (#1053). ``program_detail`` gives that indicator the program
     # name for its "part of …" link.
-    recalculated_at = serializers.DateTimeField(read_only=True)
+    # ``allow_null`` so the schema matches the null emitted before the first CPM
+    # pass stamps a timestamp (#2127).
+    recalculated_at = serializers.DateTimeField(read_only=True, allow_null=True)
     is_sample = serializers.BooleanField(read_only=True)
     program_detail = serializers.SerializerMethodField()
     my_facets = serializers.SerializerMethodField()
