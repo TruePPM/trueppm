@@ -1138,6 +1138,30 @@ export function ScheduleView() {
     count: number;
   } | null>(null);
 
+  // The Undo handler for a build-mode delete, extracted so the delete toast's
+  // onClick is a single call rather than a mutate-inside-onClick-inside-onSuccess
+  // stack (keeps the callback nesting shallow).
+  //
+  // Faithful restore (#2078, ADR-0494): the server un-tombstones the whole graph
+  // — the task under its original id, its is_subtask subtree, its dependency edges,
+  // and its assignments — so Undo is truthful and the copy is a plain "Restored"
+  // regardless of subtree size (no more create-a-new-row approximation or the
+  // "subtasks were not recovered" caveat).
+  const undoBuildModeDelete = useCallback(
+    (taskId: string) => {
+      restoreTaskMut.mutate(taskId, {
+        onSuccess: () => {
+          focus.focusRow(taskId);
+          setScheduleActionToast({ message: 'Restored', durationMs: 2000 });
+        },
+        onError: () => {
+          setScheduleActionToast({ message: 'Couldn’t restore the task.' });
+        },
+      });
+    },
+    [restoreTaskMut, focus, setScheduleActionToast],
+  );
+
   // The actual build-mode delete + Undo toast, factored out so both the fast
   // path (leaf rows, no confirm) and the confirmed subtree path share it.
   // `descendantCount` only sizes the "Deleted X and its N subtasks" message; the
@@ -1162,28 +1186,13 @@ export function ScheduleView() {
             message: `Deleted “${label}”${subtaskSuffix}`,
             action: {
               label: 'Undo',
-              onClick: () => {
-                // Faithful restore (#2078, ADR-0494): the server un-tombstones the whole
-                // graph — the task under its original id, its is_subtask subtree, its
-                // dependency edges, and its assignments — so Undo is truthful and the copy
-                // is a plain "Restored" regardless of subtree size (no more create-a-new-row
-                // approximation or the "subtasks were not recovered" caveat).
-                restoreTaskMut.mutate(taskId, {
-                  onSuccess: () => {
-                    focus.focusRow(taskId);
-                    setScheduleActionToast({ message: 'Restored', durationMs: 2000 });
-                  },
-                  onError: () => {
-                    setScheduleActionToast({ message: 'Couldn’t restore the task.' });
-                  },
-                });
-              },
+              onClick: () => undoBuildModeDelete(taskId),
             },
           });
         },
       });
     },
-    [projectId, allTasks, deleteTaskMut, restoreTaskMut, focus, setScheduleActionToast],
+    [projectId, allTasks, deleteTaskMut, undoBuildModeDelete, setScheduleActionToast],
   );
 
   const buildModeApi = useMemo<BuildModeApi>(

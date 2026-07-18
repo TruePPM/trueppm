@@ -55,6 +55,10 @@ from trueppm_api.apps.resources.serializers import (
 from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
+# Shared 404 detail — matches DRF's default NotFound detail so a missing or
+# soft-deleted lookup reads identically across the resource actions below.
+_NOT_FOUND_DETAIL = "Not found."
+
 # ---------------------------------------------------------------------------
 # Skill catalog
 # ---------------------------------------------------------------------------
@@ -738,11 +742,11 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         are reachable; the standard get_object() path excludes them.
         """
         if pk is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         try:
             resource = Resource.objects.get(pk=pk)
         except Resource.DoesNotExist:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
         if not resource.is_deleted:
             return Response(
                 {"detail": "Resource is not deactivated."},
@@ -806,7 +810,7 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         regardless of assignment count (no N+1).
         """
         if pk is None or not Resource.objects.filter(pk=pk).exists():
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"detail": _NOT_FOUND_DETAIL}, status=status.HTTP_404_NOT_FOUND)
 
         assignments_qs = (
             TaskResource.objects.filter(resource_id=pk, task__is_deleted=False)

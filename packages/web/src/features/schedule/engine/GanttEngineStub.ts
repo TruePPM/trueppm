@@ -75,7 +75,9 @@ export class GanttEngineStub implements GanttEngine {
   // ── Fiscal quarters ───────────────────────────────────────────────────────
 
   setFiscalConfig(_config: FiscalConfig): void {}
-  setChartOptions(_options: ChartRenderOptions): void {}
+  setChartOptions(_options: ChartRenderOptions): void {
+    // no-op: the stub renders nothing, so chart display options are ignored
+  }
 
   // ── Imperative drag control ───────────────────────────────────────────────
 
