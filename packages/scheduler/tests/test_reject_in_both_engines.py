@@ -156,3 +156,50 @@ def test_sub_microsecond_duration_rejected() -> None:
     validates the raw f64 and rejects it. Reject it here before the evidence is lost."""
     with pytest.raises(InvalidScheduleInput, match="sub-microsecond precision"):
         Task.from_dict({"id": "A", "name": "A", "duration": 86400.0000001})
+
+
+# --- #2119: actuals recorded out of order (finish before start) -------------
+
+
+def test_actual_start_after_finish_rejected() -> None:
+    """A completed task cannot have finished before it started. ADR-0136 keeps
+    actuals verbatim, so without this guard the engine emits an inverted early
+    window (early_start > early_finish) — the contract-fuzz falsifying example that
+    opened #2119. Both engines reject it at the validation layer instead.
+    """
+    bad = Task(
+        id="t0",
+        name="",
+        duration=timedelta(0),
+        actual_start=date(2000, 1, 2),
+        actual_finish=date(2000, 1, 1),
+    )
+    project = Project(id="0", name="", start_date=date(2000, 1, 1), tasks=[bad], dependencies=[])
+    with pytest.raises(InvalidScheduleInput, match="actual_start must not be after actual_finish"):
+        schedule(project)
+
+
+def test_equal_actuals_not_over_rejected() -> None:
+    """A same-day zero-duration completion (actual_start == actual_finish) is valid
+    and must schedule; the ordering guard is strict-greater, not >=."""
+    same = _task("A", timedelta(0), actual_start=date(2026, 4, 3), actual_finish=date(2026, 4, 3))
+    result = schedule(_project([same], []))
+    (t,) = result.tasks
+    assert t.early_start == t.early_finish == date(2026, 4, 3)
+
+
+def test_out_of_sequence_actuals_vs_predecessor_still_allowed() -> None:
+    """The guard rejects only a task whose *own* actuals invert. A completed task
+    whose (internally ordered) actuals sit before its predecessor is genuine
+    out-of-sequence reality and must still be surfaced verbatim (ADR-0136), not
+    rejected — this is the case the guard must NOT catch."""
+    pred = _task("A", timedelta(days=3), planned_start=date(2026, 4, 20))
+    # B is complete, its actuals ordered, but earlier than A: reality ran ahead of plan.
+    done_early = _task(
+        "B", timedelta(days=2), actual_start=date(2026, 4, 1), actual_finish=date(2026, 4, 2)
+    )
+    deps = [Dependency("A", "B", dep_type=DependencyType.FS)]
+    result = schedule(_project([pred, done_early], deps))
+    b = next(t for t in result.tasks if t.id == "B")
+    assert b.early_start == date(2026, 4, 1)
+    assert b.early_finish == date(2026, 4, 2)

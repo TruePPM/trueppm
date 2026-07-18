@@ -190,6 +190,25 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
             }
         }
 
+        // A recorded pair of actuals must be internally ordered. ADR-0136 keeps a
+        // completed task's actuals verbatim (early_start = actual_start,
+        // early_finish = actual_finish) so out-of-sequence reality — a task before
+        // its predecessor — is surfaced. But a single task claiming it finished
+        // before it started is not out-of-sequence truth; it is physically
+        // impossible input, in the same class as a negative duration. Left
+        // unchecked it produces an inverted early window (early_start >
+        // early_finish) that every downstream consumer reads as garbage (#2119).
+        // Reject it here so both engines refuse identically at the validation
+        // layer. Mirrors Python's _validate_project actual-ordering guard.
+        if let (Some(start), Some(finish)) = (t.actual_start, t.actual_finish) {
+            if start > finish {
+                return Err(format!(
+                    "Task {:?} actual_start must not be after actual_finish (got {start} > {finish}).",
+                    t.id
+                ));
+            }
+        }
+
         // planned_start (SNET) extends the schedule directly, so it is bounded by
         // the same span cap as durations and lags — otherwise a pin in year 9999
         // is accepted by the bounded calendar walk and drives the day-by-day walk
@@ -663,6 +682,28 @@ mod tests {
         let mut t = task("A", 5);
         t.actual_start = Some(NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
         t.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 4, 6).unwrap());
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_ok());
+    }
+
+    #[test]
+    fn rejects_actual_start_after_finish() {
+        // #2119: a completed task cannot finish before it starts. ADR-0136 keeps
+        // actuals verbatim, so an inverted pair produces early_start > early_finish
+        // downstream unless rejected here — mirrors the Python ordering guard.
+        let mut t = task("A", 5);
+        t.actual_start = Some(NaiveDate::from_ymd_opt(2026, 4, 10).unwrap());
+        t.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 4, 5).unwrap());
+        let p = project(vec![t], vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn accepts_equal_actuals() {
+        // Strict-greater guard: a same-day zero-span completion is valid.
+        let mut t = task("A", 0);
+        t.actual_start = Some(NaiveDate::from_ymd_opt(2026, 4, 3).unwrap());
+        t.actual_finish = Some(NaiveDate::from_ymd_opt(2026, 4, 3).unwrap());
         let p = project(vec![t], vec![], Calendar::default());
         assert!(validate_project(&p).is_ok());
     }
