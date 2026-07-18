@@ -154,6 +154,15 @@ export interface UpdateProjectPayload {
    *  denylist is rejected on write. */
   attachments_enabled?: boolean | null;
   allowed_attachment_types?: string[] | null;
+  /**
+   * Program assignment (ADR-0070, #2089). UUID to add/move the project to a
+   * program, or `null` to make it standalone. Dual-Admin gate: the caller needs
+   * ADMIN on this project AND on the target program (and on the old program when
+   * moving away) — enforced server-side by `validate_program`, which returns an
+   * actionable 400 the UI surfaces verbatim. Sent as its own isolated PATCH from
+   * the move dialog, never bundled with the General page's shared save bar.
+   */
+  program?: string | null;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
   /** Project lead — user id, or null to unassign. Admin+-only and must already
