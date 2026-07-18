@@ -74,6 +74,7 @@ from trueppm_api.apps.projects.serializers import (
 # on the raised page ceiling (ADR-0401).
 from trueppm_api.apps.projects.views import DirectoryPagination
 from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin
+from trueppm_api.core.openapi import suppress_list_pagination
 
 # Upper bound on sub-programs created by a single split call (#967). Generous
 # enough for "one sub-program per project" on a large program, but caps the
@@ -352,8 +353,17 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="Export the program as a downloadable JSON seed file",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.BINARY,
-                description="Canonical JSON seed document as a file attachment.",
+                # The GET path serves the canonical seed as an application/json
+                # object (attachment), so declare OBJECT — matching the sibling
+                # project export. BINARY declared a string/binary body that the
+                # real JSON response violates under response_schema_conformance
+                # (#2213).
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "A downloadable canonical JSON seed document describing this program "
+                    "and its member projects, delivered as a file attachment. Round-trips "
+                    "back through the importer."
+                ),
             )
         },
     )
@@ -1069,6 +1079,10 @@ class ProgramViewSet(McpReadableViewMixin, IdempotencyMixin, viewsets.ModelViewS
         summary="List projects in this program",
         responses={200: ProjectSerializer(many=True)},
     )
+    # This action returns a bare array, but ProgramViewSet sets pagination_class,
+    # so the auto-schema would otherwise declare a PaginatedProjectList envelope
+    # the real body violates (#2213). Opt out so the schema matches the response.
+    @suppress_list_pagination
     @action(detail=True, methods=["get"], url_path="projects")
     def projects(self, request: Request, pk: str | None = None) -> Response:
         """List projects in this program.

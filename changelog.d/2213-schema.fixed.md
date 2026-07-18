@@ -1,0 +1,1 @@
+The OpenAPI schema now accurately describes two program endpoints, so their responses no longer violate the published contract: `GET /programs/{id}/export/` is documented as a JSON object (it was declared as opaque binary), and `GET /programs/{id}/projects/` is documented as a bare array (it was declared as a paginated envelope). Surfaced by the nightly API fuzzer (#2213).
